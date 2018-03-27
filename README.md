@@ -31,11 +31,11 @@ The framework takes care of transforming a new scene instances to 'timer threads
 Handlers are defined with Event:event. Ex:
 ```
 function main()
-   Event:event({type='property', deviceID=55, value='$>0'}, function(e) fibaro:call(44,'turnOn') end)
+   Event.event({type='property', deviceID=55, value='$>0'}, function(e) fibaro:call(44,'turnOn') end)
    
-   Event:event({type='property', deviceID=65, propertyName='power', value='$<10'}, function(e) Log(LOG.LOG,"Power less than 10") end)
+   Event.event({type='property', deviceID=65, propertyName='power', value='$<10'}, function(e) Log(LOG.LOG,"Power less than 10") end)
    
-   Event:event({type='global', name='TimeOfDay', value='Day'}, function(e) Log(LOG.LOG,"It's daytime!") end)
+   Event.event({type='global', name='TimeOfDay', value='Day'}, function(e) Log(LOG.LOG,"It's daytime!") end)
 end
 ```
 Handlers are defined in a 'main()' function. The above example register a handler for an incoming event for a device (i.e. sensor) that if the value is above 0, will call the action that turns on device 44 (i.e. light)
@@ -43,7 +43,7 @@ The magic is that all event handlers are invoked in the same initial scene insta
 ```
 function main()
    local counter = 0
-   Event:event({type='property', deviceID=55, value='$>0'}, 
+   Event.event({type='property', deviceID=55, value='$>0'}, 
          function(e) counter=counter+1; Log(LOG.LOG,"Light turned on %s times",counter) fibaro:call(44,'turnOn'))
 end
 ```
@@ -52,9 +52,9 @@ Something that would be impossible in the normal model as each 'handler' would b
 Events are table structures with a 'type' key, which is true for Fibaro's own events. However, the framework allows for posting user defined events with 'Event:post(event[,time])'
 The optional 'time' parameter specifies a time in the future that the event should be posted (if omitted it is posted imediatly). This turn the framework into a programming model. Ex. (main() is omitted in the examples from now)
 ```
-Event:event({type='loop'},
+Event.event({type='loop'},
             function(e) Log(LOG.LOG,"Ding!") Event:post({type='loop'},"+/00:10") end)
-Event:post({type='loop'})
+Event.post({type='loop'})
 ```
 This will print "Ding!" imediatly, and then print "Ding!" every 10 minutes.
 The framework has a lot of additional features and examples documented in the [Wiki](../../wiki/Home).
