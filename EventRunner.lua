@@ -199,7 +199,11 @@ function main()
   Rule.new("breached($bed.sensor)&isOff($bed.lamp)&manual($bed.lamp)>10*60 => on($bed.lamp),log('ON.Manual=%s',manual($bed.lamp))")
   Rule.new("for(00:10,safe($bed.sensor)&isOn($bed.lamp)) => if(manual($bed.lamp)>10*60,off($bed.lamp)),repeat(),log('OFF.Manual=%s',manual($bed.lamp))")
   --printRule(y)
-
+  Rule.new("breached($bed.sensor)&isOff($bed.lamp) => on($bed.lamp),$auto='aon',log('Auto.ON')")
+  Rule.new("for(00:10,safe($bed.sensor)&isOn($bed.lamp)) => off($bed.lamp),$auto='aoff',log('Auto.OFF')")
+  Rule.new("isOn($bed.lamp)) => if ($auto~='aon',[$auto='m',log('Man.ON')])")
+  Rule.new("isOff($bed.lamp)) => if ($auto~='aoff',[$auto='m',log('Man.ON')])")
+  
   post(prop(d.bed.sensor,1),"+/00:10") 
   post(prop(d.bed.sensor,0),"+/00:10:40")
   post(prop(d.bed.lamp,1),"+/00:25")
