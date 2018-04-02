@@ -1,7 +1,7 @@
 # EventRunner
 Scene event framework for Fibaro HC2
 
-Scenes on the Fibaro HC2 is invoked by declaring device triggers in the header.</br>
+Scenes on the Fibaro HC2 is typically invoked by declaring device triggers in the header.</br>
 Ex 
 ```
 --[[
@@ -24,11 +24,11 @@ When the state of the declared devices changes state the scene is invoked:</br>
 -the device 362 emits a 'CentralSceneEvent'</br>
 The '%% autostart' tells the scene to respond to triggers</br>
 </br>
-Every time a scene is triggered, a new instance of the scene is spawned which makes it difficult to "remember" state between scene invocations. There are global Fibaro variables that can be set and retrieved but they are a bit cumbersome use.
+Every time a scene is triggered, a new instance of the scene is spawned, something that makes it difficult to "remember" state between scene invocations. There are global Fibaro variables that can be set and retrieved but they are a bit cumbersome use.
 
-The framework takes care of transforming a new scene instances to 'timer threads' in the intial scene instances. The model is based on events being posted to user defined 'event handlers'
+This framework takes care of transforming a new scene instances to 'timer threads' in the intial scene instances. The model is based on events being posted to user defined 'event handlers'
 
-Handlers are defined with Event:event. Ex:
+Handlers are defined with Event.event. Ex:
 ```
 function main()
    Event.event({type='property', deviceID=55, value='$>0'}, function(e) fibaro:call(44,'turnOn') end)
@@ -38,7 +38,7 @@ function main()
    Event.event({type='global', name='TimeOfDay', value='Day'}, function(e) Log(LOG.LOG,"It's daytime!") end)
 end
 ```
-Handlers are defined in a 'main()' function. The above example register a handler for an incoming event for a device (i.e. sensor) that if the value is above 0, will call the action that turns on device 44 (i.e. light)
+Handlers are defined in a 'main()' function. The above example registers a handler for an incoming event for a device (i.e. sensor) that if the value is above 0, will call the action that turns on device 44 (i.e. light)
 The magic is that all event handlers are invoked in the same initial scene instance which allows for local variables to be used. Ex.
 ```
 function main()
@@ -49,7 +49,7 @@ end
 ```
 Something that would be impossible in the normal model as each 'handler' would be called in a new instance.
 
-Events are table structures with a 'type' key, which is true for Fibaro's own events. However, the framework allows for posting user defined events with 'Event:post(event[,time])'
+Events are table structures with a 'type' key, which is true for Fibaro's own events. However, the framework allows for posting user defined events with 'Event.post(event[,time])'
 The optional 'time' parameter specifies a time in the future that the event should be posted (if omitted it is posted imediatly). This turn the framework into a programming model. Ex. (main() is omitted in the examples from now)
 ```
 Event.event({type='loop'},
