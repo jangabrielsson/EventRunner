@@ -53,52 +53,56 @@ function main()
     --Rule.eval("{type='property', deviceID=55} => off(66)")
     _setClock("t/08:00")
     _setMaxTime(48)
--- Kitchen
+
     Event.schedule("n/00:00",function() collectgarbage("collect") end,{name='GC'})
     Rule.macro('LIGHTTIME',"(wday('mon-fri')&hour('8-12')|hour('0-4'))")
 
-    Rule.eval([[for(00:10,safe($kt.movement)&$LIGHTTIME$) => off($kt.lamp_table)]])
-
     fibaro:call(dev.kitchen.lamp_stove, 'turnOn')
     Event.post({type='property', deviceID=dev.kitchen.movement, value=0}, "n09:00")
+    
+    Rule.load([[
+-- Kitchen
+      for(00:10,safe($kt.movement)&$LIGHTTIME$) => off($kt.lamp_table)
 
-    Rule.eval([[for(00:10,safe({$kt.movement,$lr.movement,$ha.movement})&$LIGHTTIME$) =>
-      isOn({$kt.lamp_stove,$kt.lamp_sink,$ha.lamp_hall})&off({$kt.lamp_stove,$kt.lamp_sink,$ha.lamp_hall})&
-      log('Turning off kitchen spots after 10 min inactivity')]])
+      for(00:10,safe({$kt.movement,$lr.movement,$ha.movement})&$LIGHTTIME$) =>
+        isOn({$kt.lamp_stove,$kt.lamp_sink,$ha.lamp_hall})&
+        off({$kt.lamp_stove,$kt.lamp_sink,$ha.lamp_hall})&
+        log('Turning off kitchen spots after 10 min inactivity')
 
 -- Kitchen
-    Rule.eval("daily(sunset-00:10) => press($kt.sink_led,1);log('Turn on kitchen sink light')")
-    Rule.eval("daily(sunrise+00:10) => press($kt.sink_led,2);log('Turn off kitchen sink light')")
-    Rule.eval("daily(sunset-00:10) => on($kt.lamp_table);log('Evening, turn on kitchen table light')")
+      daily(sunset-00:10) => press($kt.sink_led,1);log('Turn on kitchen sink light')
+      daily(sunrise+00:10) => press($kt.sink_led,2);log('Turn off kitchen sink light')
+      daily(sunset-00:10) => on($kt.lamp_table);log('Evening, turn on kitchen table light')
 
 -- Living room
-    Rule.eval("daily(sunset-00:10) => on($lr.lamp_window);log('Turn on livingroom light')")
-    Rule.eval("daily(00:00) => off($lr.lamp_window);log('Turn off livingroom light')")
+      daily(sunset-00:10) => on($lr.lamp_window);log('Turn on livingroom light')
+      daily(00:00) => off($lr.lamp_window);log('Turn off livingroom light')
 
 -- Front
-    Rule.eval("daily(sunset-00:10) => on($ha.lamp_entrance);log('Turn on lights entr.')")
-    Rule.eval("daily(sunset) => off($ha.lamp_entrance);log('Turn off lights entr.')")
+      daily(sunset-00:10) => on($ha.lamp_entrance);log('Turn on lights entr.')
+      daily(sunset) => off($ha.lamp_entrance);log('Turn off lights entr.')
 
 -- Back
-    Rule.eval("daily(sunset-00:10) => on($ba.lamp);log('Turn on lights back')")
-    Rule.eval("daily(sunset) => off($ba.lamp);log('Turn off lights back')")
+      daily(sunset-00:10) => on($ba.lamp);log('Turn on lights back')
+      daily(sunset) => off($ba.lamp);log('Turn off lights back')
 
 -- Game room
-    Rule.eval("daily(sunset-00:10) => on($gr.lamp_window);log('Turn on gaming room light')")
-    Rule.eval("daily(23:00) => off($gr.lamp_window);log('Turn off gaming room light')")
+      daily(sunset-00:10) => on($gr.lamp_window);log('Turn on gaming room light')
+      daily(23:00) => off($gr.lamp_window);log('Turn off gaming room light')
 
 -- Tim
-    Rule.eval("daily(sunset-00:10) => on({$ti.bed_led,$ti.lamp_window});log('Turn on lights for Tim')")
-    Rule.eval("daily(00:00) => off({$ti.bed_led,$ti.lamp_window});log('Turn off lights for Tim')")
+      daily(sunset-00:10) => on({$ti.bed_led,$ti.lamp_window});log('Turn on lights for Tim')
+      daily(00:00) => off({$ti.bed_led,$ti.lamp_window});log('Turn off lights for Tim')
 
 -- Max
-    Rule.eval("daily(sunset-00:10) => on($ma.lamp_window);log('Turn on lights for Max')")
-    Rule.eval("daily(00:00) => off($ma.lamp_window);log('Turn off lights for Max')")
+      daily(sunset-00:10) => on($ma.lamp_window);log('Turn on lights for Max')
+      daily(00:00) => off($ma.lamp_window);log('Turn off lights for Max')
 
 -- Bedroom
-    Rule.eval("daily(sunset) => on({$bd.lamp_window,$bd.lamp_table,$bd.bed_led});log('Turn on bedroom light')")
-    Rule.eval("daily(23:00) => off({$bd.lamp_window,$bd.lamp_table,$bd.bed_led});log('Turn off bedroom light')")
-
+      daily(sunset) => on({$bd.lamp_window,$bd.lamp_table,$bd.bed_led});log('Turn on bedroom light')
+      daily(23:00) => off({$bd.lamp_window,$bd.lamp_table,$bd.bed_led});log('Turn off bedroom light')
+    ]])
+    
 -- Bathroom
     local breach,safe=prop(dev.toilet_down.movement,1),prop(dev.toilet_down.movement,0)
     local open,close=prop(dev.toilet_down.door,1),prop(dev.toilet_down.door,0)
@@ -1306,8 +1310,7 @@ if _type == 'autostart' or _type == 'other' then
 
   Log(LOG.SYSTEM,"Scene running")
   Log(LOG.SYSTEM,"Sunrise %s, Sunset %s",fibaro:getValue(1,'sunriseHour'),fibaro:getValue(1,'sunsetHour'))
-  collectgarbage("collect")
-  print(collectgarbage("count"))
+  collectgarbage("collect") GC=collectgarbage("count")
   if _OFFLINE then _System.runTimers() end
-  print(collectgarbage("count"))
+  collectgarbage("collect") Log(LOG.LOG,"Memory start-end:%.2f",collectgarbage("count")-GC)
 end

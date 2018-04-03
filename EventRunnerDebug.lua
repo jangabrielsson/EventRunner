@@ -74,8 +74,9 @@ if _speedtime then -- Special version of time functions
     local t = _startTime+_sleep+(os.time()-_startTime)
     if t > _maxTime then 
       print(_format("Max time (_speedtime), %s hours, reached, exiting",_speedtime))
-      collectgarbage("collect")
-      print(collectgarbage("count"))
+      EventEngine,ScriptEngine,ScriptCompiler,RuleEngine,Util=nil,nil,nil,nil,nil
+      collectgarbage("collect") 
+      print(_format("Memory start-end:%.2f",collectgarbage("count")-GC))
       os.exit() 
     end
     return t+_timeAdjust
