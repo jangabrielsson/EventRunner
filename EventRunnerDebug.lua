@@ -12,7 +12,8 @@ _REMOTE            = false  -- If true use FibaroSceneAPI to call functions on H
 _PORTLISTENER      = false
 _POLLINTERVAL      = 500 
 _PORT              = 6872
-_speedtime         = 48*6    -- nil run the local clock in normal speed, set to an int <x> will speed the clock through <x> hours
+_MEM               = true   -- log memoery usage
+_speedtime         = 48*6   -- nil run the local clock in normal speed, set to an int <x> will speed the clock through <x> hours
 __fibaroSceneId    = 32     -- Set to scene ID. On HC2 this variable is defined
 
 hc2_user           = "xxx" -- HC2 credentials, used for api.x/FibaroSceneAPI calls
@@ -46,7 +47,8 @@ function _Msg(level,color,message,...)
   if (_debugLevel >= level) then
     local args = type(... or 42) == 'function' and {(...)()} or {...}
     message = string.format(message,table.unpack(args))
-    fibaro:debug(string.format("%s %s",os.date("%a %b %d %X",osTime()),message)) 
+    local gc = _MEM and _format("mem:%-6.1f ",collectgarbage("count")) or ""
+    fibaro:debug(string.format("%s%s %s",gc,os.date("%a %b %d %X",osTime()),message)) 
     return message
   end
 end
@@ -72,6 +74,8 @@ if _speedtime then -- Special version of time functions
     local t = _startTime+_sleep+(os.time()-_startTime)
     if t > _maxTime then 
       print(_format("Max time (_speedtime), %s hours, reached, exiting",_speedtime))
+      collectgarbage("collect")
+      print(collectgarbage("count"))
       os.exit() 
     end
     return t+_timeAdjust
@@ -81,6 +85,7 @@ if _speedtime then -- Special version of time functions
   end
   function osClock() return osTime() end
   function _setClock(t) _timeAdjust = toTime(t)-osTime() end -- 
+  function _setMaxTime(t) _maxTime = _startTime + t*60*60 end -- hours
 else
   osTime = function(arg) return arg and os.time(arg) or os.time()+_timeAdjust end
   osClock = os.clock
@@ -89,6 +94,7 @@ else
     while(osClock() < t) do end -- busy wait
   end
   function _setClock(t)  end
+  function _setMaxTime(t) end -- hours
 end
 
 local _timers = nil
@@ -129,6 +135,12 @@ function _System.dumpTimers()
     print(_format("%s time:%s",t.doc,t.time))
     t = t.next
   end
+end
+
+function _System.countTimers()
+  local t,c = _timers,0
+  while t do c=c+1 t=t.next end
+  return c
 end
 
 function _System.runTimers()
@@ -267,6 +279,7 @@ if not _REMOTE then
     ["on"] = "fibaro:call(%s,'%s')",
     ["off"] = "fibaro:call(%s,'%s')",
     ["setValue"] = "fibaro:call(%s,'%s', '%s', '%s')",
+    ["setProperty"] = "fibaro:call(%s,'%s', '%s', '%s')",
     ["sendPush"] = "fibaro:call(%s,'%s', '%s')",
     ["pressButton"] = "fibaro:call(%s,'%s', '%s')"
   }
