@@ -363,7 +363,7 @@ function toTime(time)
 end
 ---------------------- Event/rules handler ----------------------
 function newEventEngine()
-  local self = {}
+  local self,_handlers = {},{}
   self.BREAK, self.TIMER, self.RULE ='%%BREAK%%', '%%TIMER%%', '%%RULE%%'
 
   local function _coerce(x,y)
@@ -436,24 +436,17 @@ function newEventEngine()
     local id = e.deviceID
     local v,t = _FIB:get(id,e.propertyName,true)
     e.value = v2 or v
-    if lastID[id]==nil or lastID[id][1]=='h' then 
-      lastID[id]={'h',e.value,osTime()}
-    else 
-      local iv = lastID[id]
-      if not(iv[2] == e.value and osTime()-iv[3] < 2) then lastID[id]={'h',e.value,osTime()} end
-    end  
+    self.trackManual(id,e.value)
     return t
   end
   _getProp['global'] = function(e,v2) local v,t = _FIB:getGlobal(e.name,true) e.value = v2 or v return t end
-
-  local _rules = {}
 
   function self.event(e,action) -- define rules - event template + action
     _assert(isEvent(e), "bad event format '%s'",tojson(e))
     action = self._compileAction(action)
     e = _compilePattern(e)
-    _rules[e.type] = _rules[e.type] or {}
-    local rules = _rules[e.type]
+    _handlers[e.type] = _handlers[e.type] or {}
+    local rules = _handlers[e.type]
     local rule,fn = {[self.RULE]=e, action=action, org=tojson(args)}, true
     for _,rs in ipairs(rules) do -- Collect handlers with identical events. {{e1,e2,e3},{e1,e2,e3}}
       if _equal(e,rs[1][self.RULE]) then rs[#rs+1] = rule fn = false break end
@@ -513,7 +506,7 @@ function newEventEngine()
     if _OFFLINE and not _REMOTE then if _simFuns[e.type] then _simFuns[e.type](e)  end end
     local env = {event = e}
     if _getProp[e.type] then _getProp[e.type](e,e.value) end  -- patch events
-    for _,rules in ipairs(_rules[e.type] or {}) do -- Check all rules of 'type'
+    for _,rules in ipairs(_handlers[e.type] or {}) do -- Check all rules of 'type'
       if _match(rules[1][self.RULE],e) then
         for _,rule in ipairs(rules) do 
           if not rule._disabled then env.rule = rule; _invokeRule(env) end
@@ -522,7 +515,7 @@ function newEventEngine()
     end
   end
 
-  local fibCall = fibaro.call
+  local fibCall = fibaro.call -- We intercept all fibaro:calls so we can detect manual invocations of switches
   fibaro.call = function(obj,id,a1,a2,a3)
     local v = ({turnOff="0",turnOn="99",on="99",off="0"})[a1] or (a1=='setValue' and a2)
     if v then lastID[id]={'m',v,osTime()} end
@@ -532,6 +525,14 @@ function newEventEngine()
     local e = lastID[id]
     if not e or e[1]=='m' then return math.huge 
     else return osTime()-e[3] end
+  end
+  function self.trackManual(id,value)
+    if lastID[id]==nil or lastID[id][1]=='h' then 
+      lastID[id]={'h',value,osTime()}
+    else 
+      local iv = lastID[id]
+      if not(iv[2] == value and osTime()-iv[3] < 2) then lastID[id]={'h',value,osTime()} end
+    end
   end
   return self
 end
