@@ -47,7 +47,9 @@ function main()
         ti=dev.tim,ma=dev.max,bd=dev.bedroom}) 
     do Util.defvar(k,v) end
 
-    Rule.eval("$a={};$a.b=77")
+    Rule.eval("#test => wait(+/00:01);print(42);post(#test)")
+    Rule.eval("post(#test)")
+    if nil then
     local vv = Rule.test("daily({10:00,11:00})")
     print(json.encode(vv))
     --Rule.eval("{type='property', deviceID=55} => off(66)")
@@ -59,7 +61,7 @@ function main()
 
     fibaro:call(dev.kitchen.lamp_stove, 'turnOn')
     Event.post({type='property', deviceID=dev.kitchen.movement, value=0}, "n09:00")
-    
+
     Rule.load([[
 -- Kitchen
       for(00:10,safe($kt.movement)&$LIGHTTIME$) => off($kt.lamp_table)
@@ -102,7 +104,7 @@ function main()
       daily(sunset) => on({$bd.lamp_window,$bd.lamp_table,$bd.bed_led});log('Turn on bedroom light')
       daily(23:00) => off({$bd.lamp_window,$bd.lamp_table,$bd.bed_led});log('Turn off bedroom light')
     ]])
-    
+
 -- Bathroom
     local breach,safe=prop(dev.toilet_down.movement,1),prop(dev.toilet_down.movement,0)
     local open,close=prop(dev.toilet_down.door,1),prop(dev.toilet_down.door,0)
@@ -116,7 +118,7 @@ function main()
 -- SceneActivation events
     post(prop(dev.livingroom.lamp_roof_holk,Util.S2.click,'sceneActivation'),"n/09:10")
     post(prop(dev.livingroom.lamp_roof_holk,Util.S2.click,'sceneActivation'),"n/09:20")
-    
+
     Rule.load([[
       scene($lr.lamp_roof_holk)==$S2.click =>
         toggle($lr.lamp_roof_sofa);log('Toggling lamp downstairs')
@@ -231,7 +233,7 @@ function main()
     post(prop(d.bed.sensor,0),"+/00:10:40")
     post(prop(d.bed.lamp,1),"+/00:25")
   end -- ruleTests2
-
+end
   Event.event({type='error'},function(env) local e = env.event -- catch errors and print them out
       Log(LOG.ERROR,"Runtime error %s for '%s' receiving event %s",e.err,e.rule,e.event) 
     end)
@@ -621,8 +623,8 @@ function Util.mapkl(f,l) local r={} for i,j in pairs(l) do r[#r+1]=f(i,j) end re
 function Util.member(v,tab) for _,e in ipairs(tab) do if v==e then return e end return nil end end
 function Util.append(t1,t2) for _,e in ipairs(t2) do t1[#t1+1]=e end return t1 end
 function Util.traverse(e,f)
-  if type(e) ~= 'table' then return e end
-  if type(e[1])~='quote' then e=Util.map(function(e) return Util.traverse(e,f) end, e) end
+  if type(e) ~= 'table' or e[1]=='quote' then return e end
+  if e[1]~='quote' then e=Util.map(function(e) return Util.traverse(e,f) end, e) end
   return f(e[1],e)
 end
 
@@ -812,6 +814,14 @@ function newScriptEngine()
     if t1<=t2 then s.push(t1 <= now and now <= t2) else s.push(now >= t1 or now <= t2) end 
   end
   instr['fun'] = function(s,n) local a,f=s.pop(),s.pop() _assert(funs[f],"undefined fun '%s'",f) s.push(funs[f](table.unpack(a))) end
+  instr['wait'] = function(s,n,a,e,i) local t=s.pop() 
+    if i[4] then s.push(false) -- Already 'waiting'
+    elseif i[5] then i[5]=false s.push(true) -- Timer expired, return true
+  else i[4]=setTimeout(function() 
+      i[4]=nil i[5]=true self.eval(e.code,e,e.stack,e.cp)
+      end,1000*(t-osTime())) error({type='yield'}) 
+    end 
+  end
   instr['repeat'] = function(s,n,a,e) 
     local v,c = n>0 and s.pop() or math.huge
     if not e.forR then s.push(0) 
@@ -850,13 +860,13 @@ function newScriptEngine()
   function self.eval(code,env,stack,cp) 
     stack = stack or Util.mkStack()
     env = env or {}
-    env.code = code
-    local p,i = cp or 1,nil
+    env.cp,env.code,env.stack = env.cp or 1,code,stack
+    local i
     local status, res = pcall(function()  
-        while p <= #code do
-          i = code[p]
+        while env.cp <= #code do
+          i = code[env.cp]
           local res = instr[i[1]](stack,i[2],i[3],env,i)
-          p = p+(res or 1)
+          env.cp = env.cp+(res or 1)
         end
         return stack.pop(),env,stack,1 
       end)
@@ -864,7 +874,7 @@ function newScriptEngine()
     else
       if not instr[i[1]] then errThrow("eval",_format("undefined instruction '%s'",i[1])) end
       if type(res) == 'table' and res.type == 'yield' then
-        return "%YIELD%",env,stack,p+1
+        return "%YIELD%",env,stack,env.cp+1
       end
       error(res)
     end
@@ -1040,7 +1050,7 @@ function newScriptCompiler()
       elseif t.t == 'time' then 
         local p,h,m,s = t.v:match("([%+nt]?/?)(%d%d):(%d%d):?(%d*)")
         _assert(p=="" or p=="+/" or p=="n/" or p=="t/","malformed time constant '%s'",t.v)
-        add({'time',p == "" and '*' or p,h*3600+m*60+(s~="" and s or 0)})
+        add({'time',p == "" and '*' or p:sub(1,1),h*3600+m*60+(s~="" and s or 0)})
       elseif t.t == 'aref' then t.ma = true push(t) add('ELIST')
       elseif t.t == 'table' then t.ma = true push(t) add('ELIST')
       elseif t.t == 'event' then 
