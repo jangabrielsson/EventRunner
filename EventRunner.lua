@@ -47,22 +47,30 @@ function main()
         ti=dev.tim,ma=dev.max,bd=dev.bedroom}) 
     do Util.defvar(k,v) end
 
-    Rule.eval("#test => wait(+/00:01);print(42);post(#test)")
-    Rule.eval("post(#test)")
+    Rule.eval("$lights={$td.lamp_roof,$lr.lamp_roof_sofa}",true)
+    Rule.eval("$earthDates={2019/3/30/20:30,2020/3/28/20:30}",true)
+    Rule.eval("dolist($v,$earthDates,post(#earthHour,$v))",true)
+    Rule.eval([[#earthHour{} =>
+              debug(true);$states={};
+              dolist($v,$lights,add($states,{id=$v,value=value($v)}));
+              off($lights);
+              post(#earthHourOff,+/01:00)]])
+    Rule.eval("#earthHourOff => dolist($v,$states,setValue($v.id,$v.value))")
+    Rule.eval("post(#earthHour,+/00:10)")
     if nil then
-    local vv = Rule.test("daily({10:00,11:00})")
-    print(json.encode(vv))
-    --Rule.eval("{type='property', deviceID=55} => off(66)")
-    _setClock("t/08:00")
-    _setMaxTime(48)
+      local vv = Rule.test("daily({10:00,11:00})")
+      print(json.encode(vv))
+      --Rule.eval("{type='property', deviceID=55} => off(66)")
+      _setClock("t/08:00")
+      _setMaxTime(48)
 
-    Event.schedule("n/00:00",function() collectgarbage("collect") end,{name='GC'})
-    Rule.macro('LIGHTTIME',"(wday('mon-fri')&hour('8-12')|hour('0-4'))")
+      Event.schedule("n/00:00",function() collectgarbage("collect") end,{name='GC'})
+      Rule.macro('LIGHTTIME',"(wday('mon-fri')&hour('8-12')|hour('0-4'))")
 
-    fibaro:call(dev.kitchen.lamp_stove, 'turnOn')
-    Event.post({type='property', deviceID=dev.kitchen.movement, value=0}, "n09:00")
+      fibaro:call(dev.kitchen.lamp_stove, 'turnOn')
+      Event.post({type='property', deviceID=dev.kitchen.movement, value=0}, "n09:00")
 
-    Rule.load([[
+      Rule.load([[
 -- Kitchen
       for(00:10,safe($kt.movement)&$LIGHTTIME$) => off($kt.lamp_table)
 
@@ -106,20 +114,20 @@ function main()
     ]])
 
 -- Bathroom
-    local breach,safe=prop(dev.toilet_down.movement,1),prop(dev.toilet_down.movement,0)
-    local open,close=prop(dev.toilet_down.door,1),prop(dev.toilet_down.door,0)
-    fibaro:call(dev.toilet_down.movement,'setValue',0)
-    fibaro:call(dev.toilet_down.lamp_roof,'setValue',0)
-    Rule.eval("for(00:10,safe($td.movement)&value($td.door)) => not($inBathroom)&off($td.lamp_roof)")
-    Rule.eval("breached($td.movement) => if(safe($td.door),$inBathroom=true);on($td.lamp_roof)")
-    Rule.eval("breached($td.door) => $inBathroom=false")
-    Rule.eval("safe($td.door)&(last($td.movement)<3) => $inBathroom=true")
+      local breach,safe=prop(dev.toilet_down.movement,1),prop(dev.toilet_down.movement,0)
+      local open,close=prop(dev.toilet_down.door,1),prop(dev.toilet_down.door,0)
+      fibaro:call(dev.toilet_down.movement,'setValue',0)
+      fibaro:call(dev.toilet_down.lamp_roof,'setValue',0)
+      Rule.eval("for(00:10,safe($td.movement)&value($td.door)) => not($inBathroom)&off($td.lamp_roof)")
+      Rule.eval("breached($td.movement) => if(safe($td.door),$inBathroom=true);on($td.lamp_roof)")
+      Rule.eval("breached($td.door) => $inBathroom=false")
+      Rule.eval("safe($td.door)&(last($td.movement)<3) => $inBathroom=true")
 
 -- SceneActivation events
-    post(prop(dev.livingroom.lamp_roof_holk,Util.S2.click,'sceneActivation'),"n/09:10")
-    post(prop(dev.livingroom.lamp_roof_holk,Util.S2.click,'sceneActivation'),"n/09:20")
+      post(prop(dev.livingroom.lamp_roof_holk,Util.S2.click,'sceneActivation'),"n/09:10")
+      post(prop(dev.livingroom.lamp_roof_holk,Util.S2.click,'sceneActivation'),"n/09:20")
 
-    Rule.load([[
+      Rule.load([[
       scene($lr.lamp_roof_holk)==$S2.click =>
         toggle($lr.lamp_roof_sofa);log('Toggling lamp downstairs')
       scene($bd.lamp_roof)==$S2.click =>
@@ -138,102 +146,102 @@ function main()
       #property{deviceID=$lr.lamp_window} => 
         if(isOn($lr.lamp_window),{press($lr.lamp_tv,1),press($lr.lamp_globe,1)},{press($lr.lamp_tv,2),press($lr.lamp_globe,2)})
     ]])
-  end -- houseRules
+    end -- houseRules
 
-  if ruleTests then
-    d = {
-      garage = {door = 10, lamp = 9},
-      bed = {window = 11, sensor = 12, lamp = 13},
-      kitchen = {window = 14, lamp = 15, sensor = 16, door = 17, temp=34, switch=41},
-      hall = {door = 33},
-      livingroom = {window = 18, sensor = 19, lamp = 20},
-      wc = {lamp= 21, sensor = 22},
-      stairs = {lamp = 23, sensor = 24},
-      user = {jan = {phone = 120 }}
-    }
+    if ruleTests then
+      d = {
+        garage = {door = 10, lamp = 9},
+        bed = {window = 11, sensor = 12, lamp = 13},
+        kitchen = {window = 14, lamp = 15, sensor = 16, door = 17, temp=34, switch=41},
+        hall = {door = 33},
+        livingroom = {window = 18, sensor = 19, lamp = 20},
+        wc = {lamp= 21, sensor = 22},
+        stairs = {lamp = 23, sensor = 24},
+        user = {jan = {phone = 120 }}
+      }
 
-    for k,j in pairs(d) do Util.defvar(k,j) end -- define variables from device table
-    Util.reverseMapDef(d)
+      for k,j in pairs(d) do Util.defvar(k,j) end -- define variables from device table
+      Util.reverseMapDef(d)
 
-    _setClock("t/08:00")
+      _setClock("t/08:00")
 
-    Rule.eval("$sunsetLamps={$bed.lamp,$garage.lamp}")
-    Rule.eval("$sunriseLamps={$garage.lamp,$bed.lamp}")
-    Rule.eval("$lampsDownstairs={$kitchen.lamp}")
-    Rule.eval("$sensorsDownstairs={$livingroom.sensor,$kitchen.sensor}")
+      Rule.eval("$sunsetLamps={$bed.lamp,$garage.lamp}")
+      Rule.eval("$sunriseLamps={$garage.lamp,$bed.lamp}")
+      Rule.eval("$lampsDownstairs={$kitchen.lamp}")
+      Rule.eval("$sensorsDownstairs={$livingroom.sensor,$kitchen.sensor}")
 
-    Rule.eval("{b=2,c={d=3}}.c.d",true)
+      Rule.eval("{b=2,c={d=3}}.c.d",true)
 
-    Rule.eval([[
+      Rule.eval([[
       once(temp($kitchen.temp)>10) => 
       send($user.jan.phone,log('Temp too high: %s',temp($kitchen.temp)))
     ]])
 
-    Rule.eval("for(00:10,not(safe($hall.door))) => send($user.jan.phone,log('Door open %s min',repeat(5)*10))")
+      Rule.eval("for(00:10,not(safe($hall.door))) => send($user.jan.phone,log('Door open %s min',repeat(5)*10))")
 
-    Rule.eval("for(00:15,safe($sensorsDownstairs)) => betw(00:00,05:00)&off($lampsDownstairs)")
+      Rule.eval("for(00:15,safe($sensorsDownstairs)) => betw(00:00,05:00)&off($lampsDownstairs)")
 
-    Rule.eval("daily(sunset-00:45) => log('Sunset')&on($sunsetLamps)")
-    Rule.eval("daily(sunrise+00:15) => log('Sunrise')&off($sunriseLamps)")
+      Rule.eval("daily(sunset-00:45) => log('Sunset')&on($sunsetLamps)")
+      Rule.eval("daily(sunrise+00:15) => log('Sunrise')&off($sunriseLamps)")
 
-    Rule.eval("!homeStatus=='away' => post(#simulate{action='start'})")
-    Rule.eval("!homeStatus=='home' => post(#simulate{action='stop'})")
+      Rule.eval("!homeStatus=='away' => post(#simulate{action='start'})")
+      Rule.eval("!homeStatus=='home' => post(#simulate{action='stop'})")
 
-    Rule.eval("#simulate{action='start'} => log('Starting simulation')")
-    Rule.eval("#simulate{action='stop'} => log('Stopping simulation')")
+      Rule.eval("#simulate{action='start'} => log('Starting simulation')")
+      Rule.eval("#simulate{action='stop'} => log('Stopping simulation')")
 
-    post(prop(d.kitchen.temp,22),"+/00:10")
-    post(prop(d.hall.door,0),"+/00:15")
-    post(prop(d.hall.door,1),"+/00:20")
+      post(prop(d.kitchen.temp,22),"+/00:10")
+      post(prop(d.hall.door,0),"+/00:15")
+      post(prop(d.hall.door,1),"+/00:20")
 
-    post(prop(d.kitchen.sensor,0),"n/01:10")
-    post(prop(d.livingroom.sensor,0),"n/01:11")
+      post(prop(d.kitchen.sensor,0),"n/01:10")
+      post(prop(d.livingroom.sensor,0),"n/01:11")
 
-    post(glob('homeStatus','away'),"n/05:11")
-    post(glob('homeStatus','home'),"n/07:11")
+      post(glob('homeStatus','away'),"n/05:11")
+      post(glob('homeStatus','home'),"n/07:11")
 
-    Rule.eval("scene($kitchen.switch)==$S1.click => log('S1 switch clicked')")
+      Rule.eval("scene($kitchen.switch)==$S1.click => log('S1 switch clicked')")
 
-    post(prop(d.kitchen.switch,Util.S1.click,'sceneActivation'),"n/09:10")
+      post(prop(d.kitchen.switch,Util.S1.click,'sceneActivation'),"n/09:10")
 
-    Rule.eval("csEvent(56).keyId=='4' => log('HELLO key=4')")
-    Rule.eval("weather() => log('HELLO %s',weather().newValue)")
+      Rule.eval("csEvent(56).keyId=='4' => log('HELLO key=4')")
+      Rule.eval("weather() => log('HELLO %s',weather().newValue)")
 
-    -- Rule.time("10:00, sunrise+00:10
+      -- Rule.time("10:00, sunrise+00:10
 
-    --Rule.eval("post(#event{event=#CentralSceneEvent{data={deviceId=56,keyId='4',keyAttribute='Pressed'}}},n/08:10)")
-    post({type='event',event={type='CentralSceneEvent',data={deviceId=56, keyId='4',keyAttribute='Pressed'}}},"n/08:10")
-    post({type='event',event = {type="WeatherChangedEvent", data = {newValue=-2.2,change="Temperature"}}},"n/08:20")
+      --Rule.eval("post(#event{event=#CentralSceneEvent{data={deviceId=56,keyId='4',keyAttribute='Pressed'}}},n/08:10)")
+      post({type='event',event={type='CentralSceneEvent',data={deviceId=56, keyId='4',keyAttribute='Pressed'}}},"n/08:10")
+      post({type='event',event = {type="WeatherChangedEvent", data = {newValue=-2.2,change="Temperature"}}},"n/08:20")
 
-    Rule.eval("{b=2,c={d=3}}.c.d") 
+      Rule.eval("{b=2,c={d=3}}.c.d") 
 
-    Rule.eval("daily(10:00)&day('1-7')&wday('mon') => log('10 oclock first Monday of the month!')")
-    Rule.eval("daily(10:00)&day('lastw-last')&wday('mon') => log('10 oclock last Monday of the month!')")
+      Rule.eval("daily(10:00)&day('1-7')&wday('mon') => log('10 oclock first Monday of the month!')")
+      Rule.eval("daily(10:00)&day('lastw-last')&wday('mon') => log('10 oclock last Monday of the month!')")
 
 --{"event":{"type":"WeatherChangedEvent","data":{"newValue":-2.2,"change":"Temperature","oldValue":-4}},"type":"event"}
 --{"type":"event","event":{"type":"CentralSceneEvent","data":{"deviceId":362,"keyId":4,"keyAttribute":"Pressed","icon":{"path":"fibaro\/icons\/com.fibaro.FGKF601\/com.fibaro.FGKF601-4Pressed.png","source":"HC"}}}}
-  end -- ruleTests
+    end -- ruleTests
 
-  if ruleTests2 then 
+    if ruleTests2 then 
 --  Rule.eval("{2,3,4}[2]=5",true) 
-    Rule.eval("$foo={}",true) 
-    Rule.eval("!foo=5",true) 
-    Rule.eval("$foo['bar']=42",true) 
-    Rule.eval("label(42,'foo')='bar'",true) 
-    fibaro:abort()
-    Rule.eval("breached($bed.sensor)&isOff($bed.lamp)&manual($bed.lamp)>10*60 => on($bed.lamp);log('ON.Manual=%s',manual($bed.lamp))")
-    Rule.eval("for(00:10,safe($bed.sensor)&isOn($bed.lamp)) => if(manual($bed.lamp)>10*60,off($bed.lamp));repeat();log('OFF.Manual=%s',manual($bed.lamp))")
-    --printRule(y)
-    Rule.eval("breached($bed.sensor)&isOff($bed.lamp) => on($bed.lamp);$auto='aon',log('Auto.ON')")
-    Rule.eval("for(00:10,safe($bed.sensor)&isOn($bed.lamp)) => off($bed.lamp);$auto='aoff';log('Auto.OFF')")
-    Rule.eval("isOn($bed.lamp) => if ($auto~='aon',{$auto='m',log('Man.ON')})")
-    Rule.eval("isOff($bed.lamp) => if ($auto~='aoff',{$auto='m',log('Man.ON')})")
+      Rule.eval("$foo={}",true) 
+      Rule.eval("!foo=5",true) 
+      Rule.eval("$foo['bar']=42",true) 
+      Rule.eval("label(42,'foo')='bar'",true) 
+      fibaro:abort()
+      Rule.eval("breached($bed.sensor)&isOff($bed.lamp)&manual($bed.lamp)>10*60 => on($bed.lamp);log('ON.Manual=%s',manual($bed.lamp))")
+      Rule.eval("for(00:10,safe($bed.sensor)&isOn($bed.lamp)) => if(manual($bed.lamp)>10*60,off($bed.lamp));repeat();log('OFF.Manual=%s',manual($bed.lamp))")
+      --printRule(y)
+      Rule.eval("breached($bed.sensor)&isOff($bed.lamp) => on($bed.lamp);$auto='aon',log('Auto.ON')")
+      Rule.eval("for(00:10,safe($bed.sensor)&isOn($bed.lamp)) => off($bed.lamp);$auto='aoff';log('Auto.OFF')")
+      Rule.eval("isOn($bed.lamp) => if ($auto~='aon',{$auto='m',log('Man.ON')})")
+      Rule.eval("isOff($bed.lamp) => if ($auto~='aoff',{$auto='m',log('Man.ON')})")
 
-    post(prop(d.bed.sensor,1),"+/00:10") 
-    post(prop(d.bed.sensor,0),"+/00:10:40")
-    post(prop(d.bed.lamp,1),"+/00:25")
-  end -- ruleTests2
-end
+      post(prop(d.bed.sensor,1),"+/00:10") 
+      post(prop(d.bed.sensor,0),"+/00:10:40")
+      post(prop(d.bed.lamp,1),"+/00:25")
+    end -- ruleTests2
+  end
   Event.event({type='error'},function(env) local e = env.event -- catch errors and print them out
       Log(LOG.ERROR,"Runtime error %s for '%s' receiving event %s",e.err,e.rule,e.event) 
     end)
@@ -622,6 +630,7 @@ function Util.mapo(f,l,o) for _,j in ipairs(l) do f(o,j) end end
 function Util.mapkl(f,l) local r={} for i,j in pairs(l) do r[#r+1]=f(i,j) end return r end
 function Util.member(v,tab) for _,e in ipairs(tab) do if v==e then return e end return nil end end
 function Util.append(t1,t2) for _,e in ipairs(t2) do t1[#t1+1]=e end return t1 end
+function Util.gensym(s) return s..tostring({1,2,3}):match("([abcdef%d]*)$") end
 function Util.traverse(e,f)
   if type(e) ~= 'table' or e[1]=='quote' then return e end
   if e[1]~='quote' then e=Util.map(function(e) return Util.traverse(e,f) end, e) end
@@ -696,8 +705,9 @@ function Util.prettyJson(e) -- our own json encode, as we don't have 'pure' json
     if t == 'string' then res[#res+1] = '"' res[#res+1] = e res[#res+1] = '"' 
     elseif t == 'number' then res[#res+1] = e
     elseif t == 'boolean' or t == 'function' then res[#res+1] = tostring(e)
-    elseif t == 'table' then
-      if e[1] then
+  elseif t == 'table' then
+      if next(e)==nil then res[#res+1]='{}'
+      elseif e[1] then
         res[#res+1] = "[" pretty(e[1])
         for i=2,#e do res[#res+1] = "," pretty(e[i]) end
         res[#res+1] = "]"
@@ -712,7 +722,7 @@ function Util.prettyJson(e) -- our own json encode, as we don't have 'pure' json
         end
         res[#res+1] = '}'
       end
-    elseif e == nil then return "nil"
+    elseif e == nil then res[#res+1]='null'
     else error("bad json expr:"..tostring(e)) end
   end
   pretty(e)
@@ -726,12 +736,15 @@ function Util.mkStack()
   function self.pop(n) n = n or 1; stackp=stackp-n; return stack[stackp+n] end
   function self.ref(n) return stack[stackp-n] end
   function self.lift(n) local s = {} for i=1,n do s[i] = stack[stackp-n+i] end self.pop(n) return s end
+  function self.liftc(n) local s = {} for i=1,n do s[i] = stack[stackp-n+i] end return s end
   function self.reset() stackp=0 stack={} end
   function self.isEmpty() return stackp==0 end
+  function self.size() return stackp end
   return self
 end
 
 --------- ScriptEngine ------------------------------------------
+_debugInstrs=false
 
 function newScriptEngine()
   local self={}
@@ -748,11 +761,12 @@ function newScriptEngine()
   function ID(id,i) _assert(tonumber(id),"bad deviceID '%s' for '%s'",id,i[1]) return id end
   local function doit(m,f,s) if type(s) == 'table' then return m(f,s) else return f(s) end end
   local instr,funs = {},{}
-  instr['push'] = function(s,n,a) s.push(a) end
+  instr['%push'] = function(s,n,a) s.push(a) end
   instr['env'] = function(s,n,a,e) s.push(e) end
   instr['time'] = function(s,n,f,env,i) s.push(timeFs[f](i[4])) end 
   instr['table'] = function(s,n,k,i) local t = {} for j=n,1,-1 do t[k[j]] = s.pop() end s.push(t) end
-  instr['pop'] = function(s,n) s.pop() end
+  instr['%pop'] = function(s,n) s.pop() end
+  instr['debug'] = function(s,n) _debugInstrs=s.ref(0) end
   instr['setVar'] = function(s,n,a) local v = s.pop() Util.setVar(a,v) s.push(v) end
   instr['setGlob'] = function(s,n,a) local v = s.pop() fibaro:setGlobal(a[2],v) s.push(v) end
   instr['setLabel'] = function(s,n,a,e,i) local id,v = s.pop(),s.pop() 
@@ -762,10 +776,15 @@ function newScriptEngine()
     _assertf(type(r)=='table',"trying to set non-table value '%s'",function() return json.encode(r) end)
     r[a]=v s.push(v) 
   end
-  instr['jmp'] = function(s,n,a) return a end
-  instr['ifnskip'] = function(s,n,a,e,i) if not s.ref(0) then return a end end
-  instr['ifskip'] = function(s,n,a,e,i) if s.ref(0) then return a end end
-  instr['yield'] = function(s,n) error({type='yield'}) end
+  instr['%addr'] = function(s,n,a) s.push(a) end
+  instr['%jmp'] = function(s,n,a,e,i) local c,cp,p = e.code,e.cp,i[4] or 0
+    if i[5] then s.pop(p) return i[5]-cp end -- First time we search for the label and cache the position
+    for k=1,#c do if c[k][1]=='%addr' and c[k][3]==a then i[5]=k s.pop(p) return k-cp end end 
+    error({"jump to bad address:"..a}) 
+  end
+  instr['%ifnskip'] = function(s,n,a,e,i) if not s.ref(0) then return a end end
+  instr['%ifskip'] = function(s,n,a,e,i) if s.ref(0) then return a end end
+  instr['yield'] = function(s,n) s.push(true) error({type='yield'}) end
   instr['not'] = function(s,n) s.push(not s.pop()) end
   instr['aref'] = function(s,n) local k,table = s.pop(),s.pop() s.push(table[k]) end
   instr['+'] = function(s,n) s.push(s.pop()+s.pop()) end
@@ -778,7 +797,7 @@ function newScriptEngine()
   instr['<='] = function(s,n) s.push(tostring(s.pop())>=tostring(s.pop())) end
   instr['~='] = function(s,n) s.push(tostring(s.pop())~=tostring(s.pop())) end
   instr['=='] = function(s,n) s.push(s.pop()==s.pop()) end
-  instr['progn'] = function(s,n) local r = s.pop();  s.pop(n-1); s.push(r) end
+  instr['progn'] = function(s,n) local r = s.pop(); s.pop(n-1); s.push(r) end
   instr['log'] = function(s,n) s.push(Log(LOG.LOG,table.unpack(s.lift(n)))) end
   instr['print'] = function(s,n) print(s.ref(0)) end
   instr['tjson'] = function(s,n) local t = s.pop() s.push(tojson(t)) end
@@ -790,6 +809,7 @@ function newScriptEngine()
   instr['glob'] = function(s,n,a) s.push(fibaro:getGlobal(a)) end
   instr['label'] = function(s,n,a,e,i) local nm,id = s.pop(),s.pop() s.push(fibaro:get(ID(id,i),_format("ui.%s.value",nm))) end
   instr['last'] = function(s,n,a,e,i) s.push(select(2,fibaro:get(ID(s.pop(),i),'value'))) end
+  instr['setValue'] = function(s,n,a,e,i) local v,id=s.pop(),s.pop() fibaro:call(ID(id,i),'setValue',v) s.push(v) end
   instr['on'] = function(s,n,a,e,i) doit(Util.mapF,function(id) fibaro:call(ID(id,i),'turnOn') end,s.pop()) s.push(true) end
   instr['isOn'] = function(s,n,a,e,i) s.push(doit(Util.mapOr,function(id) return fibaro:getValue(ID(id,i),'value') > '0' end,s.pop())) end
   instr['off'] = function(s,n,a,e,i) doit(Util.mapF,function(id) fibaro:call(ID(id,i),'turnOff') end,s.pop()) s.push(true) end
@@ -807,6 +827,8 @@ function newScriptEngine()
   instr['post'] = function(s,n) local e,t=s.pop(),nil; if n==2 then t=e; e=s.pop() end Event.post(e,t) s.push(e) end
   instr['safe'] = instr['isOff'] 
   instr['manual'] = function(s,n) s.push(Event.lastManual(s.pop())) end
+  instr['add'] = function(s,n) local v,t=s.pop(),s.pop() 
+    table.insert(t,v) s.push(t) end
   instr['start'] = function(s,n) fibaro:startScene(ID(s.pop(),i)) s.push(true) end
   instr['stop'] = function(s,n) fibaro:killScene(ID(s.pop(),i)) s.push(true) end
   instr['breached'] = instr['isOn'] 
@@ -817,11 +839,10 @@ function newScriptEngine()
   instr['wait'] = function(s,n,a,e,i) local t=s.pop() 
     if i[4] then s.push(false) -- Already 'waiting'
     elseif i[5] then i[5]=false s.push(true) -- Timer expired, return true
-  else i[4]=setTimeout(function() 
-      i[4]=nil i[5]=true self.eval(e.code,e,e.stack,e.cp)
+    else i[4]=setTimeout(function() 
+        i[4]=nil i[5]=true self.eval(e.code,e,e.stack,e.cp)
       end,1000*(t-osTime())) error({type='yield'}) 
-    end 
-  end
+  end end
   instr['repeat'] = function(s,n,a,e) 
     local v,c = n>0 and s.pop() or math.huge
     if not e.forR then s.push(0) 
@@ -857,15 +878,30 @@ function newScriptEngine()
     funs[name] = fun
   end
 
+  function debugInstrs(i,args,stack,cp)
+    local f,n = i[1],i[2]
+    if i[1]:sub(1,1) == '%' or 
+    ({var=true,glob=true,progn=true,time=true,table=true})[f] then return end -- ignore
+    if n>0 then
+      if f:sub(1,3)=='set' then table.insert(args,1,i[3]) end
+      args = _format("%s(%s)=%s",f,tojson(args):sub(2,-2),tojson(stack.ref(0)))
+      Log(LOG.LOG,"pc:%-3d sp:%-3d %s",cp,stack.size(),args)
+    else
+      Log(LOG.LOG,"pc:%-3d sp:%-3d [%s/%s%s]",cp,stack.size(),i[1],i[2],i[3] and ","..tojson(i[3]) or "")
+    end
+  end
+
   function self.eval(code,env,stack,cp) 
     stack = stack or Util.mkStack()
     env = env or {}
     env.cp,env.code,env.stack = env.cp or 1,code,stack
-    local i
+    local i,args
     local status, res = pcall(function()  
         while env.cp <= #code do
           i = code[env.cp]
+          if _debugInstrs then args = stack.liftc(i[2]) end
           local res = instr[i[1]](stack,i[2],i[3],env,i)
+          if _debugInstrs then debugInstrs(i,args,stack,env.cp) end
           env.cp = env.cp+(res or 1)
         end
         return stack.pop(),env,stack,1 
@@ -886,10 +922,10 @@ ScriptEngine = newScriptEngine()
 ------------------------ ScriptCompiler --------------------
 
 function newScriptCompiler()
-  local self,traverse = {},Util.traverse
+  local self,traverse,gensym = {},Util.traverse,Util.gensym
 
   local function mkOp(o) return o end
-  local POP = {mkOp('pop'),0}
+  local POP = {mkOp('%pop'),0}
 
   local _comp = {}
   function self._getComps() return _comp end
@@ -911,6 +947,11 @@ function newScriptCompiler()
         local ne = {'and',e[2],e[3]} 
         if e[4] then ne={'or',ne,e[4]} end 
         compT(ne,ops) 
+      elseif ef == 'dolist' then -- dolist(var,list,expr)
+        local var,list,expr,idx,lvar,LBL=e[2],e[3],e[4],{'var',{gensym('fi')}},{'var',{gensym('fl')}},gensym('LBL')
+        compT({'progn',{'set',idx,1},{'set',lvar,list},{'%addr',LBL},
+            {'set',var,{'aref',lvar,idx}},{'and',var,{'progn',expr,{'set',idx,{'+',idx,1}},{'%jmp',LBL,4}}},lvar},
+          ops)
       elseif ef == 'table' then
         local keys = {}
         for i=2,#e do
@@ -929,23 +970,25 @@ function newScriptCompiler()
         for i=2,#e do compT(e[i],ops) end
         ops[#ops+1] = {mkOp(e[1]),#e-1}
       end
-    else ops[#ops+1]={mkOp('push'),0,e} end
+    else ops[#ops+1]={mkOp('%push'),0,e} end
   end
 
-  _comp['quote'] = function(e,ops) ops[#ops+1] = {mkOp('push'),0,e[2]} end
+  _comp['quote'] = function(e,ops) ops[#ops+1] = {mkOp('%push'),0,e[2]} end
+  _comp['%jmp'] = function(e,ops) ops[#ops+1] = {mkOp('%jmp'),0,e[2],e[3]} end
+  _comp['%addr'] = function(e,ops) ops[#ops+1] = {mkOp('%addr'),0,e[2]} end
   _comp['time'] = function(e,ops) ops[#ops+1] = {mkOp('time'),0,e[2],e[3]} end
   _comp['var'] = function(e,ops) ops[#ops+1] = {mkOp('var'),0,e} end
   _comp['glob'] = function(e,ops) ops[#ops+1] = {mkOp('glob'),0,e[2]} end
   _comp['and'] = function(e,ops) 
     compT(e[2],ops)
-    local o1,z = {mkOp('ifnskip'),0,0}
+    local o1,z = {mkOp('%ifnskip'),0,0}
     ops[#ops+1] = o1 -- true skip 
     z = #ops; ops[#ops+1]= POP; compT(e[3],ops); o1[3] = #ops-z+1
   end
   _comp['=>'] = _comp['and']
   _comp['or'] = function(e,ops)  
     compT(e[2],ops)
-    local o1,z = {mkOp('ifskip'),0,0}
+    local o1,z = {mkOp('%ifskip'),0,0}
     ops[#ops+1] = o1 -- true skip 
     z = #ops; ops[#ops+1]= POP; compT(e[3],ops); o1[3] = #ops-z+1;
   end
@@ -974,7 +1017,9 @@ function newScriptCompiler()
     {"^!([_0-9a-zA-Z\\$]+)",'gvar'},
     {"^({})",'symbol'},
     {"^([tn%+]/%d%d:%d%d:?%d*)",'time'},
-    {"^(%d%d:%d%d:?%d*)",'time'},
+    {"^([%d/]+/%d%d:%d%d:?%d*)",'time'},
+    {"^(%d%d:%d%d:?%d*)",'time'},    
+    {"^:(%A+%d*)",'addr'},
     {"^([a-zA-Z][0-9a-zA-Z]*)%(",'call'},
     {"^%%([a-zA-Z][0-9a-zA-Z]*)%(",'fun'},
     {"^([%[%]%(%)%{%},])",'spec'},
@@ -1038,19 +1083,28 @@ function newScriptCompiler()
         end
         if rp < 1 then badExpr() end
         res[rp+1] = nil
-        return res
+        return res,rp
       end
       pdone[#pdone+1] = nxtToken().v
       if t.t == 'lvar' then add({'var',{t.v}})
       elseif t.t == 'gvar' then add({'glob',t.v}) 
       elseif t.t == 'num' then add(tonumber(t.v))
       elseif t.t == 'string' then add(t.v:sub(2,-2))
+      elseif t.t == 'addr' then add({'%addr',t.v})
       elseif t.t == 'symbol' then 
         if symbol[t.v] then add(symbol[t.v]()) else add(t.v) end
-      elseif t.t == 'time' then 
-        local p,h,m,s = t.v:match("([%+nt]?/?)(%d%d):(%d%d):?(%d*)")
-        _assert(p=="" or p=="+/" or p=="n/" or p=="t/","malformed time constant '%s'",t.v)
-        add({'time',p == "" and '*' or p:sub(1,1),h*3600+m*60+(s~="" and s or 0)})
+      elseif t.t == 'time' then
+        local date,h,m,s = t.v:match("([%d/]+)/(%d%d):(%d%d):?(%d*)")
+        if date~=nil and date~="" then 
+          local year,month,day=date:match("(%d+)/(%d+)/(%d+)")
+          local t = osDate("*t") 
+          t.year,t.month,t.day,t.hour,t.min,t.sec=year,month,day,h,m,(s or 0)
+          add({'time','*',osTime(t)})
+        else
+          local p,h,m,s = t.v:match("([%+nt]?/?)(%d%d):(%d%d):?(%d*)")
+          _assert(p=="" or p=="+/" or p=="n/" or p=="t/","malformed time constant '%s'",t.v)
+          add({'time',p == "" and '*' or p:sub(1,1),h*3600+m*60+(s~="" and s or 0)})
+        end
       elseif t.t == 'aref' then t.ma = true push(t) add('ELIST')
       elseif t.t == 'table' then t.ma = true push(t) add('ELIST')
       elseif t.t == 'event' then 
@@ -1118,8 +1172,9 @@ function newScriptCompiler()
   function self.parse(s)
     tokenize(s)
     local status, res = pcall(function() 
-        local expr = self.expr()[1]
-        expr = simplify(expr)
+        local expr,l = self.expr()
+        _assert(l==1,"syntax error:%s",s)
+        expr = simplify(expr[1])
         return expr
       end)
     if status then return res 
@@ -1173,9 +1228,9 @@ function newRuleCompiler()
     local e = ScriptCompiler.parse(expr)
     local p,a,res,times = e[2],e[3],nil,{}
     if e[1]~='=>' then
-      Log(LOG.LOG,tojson(e))
+      --Log(LOG.LOG,tojson(e))
       res = ScriptCompiler.compile(e)
-      ScriptCompiler.dump(res)
+      --ScriptCompiler.dump(res)
       res = ScriptEngine.eval(res)
       if log then Log(LOG.LOG,"%s = %s",expr,tojson(res)) end
       return res
@@ -1322,5 +1377,4 @@ if _type == 'autostart' or _type == 'other' then
   Log(LOG.SYSTEM,"Sunrise %s, Sunset %s",fibaro:getValue(1,'sunriseHour'),fibaro:getValue(1,'sunsetHour'))
   collectgarbage("collect") GC=collectgarbage("count")
   if _OFFLINE then _System.runTimers() end
-  collectgarbage("collect") Log(LOG.LOG,"Memory start-end:%.2f",collectgarbage("count")-GC)
 end
