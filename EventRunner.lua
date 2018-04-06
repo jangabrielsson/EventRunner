@@ -957,9 +957,9 @@ function newScriptCompiler()
     else ops[#ops+1]={mkOp('%push'),0,e} end
   end
 
-  _comp['quote'] = function(e,ops) ops[#ops+1] = {mkOp('%push'),0,e[2]} end
   _comp['%jmp'] = function(e,ops) ops[#ops+1] = {mkOp('%jmp'),0,e[2],e[3]} end
   _comp['%addr'] = function(e,ops) ops[#ops+1] = {mkOp('%addr'),0,e[2]} end
+  _comp['quote'] = function(e,ops) ops[#ops+1] = {mkOp('%push'),0,e[2]} end
   _comp['time'] = function(e,ops) ops[#ops+1] = {mkOp('time'),0,e[2],e[3]} end
   _comp['var'] = function(e,ops) ops[#ops+1] = {mkOp('var'),0,e} end
   _comp['glob'] = function(e,ops) ops[#ops+1] = {mkOp('glob'),0,e[2]} end
@@ -1001,7 +1001,7 @@ function newScriptCompiler()
   simpAr['/']=function(a,b) return a/b end
   simpAr['*']=function(a,b) return a*b end
 
-  local function simplify(e)
+  local function precompile(e)
     local function sp(k,e) 
       if k=='progn' then -- Collapse nested 'progn'
         local r={'progn'}
@@ -1019,15 +1019,14 @@ function newScriptCompiler()
         e={'progn',{'set',idx,1},{'set',lvar,list},{'%addr',LBL},
           {'set',var,{'aref',lvar,idx}},{'and',var,{'progn',expr,{'set',idx,{'+',idx,1}},{'%jmp',LBL,4}}},lvar}
         return sp('progn',e)
-      elseif ef == '.' then 
-        e={'aref',e[2],e[3]}
+      elseif ef == '.' then e={'aref',e[2],e[3]}
       end
       return e
     end
     return traverse(e,sp)
   end
 
-  function self.compile(expr) local code = {} compT(simplify(expr),code) return code end
+  function self.compile(expr) local code = {} compT(precompile(expr),code) return code end
 
   local _prec = {
     ['*'] = 10, ['/'] = 10, ['.'] = 11, ['+'] = 9, ['-'] = 9, ['{'] = 3, ['['] = 2, ['('] = 1, [','] = 3.5, ['=>'] = -2,
@@ -1036,15 +1035,12 @@ function newScriptCompiler()
   local function mapOp(op) return _opMap[op] or op end
 
   local _tokens = {
-    {"^(%b'')",'string'},
-    {'^(%b"")','string'},
+    {"^(%b'')",'string'},{'^(%b"")','string'},
     {"^%#([0-9a-zA-Z]+{?)",'event'},
     {"^$([_0-9a-zA-Z\\$]+)",'lvar'},
     {"^!([_0-9a-zA-Z\\$]+)",'gvar'},
     {"^({})",'symbol'},
-    {"^([tn%+]/%d%d:%d%d:?%d*)",'time'},
-    {"^([%d/]+/%d%d:%d%d:?%d*)",'time'},
-    {"^(%d%d:%d%d:?%d*)",'time'},    
+    {"^([tn%+]/%d%d:%d%d:?%d*)",'time'},{"^([%d/]+/%d%d:%d%d:?%d*)",'time'},{"^(%d%d:%d%d:?%d*)",'time'},    
     {"^:(%A+%d*)",'addr'},
     {"^([a-zA-Z][0-9a-zA-Z]*)%(",'call'},
     {"^%%([a-zA-Z][0-9a-zA-Z]*)%(",'fun'},
@@ -1062,7 +1058,7 @@ function newScriptCompiler()
     [','] = {0,'comma'}}
 
   local function tokenize(s) 
-    local i,tkns,cp,s1 = 1,{},1
+    local i,tkns,cp,s1,tp = 1,{},1,'',1
     repeat
       s1,s = s,s:match("^[%s%c]*(.*)")
       cp = cp+(#s1-#s)
@@ -1072,11 +1068,8 @@ function newScriptCompiler()
       if s1 == s then i = i+1 if i > #_tokens then error({_format("bad token '%s'",s)}) end end
       cp = cp+(#s1-#s)
     until s:match("^[%s%c]*$")
-    self.st = tkns; self.tp = 1 
+    return { peek = function() return tkns[tp] end, nxt = function() tp=tp+1 return tkns[tp-1] end}
   end
-
-  local function peekToken() return self.st[self.tp] end
-  local function nxtToken() local r = peekToken(); self.tp = self.tp + 1; return r end
 
   function checkBrackets(s)
     local m = ({call=')', fun=')', aref=']', table='}', lpar=')'})[s.t]
@@ -1102,7 +1095,7 @@ function newScriptCompiler()
   end
   pExpr['call' ] = function(t,add,s) t.m = 'rpar' t.ma = true t.f = t.v t.v='(' s.push(t) add('ELIST') end -- call or fun
   pExpr['fun'] = pExpr['call']
-  pExpr['time'] = function(t,add,st) local date,h,m,s = t.v:match("([%d/]+)/(%d%d):(%d%d):?(%d*)")
+  pExpr['time'] = function(t,add,st) local date,h,m,s = t.v:match("([%d/]+)/(%d%d):(%d%d):?(%d*)") -- move to precompile?
     if date~=nil and date~="" then 
       local year,month,day=date:match("(%d+)/(%d+)/(%d+)")
       local t = osDate("*t") 
@@ -1115,13 +1108,13 @@ function newScriptCompiler()
     end
   end 
   
-  function self.expr()
+  function self.expr(tokens)
     local s,res,rp,pdone = Util.mkStack(),{},0,{},0,{}
     function add(i) rp=rp+1 res[rp]=i end
     local function badExpr() error({_format("bad expression '%s'",table.concat(pdone,' '))}) end
     local function add(t) rp=rp+1; res[rp] = t end
     while true do
-      local t = peekToken()
+      local t = tokens.peek()
       if t == nil or t.t == 'token' then 
         while not s.isEmpty() do 
           res[rp-1] = {mapOp(checkBrackets(s.pop()).v),res[rp-1],res[rp]}; rp=rp-1 
@@ -1129,7 +1122,7 @@ function newScriptCompiler()
         if rp < 1 then badExpr() else res[rp+1] = nil end
         return res,rp
       end
-      pdone[#pdone+1] = nxtToken().v
+      pdone[#pdone+1] = tokens.nxt().v
       if pExpr[t.t] then pExpr[t.t](t,add,s)
       elseif t.m then
         local op = s.pop()
@@ -1164,9 +1157,9 @@ function newScriptCompiler()
   end
 
   function self.parse(s)
-    tokenize(s)
+    local tokens = tokenize(s)
     local status, res = pcall(function() 
-        local expr,l = self.expr()
+        local expr,l = self.expr(tokens)
         _assert(l==1,"syntax error:%s",s)
         return expr[1]
       end)
@@ -1309,7 +1302,7 @@ end
 ScriptEngine.addInstr("date",makeDateInstr(function(s) return s end))             -- min,hour,days,month,wday
 ScriptEngine.addInstr("hour",makeDateInstr(function(s) return "* "..s end))       -- hour('10-15'), hour('3,5,6')
 ScriptEngine.addInstr("day",makeDateInstr(function(s) return "* * "..s end))      -- day('1-31'), day('1,3,5')
-ScriptEngine.addInstr("month",makeDateInstr(function(s) return "* * * "..s end))  -- hour('jan-feb'), hour('jan,mar,jun')
+ScriptEngine.addInstr("month",makeDateInstr(function(s) return "* * * "..s end))  -- month('jan-feb'), month('jan,mar,jun')
 ScriptEngine.addInstr("wday",makeDateInstr(function(s) return "* * * * "..s end)) -- wday('fri-sat'), wday('mon,tue,wed')
 
 -- Support for CentralSceneEvent & WeatherChangedEvent
