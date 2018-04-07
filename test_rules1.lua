@@ -1,0 +1,229 @@
+local tHouse = false
+local tEarth = false
+local tTest1 = true
+local tTest2 = false
+
+local function post(e,t) Event.post(e,t) end
+local function prop(id,state,prop) return {type='property', deviceID=id, propertyName=prop, value=state} end
+local function glob(id,state) return {type='global', name=id, value=state} end  
+
+-- Read in devicetable
+local conf = json.decode(fibaro:getGlobalValue(_deviceTable))
+dev = conf.dev
+Util.reverseMapDef(dev) -- Make device names availble for debugging
+
+-- Set up short variables for use in rules
+for k,v in pairs({ 
+    td=dev.toilet_down,kt=dev.kitchen,ha=dev.hall,
+    lr=dev.livingroom,ba=dev.back,gr=dev.game,
+    ti=dev.tim,ma=dev.max,bd=dev.bedroom}) 
+do Util.defvar(k,v) end
+
+if tEarth then
+  Rule.eval("$lights={$td.lamp_roof,$lr.lamp_roof_sofa}",true)
+  Rule.eval("$earthDates={2019/3/30/20:30,2020/3/28/20:30}",true)
+  Rule.eval("dolist($v,$earthDates,post(#earthHour,$v))",true)
+  Rule.eval([[#earthHour{} =>
+              $states={};
+              dolist($v,$lights,add($states,{id=$v,value=value($v)}));
+              off($lights);
+              post(#earthHourOff,+/01:00)]])
+  Rule.eval("#earthHourOff => dolist($v,$states,setValue($v.id,$v.value))")
+  Rule.eval("post(#earthHour,+/00:10)")
+end
+
+if tHouse then
+  _setClock("t/08:00") -- Start simulation at 08:00
+  _setMaxTime(48)      -- and run for 48 hours
+
+  -- collect garbage every night
+  Event.schedule("n/00:00",function() collectgarbage("collect") end,{name='GC'})
+  -- define macro that is true 08:00-12:00 on weekdays and 00:00-04:49 all days
+  Rule.macro('LIGHTTIME',"(wday('mon-fri')&hour('8-12')|hour('0-4'))")
+
+  Rule.load([[
+-- Kitchen
+      for(00:10,safe($kt.movement)&$LIGHTTIME$) => off($kt.lamp_table)
+
+      for(00:10,safe({$kt.movement,$lr.movement,$ha.movement})&$LIGHTTIME$) =>
+        isOn({$kt.lamp_stove,$kt.lamp_sink,$ha.lamp_hall})&
+        off({$kt.lamp_stove,$kt.lamp_sink,$ha.lamp_hall})&
+        log('Turning off kitchen spots after 10 min inactivity')
+
+-- Kitchen
+      daily(sunset-00:10) => press($kt.sink_led,1);log('Turn on kitchen sink light')
+      daily(sunrise+00:10) => press($kt.sink_led,2);log('Turn off kitchen sink light')
+      daily(sunset-00:10) => on($kt.lamp_table);log('Evening, turn on kitchen table light')
+
+-- Living room
+      daily(sunset-00:10) => on($lr.lamp_window);log('Turn on livingroom light')
+      daily(00:00) => off($lr.lamp_window);log('Turn off livingroom light')
+
+-- Front
+      daily(sunset-00:10) => on($ha.lamp_entrance);log('Turn on lights entr.')
+      daily(sunset) => off($ha.lamp_entrance);log('Turn off lights entr.')
+
+-- Back
+      daily(sunset-00:10) => on($ba.lamp);log('Turn on lights back')
+      daily(sunset) => off($ba.lamp);log('Turn off lights back')
+
+-- Game room
+      daily(sunset-00:10) => on($gr.lamp_window);log('Turn on gaming room light')
+      daily(23:00) => off($gr.lamp_window);log('Turn off gaming room light')
+
+-- Tim
+      daily(sunset-00:10) => on({$ti.bed_led,$ti.lamp_window});log('Turn on lights for Tim')
+      daily(00:00) => off({$ti.bed_led,$ti.lamp_window});log('Turn off lights for Tim')
+
+-- Max
+      daily(sunset-00:10) => on($ma.lamp_window);log('Turn on lights for Max')
+      daily(00:00) => off($ma.lamp_window);log('Turn off lights for Max')
+
+-- Bedroom
+      daily(sunset) => on({$bd.lamp_window,$bd.lamp_table,$bd.bed_led});log('Turn on bedroom light')
+      daily(23:00) => off({$bd.lamp_window,$bd.lamp_table,$bd.bed_led});log('Turn off bedroom light')
+    ]])
+
+  -- test daily light rules
+  fibaro:call(dev.kitchen.lamp_stove, 'turnOn') -- turn on light
+  Event.post({type='property', deviceID=dev.kitchen.movement, value=0}, "n09:00") -- and turn off sensor
+
+-- Bathroom
+  Rule.eval("for(00:10,safe($td.movement)&value($td.door)) => not($inBathroom)&off($td.lamp_roof)")
+  Rule.eval("breached($td.movement) => if(safe($td.door),$inBathroom=true);on($td.lamp_roof)")
+  Rule.eval("breached($td.door) => $inBathroom=false")
+  Rule.eval("safe($td.door)&(last($td.movement)<3) => $inBathroom=true")
+
+  -- Test bathroom rules
+  local breach,safe=prop(dev.toilet_down.movement,1),prop(dev.toilet_down.movement,0)
+  local open,close=prop(dev.toilet_down.door,1),prop(dev.toilet_down.door,0)
+  fibaro:call(dev.toilet_down.movement,'setValue',0)
+  fibaro:call(dev.toilet_down.lamp_roof,'setValue',0)
+  -- Simulate events
+  post(open,"t/10:00") -- open door
+  post(breach,"t/10:00:02") -- breach sensor
+  post(close,"t/10:00:04") -- close door, $inBathroom will be set to true
+  post(safe,"t/10:00:32") -- sensor safe after 30s
+  post(breach,"t/10:00:45") -- sensor breached again
+  post(safe,"t/10:01:15") -- sensor safe, light not turned off because $inBathroom==true
+  post(open,"t/10:20") -- door opens, light will be turned off in 10min
+
+-- SceneActivation events
+  Rule.load([[
+      scene($lr.lamp_roof_holk)==$S2.click =>
+        toggle($lr.lamp_roof_sofa);log('Toggling lamp downstairs')
+      scene($bd.lamp_roof)==$S2.click =>
+        toggle({$bd.lamp_window, $bd.bed_led});log('Toggling bedroom lights')
+      scene($ti.lamp_roof)==$S2.click =>
+        toggle($ti.bed_led);log('Toggling Tim bedroom lights')
+      scene($ti.lamp_roof)==$S2.double =>
+        toggle($ti.lamp_window);log('Toggling Tim window lights')
+      scene($ma.lamp_roof)==$S2.click =>
+        toggle($ma.lamp_window);log('Toggling Max bedroom lights')
+      scene($gr.lamp_roof)==$S2.click =>
+        toggle($gr.lamp_window);log('Toggling Gameroom window lights')
+      scene($kt.lamp_table)==$S2.click =>
+        if(label($kt.sonos,'lblState')=='Playing',press($kt.sonos,8),press($kt.sonos,7));
+        log('Toggling Sonos %s',label($kt.sonos,'lblState'))
+      #property{deviceID=$lr.lamp_window} => 
+        if(isOn($lr.lamp_window),{press($lr.lamp_tv,1),press($lr.lamp_globe,1)},{press($lr.lamp_tv,2),press($lr.lamp_globe,2)})
+    ]])
+  -- test scene activations
+  post(prop(dev.livingroom.lamp_roof_holk,Util.S2.click,'sceneActivation'),"n/09:10")
+  post(prop(dev.livingroom.lamp_roof_holk,Util.S2.click,'sceneActivation'),"n/09:20")
+end -- houseRules
+
+if tTest1 then
+  d = {
+    garage = {door = 10, lamp = 9},
+    bed = {window = 11, sensor = 12, lamp = 13},
+    kitchen = {window = 14, lamp = 15, sensor = 16, door = 17, temp=34, switch=41},
+    hall = {door = 33},
+    livingroom = {window = 18, sensor = 19, lamp = 20},
+    wc = {lamp= 21, sensor = 22},
+    stairs = {lamp = 23, sensor = 24},
+    user = {jan = {phone = 120 }}
+  }
+
+  for k,j in pairs(d) do Util.defvar(k,j) end -- define variables from device table
+  Util.reverseMapDef(d)
+
+  _setClock("t/08:00")
+  _setMaxTime(600)
+  
+  Rule.eval("$sunsetLamps={$bed.lamp,$garage.lamp}")
+  Rule.eval("$sunriseLamps={$garage.lamp,$bed.lamp}")
+  Rule.eval("$lampsDownstairs={$kitchen.lamp}")
+  Rule.eval("$sensorsDownstairs={$livingroom.sensor,$kitchen.sensor}")
+
+  Rule.eval("{b=2,c={d=3}}.c.d",true)
+
+  Rule.eval([[
+      once(temp($kitchen.temp)>10) => 
+      send($user.jan.phone,log('Temp too high: %s',temp($kitchen.temp)))
+    ]])
+
+  Rule.eval("for(00:10,not(safe($hall.door))) => send($user.jan.phone,log('Door open %s min',repeat(5)*10))")
+
+  Rule.eval("for(00:15,safe($sensorsDownstairs)) => betw(00:00,05:00)&off($lampsDownstairs)")
+
+  Rule.eval("daily(sunset-00:45) => log('Sunset')&on($sunsetLamps)")
+  Rule.eval("daily(sunrise+00:15) => log('Sunrise')&off($sunriseLamps)")
+
+  Rule.eval("!homeStatus=='away' => post(#simulate{action='start'})")
+  Rule.eval("!homeStatus=='home' => post(#simulate{action='stop'})")
+
+  Rule.eval("#simulate{action='start'} => log('Starting simulation')")
+  Rule.eval("#simulate{action='stop'} => log('Stopping simulation')")
+
+  post(prop(d.kitchen.temp,22),"+/00:10")
+  post(prop(d.hall.door,0),"+/00:15")
+  post(prop(d.hall.door,1),"+/00:20")
+
+  post(prop(d.kitchen.sensor,0),"n/01:10")
+  post(prop(d.livingroom.sensor,0),"n/01:11")
+
+  post(glob('homeStatus','away'),"n/05:11")
+  post(glob('homeStatus','home'),"n/07:11")
+
+  Rule.eval("scene($kitchen.switch)==$S1.click => log('S1 switch clicked')")
+  Rule.eval("post(#property{deviceID=$kitchen.lamp,sceneActivation=$S1.click},n/09:10)")
+
+  Rule.eval("csEvent(56).keyId=='4' => log('HELLO1 key=4')")
+  Rule.eval("#CentralSceneEvent{data={deviceID=56,keyId='$k',keyAttribute='Pressed'}} => log('HELLO2 key=%s',$k)")
+  
+  Rule.eval("weather('*') => log('HELLO %s',weather().newValue)")
+
+  Rule.eval("post(#event{event=#CentralSceneEvent{data={deviceId=56, keyId='4',keyAttribute='Pressed'}}},n/08:10)")
+  Rule.eval("post(#event{event=#WeatherChangedEvent{data={newValue= -2.2,change='Temperature'}}},n/08:20)")
+
+  Rule.eval("daily(10:00)&day('1-7')&wday('mon') => log('10 oclock first Monday of the month!')")
+  Rule.eval("daily(10:00)&day('lastw-last')&wday('mon') => log('10 oclock last Monday of the month!')")
+
+--{"event":{"type":"WeatherChangedEvent","data":{"newValue":-2.2,"change":"Temperature","oldValue":-4}},"type":"event"}
+--{"type":"event","event":{"type":"CentralSceneEvent","data":{"deviceId":362,"keyId":4,"keyAttribute":"Pressed","icon":{"path":"fibaro\/icons\/com.fibaro.FGKF601\/com.fibaro.FGKF601-4Pressed.png","source":"HC"}}}}
+end -- ruleTests
+
+if tTest2 then 
+--  Rule.eval("{2,3,4}[2]=5",true) 
+  Rule.eval("$foo={}",true) 
+  Rule.eval("!foo=5",true) 
+  Rule.eval("$foo['bar']=42",true) 
+  Rule.eval("label(42,'foo')='bar'",true) 
+  fibaro:abort()
+  Rule.eval("breached($bed.sensor)&isOff($bed.lamp)&manual($bed.lamp)>10*60 => on($bed.lamp);log('ON.Manual=%s',manual($bed.lamp))")
+  Rule.eval("for(00:10,safe($bed.sensor)&isOn($bed.lamp)) => if(manual($bed.lamp)>10*60,off($bed.lamp));repeat();log('OFF.Manual=%s',manual($bed.lamp))")
+  --printRule(y)
+  Rule.eval("breached($bed.sensor)&isOff($bed.lamp) => on($bed.lamp);$auto='aon',log('Auto.ON')")
+  Rule.eval("for(00:10,safe($bed.sensor)&isOn($bed.lamp)) => off($bed.lamp);$auto='aoff';log('Auto.OFF')")
+  Rule.eval("isOn($bed.lamp) => if ($auto~='aon',{$auto='m',log('Man.ON')})")
+  Rule.eval("isOff($bed.lamp) => if ($auto~='aoff',{$auto='m',log('Man.ON')})")
+
+  post(prop(d.bed.sensor,1),"+/00:10") 
+  post(prop(d.bed.sensor,0),"+/00:10:40")
+  post(prop(d.bed.lamp,1),"+/00:25")
+end -- ruleTests2
+
+Event.event({type='error'},function(env) local e = env.event -- catch errors and print them out
+    Log(LOG.ERROR,"Runtime error %s for '%s' receiving event %s",e.err,e.rule,e.event) 
+  end)
