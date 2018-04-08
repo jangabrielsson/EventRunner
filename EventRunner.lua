@@ -27,8 +27,9 @@ if dofile then dofile("EventRunnerDebug.lua") end
 
 ---------------- Callbacks to user code --------------------
 function main()
-  Rule.eval("wday('mon')",true)
+
   dofile("test_rules1.lua")
+  
 end -- main()
 ------------------- EventModel --------------------  
 local _supportedEvents = {property=true,global=true,event=true,remote=true}
@@ -316,7 +317,7 @@ function newEventEngine()
       local match = _match(rules[1][self.RULE],e)
       if match then env.p = match
         for _,rule in ipairs(rules) do 
-          if not rule._disabled then env.rule = rule _invokeRule(env) end
+          if not rule._disabled then env.rule,env.cp = rule,1 _invokeRule(env) end
         end
       end
     end
@@ -595,7 +596,7 @@ function newScriptEngine()
   instr['>='] = function(s,n) s.push(tostring(s.pop())<=tostring(s.pop())) end
   instr['<='] = function(s,n) s.push(tostring(s.pop())>=tostring(s.pop())) end
   instr['~='] = function(s,n) s.push(tostring(s.pop())~=tostring(s.pop())) end
-  instr['=='] = function(s,n) s.push(s.pop()==s.pop()) end
+  instr['=='] = function(s,n) s.push(tostring(s.pop())==tostring(s.pop())) end
   instr['progn'] = function(s,n) local r = s.pop(); s.pop(n-1); s.push(r) end
   instr['log'] = function(s,n) s.push(Log(LOG.LOG,table.unpack(s.lift(n)))) end
   instr['print'] = function(s,n) print(s.ref(0)) end
@@ -823,9 +824,9 @@ function newScriptCompiler()
   function self.compile(expr) local code = {} compT(self.precompile(expr),code) return code end
 
   local _prec = {
-    ['*'] = 10, ['/'] = 10, ['.'] = 11, ['+'] = 9, ['-'] = 9, ['{'] = 3, ['['] = 2, ['('] = 1, [','] = 3.5, ['=>'] = -2,
+    ['*'] = 10, ['/'] = 10, ['.'] = 11, ['+'] = 9, ['-'] = 9, ['..'] = 8.5, ['{'] = 3, ['['] = 2, ['('] = 1, [','] = 3.5, ['=>'] = -2,
     ['>']=7, ['<']=7, ['>=']=7, ['<=']=7, ['==']=7, ['~=']=7, ['&']=6, ['|']=5, ['=']=4, [';']=3.6}
-  local _opMap = {['&']='and',['|']='or',['=']='set',['.']='aref',[';']='progn'}
+  local _opMap = {['&']='and',['|']='or',['=']='set',['.']='aref',[';']='progn',['--']='betw'}
   local function mapOp(op) return _opMap[op] or op end
 
   local _tokens = {
@@ -840,7 +841,7 @@ function newScriptCompiler()
     {"^%%([a-zA-Z][0-9a-zA-Z]*)%(",'fun'},
     {"^([%[%]%(%)%{%},])",'spec'},
     {"^([_a-zA-Z][_0-9a-zA-Z]*)",'symbol'},
-    {"^(;)",'op'},    
+    {"^(;)",'op'},{"^(%.%.)",'op'},    
     {"^(%d+%.?%d*)",'num'},    
     {"^([%*%+%-/&%|%.])",'op'},{"^([~=><]+)",'op'},
   }
@@ -927,7 +928,7 @@ function newScriptCompiler()
           end
         end
       else
-        if not s.isEmpty() and t.v == '-' and (s.peek().t == 'op' or s.peek().t == 'lpar') then
+        if not s.isEmpty() and t.v == '-' and (s.peek().t == 'op' or s.peek().t == 'lpar' or s.peek().ma) then
           add(0)
           s.push(t)
         else 
@@ -972,7 +973,7 @@ function newRuleCompiler()
     local ids,dailys={},{}
     local function gt(k,e)
       if k=='daily' then dailys[#dailys+1]=ScriptCompiler.compile(e[2])
-      elseif k=='glob' then ids[e[2] ] = {type='gobal', name=e[2]}
+      elseif k=='glob' then ids[e[2] ] = {type='global', name=e[2]}
       elseif tFun[k] then local v = ScriptEngine.eval(ScriptCompiler.compile(e[2]))
         map(function(id) ids[id]={type='property', deviceID=id} end,type(v)=='table' and v or {v})
       elseif triggFuns[k] then local v = ScriptEngine.eval(ScriptCompiler.compile(e[2]))
@@ -1093,7 +1094,7 @@ ScriptEngine.addInstr("wday",makeDateInstr(function(s) return "* * * * "..s end)
 -- Support for CentralSceneEvent & WeatherChangedEvent
 _lastCSEvent = {}
 _lastWeatherEvent = {}
-Event.event({type='event'}, function(env) env.event.event._sh = true Event.post(env.event.event) end)
+Event.event({type='event'}, function(env) env.event.event._sh=true Event.post(env.event.event) end)
 Event.event({type='CentralSceneEvent'}, 
   function(env) _lastCSEvent[env.event.data.deviceId] = env.event.data end)
 Event.event({type='WeatherChangedEvent'}, 

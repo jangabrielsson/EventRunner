@@ -149,8 +149,8 @@ if tTest1 then
   Util.reverseMapDef(d)
 
   _setClock("t/08:00")
-  _setMaxTime(600)
-  
+  _setMaxTime(300)
+
   Rule.eval("$sunsetLamps={$bed.lamp,$garage.lamp}")
   Rule.eval("$sunriseLamps={$garage.lamp,$bed.lamp}")
   Rule.eval("$lampsDownstairs={$kitchen.lamp}")
@@ -164,17 +164,19 @@ if tTest1 then
     ]])
 
   Rule.eval("for(00:10,not(safe($hall.door))) => send($user.jan.phone,log('Door open %s min',repeat(5)*10))")
+  Rule.eval("for(00:15,safe($sensorsDownstairs)) => 00:00..05:00 & off($lampsDownstairs)")
 
-  Rule.eval("for(00:15,safe($sensorsDownstairs)) => betw(00:00,05:00)&off($lampsDownstairs)")
-
-  Rule.eval("daily(sunset-00:45) => log('Sunset')&on($sunsetLamps)")
-  Rule.eval("daily(sunrise+00:15) => log('Sunrise')&off($sunriseLamps)")
+  Rule.eval("daily(sunset-00:45) => log('Sunset');on($sunsetLamps)")
+  Rule.eval("daily(sunrise+00:15) => log('Sunrise');off($sunriseLamps)")
 
   Rule.eval("!homeStatus=='away' => post(#simulate{action='start'})")
   Rule.eval("!homeStatus=='home' => post(#simulate{action='stop'})")
 
   Rule.eval("#simulate{action='start'} => log('Starting simulation')")
   Rule.eval("#simulate{action='stop'} => log('Stopping simulation')")
+
+  post(glob('homeStatus','away'),"n/05:11")
+  post(glob('homeStatus','home'),"n/07:11")
 
   post(prop(d.kitchen.temp,22),"+/00:10")
   post(prop(d.hall.door,0),"+/00:15")
@@ -183,19 +185,16 @@ if tTest1 then
   post(prop(d.kitchen.sensor,0),"n/01:10")
   post(prop(d.livingroom.sensor,0),"n/01:11")
 
-  post(glob('homeStatus','away'),"n/05:11")
-  post(glob('homeStatus','home'),"n/07:11")
-
   Rule.eval("scene($kitchen.switch)==$S1.click => log('S1 switch clicked')")
-  Rule.eval("post(#property{deviceID=$kitchen.lamp,sceneActivation=$S1.click},n/09:10)")
+  Rule.eval("post(#property{deviceID=$kitchen.switch,propertyName='sceneActivation',value=$S1.click},n/09:10)")
 
-  Rule.eval("csEvent(56).keyId=='4' => log('HELLO1 key=4')")
-  Rule.eval("#CentralSceneEvent{data={deviceID=56,keyId='$k',keyAttribute='Pressed'}} => log('HELLO2 key=%s',$k)")
+  Rule.eval("csEvent(56).keyId==4 => log('HELLO1 key=4')")
+  Rule.eval("#CentralSceneEvent{data={deviceId=56,keyId='$k',keyAttribute='Pressed'}} => log('HELLO2 key=%s',$k)")
   
-  Rule.eval("weather('*') => log('HELLO %s',weather().newValue)")
+  --Rule.eval("weather('*') => log('HELLO %s',weather().newValue)")
 
-  Rule.eval("post(#event{event=#CentralSceneEvent{data={deviceId=56, keyId='4',keyAttribute='Pressed'}}},n/08:10)")
-  Rule.eval("post(#event{event=#WeatherChangedEvent{data={newValue= -2.2,change='Temperature'}}},n/08:20)")
+  Rule.eval("post(#event{event=#CentralSceneEvent{data={deviceId=56, keyId=4,keyAttribute='Pressed'}}},n/08:10)")
+  --Rule.eval("post(#event{event=#WeatherChangedEvent{data={newValue= -2.2,change='Temperature'}}},n/08:20)")
 
   Rule.eval("daily(10:00)&day('1-7')&wday('mon') => log('10 oclock first Monday of the month!')")
   Rule.eval("daily(10:00)&day('lastw-last')&wday('mon') => log('10 oclock last Monday of the month!')")
