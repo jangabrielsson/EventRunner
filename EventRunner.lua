@@ -27,7 +27,6 @@ if dofile then dofile("EventRunnerDebug.lua") end
 
 ---------------- Callbacks to user code --------------------
 function main()
-
   dofile("test_rules1.lua")
   
 end -- main()
@@ -317,7 +316,7 @@ function newEventEngine()
       local match = _match(rules[1][self.RULE],e)
       if match then env.p = match
         for _,rule in ipairs(rules) do 
-          if not rule._disabled then env.rule,env.cp = rule,1 _invokeRule(env) end
+          if not rule._disabled then env.rule = rule _invokeRule(env) end
         end
       end
     end
@@ -552,7 +551,9 @@ function newScriptEngine()
     ['sunset']=function(t) return hm2sec('sunset') end,
     ['sunrise']=function(t) return hm2sec('sunrise') end,
     ['now']=function(t) return osTime()-midnight() end}
-
+  local function _coerce(x,y)
+    local x1 = tonumber(x) if x1 then return x1,tonumber(y) else return x,y end
+  end
   function ID(id,i) _assert(tonumber(id),"bad deviceID '%s' for '%s'",id,i[1]) return id end
   local function doit(m,f,s) if type(s) == 'table' then return m(f,s) else return f(s) end end
   local instr,funs = {},{}
@@ -573,7 +574,7 @@ function newScriptEngine()
   instr['var'] = function(s,n,a,e) local v = e.p and e.p[a[2][1]] s.push(v or Util.getVar(a)) end
   instr['glob'] = function(s,n,a) s.push(fibaro:getGlobal(a)) end
   instr['setVar'] = function(s,n,a,e) local v = s.pop() 
-    _assert(e.p and e.p[a[2][1] ]==nil,"Can't set match var '$%s'",a[2][1])
+    _assert(e.p==nil or e.p[a[2][1] ]==nil,"Can't set match var '$%s'",a[2][1])
     Util.setVar(a,v) s.push(v)
   end
   instr['setGlob'] = function(s,n,a) local v = s.pop() fibaro:setGlobal(a[2],v) s.push(v) end
@@ -591,10 +592,12 @@ function newScriptEngine()
   instr['-'] = function(s,n) s.push(-s.pop()+s.pop()) end
   instr['*'] = function(s,n) s.push(s.pop()*s.pop()) end
   instr['/'] = function(s,n) s.push(1.0/(s.pop()/s.pop())) end
-  instr['>'] = function(s,n) s.push(tostring(s.pop())<tostring(s.pop())) end
-  instr['<'] = function(s,n) s.push(tostring(s.pop())>tostring(s.pop())) end
-  instr['>='] = function(s,n) s.push(tostring(s.pop())<=tostring(s.pop())) end
-  instr['<='] = function(s,n) s.push(tostring(s.pop())>=tostring(s.pop())) end
+  instr['>'] = function(s,n) local y,x=_coerce(s.pop(),s.pop()) s.push(x>y) end
+  instr['<'] = function(s,n) local y,x=_coerce(s.pop(),s.pop()) 
+    local v = x<y
+    s.push(v) end
+  instr['>='] = function(s,n) local y,x=_coerce(s.pop(),s.pop()) s.push(x>=y) end
+  instr['<='] = function(s,n) local y,x=_coerce(s.pop(),s.pop()) s.push(x<=y) end
   instr['~='] = function(s,n) s.push(tostring(s.pop())~=tostring(s.pop())) end
   instr['=='] = function(s,n) s.push(tostring(s.pop())==tostring(s.pop())) end
   instr['progn'] = function(s,n) local r = s.pop(); s.pop(n-1); s.push(r) end
@@ -624,6 +627,7 @@ function newScriptEngine()
   instr['once'] = function(s,n,a,e,i) local f; i[4],f = s.pop(),i[4]; s.push(not f and i[4]) end
   instr['post'] = function(s,n) local e,t=s.pop(),nil; if n==2 then t=e; e=s.pop() end Event.post(e,t) s.push(e) end
   instr['safe'] = instr['isOff'] 
+  instr['SP'] = function(s,n,a,e,i) print("SP:"..s.size()) s.push(true) end
   instr['manual'] = function(s,n) s.push(Event.lastManual(s.pop())) end
   instr['add'] = function(s,n) local v,t=s.pop(),s.pop() table.insert(t,v) s.push(t) end
   instr['start'] = function(s,n) fibaro:startScene(ID(s.pop(),i)) s.push(true) end
@@ -633,12 +637,12 @@ function newScriptEngine()
     if t1<=t2 then s.push(t1 <= now and now <= t2) else s.push(now >= t1 or now <= t2) end 
   end
   instr['fun'] = function(s,n) local a,f=s.pop(),s.pop() _assert(funs[f],"undefined fun '%s'",f) s.push(funs[f](table.unpack(a))) end
-  instr['wait'] = function(s,n,a,e,i) local t=s.pop() 
+  instr['wait'] = function(s,n,a,e,i) local t,cp=s.pop(),e.cp
     if i[4] then s.push(false) -- Already 'waiting'
     elseif i[5] then i[5]=false s.push(true) -- Timer expired, return true
     else 
       if t<midnight() then t = osTime()+t end -- Allow both relative and absolute time... e.g '10:00'->midnight+10:00
-      i[4]=Event.post(function() i[4]=nil i[5]=true self.eval(e.code,e,e.stack,e.cp) end,t) error({type='yield'})
+      i[4]=Event.post(function() i[4]=nil i[5]=true self.eval(e.code,e,e.stack,cp) end,t) s.push(false) error({type='yield'})
     end 
   end
   instr['repeat'] = function(s,n,a,e) 
@@ -647,8 +651,8 @@ function newScriptEngine()
     elseif v > e.forR[2] then s.push(e.forR[1]()) else s.push(e.forR[2]) end 
   end
   instr['for'] = function(s,n,a,e,i) 
-    local val,time = s.pop(),s.pop()
-    local rep = function() i[6] = true; i[5] = nil; self.eval(e.code,e) end
+    local val,time, stack, cp = s.pop(),s.pop(), e.stack, e.cp
+    local rep = function() i[6] = true; i[5] = nil; self.eval(e.code) end
     e.forR = nil -- Repeat function (see repeat())
     if i[6] then -- true if timer has expired
       i[6] = nil; 
@@ -662,7 +666,7 @@ function newScriptEngine()
     i[7] = 0
     if i[5] and (not val) then i[5] = Event.cancel(i[5]) Log(LOG.LOG,"Killing timer")-- Timer already running, and false, stop timer
     elseif (not i[5]) and val then                        -- Timer not running, and true, start timer
-      i[5]=Event.post(rep,time+osTime()) 
+      i[5]=Event.post(rep,time+osTime()) Log(LOG.LOG,"Starting timer")
     end
     s.push(false)
   end
@@ -676,6 +680,8 @@ function newScriptEngine()
     ({var=true,glob=true,progn=true,time=true,table=true})[f] then return end -- ignore
     if n>0 then
       if f:sub(1,3)=='set' then table.insert(args,1,i[3]) end
+      local sr = {} for u=-2,2 do sr[#sr+1]=tojson(stack.ref(u)) end 
+      print("["..table.concat(sr,",").."]")
       args = _format("%s(%s)=%s",f,tojson(args):sub(2,-2),tojson(stack.ref(0)))
       Log(LOG.LOG,"pc:%-3d sp:%-3d %s",cp,stack.size(),args)
     else
@@ -686,7 +692,7 @@ function newScriptEngine()
   function self.eval(code,env,stack,cp) 
     stack = stack or Util.mkStack()
     env = env or {}
-    env.cp,env.code,env.stack = env.cp or 1,code,stack
+    env.cp,env.code,env.stack = cp or 1,code,stack
     local i,args
     local status, res = pcall(function()  
         while env.cp <= #code do
@@ -1003,7 +1009,7 @@ function newRuleCompiler()
       --Log(LOG.LOG,tojson(e))
       res = ScriptCompiler.compile(e)
       --ScriptCompiler.dump(res)
-      res = ScriptEngine.eval(res,{p={}})
+      res = ScriptEngine.eval(res)
       if log then Log(LOG.LOG,"%s = %s",expr,tojson(res)) end
       return res
     end

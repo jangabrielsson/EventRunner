@@ -158,12 +158,20 @@ if tTest1 then
 
   Rule.eval("{b=2,c={d=3}}.c.d",true)
 
+  --y=Rule.eval("dolist($v,{2,4,6,8,10},SP(); log('V:%s',$v))")
+  --printRule(y)
+  --Rule.eval("post(#foo{val=1})")
+  
+  Rule.eval("for(00:10,not(safe($hall.door))) => send($user.jan.phone,log('Door open %s min',repeat(5)*10))")
+  post(prop(d.hall.door,0),"+/00:15")
+  post(prop(d.hall.door,1),"+/00:20")
+  
+  if nil then
   Rule.eval([[
       once(temp($kitchen.temp)>10) => 
       send($user.jan.phone,log('Temp too high: %s',temp($kitchen.temp)))
     ]])
-
-  Rule.eval("for(00:10,not(safe($hall.door))) => send($user.jan.phone,log('Door open %s min',repeat(5)*10))")
+    
   Rule.eval("for(00:15,safe($sensorsDownstairs)) => 00:00..05:00 & off($lampsDownstairs)")
 
   Rule.eval("daily(sunset-00:45) => log('Sunset');on($sunsetLamps)")
@@ -198,7 +206,7 @@ if tTest1 then
 
   Rule.eval("daily(10:00)&day('1-7')&wday('mon') => log('10 oclock first Monday of the month!')")
   Rule.eval("daily(10:00)&day('lastw-last')&wday('mon') => log('10 oclock last Monday of the month!')")
-
+end
 --{"event":{"type":"WeatherChangedEvent","data":{"newValue":-2.2,"change":"Temperature","oldValue":-4}},"type":"event"}
 --{"type":"event","event":{"type":"CentralSceneEvent","data":{"deviceId":362,"keyId":4,"keyAttribute":"Pressed","icon":{"path":"fibaro\/icons\/com.fibaro.FGKF601\/com.fibaro.FGKF601-4Pressed.png","source":"HC"}}}}
 end -- ruleTests
