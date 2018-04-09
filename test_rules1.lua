@@ -1,7 +1,7 @@
 local tHouse = false
 local tEarth = false
-local tTest1 = true
-local tTest2 = false
+local tTest1 = false
+local tTest2 = true
 
 local function post(e,t) Event.post(e,t) end
 local function prop(id,state,prop) return {type='property', deviceID=id, propertyName=prop, value=state} end
@@ -161,17 +161,16 @@ if tTest1 then
   --y=Rule.eval("dolist($v,{2,4,6,8,10},SP(); log('V:%s',$v))")
   --printRule(y)
   --Rule.eval("post(#foo{val=1})")
-  
+
   Rule.eval("for(00:10,not(safe($hall.door))) => send($user.jan.phone,log('Door open %s min',repeat(5)*10))")
   post(prop(d.hall.door,0),"+/00:15")
   post(prop(d.hall.door,1),"+/00:20")
-  
-  if nil then
+
   Rule.eval([[
       once(temp($kitchen.temp)>10) => 
       send($user.jan.phone,log('Temp too high: %s',temp($kitchen.temp)))
     ]])
-    
+
   Rule.eval("for(00:15,safe($sensorsDownstairs)) => 00:00..05:00 & off($lampsDownstairs)")
 
   Rule.eval("daily(sunset-00:45) => log('Sunset');on($sunsetLamps)")
@@ -187,8 +186,6 @@ if tTest1 then
   post(glob('homeStatus','home'),"n/07:11")
 
   post(prop(d.kitchen.temp,22),"+/00:10")
-  post(prop(d.hall.door,0),"+/00:15")
-  post(prop(d.hall.door,1),"+/00:20")
 
   post(prop(d.kitchen.sensor,0),"n/01:10")
   post(prop(d.livingroom.sensor,0),"n/01:11")
@@ -198,7 +195,7 @@ if tTest1 then
 
   Rule.eval("csEvent(56).keyId==4 => log('HELLO1 key=4')")
   Rule.eval("#CentralSceneEvent{data={deviceId=56,keyId='$k',keyAttribute='Pressed'}} => log('HELLO2 key=%s',$k)")
-  
+
   --Rule.eval("weather('*') => log('HELLO %s',weather().newValue)")
 
   Rule.eval("post(#event{event=#CentralSceneEvent{data={deviceId=56, keyId=4,keyAttribute='Pressed'}}},n/08:10)")
@@ -206,25 +203,41 @@ if tTest1 then
 
   Rule.eval("daily(10:00)&day('1-7')&wday('mon') => log('10 oclock first Monday of the month!')")
   Rule.eval("daily(10:00)&day('lastw-last')&wday('mon') => log('10 oclock last Monday of the month!')")
-end
+
 --{"event":{"type":"WeatherChangedEvent","data":{"newValue":-2.2,"change":"Temperature","oldValue":-4}},"type":"event"}
 --{"type":"event","event":{"type":"CentralSceneEvent","data":{"deviceId":362,"keyId":4,"keyAttribute":"Pressed","icon":{"path":"fibaro\/icons\/com.fibaro.FGKF601\/com.fibaro.FGKF601-4Pressed.png","source":"HC"}}}}
 end -- ruleTests
 
 if tTest2 then 
---  Rule.eval("{2,3,4}[2]=5",true) 
-  Rule.eval("$foo={}",true) 
+  d = {
+    garage = {door = 10, lamp = 9},
+    bed = {window = 11, sensor = 12, lamp = 13},
+    kitchen = {window = 14, lamp = 15, sensor = 16, door = 17, temp=34, switch=41},
+    hall = {door = 33},
+    livingroom = {window = 18, sensor = 19, lamp = 20},
+    wc = {lamp= 21, sensor = 22},
+    stairs = {lamp = 23, sensor = 24},
+    user = {jan = {phone = 120 }}
+  }
+
+  for k,j in pairs(d) do Util.defvar(k,j) end -- define variables from device table
+  Util.reverseMapDef(d)
+
+  _setClock("t/08:00")
+  _setMaxTime(300)
+
+  Rule.eval("{2,3,4}[2]=5",true) -- {2,5,4}
+  Rule.eval("$foo={}",true)      
   Rule.eval("!foo=5",true) 
-  Rule.eval("$foo['bar']=42",true) 
+  Rule.eval("$foo['bar']=42",true) -- {bar=42}
   Rule.eval("label(42,'foo')='bar'",true) 
-  fibaro:abort()
   Rule.eval("breached($bed.sensor)&isOff($bed.lamp)&manual($bed.lamp)>10*60 => on($bed.lamp);log('ON.Manual=%s',manual($bed.lamp))")
   Rule.eval("for(00:10,safe($bed.sensor)&isOn($bed.lamp)) => if(manual($bed.lamp)>10*60,off($bed.lamp));repeat();log('OFF.Manual=%s',manual($bed.lamp))")
   --printRule(y)
-  Rule.eval("breached($bed.sensor)&isOff($bed.lamp) => on($bed.lamp);$auto='aon',log('Auto.ON')")
+  Rule.eval("breached($bed.sensor)&isOff($bed.lamp) => on($bed.lamp);$auto='aon';log('Auto.ON')")
   Rule.eval("for(00:10,safe($bed.sensor)&isOn($bed.lamp)) => off($bed.lamp);$auto='aoff';log('Auto.OFF')")
-  Rule.eval("isOn($bed.lamp) => if ($auto~='aon',{$auto='m',log('Man.ON')})")
-  Rule.eval("isOff($bed.lamp) => if ($auto~='aoff',{$auto='m',log('Man.ON')})")
+  Rule.eval("isOn($bed.lamp) => if($auto~='aon',$auto='m';log('Man.ON'))")
+  Rule.eval("isOff($bed.lamp) => if($auto~='aoff',$auto='m';log('Man.ON'))")
 
   post(prop(d.bed.sensor,1),"+/00:10") 
   post(prop(d.bed.sensor,0),"+/00:10:40")
