@@ -149,7 +149,7 @@ end
 -- toTime("sunrise")    -> todays sunrise
 -- toTime("sunset+10")  -> todays sunset + 10min. E.g. sunset="05:10", =>toTime("05:10")+10*60
 -- toTime("sunrise-5")  -> todays sunrise - 5min
--- toTime("t/sunset+10")-> (t)oday at sunset. E.g. midnight+toTime("sunset+10")
+-- toTime("t/sunset+10")-> (t)oday at sunset in 'absolute' time. E.g. midnight+toTime("sunset+10")
 function toTime(time)
   if type(time) == 'number' then return time end
   local p = time:sub(1,2)
@@ -540,7 +540,7 @@ function Util.mkStack()
 end
 
 --------- ScriptEngine ------------------------------------------
-_debugInstrs=false
+_traceInstrs=false
 
 function newScriptEngine()
   local self={}
@@ -550,8 +550,8 @@ function newScriptEngine()
     ['+']=function(t) return t+osTime() end,
     n=function(t) t=t+midnight() return t<= osTime() and t or t+24*60*60 end,
     ['midnight']=function(t) return midnight() end,
-    ['sunset']=function(t) return hm2sec('sunset') end,
-    ['sunrise']=function(t) return hm2sec('sunrise') end,
+    ['sunset']=function(t) if t=='*' then return hm2sec('sunset') else return toTime(t.."/sunset") end end,
+    ['sunrise']=function(t) if t=='*' then return hm2sec('sunrise') else return toTime(t.."/sunrise") end end,
     ['now']=function(t) return osTime()-midnight() end}
   local function _coerce(x,y)
     local x1 = tonumber(x) if x1 then return x1,tonumber(y) else return x,y end
@@ -572,7 +572,7 @@ function newScriptEngine()
   end
   instr['env'] = function(s,n,a,e) s.push(e) end
   instr['table'] = function(s,n,k,i) local t = {} for j=n,1,-1 do t[k[j]] = s.pop() end s.push(t) end
-  instr['debug'] = function(s,n) _debugInstrs=s.ref(0) end
+  instr['trace'] = function(s,n) _traceInstrs=s.ref(0) end
   instr['var'] = function(s,n,a,e) local v = e.p and e.p[a[2][1]] s.push(v or Util.getVar(a)) end
   instr['glob'] = function(s,n,a) s.push(fibaro:getGlobal(a)) end
   instr['setVar'] = function(s,n,a,e) local v = s.pop() 
@@ -676,7 +676,7 @@ function newScriptEngine()
   function self.addInstr(name,fun) _assert(instr[name] == nil,"Instr already defined: %s",name) instr[name] = fun end
   function self.define(name,fun) _assert(funs[name] == nil,"Function already defined: %s",name) funs[name] = fun end
 
-  function debugInstrs(i,args,stack,cp)
+  function traceInstrs(i,args,stack,cp)
     local f,n = i[1],i[2]
     if i[1]:sub(1,1) == '%' or 
     ({var=true,glob=true,progn=true,time=true,table=true})[f] then return end -- ignore
@@ -699,9 +699,9 @@ function newScriptEngine()
     local status, res = pcall(function()  
         while env.cp <= #code do
           i = code[env.cp]
-          if _debugInstrs then args = stack.liftc(i[2]) end
+          if _traceInstrs then args = stack.liftc(i[2]) end
           local res = instr[i[1]](stack,i[2],i[3],env,i)
-          if _debugInstrs then debugInstrs(i,args,stack,env.cp) end
+          if _traceInstrs then traceInstrs(i,args,stack,env.cp) end
           env.cp = env.cp+(res or 1)
         end
         return stack.pop(),env,stack,1 
@@ -820,19 +820,22 @@ function newScriptCompiler()
     preC['-'] = function(k,e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])-tonumber(e[3]) or e end
     preC['*'] = function(k,e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])*tonumber(e[3]) or e end
     preC['/'] = function(k,e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])/tonumber(e[3]) or e end
-    preC['time'] = function(k,e) 
-      local date,h,m,s = e[2]:match("([%d/]+)/(%d%d):(%d%d):?(%d*)") 
+    preC['time'] = function(k,e)
+      local tm,ts = e[2]:match("([tn%+]?)/?(.+)")
+      if tm == "" or tm==nil then tm = '*' end
+      if ts=='sunrise' or ts=='sunset' then return {'%time',ts,tm} end
+      local date,h,m,s = ts:match("([%d/]+)/(%d%d):(%d%d):?(%d*)") 
       if date~=nil and date~="" then 
         local year,month,day=date:match("(%d+)/(%d+)/(%d+)")
+        _assert(h and m and year and month and day,"malformed date constant '%s'",e[2])
         local t = osDate("*t") 
-        t.year,t.month,t.day,t.hour,t.min,t.sec=year,month,day,h,m,(s or 0)
-        e = {'%time','*',osTime(t)}
+        t.year,t.month,t.day,t.hour,t.min,t.sec=year,month,day,h,m,((s~="" and s or 0) or 0)
+        return {'%time',tm,osTime(t)}
       else
-        local p,h,m,s = e[2]:match("([%+nt]?/?)(%d%d):(%d%d):?(%d*)")
-        _assert(p=="" or p=="+/" or p=="n/" or p=="t/","malformed time constant '%s'",e[2])
-        e ={'%time',p == "" and '*' or p:sub(1,1),h*3600+m*60+(s~="" and s or 0)}
+        h,m,s = ts:match("(%d%d):(%d%d):?(%d*)")
+        _assert(h and m,"malformed time constant '%s'",e[2])
+        return {'%time',tm,h*3600+m*60+(s~="" and s or 0)}
       end
-      return e
     end 
 
     function self.precompile(e) return traverse(e,function (k,e) return preC[k] and preC[k](k,e) or e end) end
@@ -850,6 +853,7 @@ function newScriptCompiler()
       {"^$([_0-9a-zA-Z\\$]+)",'lvar'},
       {"^!([_0-9a-zA-Z\\$]+)",'gvar'},
       {"^({})",'symbol'},
+      {"^([tn]/[sunriet]+)",'time'},
       {"^([tn%+]/%d%d:%d%d:?%d*)",'time'},{"^([%d/]+/%d%d:%d%d:?%d*)",'time'},{"^(%d%d:%d%d:?%d*)",'time'},    
       {"^:(%A+%d*)",'addr'},
       {"^([a-zA-Z][0-9a-zA-Z]*)%(",'call'},
