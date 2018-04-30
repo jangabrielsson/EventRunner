@@ -6,7 +6,7 @@
       _PORTLISTENER=true starts a listener on a socket for receieving sourcetriggers/events from HC2 scene
 --]] 
 
-if _version ~= "0.99" then error("Bad version of EventDebug") end
+if _version ~= "0.999" then error("Bad version of EventRunnerDebug") end
 
 _REMOTE            = false  -- If true use FibaroSceneAPI to call functions on HC2, else emulate them locally...
 _PORTLISTENER      = false
@@ -259,8 +259,8 @@ if not _REMOTE then
   
   function fibaro:setGlobal(v,x) 
     Debug((_FDEB > 1) and 1 or 10,"fibaro:setGlobal('%s','%s')",v,x)
-    if fibaro._globals[v] and fibaro._globals[v][1] ~= x then
-      Event.post({type='global', name=v, value=x, _sh=true})
+    if fibaro._globals[v] == nil or fibaro._globals[v][1] ~= x then
+      if Event.post then Event.post({type='global', name=v, value=x, _sh=true}) end
     end
     fibaro._globals[v] = {x,osTime and osTime() or os.time()}
   end
