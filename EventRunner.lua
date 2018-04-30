@@ -27,71 +27,8 @@ if dofile then dofile("EventRunnerDebug.lua") end
 
 ---------------- Callbacks to user code --------------------
 function main()
-  _setClock("t/08:00")
-  if nil then
-    for i,j in ipairs({
---      "a = 77; a:on ; a = {44,55}; a:on",
-        --"label(44,'foo')='bar'",
-        --"a=56; a+=8; a+=8+3",
-        "trace(true)",
-        "{55,66}:btn=2",
-        "{56,67}:msg='Hello!'",
-        "a=56;a:value=8",
-        "a={44,88}; a:on",
-        "a = -6",
-        "1 & 2 & 3",
-        "1 | 2 | 3",
-        "post(#foo{})",
-        --"trace(true)",
-        "true; || true >> 42 ; 43 ;; 45",
-        "-(5-7)",
-        "a={}; a.b=7; a.b",
-        --"log('hello %d',a.b)",
-        --"a=ostime();dotimes(v,1,100000,v*10);log('Time:%ss',(ostime()-a))",
-        "66:on => log('SUM:%d',(fn(a,b)-> return(a+b) end)(7,8))",
-        "post(#property{deviceID=66,value='1'})",
---      "isOn(55) => false",
-
-        --"#event{event=#WeatherChangedEvent{data={newValue= -2.2,change='Temperature'}}}",
---      "room={lamp=44}; room.lamp:on",
-        --"c=fn(a,b)-> return(a+b) end; c(6,8)",
-        --"(fn(a,b)-> return(a+b) end)(6,8)",
-        --"daily(10:00) => || wday('mon-tue') >> log(77) || wday('wed-fri') >> log(88) || wday('sat-sun') >> log(99)",
-        }) do
-      y = ScriptCompiler.parse(j)
-      print(tojson(y))
-      y = ScriptCompiler.compile(y)
-      ScriptCompiler.dump(y) --print(tojson(y))
-      y=ScriptEngine.eval(y)
-      print(tojson(y))
-    end
-  end
-  --fibaro:abort()
-  --y = ScriptCompiler.parse("#event{event=#WeatherChangedEvent{data={newValue= -2.2,change='Temperature'}}}")
-  --y=ScriptCompiler.parse("#property{deviceID=lr.lamp_window} => true")
-  --w=ScriptCompiler.precompile(y)
-  --g=ScriptCompiler.compile(w)
-  --y=ScriptEngine.eval(g)
-  --Rule.eval("for(00:10,not(safe(hall.door))) => send(user.jan.phone,log('Door open %s min',repeat(5)*10))")
-  --y= Rule.eval("$Presence==true => 08:00..12:00 >> log('on1');log('3') || 12:00..15:00 >> log('off1') || 18:00..20:00 >> log('on2');log('4')")
-  --printRule(y)
-  --fibaro:setGlobal("Presence",false)
-  --Event.post(function() fibaro:setGlobal("Presence",true) end,"t/09:00")
-  --y = ScriptCompiler.parse("10:00..11:00 >> print(42) | 12:00..15:00 >> print(43) | t >> print(88)")
-  --y = ScriptCompiler.precompile(y)
-  --Rule.eval("#foo{a='$b'} => print($b)")
-  --Rule.eval("post(#foo{a=42})")
-  --Util.defvar('foo',function(a,b) return a+b end)
-  --Rule.eval("trace(true);print($foo(3,4))")
-  --Rule.eval("define bar($x,$y)->log('SUM:%s',$x+$y); if($x > 2,return($x*$y),return($x*7))")
-  --Rule.eval("trace(true);a=ostime();dotimes(v,1,100000,v*10);log('Time:%ss',(ostime()-a))")
-  --Rule.eval("$kitchen=44")
-  --y=Rule.eval("scene($kitchen)==$S1.click => log('S1 switch clicked')")
-  --printRule(y)
-  --Rule.eval("post(#property{deviceID=$kitchen,propertyName='sceneActivation',value=$S1.click},n/09:10)")
   dofile("test_rules1.lua") 
   --dofile("TimeAndLight3.lua")
-
 end -- main()
 ------------------- EventModel --------------------  
 local _supportedEvents = {property=true,global=true,event=true,remote=true}
@@ -119,7 +56,7 @@ if _supportedEvents[_type] then
 end
 
 ---------- Consumer - re-posting incoming triggers as internal events --------------------
-fibaro:setGlobal(_MAILBOX,"") -- clear box
+
 local function _poll()
   local l = fibaro:getGlobal(_MAILBOX)
   if l and l ~= "" and l:sub(1,3) ~= '<@>' then -- Something in the mailbox
@@ -340,7 +277,7 @@ function newEventEngine()
   end
 
   function self.schedule(time,action,opt)
-    local test, start = opt and opt.cond, opt and opt.start or false
+    local test, start = opt and opt.cond, opt and (opt.start or false)
     local name = opt and opt.name or tostring(action)
     local loop,tp = {type='_scheduler:'..name, _sh=true}
     local test2,action2 = self._compileAction(test),self._compileAction(action)
@@ -603,6 +540,7 @@ function newScriptEngine()
   getIdFun['last']=function(s,i) return select(2,fibaro:get(ID(s.pop(),i),'value')) end  
   getIdFun['scene']=function(s,i) return fibaro:getValue(ID(s.pop(),i),'sceneActivation') end
   getIdFun['safe']=getIdFun['isOff'] getIdFun['breached']=getIdFun['isOn']
+  getIdFun['trigger']=function(s,i) return true end
   getIdFun['lux']=function(s,i) return getIdFuns(s,i,'value') end
   getIdFun['temp']=getIdFun['lux']
   getIdFun['start']=function(s,i) doit(Util.mapF,function(id) fibaro:startScene(ID(id,i)) end,s.pop()) return true end
@@ -708,7 +646,7 @@ function newScriptEngine()
   instr['log'] = function(s,n) s.push(Log(LOG.LOG,table.unpack(s.lift(n)))) end
   instr['tjson'] = function(s,n) s.push(tojson(s.pop())) end
   instr['fjson'] = function(s,n) s.push(json.decode(s.pop())) end
-  instr['osdate'] = function(s,n) local x,y = s.ref(n-1), n>1 and s.pop() s.pop(); s.push(os.date(x,y)) end
+  instr['osdate'] = function(s,n) local x,y = s.ref(n-1),(n>1 and s.pop() or nil) s.pop(); s.push(osDate(x,y)) end
   instr['daily'] = function(s,n,e) s.pop() s.push(true) end
   instr['ostime'] = function(s,n) s.push(osTime()) end
   instr['frm'] = function(s,n) s.push(string.format(table.unpack(s.lift(n)))) end
@@ -1091,8 +1029,9 @@ function newScriptCompiler()
     local t = tokenize(s)
     local status,res = pcall(function()
         if tpeek("def",t) then
-          -- parse function definition
+          _assert(false,"'def' not implemented yet")
         else
+          if t.peek().v=='||' then return self.statements(t) end
           local e = self.expr(t)
           return tpeek("=>",t) and {"=>",e,self.statements(t),t.str} or self.statements(t,e)
         end
@@ -1202,6 +1141,7 @@ function newRuleCompiler()
     local res = ScriptCompiler.parse(expr)
     res = ScriptCompiler.compile(res)
     res = ScriptEngine.eval(res)
+    if log then Log(LOG.LOG,"%s",tojson(res)) end
     return res
   end
 
@@ -1295,9 +1235,9 @@ if _type == 'autostart' or _type == 'other' then
 
   if _HC2 and fibaro:getGlobalModificationTime(_MAILBOX) == nil then
     api.post("/globalVariables/",{name=_MAILBOX})
-  end
+  end 
 
-  if _HC2 then _poll() end -- start polling mailbox
+  if _HC2 then fibaro:setGlobal(_MAILBOX,"") _poll() end -- start polling mailbox
 
   Log(LOG.SYSTEM,"Loading rules")
   local status, res = pcall(function() main() end)

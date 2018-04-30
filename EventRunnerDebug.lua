@@ -8,7 +8,7 @@
 
 if _version ~= "0.999" then error("Bad version of EventRunnerDebug") end 
 
-_REMOTE            = false  -- If true use FibaroSceneAPI to call functions on HC2, else emulate them locally...
+_REMOTE            = true  -- If true use FibaroSceneAPI to call functions on HC2, else emulate them locally...
 _PORTLISTENER      = false
 _POLLINTERVAL      = 500 
 _PORT              = 6872
@@ -19,6 +19,8 @@ __fibaroSceneId    = 32     -- Set to scene ID. On HC2 this variable is defined
 hc2_user           = "xxx" -- HC2 credentials, used for api.x/FibaroSceneAPI calls
 hc2_pwd            = "xxx" 
 hc2_ip             = "192.168.1.69" -- IP of HC2
+local creds = loadfile("credentials.lua")
+if creds then creds() end
 
 ------------------------------------------------------------
 
@@ -63,7 +65,7 @@ function split(s, sep)
   return fields
 end
 
-_timeAdjust = 0
+_timeAdjust = nil
 
 if _speedtime then -- Special version of time functions
   local _startTime = os.time()
@@ -79,13 +81,13 @@ if _speedtime then -- Special version of time functions
       print(_format("Memory start-end:%.2f",collectgarbage("count")-GC))
       os.exit() 
     end
-    return t+_timeAdjust
+    return t+(_timeAdjust or 0)
   end
   function fibaro:sleep(n) 
     _sleep = _sleep + n/1000 --math.floor(n/1000) 
   end
   function osClock() return osTime() end
-  function _setClock(t) _timeAdjust = toTime(t)-osTime() end -- 
+  function _setClock(t) _timeAdjust = _timeAdjust or toTime(t)-osTime() end -- 
   function _setMaxTime(t) _maxTime = _startTime + t*60*60 end -- hours
 else
   osTime = function(arg) return arg and os.time(arg) or os.time()+_timeAdjust end

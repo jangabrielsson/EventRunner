@@ -1,7 +1,9 @@
-local tHouse = false
+local tExpr = false
+local tShell = true
 local tEarth = false
-local tTest1 = true
+local tTest1 = false
 local tTest2 = false
+local tHouse = false
 
 local function post(e,t) Event.post(e,t) end
 local function prop(id,state,prop) return {type='property', deviceID=id, propertyName=prop, value=state} end
@@ -18,6 +20,45 @@ for k,v in pairs({
     lr=dev.livingroom,ba=dev.back,gr=dev.game,
     ti=dev.tim,ma=dev.max,bd=dev.bedroom}) 
 do Util.defvar(k,v) end
+
+if tExpr then
+  local function test(expr) Log(LOG.LOG,"Eval %s = %s",expr,tojson(Rule.eval(expr))) end
+  _setClock("t/06:00")
+  test("10/5+6*3")
+  test("a={}; a.b = {c=42}; a.b.c")
+  test("a = {b=7+9, c=8/2}")
+  test("a['c']=3; a")
+  test("a = {1,2,3}")
+  test("add(a,4)")
+  test("a = {77,99,100}; a:on")
+  test("a:isOn")
+  test("a:isOff")
+  test("{88,99}:msg=frm('%s+%s=%s',6,8,6+8)")
+  Util.defvar('f1',function(a,b,c) return a+b*c end)
+  test("4+f1(1,2,3)+2")
+  test("a=fn(a,b) -> return(a+b) end; a(7,9)")
+  test("(fn(a,b) -> return(a+b) end)(7,9)")
+  test("label(45,'test')='hello'")
+  test([[
+    || 05:00..11:00 >> log('Morning at %s',osdate('%X')) 
+    || 11:00..15:00 >> log('Day at %s',osdate('%X'))
+    || 15:00..22:00 >> log('Evening at %s',osdate('%X'))
+    || 22:00..05:00 >> log('Night at %s',osdate('%X'))
+    ]])
+  test("log(osdate('Sunset at %X',t/sunrise)); || sunrise-10..sunrise+10 >> log('Its close to sunset at %s',osdate('%X'))")
+end
+
+if tShell then
+  Event.event({type='shell'},function(env)
+    io.write("Eval:") expr = io.read()
+    if expr ~= 'exit' then
+      Log(LOG.LOG,"Eval %s = %s",expr,tojson(Rule.eval(expr)))
+      Event.post({type='shell', _sh=true},'+/00:10')
+    end
+  end)
+
+  Event.post({type='shell', _sh=true})
+end
 
 if tEarth then
   Rule.eval("lights={td.lamp_roof,lr.lamp_roof_sofa}",true)
