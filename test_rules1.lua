@@ -1,7 +1,7 @@
 local tExpr = false
-local tRules = true
+local tRules = false
 local tShell = false
-local tEarth = false
+local tEarth = true
 local tTest1 = false
 local tTest2 = false
 local tHouse = false
@@ -61,7 +61,7 @@ if tRules then
   }]]
   local dev = json.decode(conf)
   Util.reverseMapDef(dev) -- Make device names availble for debugging
-  Util.defvar('dev',dev)
+  Util.defvar('dev',dev) -- Makes dev available as variable in scripts
   
   Rule.eval("dev.kitchen.lamp:isOn => log('Kitchen lamp turned on')")
   Rule.eval("dev.kitchen.lamp:on") -- turn on lamp triggers previous rule
@@ -86,16 +86,18 @@ if tShell then -- run an interactive shell to try out commands
 end
 
 if tEarth then -- Earth hour script
-  Rule.eval("lights={td.lamp_roof,lr.lamp_roof_sofa}")
-  Rule.eval("earthDates={2019/3/30/20:30,2020/3/28/20:30}")
-  Rule.eval("dolist(v,earthDates,post(#earthHour,v))")
-  Rule.eval([[#earthHour{} =>
-              states={};
-              dolist(v,lights,add(states,{id=v,value=v:value}));
-              lights:off;
-              post(#earthHourOff,+/01:00)]])
-  Rule.eval("#earthHourOff => dolist(v,states,v.id:value=v.value))")
-  Rule.eval("post(#earthHour,+/00:10)")
+  Rule.load([[
+    lights={td.lamp_roof,lr.lamp_roof_sofa}
+    earthDates={2019/3/30/20:30,2020/3/28/20:30}
+    dolist(v,earthDates,post(#earthHour,v))
+    #earthHour{} =>
+      states={};
+      dolist(v,lights,add(states,{id=v,value=v:value}));
+      lights:off;
+      post(#earthHourOff,+/01:00)
+    #earthHourOff => dolist(v,states,v.id:value=v.value)
+    ]])
+  Rule.eval("post(#earthHour,+/00:10)") -- simulate earthHour...
 end
 
 if tHouse then
