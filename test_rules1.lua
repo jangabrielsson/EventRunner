@@ -1,6 +1,7 @@
 local tExpr = false
-local tShell = true
-local tEarth = false
+local tRules = false
+local tShell = false
+local tEarth = true
 local tTest1 = false
 local tTest2 = false
 local tHouse = false
@@ -22,7 +23,7 @@ for k,v in pairs({
     ti=dev.tim,ma=dev.max,bd=dev.bedroom}) 
 do Util.defvar(k,v) end
 
-if tExpr then
+if tExpr then -- test some standrad expression
   local function test(expr) Log(LOG.LOG,"Eval %s = %s",expr,tojson(Rule.eval(expr))) end
   _setClock("t/06:00")
   test("10/5+6*3")
@@ -40,6 +41,8 @@ if tExpr then
   test("a=fn(a,b) -> return(a+b) end; a(7,9)")
   test("(fn(a,b) -> return(a+b) end)(7,9)")
   test("label(45,'test')='hello'")
+  test("|| 11:00..12:00 & day('1-7') & wday('mon') >> log('Noon first Monday of the month!')")
+  test("|| 11:00..12:00 & day('lastw-last') & wday('mon') >> log('Noon last Monday of the month!')")
   test([[
     || 05:00..11:00 >> log('Morning at %s',osdate('%X')) 
     || 11:00..15:00 >> log('Day at %s',osdate('%X'))
@@ -49,7 +52,26 @@ if tExpr then
   test("log(osdate('Sunset at %X',t/sunrise)); || sunrise-10..sunrise+10 >> log('Its close to sunset at %s',osdate('%X'))")
 end
 
-if tShell then
+if tRules then
+  local conf = [[{
+   kitchen:{light:20,lamp:21,sensor:22},
+   room:{light:23,sensor:24,tableLamp:25},
+   hall:{switch:26,door:27}
+  }]]
+  local dev = json.decode(conf)
+  Util.reverseMapDef(dev) -- Make device names availble for debugging
+  Util.defvar('dev',dev)
+  
+  Rule.eval("dev.kitchen.lamp:isOn => log('Kitchen lamp turned on')")
+  Rule.eval("dev.kitchen.lamp:on") -- turn on lamp triggers previous rule
+  
+  Rule.eval("lights={dev.kitchen.light,dev.room.light}")
+  Rule.eval("dev.hall.switch:value => lights:value=dev.hall.switch:value") -- link switch to lights
+  Rule.eval("dev.hall.switch:on") -- turn on switch
+
+end
+
+if tShell then -- run an interactive shell to try out commands
   Event.event({type='shell'},function(env)
       io.write("Eval:") expr = io.read()
       if expr ~= 'exit' then
@@ -61,10 +83,10 @@ if tShell then
   Event.post({type='shell', _sh=true})
 end
 
-if tEarth then
-  Rule.eval("lights={td.lamp_roof,lr.lamp_roof_sofa}",true)
-  Rule.eval("earthDates={2019/3/30/20:30,2020/3/28/20:30}",true)
-  Rule.eval("dolist(v,earthDates,post(#earthHour,v))",true)
+if tEarth then -- Earth hour script
+  Rule.eval("lights={td.lamp_roof,lr.lamp_roof_sofa}")
+  Rule.eval("earthDates={2019/3/30/20:30,2020/3/28/20:30}")
+  Rule.eval("dolist(v,earthDates,post(#earthHour,v))")
   Rule.eval([[#earthHour{} =>
               states={};
               dolist(v,lights,add(states,{id=v,value=v:value}));
@@ -321,7 +343,7 @@ if tRemoteAsync then -- example of doing remote/async calls
 
   Util.defvar('foo',function(a,b) call('foo/3',{a,b}) end)
   -- Handler waits 10min and does a reply, should propbably have a timeout parameter...
-  -- This could easily be extended to call functions in other scenes...
+  -- This could trivially be extended to call functions in other scenes...
   Rule.eval("#RPC{from='$id', args='$args'} => wait(00:10); post(#RPC{to=id,res=args[1]+args[2]})")
   Rule.eval("log('RES=%s',foo(4,5))")
 

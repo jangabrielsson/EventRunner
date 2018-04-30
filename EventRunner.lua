@@ -34,7 +34,7 @@ end -- main()
 local _supportedEvents = {property=true,global=true,event=true,remote=true}
 local _trigger = fibaro:getSourceTrigger()
 local _type, _source = _trigger.type, _trigger
-local _MAILBOX = "MAILBOX"..__fibaroSceneId
+local _MAILBOX = "MAILBOX"..__fibaroSceneId 
 
 if _type == 'other' and fibaro:args() then
   _trigger,_type = fibaro:args()[1],'remote'
@@ -686,9 +686,9 @@ function newScriptEngine()
       return
     end 
     i[7] = 0
-    if i[5] and (not val) then i[5] = Event.cancel(i[5]) Log(LOG.LOG,"Killing timer")-- Timer already running, and false, stop timer
+    if i[5] and (not val) then i[5] = Event.cancel(i[5]) --Log(LOG.LOG,"Killing timer")-- Timer already running, and false, stop timer
     elseif (not i[5]) and val then                        -- Timer not running, and true, start timer
-      i[5]=Event.post(rep,time+osTime(),e.rule) Log(LOG.LOG,"Starting timer")
+      i[5]=Event.post(rep,time+osTime(),e.rule) --Log(LOG.LOG,"Starting timer")
     end
     s.push(false)
   end
