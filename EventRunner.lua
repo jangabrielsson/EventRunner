@@ -16,9 +16,9 @@ _version = "0.999"
 -- Email: jan@gabrielsson.com
 --]]
 
-_sceneName ="Demo" -- Set to scene/script name
-_debugLevel   = 3
-_deviceTable  = "deviceTable" -- Name of json struct with configuration data (i.e. "HomeTable")
+_sceneName   = "Demo"        -- Set to scene/script name
+_debugLevel  = 3
+_deviceTable = "deviceTable" -- Name of json struct with configuration data (i.e. "HomeTable")
 
 _HC2 = true
 Event = {}
@@ -728,6 +728,7 @@ function newScriptEngine()
     else
       if not instr[i[1]] then errThrow("eval",_format("undefined instruction '%s'",i[1])) end
       if type(res) == 'table' and res.type == 'yield' then
+        if res.fun then res.fun(env,stack,env.cp+1,res) end
         return "%YIELD%",env,stack,env.cp+1
       end
       error(res)

@@ -4,6 +4,7 @@ local tEarth = false
 local tTest1 = false
 local tTest2 = false
 local tHouse = false
+local tRemoteAsync = false
 
 local function post(e,t) Event.post(e,t) end
 local function prop(id,state,prop) return {type='property', deviceID=id, propertyName=prop, value=state} end
@@ -50,12 +51,12 @@ end
 
 if tShell then
   Event.event({type='shell'},function(env)
-    io.write("Eval:") expr = io.read()
-    if expr ~= 'exit' then
-      Log(LOG.LOG,"Eval %s = %s",expr,tojson(Rule.eval(expr)))
-      Event.post({type='shell', _sh=true},'+/00:10')
-    end
-  end)
+      io.write("Eval:") expr = io.read()
+      if expr ~= 'exit' then
+        Log(LOG.LOG,"Eval %s = %s",expr,tojson(Rule.eval(expr)))
+        Event.post({type='shell', _sh=true},'+/00:10')
+      end
+    end)
 
   Event.post({type='shell', _sh=true})
 end
@@ -86,43 +87,43 @@ if tHouse then
 -- Kitchen
       for(00:10,kt.movement:safe&$LIGHTTIME$) => kt.lamp_table:off=true
 
-      for(00:10,{kt.movement,lr.movement,ha.movement}:safe&$LIGHTTIME$) =>
-        {kt.lamp_stove,kt.lamp_sink,ha.lamp_hall}:isOn&
-        {kt.lamp_stove,kt.lamp_sink,ha.lamp_hall}:off&
+      for(00:10,{kt.movement,lr.movement,ha.movement}:safe & $LIGHTTIME$) =>
+        {kt.lamp_stove,kt.lamp_sink,ha.lamp_hall}:isOn &
+        {kt.lamp_stove,kt.lamp_sink,ha.lamp_hall}:off &
         log('Turning off kitchen spots after 10 min inactivity')
 
 -- Kitchen
-      daily(sunset-00:10) => press(kt.sink_led,1);log('Turn on kitchen sink light')
-      daily(sunrise+00:10) => press(kt.sink_led,2);log('Turn off kitchen sink light')
-      daily(sunset-00:10) => kt.lamp_table:on;log('Evening, turn on kitchen table light')
+      daily(sunset-00:10) => press(kt.sink_led,1); log('Turn on kitchen sink light')
+      daily(sunrise+00:10) => press(kt.sink_led,2); log('Turn off kitchen sink light')
+      daily(sunset-00:10) => kt.lamp_table:on; log('Evening, turn on kitchen table light')
 
 -- Living room
-      daily(sunset-00:10) => lr.lamp_window:on;log('Turn on livingroom light')
-      daily(00:00) => lr.lamp_window:off;log('Turn off livingroom light')
+      daily(sunset-00:10) => lr.lamp_window:on; log('Turn on livingroom light')
+      daily(00:00) => lr.lamp_window:off; log('Turn off livingroom light')
 
 -- Front
-      daily(sunset-00:10) => ha.lamp_entrance:on;log('Turn on lights entr.')
-      daily(sunset) => ha.lamp_entrance:off;log('Turn off lights entr.')
+      daily(sunset-00:10) => ha.lamp_entrance:on; log('Turn on lights entr.')
+      daily(sunset) => ha.lamp_entrance:off; log('Turn off lights entr.')
 
 -- Back
-      daily(sunset-00:10) => ba.lamp:on;log('Turn on lights back')
-      daily(sunset) => ba.lamp:off;log('Turn off lights back')
+      daily(sunset-00:10) => ba.lamp:on; log('Turn on lights back')
+      daily(sunset) => ba.lamp:off; log('Turn off lights back')
 
 -- Game room
-      daily(sunset-00:10) => gr.lamp_window:on;log('Turn on gaming room light')
-      daily(23:00) => gr.lamp_window:off;log('Turn off gaming room light')
+      daily(sunset-00:10) => gr.lamp_window:on; log('Turn on gaming room light')
+      daily(23:00) => gr.lamp_window:off; log('Turn off gaming room light')
 
 -- Tim
-      daily(sunset-00:10) => {ti.bed_led,ti.lamp_window}:on;log('Turn on lights for Tim')
-      daily(00:00) => {ti.bed_led,ti.lamp_window}:off;log('Turn off lights for Tim')
+      daily(sunset-00:10) => {ti.bed_led,ti.lamp_window}:on; log('Turn on lights for Tim')
+      daily(00:00) => {ti.bed_led,ti.lamp_window}:off; log('Turn off lights for Tim')
 
 -- Max
-      daily(sunset-00:10) => ma.lamp_window:on;log('Turn on lights for Max')
-      daily(00:00) => ma.lamp_window:off;log('Turn off lights for Max')
+      daily(sunset-00:10) => ma.lamp_window:on; log('Turn on lights for Max')
+      daily(00:00) => ma.lamp_window:off; log('Turn off lights for Max')
 
 -- Bedroom
-      daily(sunset) => {bd.lamp_window,bd.lamp_table,bd.bed_led}:on;log('Turn on bedroom light')
-      daily(23:00) => {bd.lamp_window,bd.lamp_table,bd.bed_led}:off;log('Turn off bedroom light')
+      daily(sunset) => {bd.lamp_window,bd.lamp_table,bd.bed_led}:on; log('Turn on bedroom light')
+      daily(23:00) => {bd.lamp_window,bd.lamp_table,bd.bed_led}:off; log('Turn off bedroom light')
     ]])
 
   -- test daily light rules
@@ -130,7 +131,7 @@ if tHouse then
   Event.post({type='property', deviceID=dev.kitchen.movement, value=0}, "n09:00") -- and turn off sensor
 
 -- Bathroom
-  Rule.eval("for(00:10,td.movement:safe&td.door:value) => not(inBathroom)&td.lamp_roof:off")
+  Rule.eval("for(00:10,td.movement:safe & td.door:value) => not(inBathroom)&td.lamp_roof:off")
   Rule.eval("td.movement:breached => || td.door:safe >> inBathroom=true ;;td.lamp_roof:on")
   Rule.eval("td.door:breached => inBathroom=false")
   Rule.eval("td.door:safe & td.movement:last<3 => inBathroom=true")
@@ -152,24 +153,24 @@ if tHouse then
 -- SceneActivation events
   Rule.load([[
       lr.lamp_roof_holk:scene==S2.click =>
-        toggle(lr.lamp_roof_sofa);log('Toggling lamp downstairs')
+        toggle(lr.lamp_roof_sofa); log('Toggling lamp downstairs')
       bd.lamp_roof:scene==S2.click =>
-        toggle({bd.lamp_window, bd.bed_led});log('Toggling bedroom lights')
+        toggle({bd.lamp_window, bd.bed_led}); log('Toggling bedroom lights')
       ti.lamp_roof:scene==S2.click =>
-        toggle(ti.bed_led);log('Toggling Tim bedroom lights')
+        toggle(ti.bed_led); log('Toggling Tim bedroom lights')
       ti.lamp_roof:scene==S2.double =>
-        toggle(ti.lamp_window);log('Toggling Tim window lights')
+        toggle(ti.lamp_window); log('Toggling Tim window lights')
       ma.lamp_roof:scene==S2.click =>
-        toggle(ma.lamp_window);log('Toggling Max bedroom lights')
+        toggle(ma.lamp_window); log('Toggling Max bedroom lights')
       gr.lamp_roof:scene==S2.click =>
-        toggle(gr.lamp_window);log('Toggling Gameroom window lights')
+        toggle(gr.lamp_window); log('Toggling Gameroom window lights')
       kt.lamp_table:scene==S2.click =>
-        || label(kt.sonos,'lblState')=='Playing' >> press(kt.sonos,8) || true >> press(kt.sonos,7);;
+        || label(kt.sonos,'lblState')=='Playing' >> kt.sonos:btn=8 || true >> kt.sonos:btn=7;;
         log('Toggling Sonos %s',label(kt.sonos,'lblState'))
       #property{deviceID=lr.lamp_window} => 
-        || lr.lamp_window:isOn >> press(lr.lamp_tv,1); press(lr.lamp_globe,1) || true >> press(lr.lamp_tv,2); press(lr.lamp_globe,2)
+        || lr.lamp_window:isOn >> lr.lamp_tv:btn=1; lr.lamp_globe:btn=1 || true >> lr.lamp_tv:btn=2; lr.lamp_globe:btn=2
     ]])
-    --Rule.eval("trace(true)")
+  --Rule.eval("trace(true)")
   -- test scene activations
   --post(prop(dev.livingroom.lamp_roof_holk,Util.S2.click,'sceneActivation'),"n/09:10")
   --post(prop(dev.livingroom.lamp_roof_holk,Util.S2.click,'sceneActivation'),"n/09:20")
@@ -197,13 +198,13 @@ if tTest1 then
   Rule.eval("sunriseLamps={garage.lamp,bed.lamp}")
   Rule.eval("lampsDownstairs={kitchen.lamp}")
   Rule.eval("sensorsDownstairs={livingroom.sensor,kitchen.sensor}")
-  
+
   Rule.eval([[$Presence==true => 
       || 06:00..08:00 >> log('alarm off1')
       || 08:00..12:00 >> log('alarm on1')
       || 12:00..15:00 >> log('alarm off2')
       || 18:00..20:00 >> log('alarm on2')]])
-  
+
   Rule.eval("$Presence=true")
 
   Rule.eval("{b=2,c={d=3}}.c.d",true)
@@ -283,7 +284,7 @@ if tTest2 then
   Rule.eval("foo['bar']=42",true) -- {bar=42}
   Rule.eval("$foo=5",true) -- fibaro:setGlobal('foo',5)
   Rule.eval("label(42,'foo')='bar'",true) -- fibaro:call(42,'setProperty', 'ui.foo.value', 'bar')
-  
+
   y=Rule.eval("#test{i='$i<=10'} => wait(00:10); log('i=%d',i); post(#test{i=i+1})") -- Print i every 10min
   Rule.eval("post(#test{i=1})")
 
@@ -299,6 +300,32 @@ if tTest2 then
   post(prop(d.bed.lamp,1),"+/00:25")
 
 end -- ruleTests2
+
+if tRemoteAsync then -- example of doing remote/async calls
+  
+  _callbacks={}
+  local function call(id,args)
+    id = id or tostring(args)
+    local callback = function(env,stack,cp,ctx)
+      _callbacks[id] = function(nenv)
+        stack.push(nenv.event.res)
+        ScriptEngine.eval(env.code,env,stack,cp)
+      end
+    end
+    Event.post({type='RPC',from=id, args=args})
+    error({type='yield', fun=callback})
+  end
+  Event.event({type='RPC', to='$to'},function(env)
+      if _callbacks[env.event.to] then _callbacks[env.event.to](env) _callbacks[env.event.to] = nil end
+    end)
+
+  Util.defvar('foo',function(a,b) call('foo/3',{a,b}) end)
+  -- Handler waits 10min and does a reply, should propbably have a timeout parameter...
+  -- This could easily be extended to call functions in other scenes...
+  Rule.eval("#RPC{from='$id', args='$args'} => wait(00:10); post(#RPC{to=id,res=args[1]+args[2]})")
+  Rule.eval("log('RES=%s',foo(4,5))")
+
+end
 
 Event.event({type='error'},function(env) local e = env.event -- catch errors and print them out
     Log(LOG.ERROR,"Runtime error %s for '%s' receiving event %s",e.err,e.rule,e.event) 
