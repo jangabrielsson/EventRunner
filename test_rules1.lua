@@ -173,7 +173,7 @@ if tTest1 then
 
   Rule.eval("for(00:10,hall.door:breached) => send(user.jan.phone,log('Door open %s min',repeat(5)*10))")
   post(prop(d.hall.door,0),"+/00:15")
-  post(prop(d.hall.door,1),"+/00:20")
+  post(prop(d.hall.door,1),"+/00:20") 
 
   Rule.eval([[
       once(kitchen.temp:temp>10) => 
