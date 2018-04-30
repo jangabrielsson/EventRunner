@@ -8,7 +8,7 @@
 
 if _version ~= "0.999" then error("Bad version of EventRunnerDebug") end 
 
-_REMOTE            = false  -- If true use FibaroSceneAPI to call functions on HC2, else emulate them locally...
+_REMOTE            = true  -- If true use FibaroSceneAPI to call functions on HC2, else emulate them locally...
 _PORTLISTENER      = false
 _POLLINTERVAL      = 500 
 _PORT              = 6872
