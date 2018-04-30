@@ -1,7 +1,7 @@
 local tExpr = false
-local tRules = false
+local tRules = true
 local tShell = false
-local tEarth = true
+local tEarth = false
 local tTest1 = false
 local tTest2 = false
 local tHouse = false
@@ -56,7 +56,8 @@ if tRules then
   local conf = [[{
    kitchen:{light:20,lamp:21,sensor:22},
    room:{light:23,sensor:24,tableLamp:25},
-   hall:{switch:26,door:27}
+   hall:{switch:26,door:27},
+   phone:{jan:100,dani:101}
   }]]
   local dev = json.decode(conf)
   Util.reverseMapDef(dev) -- Make device names availble for debugging
@@ -67,8 +68,9 @@ if tRules then
   
   Rule.eval("lights={dev.kitchen.light,dev.room.light}")
   Rule.eval("dev.hall.switch:value => lights:value=dev.hall.switch:value") -- link switch to lights
-  Rule.eval("dev.hall.switch:on") -- turn on switch
-
+  Rule.eval("dev.hall.switch:on") -- turn on switch to trigger previous rule
+  Rule.eval("for(00:10,dev.hall.door:breached) => dev.phone.jan:msg=log('Door open for %s min',repeat(5)*10)")
+  Rule.eval("dev.hall.door:on") -- Simulate breach
 end
 
 if tShell then -- run an interactive shell to try out commands

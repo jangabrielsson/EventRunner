@@ -316,12 +316,12 @@ function newEventEngine()
 -- {{e1,e2,e3},{e4,e5,e6}} 
   function self._handleEvent(e) -- running a posted event
     if _OFFLINE and not _REMOTE then if _simFuns[e.type] then _simFuns[e.type](e)  end end
-    local env = {event = e}
+    local env = {event = e, p={}}
     if _getProp[e.type] then _getProp[e.type](e,e.value) end  -- patch events
     for _,rules in ipairs(_handlers[e.type] or {}) do -- Check all rules of 'type'
       local match = _match(rules[1][self.RULE],e)
       if match then
-        if next(match) then for k,v in pairs(match) do match[k]={v} end env.context = match end
+        if next(match) then for k,v in pairs(match) do env.p[k]=v match[k]={v} end env.context = match end
         for _,rule in ipairs(rules) do 
           if not rule._disabled then env.rule = rule _invokeRule(env) end
         end
