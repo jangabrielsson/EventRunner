@@ -216,7 +216,7 @@ function newEventEngine()
     rule = rule and rule.org or def
     Log(LOG.ERROR,"Error in '%s': %s",rule,res)
   end
-  
+
   function self.post(e,time,rule) -- time in 'toTime' format, see below.
     _assert(isEvent(e) or type(e) == 'function', "Bad2 event format %s",tojson(e))
     time = toTime(time or osTime())
@@ -531,7 +531,9 @@ function newScriptEngine()
   function ID(id,i) _assert(tonumber(id),"bad deviceID '%s' for '%s'",id,i[1]) return id end
   local function doit(m,f,s) if type(s) == 'table' then return m(f,s) else return f(s) end end
 
-  local function getIdFuns(s,i,prop) return fibaro:get(ID(s.pop(),i),prop) end
+  local function getIdFuns(s,i,prop) local id = s.pop() 
+    if type(id)=='table' then return Util.map(function(id) return fibaro:get(ID(id,i),prop) end,id) else return fibaro:get(ID(id,i),prop) end 
+  end
   local getIdFun={}
   getIdFun['isOn']=function(s,i) return doit(Util.mapOr,function(id) return fibaro:get(ID(id,i),'value') > '0' end,s.pop()) end
   getIdFun['isOff']=function(s,i) return doit(Util.mapAnd,function(id) return fibaro:getValue(ID(id,i),'value') == '0' end,s.pop()) end
@@ -679,7 +681,8 @@ function newScriptEngine()
   end
   instr['for'] = function(s,n,e,i) 
     local val,time, stack, cp = s.pop(),s.pop(), e.stack, e.cp
-    local rep = function() i[6] = true; i[5] = nil; self.eval(e.code) end
+    local code = e.code
+    local rep = function() i[6] = true; i[5] = nil; self.eval(code) end
     e.forR = nil -- Repeat function (see repeat())
     if i[6] then -- true if timer has expired
       i[6] = nil; 
@@ -952,7 +955,7 @@ function newScriptCompiler()
     local table,idx,tt=it or {},1
     if tokens.peek().t =='rbrack' then tokens.nxt() return {'%table',table} end
     repeat
-      local el = self.expr(tokens)
+      local el,key,val = self.expr(tokens)
       if type(el)=='table' and el[1]=='set' then key,val=el[2][2],el[3] else key,val=idx,el idx=idx+1 end
       table[key]=val
       local t = tokens.nxt() _passert(t.v==',' or t.v=='}',t and t.cp or tt.cp,"bad table")

@@ -87,11 +87,13 @@ if tShell then -- run an interactive shell to try out commands
 end
 
 if tScheduler then
+  _setClock("t/06:00") -- start simulation at 06:00
+  _setMaxTime(24*20)     -- run for 20 days
   -- setup data we need
   local conf = [[{
    kitchen:{light:20,lamp:21,sensor:22},
    room:{light:23,sensor:24,tableLamp:25,philipsHue:201},
-   hall:{switch:26,door:27,sensor:28},
+   hall:{switch:26,door:27,sensor:28,light:33},
    back:{lamp:56,door:57},
    bathroom:{door:47,lamp:48,sensor:49},
    max:{lamp_window:70,lamp_bed:71},
@@ -114,44 +116,62 @@ if tScheduler then
   Rule.eval("evening_VDs={room.philipsHue}") 
   
   -- We could support a 'weekly' as this runs once a day just to check if it is monday
+  -- Anyway, garbage can out on Monday evening...
   Rule.eval([[daily(19:00) & wday('mon') & $Presence~='away' => 
-               phone.jan:msg="Don't forget to take out the garbage"]])
+               phone.jan:msg="Don't forget to take out the garbage!"]])
 
-  -- Salary on the 25th, or the last weekday if it is on a weekend
-  Rule.eval([[daily(21:00) & (day('25')&wday('mon-fri') | day('23-24')&wday('fri')) & $Presence~='away' =>
+  -- Salary on the 25th, or the last weekday if it's on a weekend
+  Rule.eval([[daily(21:00) & (day('23')&wday('thu') | day('24')&wday('mon-thu')) & $Presence~='away' =>
                phone.jan:msg='Salary tomorrow!']])
   
-  Rule.eval("for(00:10,hall.door:breached) => phone.jan:msg=log('Door open for %s min',repeat(5)*10)")
+  --Rule.eval("for(00:10,hall.door:breached) => phone.jan:msg=log('Door open for %s min',repeat(5)*10)")
 
   -- Post Sunset/Sunrise events that controll a lot of house lights. 
   -- If away introduce a random jitter of +/- an hour to make it less predictable...
-  Rule.eval([[daily(00:00) =>
+
+  Rule.eval([[daily(00:00) => sunsetFlag=false;
     || $Presence ~= 'away' >> post(#Sunrise,t/sunrise+00:10); post(#Sunset,t/sunset-00:10)
     || $Presence == 'away' >> post(#Sunrise,t/sunrise+rnd(-01:00,01:00)); post(#Sunset,t/sunset+rnd(-01:00,01:00))]])
   
-  Rule.eval("#Sunset => evening_lights:on; evening_VDs:btn=1")
-  Rule.eval("#Sunrise => evening_lights:off; evening_VDs:btn=2")
+  Rule.eval("#doSunset => evening_lights:on; evening_VDs:btn=1")
+  Rule.eval("#doSunrise => evening_lights:off; evening_VDs:btn=2")
   
   -- Room specific lightning
   -- Max
-  Rule.eval("#Sunset => {max.lamp_window, max.lamp_bed}:on")
+  Rule.eval("#doSunset => {max.lamp_window, max.lamp_bed}:on")
   Rule.eval("daily(00:00) => {max.lamp_window, max.lamp_bed}:off")
   --Master bedroom
-  Rule.eval("#Sunset => {bed.lamp_window, bed.lamp_bed}:on")
+  Rule.eval("#doSunset => {bed.lamp_window, bed.lamp_bed}:on")
   Rule.eval("daily(00:00) => {bed.lamp_window, bed.lamp_bed}:off")
 
+  -- This is a trick to only call #Sunset once, allows lux sensor to trigger sunset earlier
+  Rule.eval("#Sunset => || not(sunsetFlag) >> sunsetFlag=true; post(#doSunset)")
   -- Automatic lightning
   --Kitchen spots
-  Rule.eval("for(00:10,downstairs_move:safe & downstairs_spots:isOn) => downstairs_spots:off")
+--  Rule.eval([[for(00:10,downstairs_move:safe & downstairs_spots:isOn) => 
+--      downstairs_spots:off; log('Turning off spots after 10min of inactivity downstairs')]])
+      
   --Bathroom, uses a local flag (inBathroom) 
-  Rule.eval("for(00:10,bathroom.sensor:safe&bathroom.door:trigger) => not(inBathroom)&bathroom.lamp:off")
-  Rule.eval("bathroom.sensor:breached => bathroom.door:safe & inBathroom=true ; bathroom.lamp:on")
-  Rule.eval("bathroom.door:breached => inBathroom=false")
-  Rule.eval("bathroom.door:safe & bathroom.sensor:last<3 => inBathroom=true")
+--  Rule.eval("for(00:10,bathroom.sensor:safe&bathroom.door:trigger) => not(inBathroom)&bathroom.lamp:off")
+--  Rule.eval("bathroom.sensor:breached => bathroom.door:safe & inBathroom=true ; bathroom.lamp:on")
+--  Rule.eval("bathroom.door:breached => inBathroom=false")
+--  Rule.eval("bathroom.door:safe & bathroom.sensor:last<3 => inBathroom=true")
   
-  -- if average lux value is less than 100 one hour from sunset, trigger sunset anyway...
-  Rule.eval([[downstairs_lux:lux => 
-     || sunset-01:00..sunset & sum(downstairs_lux:lux)/length(downstairs_lux) < 100 >> post(#Sunset)]])
+  -- if average lux value is less than 100 one hour from sunset, trigger sunset event...
+  -- Because we later set all sensors to 99 this would trigger 3 times, and thus we wrap it in 'once'
+  Rule.eval([[once(sum(downstairs_lux:lux)/length(downstairs_lux) < 100 & sunset-01:00..sunset) => 
+               post(#Sunset); log('Too dark at %s, posting sunset',osdate('%X'))]])
+
+
+  -- Simulate by triggering events...
+  --Rule.eval("wait(t/09:30); hall.door:value=1") -- open door
+  --Rule.eval("wait(t/10:00); hall.door:value=0") -- close door
+  Rule.eval("downstairs_move:value=0") -- all sensor safe
+  Rule.eval("downstairs_spots:value=0") -- all spots off
+  Rule.eval("wait(t/11:00); hall.sensor:on") -- sensor triggered
+  Rule.eval("wait(t/11:00:45); hall.light:on") -- light turned on
+  Rule.eval("wait(t/11:05:10); hall.sensor:off") -- sensor safe, lights should turn off in 10min
+  Rule.eval("wait(t/17:30); downstairs_lux:value=99")
 end
 
 
