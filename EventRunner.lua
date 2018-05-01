@@ -27,6 +27,7 @@ if dofile then dofile("EventRunnerDebug.lua") end
 
 ---------------- Callbacks to user code --------------------
 function main()
+  print(tojson(ScriptCompiler.parse("#Sunset => evening_lights:on; evening_VDs:btn=1")))
   dofile("test_rules1.lua") 
   --dofile("TimeAndLight3.lua")
 end -- main()
@@ -644,6 +645,9 @@ function newScriptEngine()
   instr['~='] = function(s,n) s.push(tostring(s.pop())~=tostring(s.pop())) end
   instr['=='] = function(s,n) s.push(tostring(s.pop())==tostring(s.pop())) end
   instr['log'] = function(s,n) s.push(Log(LOG.LOG,table.unpack(s.lift(n)))) end
+  instr['rnd'] = function(s,n) local ma,mi=s.pop(),s.pop() s.push(math.random(mi,ma)) end
+  instr['sum'] = function(s,n) local m,res=s.pop(),0 for _,x in ipairs(m) do res=res+x end s.push(res) end 
+  instr['length'] = function(s,n) s.push(#(s.pop())) end
   instr['tjson'] = function(s,n) s.push(tojson(s.pop())) end
   instr['fjson'] = function(s,n) s.push(json.decode(s.pop())) end
   instr['osdate'] = function(s,n) local x,y = s.ref(n-1),(n>1 and s.pop() or nil) s.pop(); s.push(osDate(x,y)) end
@@ -891,7 +895,7 @@ function newScriptCompiler()
   function self.compile(expr) local code = {} compT(self.precompile(expr),code) return code end
 
   local _prec = {
-    ['*'] = 10, ['/'] = 10, ['.'] = 11, ['+'] = 9, ['-'] = 9, [':'] = 8.7, ['..'] = 8.5, ['=>'] = -2,
+    ['*'] = 10, ['/'] = 10, ['.'] = 12.5, ['+'] = 9, ['-'] = 9, [':'] = 12, ['..'] = 8.5, ['=>'] = -2,
     ['>']=7, ['<']=7, ['>=']=7, ['<=']=7, ['==']=7, ['~=']=7, ['&']=6, ['|']=5, ['=']=4, ['+=']=4, ['-=']=4, ['*=']=4, [';']=3.6, ['('] = 1, }
   local _opMap = {['&']='and',['|']='or',['=']='set',[':']='prop',[';']='progn',['..']='betw'}
   local function mapOp(op) return _opMap[op] or op end
@@ -928,7 +932,7 @@ function newScriptCompiler()
       s = s:gsub(_tokens[i][1],
         function(m) local r,to = "",_tokens[i]
           if to[2]=='num' and m:match("%.$") then m=m:sub(1,-2); r ='.' end -- hack for e.g. '7.'
-          if m == '-' and (#tkns==0 or tkns[#tkns].v:match("[+-*/({.><=&|;,]")) then m='-' to={1,'neg'} end
+          if m == '-' and (#tkns==0 or tkns[#tkns].t=='call' or tkns[#tkns].t=='efun' or tkns[#tkns].v:match("[+-*/({.><=&|;,]")) then m='-' to={1,'neg'} end
           if to[2]=='efun' then tkns[#tkns+1] = {t='rpar', v=')', cp=cp} end
           tkns[#tkns+1] = {t=to[2], v=m, cp=cp} i = 1 return r
         end)
@@ -1004,7 +1008,7 @@ function newScriptCompiler()
         if s.isEmpty() then s.push(t)
         else
           while (not s.isEmpty()) do
-            local p1,p2 = _prec[t.v], _prec[s.peek().v]
+            local p1,p2 = _prec[t.v], _prec[s.peek().v] p1 = t.v=='=' and 11 or p1
             if p2 >= p1 then res[rp-1] = {mapOp(s.pop().v),res[rp-1],res[rp]}; rp=rp-1 else break end
           end
           s.push(t)

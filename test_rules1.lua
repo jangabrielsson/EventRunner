@@ -1,10 +1,11 @@
 local tExpr = false
 local tRules = false
-local tShell = true
+local tShell = false
 local tEarth = false
 local tTest1 = false
 local tTest2 = false
 local tHouse = false
+local tScheduler = true
 local tRemoteAsync = false
 
 local function post(e,t) Event.post(e,t) end
@@ -84,6 +85,75 @@ if tShell then -- run an interactive shell to try out commands
 
   Event.post({type='shell', _sh=true})
 end
+
+if tScheduler then
+  -- setup data we need
+  local conf = [[{
+   kitchen:{light:20,lamp:21,sensor:22},
+   room:{light:23,sensor:24,tableLamp:25,philipsHue:201},
+   hall:{switch:26,door:27,sensor:28},
+   back:{lamp:56,door:57},
+   bathroom:{door:47,lamp:48,sensor:49},
+   max:{lamp_window:70,lamp_bed:71},
+   bed:{lamp_window:80,lamp_bed:81},
+   phone:{jan:100,dani:101}
+  }]]
+  fibaro:setGlobal('jTable',conf)
+  
+  -- lets start
+  local dev = json.decode(fibaro:getGlobalValue('jTable')) -- Fetch device definitions
+  Util.reverseMapDef(dev) -- Make device names availble for debugging
+  -- Make variables available in scripts, e.g. kichen.lamp, kitchen.light etc
+  for v,val in pairs(dev) do Util.defvar(v,val) end 
+  
+  -- setup some groups - could also be part of 'conf'
+  Rule.eval("downstairs_move={kitchen.sensor,hall.sensor,room.sensor}")
+  Rule.eval("downstairs_lux=downstairs_move") -- combined movement/lux sensors
+  Rule.eval("downstairs_spots={room.light,kitchen.light,hall.light}") 
+  Rule.eval("evening_lights={room.tableLamp,back.lamp}") 
+  Rule.eval("evening_VDs={room.philipsHue}") 
+  
+  -- We could support a 'weekly' as this runs once a day just to check if it is monday
+  Rule.eval([[daily(19:00) & wday('mon') & $Presence~='away' => 
+               phone.jan:msg="Don't forget to take out the garbage"]])
+
+  -- Salary on the 25th, or the last weekday if it is on a weekend
+  Rule.eval([[daily(21:00) & (day('25')&wday('mon-fri') | day('23-24')&wday('fri')) & $Presence~='away' =>
+               phone.jan:msg='Salary tomorrow!']])
+  
+  Rule.eval("for(00:10,hall.door:breached) => phone.jan:msg=log('Door open for %s min',repeat(5)*10)")
+
+  -- Post Sunset/Sunrise events that controll a lot of house lights. 
+  -- If away introduce a random jitter of +/- an hour to make it less predictable...
+  Rule.eval([[daily(00:00) =>
+    || $Presence ~= 'away' >> post(#Sunrise,t/sunrise+00:10); post(#Sunset,t/sunset-00:10)
+    || $Presence == 'away' >> post(#Sunrise,t/sunrise+rnd(-01:00,01:00)); post(#Sunset,t/sunset+rnd(-01:00,01:00))]])
+  
+  Rule.eval("#Sunset => evening_lights:on; evening_VDs:btn=1")
+  Rule.eval("#Sunrise => evening_lights:off; evening_VDs:btn=2")
+  
+  -- Room specific lightning
+  -- Max
+  Rule.eval("#Sunset => {max.lamp_window, max.lamp_bed}:on")
+  Rule.eval("daily(00:00) => {max.lamp_window, max.lamp_bed}:off")
+  --Master bedroom
+  Rule.eval("#Sunset => {bed.lamp_window, bed.lamp_bed}:on")
+  Rule.eval("daily(00:00) => {bed.lamp_window, bed.lamp_bed}:off")
+
+  -- Automatic lightning
+  --Kitchen spots
+  Rule.eval("for(00:10,downstairs_move:safe & downstairs_spots:isOn) => downstairs_spots:off")
+  --Bathroom, uses a local flag (inBathroom) 
+  Rule.eval("for(00:10,bathroom.sensor:safe&bathroom.door:trigger) => not(inBathroom)&bathroom.lamp:off")
+  Rule.eval("bathroom.sensor:breached => bathroom.door:safe & inBathroom=true ; bathroom.lamp:on")
+  Rule.eval("bathroom.door:breached => inBathroom=false")
+  Rule.eval("bathroom.door:safe & bathroom.sensor:last<3 => inBathroom=true")
+  
+  -- if average lux value is less than 100 one hour from sunset, trigger sunset anyway...
+  Rule.eval([[downstairs_lux:lux => 
+     || sunset-01:00..sunset & sum(downstairs_lux:lux)/length(downstairs_lux) < 100 >> post(#Sunset)]])
+end
+
 
 if tEarth then -- Earth hour script
   Rule.load([[
