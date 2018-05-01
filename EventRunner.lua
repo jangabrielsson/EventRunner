@@ -48,7 +48,7 @@ end
 ---------- Producer(s) - Handing over incoming triggers to consumer --------------------
 if _supportedEvents[_type] then
   local event = type(_trigger) ~= 'string' and json.encode(_trigger) or _trigger
-  local ticket = '<@>'..tostring(source)..event
+  local ticket = '<@>'..tostring(_source)..event
   repeat 
     while(fibaro:getGlobal(_MAILBOX) ~= "") do fibaro:sleep(100) end -- try again in 100ms
     fibaro:setGlobal(_MAILBOX,ticket) -- try to acquire lock
@@ -64,7 +64,7 @@ local function _poll()
   if l and l ~= "" and l:sub(1,3) ~= '<@>' then -- Something in the mailbox
     fibaro:setGlobal(_MAILBOX,"") -- clear mailbox
     Debug(4,"Incoming event:%",l)
-    post(json.decode(l)) -- and post it to our "main()"
+    Event.post(json.decode(l)) -- and post it to our "main()"
   end
   setTimeout(_poll,250) -- check every 250ms
 end
@@ -135,7 +135,7 @@ function hm2sec(hmstr)
 end
 
 function between(t11,t22)
-  t1,t2,tn = today(hm2sec(t11)),today(hm2sec(t22)),osTime()
+  local t1,t2,tn = today(hm2sec(t11)),today(hm2sec(t22)),osTime()
   if t1 <= t2 then return t1 <= tn and tn <= t2 else return tn <= t1 or tn >= t2 end 
 end
 
@@ -290,7 +290,7 @@ function newEventEngine()
         tp = self.post(loop, time) 
       end)
     local res = {
-      [self.RULE] = {}, org=name,
+      [self.RULE] = {}, org=name, --- res ??????
       enable = function() if not tp then tp = self.post(loop,start and 0 or time) end return res end, 
       disable= function() tp = self.cancel(tp) return res end, 
     }
@@ -381,7 +381,7 @@ function Util.dateTest(dateStr)
       _assert(res,"Bad date specifier '%s'",id) return res
     end
     local w,m = w1[1],w1[2];
-    start,stop = w:match("(%w+)%p(%w+)")
+    local start,stop = w:match("(%w+)%p(%w+)")
     if (start == nil) then return resolve(w) end
     start,stop = resolve(start), resolve(stop)
     local res = {}
@@ -1124,14 +1124,14 @@ function newRuleCompiler()
       res = Event.event((ScriptEngine.eval(ep)),body) res.org=org
       local ll = res.action
       while _compileHook.reverseMap[ll] do ll = _compileHook.reverseMap[ll] end
-      _compileHook.reverseMap[ll] = expr
+      _compileHook.reverseMap[ll] = org
     else
       local ids,dailys = getTriggers(h)
       local action = Event._compileAction({'and',h,body})
       if #dailys>0 then -- 'daily' rule
         local m,ot=midnight(),osTime()
         _dailys[#_dailys+1]={dailys=dailys,action=action,org=org}
-        times = compTimes(dailys)
+        local times = compTimes(dailys)
         for _,t in ipairs(times) do if t+m >= ot then Event.post(action,t+m) end end
       elseif #ids>0 then -- id/glob trigger rule
         for _,id in ipairs(ids) do Event.event(id,action).org=org end
