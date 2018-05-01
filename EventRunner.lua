@@ -27,7 +27,8 @@ if dofile then dofile("EventRunnerDebug.lua") end
 
 ---------------- Callbacks to user code --------------------
 function main()
-  print(tojson(ScriptCompiler.parse("#Sunset => evening_lights:on; evening_VDs:btn=1")))
+  local m = ("t/sunset"):match("[+-*/({.><=&|;,]")
+  print(tojson(ScriptCompiler.parse("t/sunset-00:10")))
   dofile("test_rules1.lua") 
   --dofile("TimeAndLight3.lua")
 end -- main()
@@ -932,7 +933,7 @@ function newScriptCompiler()
       s = s:gsub(_tokens[i][1],
         function(m) local r,to = "",_tokens[i]
           if to[2]=='num' and m:match("%.$") then m=m:sub(1,-2); r ='.' end -- hack for e.g. '7.'
-          if m == '-' and (#tkns==0 or tkns[#tkns].t=='call' or tkns[#tkns].t=='efun' or tkns[#tkns].v:match("[+-*/({.><=&|;,]")) then m='-' to={1,'neg'} end
+          if m == '-' and (#tkns==0 or tkns[#tkns].t=='call' or tkns[#tkns].t=='efun' or tkns[#tkns].v:match("^[+-*/({.><=&|;,]")) then m='-' to={1,'neg'} end
           if to[2]=='efun' then tkns[#tkns+1] = {t='rpar', v=')', cp=cp} end
           tkns[#tkns+1] = {t=to[2], v=m, cp=cp} i = 1 return r
         end)
