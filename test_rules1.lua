@@ -132,10 +132,12 @@ if tScheduler then
 
   -- Post Sunset/Sunrise events that controll a lot of house lights. 
   -- If away introduce a random jitter of +/- an hour to make it less predictable...
-
   Rule.eval([[daily(00:00) => sunsetFlag=false;
     || $Presence ~= 'away' >> post(#Sunrise,t/sunrise+00:10); post(#Sunset,t/sunset-00:10)
     || $Presence == 'away' >> post(#Sunrise,t/sunrise+rnd(-01:00,01:00)); post(#Sunset,t/sunset+rnd(-01:00,01:00))]])
+  
+  -- This is a trick to only call #Sunset once per day, allows lux sensor to trigger sunset earlier
+  Rule.eval("#Sunset => || not(sunsetFlag) >> sunsetFlag=true; post(#doSunset)")
   
   Rule.eval("#doSunset => evening_lights:on; evening_VDs:btn=1")
   Rule.eval("#doSunrise => evening_lights:off; evening_VDs:btn=2")
@@ -148,8 +150,6 @@ if tScheduler then
   Rule.eval("#doSunset => {bed.lamp_window, bed.lamp_bed}:on")
   Rule.eval("daily(00:00) => {bed.lamp_window, bed.lamp_bed}:off")
 
-  -- This is a trick to only call #Sunset once, allows lux sensor to trigger sunset earlier
-  Rule.eval("#Sunset => || not(sunsetFlag) >> sunsetFlag=true; post(#doSunset)")
   -- Automatic lightning
   --Kitchen spots
   Rule.eval([[for(00:10,downstairs_move:safe & downstairs_spots:isOn) => 
@@ -166,8 +166,7 @@ if tScheduler then
   Rule.eval([[once(sum(downstairs_lux:lux)/length(downstairs_lux) < 100 & sunset-01:00..sunset) => 
                post(#Sunset); log('Too dark at %s, posting sunset',osdate('%X'))]])
 
-
-  -- Simulate by triggering events...
+  -- Simulate and test scene by triggering events...
   
   -- Test open door warning logic
   Rule.eval("wait(t/09:30); hall.door:value=1") -- open door

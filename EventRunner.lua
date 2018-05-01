@@ -116,15 +116,15 @@ function _equal(e1,e2)
 end
 
 function midnight() 
-  local t = osDate("*t") 
-  t.hour,t.min,t.sec = 0,0,0 
+  local t = osDate("*t")
+  t.hour,t.min,t.sec = 0,0,0
   local tt = osTime(t) 
   return tt
 end
 function today(s) return midnight()+s end
 
 function hm2sec(hmstr)
-  local offs,sun = 0
+  local offs,sun
   sun,offs = hmstr:match("^(%a+)([+-]?%d*)")
   if sun and (sun == 'sunset' or sun == 'sunrise') then
     hmstr,offs = fibaro:getValue(1,sun.."Hour"), tonumber(offs) or 0
@@ -196,11 +196,11 @@ function newEventEngine()
   local function _match(pattern, expr)
     local matches = {}
     local function _unify(pattern,expr)
-      if pattern == expr then return true 
+      if pattern == expr then return true
       elseif type(pattern) == 'table' then
         if pattern._var_ then
           local var, constr = pattern._var_, pattern._constr
-          if var == '_' then return constr(expr) 
+          if var == '_' then return constr(expr)
           elseif matches[var] then return constr(expr) and _unify(matches[var],expr) -- Hmm, equal?
           else matches[var] = expr return constr(expr) end
         end
@@ -208,7 +208,7 @@ function newEventEngine()
         return true
       else return false end
     end
-    return _unify(pattern,expr) and matches or false 
+    return _unify(pattern,expr) and matches or false
   end
 
   local function ruleError(res,rule,def)
@@ -433,7 +433,7 @@ function Util.map(f,l,s) s = s or 1; local r={} for i=s,#l do r[#r+1] = f(l[i]) 
 function Util.mapo(f,l,o) for _,j in ipairs(l) do f(o,j) end end
 function Util.mapkl(f,l) local r={} for i,j in pairs(l) do r[#r+1]=f(i,j) end return r end
 function Util.mapkk(f,l) local r={} for i,j in pairs(l) do r[i]=f(j) end return r end
-function Util.member(v,tab) for _,e in ipairs(tab) do if v==e then return e end return nil end end
+function Util.member(v,tab) for _,e in ipairs(tab) do if v==e then return e end end return nil end
 function Util.append(t1,t2) for _,e in ipairs(t2) do t1[#t1+1]=e end return t1 end
 function Util.gensym(s) return s..tostring({1,2,3}):match("([abcdef%d]*)$") end
 function Util.traverse(e,f)
