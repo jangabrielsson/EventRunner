@@ -541,7 +541,7 @@ function newScriptEngine()
   getIdFun['isAnyOff']=function(s,i) return doit(Util.mapOr,function(id) return fibaro:getValue(ID(id,i),'value') == '0' end,s.pop()) end
   getIdFun['on']=function(s,i) doit(Util.mapF,function(id) fibaro:call(ID(id,i),'turnOn') end,s.pop()) return true end
   getIdFun['off']=function(s,i) doit(Util.mapF,function(id) fibaro:call(ID(id,i),'turnOff') end,s.pop()) return true end
-  getIdFun['last']=function(s,i) return select(2,fibaro:get(ID(s.pop(),i),'value')) end  
+  getIdFun['last']=function(s,i) return osTime()-select(2,fibaro:get(ID(s.pop(),i),'value')) end  
   getIdFun['scene']=function(s,i) return fibaro:getValue(ID(s.pop(),i),'sceneActivation') end
   getIdFun['safe']=getIdFun['isOff'] getIdFun['breached']=getIdFun['isOn']
   getIdFun['trigger']=function(s,i) return true end

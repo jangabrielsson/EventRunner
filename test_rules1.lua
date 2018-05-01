@@ -114,17 +114,21 @@ if tScheduler then
   Rule.eval("downstairs_spots={room.light,kitchen.light,hall.light}") 
   Rule.eval("evening_lights={room.tableLamp,back.lamp}") 
   Rule.eval("evening_VDs={room.philipsHue}") 
-  
+
   -- We could support a 'weekly' as this runs once a day just to check if it is monday
   -- Anyway, garbage can out on Monday evening...
   Rule.eval([[daily(19:00) & wday('mon') & $Presence~='away' => 
                phone.jan:msg="Don't forget to take out the garbage!"]])
 
-  -- Salary on the 25th, or the last weekday if it's on a weekend
+  -- Salary on the 25th, or the last weekday if it's on a weekend, reminder day before...
   Rule.eval([[daily(21:00) & (day('23')&wday('thu') | day('24')&wday('mon-thu')) & $Presence~='away' =>
                phone.jan:msg='Salary tomorrow!']])
   
-  --Rule.eval("for(00:10,hall.door:breached) => phone.jan:msg=log('Door open for %s min',repeat(5)*10)")
+  -- Last day of every month, pay bills...
+  Rule.eval([[daily(20:00) & day('last') & $Presence~='away' => 
+               phone.jan:msg="Don't forget to pay the monthly bills!"]])
+
+  Rule.eval("for(00:10,hall.door:breached) => phone.jan:msg=log('Door open for %s min',repeat(5)*10)")
 
   -- Post Sunset/Sunrise events that controll a lot of house lights. 
   -- If away introduce a random jitter of +/- an hour to make it less predictable...
@@ -148,14 +152,14 @@ if tScheduler then
   Rule.eval("#Sunset => || not(sunsetFlag) >> sunsetFlag=true; post(#doSunset)")
   -- Automatic lightning
   --Kitchen spots
---  Rule.eval([[for(00:10,downstairs_move:safe & downstairs_spots:isOn) => 
---      downstairs_spots:off; log('Turning off spots after 10min of inactivity downstairs')]])
-      
+  Rule.eval([[for(00:10,downstairs_move:safe & downstairs_spots:isOn) => 
+      downstairs_spots:off; log('Turning off spots after 10min of inactivity downstairs')]])
+   
   --Bathroom, uses a local flag (inBathroom) 
---  Rule.eval("for(00:10,bathroom.sensor:safe&bathroom.door:trigger) => not(inBathroom)&bathroom.lamp:off")
---  Rule.eval("bathroom.sensor:breached => bathroom.door:safe & inBathroom=true ; bathroom.lamp:on")
---  Rule.eval("bathroom.door:breached => inBathroom=false")
---  Rule.eval("bathroom.door:safe & bathroom.sensor:last<3 => inBathroom=true")
+  Rule.eval("for(00:10,bathroom.sensor:safe &bathroom.door:value) => not(inBathroom)&bathroom.lamp:off")
+  Rule.eval("bathroom.sensor:breached => bathroom.door:safe & inBathroom=true ; bathroom.lamp:on")
+  Rule.eval("bathroom.door:breached => inBathroom=false")
+  Rule.eval("bathroom.door:safe & bathroom.sensor:last<=3 => inBathroom=true")
   
   -- if average lux value is less than 100 one hour from sunset, trigger sunset event...
   -- Because we later set all sensors to 99 this would trigger 3 times, and thus we wrap it in 'once'
@@ -164,14 +168,29 @@ if tScheduler then
 
 
   -- Simulate by triggering events...
-  --Rule.eval("wait(t/09:30); hall.door:value=1") -- open door
-  --Rule.eval("wait(t/10:00); hall.door:value=0") -- close door
+  
+  -- Test open door warning logic
+  Rule.eval("wait(t/09:30); hall.door:value=1") -- open door
+  Rule.eval("wait(t/10:00); hall.door:value=0") -- close door
+  
+  -- Test auto-off spots logic
   Rule.eval("downstairs_move:value=0") -- all sensor safe
   Rule.eval("downstairs_spots:value=0") -- all spots off
   Rule.eval("wait(t/11:00); hall.sensor:on") -- sensor triggered
   Rule.eval("wait(t/11:00:45); hall.light:on") -- light turned on
   Rule.eval("wait(t/11:05:10); hall.sensor:off") -- sensor safe, lights should turn off in 10min
+  
+  -- Test bathroom logic
+  Rule.eval("wait(t/15:30); bathroom.door:value=1") -- open door
+  Rule.eval("wait(t/15:31); bathroom.sensor:value=1") -- breach sensor
+  Rule.eval("wait(t/15:34); bathroom.door:value=0") -- close door
+  Rule.eval("wait(t/15:51); bathroom.sensor:value=0") -- sensor safe (20s)
+  Rule.eval("wait(t/16:01); bathroom.door:value=1") -- open door after 10min
+  Rule.eval("wait(t/16:05); bathroom.door:value=0") -- close door
+  
+  -- Test darkness -> Sunset logic
   Rule.eval("wait(t/17:30); downstairs_lux:value=99")
+
 end
 
 
