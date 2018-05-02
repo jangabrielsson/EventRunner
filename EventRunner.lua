@@ -27,8 +27,7 @@ if dofile then dofile("EventRunnerDebug.lua") end
 
 ---------------- Callbacks to user code --------------------
 function main()
-  local m = ("t/sunset"):match("[+-*/({.><=&|;,]")
-  print(tojson(ScriptCompiler.parse("t/sunset-00:10")))
+  print(tojson(ScriptCompiler.parse("@t/sunset-00:10; 7")))
   dofile("test_rules1.lua") 
   --dofile("TimeAndLight3.lua")
 end -- main()
@@ -898,12 +897,18 @@ function newScriptCompiler()
   function self.precompile(e) return traverse(e,function (k,e) return preC[k] and preC[k](k,e) or e end) end
   function self.compile(expr) local code = {} compT(self.precompile(expr),code) return code end
 
-  local _prec = {
-    ['*'] = 10, ['/'] = 10, ['.'] = 12.5, ['+'] = 9, ['-'] = 9, [':'] = 12, ['..'] = 8.5, ['=>'] = -2,
-    ['>']=7, ['<']=7, ['>=']=7, ['<=']=7, ['==']=7, ['~=']=7, ['&']=6, ['|']=5, ['=']=4, ['+=']=4, ['-=']=4, ['*=']=4, [';']=3.6, ['('] = 1, }
-  local _opMap = {['&']='and',['|']='or',['=']='set',[':']='prop',[';']='progn',['..']='betw'}
+  local _opMap = {['&']='and',['|']='or',['=']='set',[':']='prop',[';']='progn',['..']='betw', ['!']='not', ['@']='daily'}
   local function mapOp(op) return _opMap[op] or op end
-
+  
+  local function _binop(s,res) res.push({mapOp(s.pop().v),table.unpack(res.lift(2))}) end
+  local function _unnop(s,res) res.push({mapOp(s.pop().v),res.pop()}) end
+  local _prec = {
+    ['*'] = 10, ['/'] = 10, ['.'] = 12.5, ['+'] = 9, ['-'] = 9, [':'] = 12, ['..'] = 8.5, ['=>'] = -2, ['neg'] = 13, ['!'] = 6.5, ['@']=8.5,
+    ['>']=7, ['<']=7, ['>=']=7, ['<=']=7, ['==']=7, ['~=']=7, ['&']=6, ['|']=5, ['=']=4, ['+=']=4, ['-=']=4, ['*=']=4, [';']=3.6, ['('] = 1, }
+  
+  for i,j in pairs(_prec) do _prec[i]={j,_binop} end 
+  _prec['neg']={13,_unnop} _prec['!']={6.5,_unnop} _prec['@']={8.5,_unnop}
+  
   local _tokens = {
     {"^(%b'')",'string'},{'^(%b"")','string'},
     {"^%#([0-9a-zA-Z]+{?)",'event'},
@@ -921,7 +926,7 @@ function newScriptCompiler()
     {"^(%.%.)",'op'},{"^(->)",'op'},    
     {"^(%d+%.?%d*)",'num'},
     {"^(%|%|)",'token'},{"^(>>)",'token'},{"^(=>)",'token'},
-    {"^([%*%+%-/&%.:~=><%|]+)",'op'},
+    {"^([%*%+%-/&%.:~=><%|!@]+)",'op'},
   }
 
   local _specT={bracks={['{']='lbrack',['}']='rbrack',[',']='token',['[']='lsquare',[']']='rsquare'},
@@ -936,7 +941,8 @@ function newScriptCompiler()
       s = s:gsub(_tokens[i][1],
         function(m) local r,to = "",_tokens[i]
           if to[2]=='num' and m:match("%.$") then m=m:sub(1,-2); r ='.' end -- hack for e.g. '7.'
-          if m == '-' and (#tkns==0 or tkns[#tkns].t=='call' or tkns[#tkns].t=='efun' or tkns[#tkns].v:match("^[+-*/({.><=&|;,]")) then m='-' to={1,'neg'} end
+          if m == '-' and 
+          (#tkns==0 or tkns[#tkns].t=='call' or tkns[#tkns].t=='efun' or tkns[#tkns].v:match("^[+%-*/({.><=&|;,]")) then m='neg' to={1,'op'} end
           if to[2]=='efun' then tkns[#tkns+1] = {t='rpar', v=')', cp=cp} end
           tkns[#tkns+1] = {t=to[2], v=m, cp=cp} i = 1 return r
         end)
@@ -989,47 +995,42 @@ function newScriptCompiler()
   pExpr['time'] = function(t,tokens) return {'time',t.v} end
 
   function self.expr(tokens)
-    local s,res,rp = Util.mkStack(),{},0
-    local function add(t) rp=rp+1; res[rp] = t end
+    local s,res = Util.mkStack(),Util.mkStack()
     while true do
       local t = tokens.peek()
       if t.t=='EOF' or t.t=='token' or t.v == '}' or t.v == ']' then
-        while not s.isEmpty() do
-          res[rp-1] = {mapOp(s.pop().v),res[rp-1],res[rp]}; rp=rp-1
-        end
-        _passert(rp==1,t and t.cp or 1,"bad expression")
-        return res[1]
+        while not s.isEmpty() do _prec[s.peek().v][2](s,res) end
+        _passert(res.size()==1,t and t.cp or 1,"bad expression")
+        return res.pop()
       end
       tokens.nxt()
       if t.t == 'lsquare' then 
-        add(self.expr(tokens)) t = tokens.nxt()
+        res.push(self.expr(tokens)) t = tokens.nxt()
         _passert(t.t =='rsquare',t.cp,"bad index [] operator")
         t = {t='op',v='.',cp=t.cp}
       end
-      if t.t=='neg' then
-        add({'neg',self.expr(tokens)})
-      elseif t.t=='op' then
+   --   if t.t=='neg' then
+   --     res.push({'neg',self.expr(tokens)})
+      if t.t=='op' then
         if s.isEmpty() then s.push(t)
         else
           while (not s.isEmpty()) do
-            local p1,p2 = _prec[t.v], _prec[s.peek().v] p1 = t.v=='=' and 11 or p1
-            if p2 >= p1 then res[rp-1] = {mapOp(s.pop().v),res[rp-1],res[rp]}; rp=rp-1 else break end
+            local p1,p2 = _prec[t.v][1], _prec[s.peek().v][1] p1 = t.v=='=' and 11 or p1
+            if p2 >= p1 then _prec[s.peek().v][2](s,res) else break end
           end
           s.push(t)
         end
       elseif t.t == 'efun' then
         local c = pExpr['call']({v='oops'},tokens)
-        res[rp]={'apply',res[rp],c[3]}
+        res.push({'apply',res.pop(),c[3]})
       elseif t.t == 'lpar' then s.push(t)
       elseif t.t== 'rpar' then
-        while not s.isEmpty() and s.peek().t ~= 'lpar' do
-          res[rp-1] = {mapOp(s.pop().v),res[rp-1],res[rp]}; rp=rp-1
-        end
-        if s.isEmpty() then tokens.push(t) return res[1] end
+        while not s.isEmpty() and s.peek().t ~= 'lpar' do _prec[s.peek().v][2](s,res) end
+        if s.isEmpty() then tokens.push(t) return res.pop() end
         s.pop()
-      elseif pExpr[t.t] then add(pExpr[t.t](t,tokens))
+      elseif pExpr[t.t] then res.push(pExpr[t.t](t,tokens))
       else
-        add(t.v) -- symbols, constants etc
+        res.push(t.v) -- symbols, constants etc
       end
     end
   end

@@ -1,11 +1,11 @@
-local tExpr = false
+local tExpr = true
 local tRules = false
 local tShell = false
 local tEarth = false
 local tTest1 = false
 local tTest2 = false
 local tHouse = false
-local tScheduler = true
+local tScheduler = false
 local tRemoteAsync = false
 
 local function post(e,t) Event.post(e,t) end
@@ -27,7 +27,13 @@ do Util.defvar(k,v) end
 if tExpr then -- test some standrad expression
   local function test(expr) Log(LOG.LOG,"Eval %s = %s",expr,tojson(Rule.eval(expr))) end
   _setClock("t/06:00")
+  test("5+(-3)")
   test("10/5+6*3")
+  test("-3")
+  test("! true")
+  test("! 7>8")
+  test("! false & true")
+  test("!(false & true)")
   test("a={}; a.b = {c=42}; a.b.c")
   test("a = {b=7+9, c=8/2}")
   test("a['c']=3; a")
