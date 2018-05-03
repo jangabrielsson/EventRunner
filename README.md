@@ -58,7 +58,7 @@ Event.post({type='loop'})
 ```
 This will print "Ding!" immediatly, and then print "Ding!" every 10 minutes.  
 
-The other advantage is that if a 'simulated' fibaro event is posted the handlers will react as if a real event was triggered. This is great for debugging the logic of your script. Ex.
+The other advantage with `post` is that if a 'simulated' fibaro event is posted the handlers will react as if a real event was triggered. This is great for debugging the logic of your script. Ex.
 ```Lua
 Event.post({type='property', deviceID=55, value='1'},"t/11:00")
 ```
