@@ -1,5 +1,5 @@
 # EventRunner
-Scene event framework for Fibaro HC2
+Scene event framework for Fibaro HC2 (visit [Wiki](../../wiki/Home) for more details)
 
 Scenes on the Fibaro HC2 is typically invoked by declaring device triggers in the header.</br>
 Ex 
