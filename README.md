@@ -26,9 +26,9 @@ The '%% autostart' tells the scene to respond to triggers</br>
 </br>
 Every time a scene is triggered, a new instance of the scene is spawned, something that makes it difficult to "remember" state between scene invocations. There are global Fibaro variables that can be set and retrieved but they are a bit cumbersome use.
 
-This framework takes care of transforming a new scene instances to 'timer threads' in the intial scene instances. The model is based on events being posted to user defined 'event handlers'
+This framework takes care of transforming a new scene instances to 'timer threads' in the intial scene instances. The model is based on events being posted to user defined 'event handlers' in a `main()` function
 
-Handlers are defined with Event.event. Ex:
+Handlers are defined with `Event.event(<pattern>,<action>)`. Ex:
 ```
 function main()
    Event.event({type='property', deviceID=55, value='$>0'}, function(e) fibaro:call(44,'turnOn') end)
@@ -49,12 +49,19 @@ end
 ```
 Something that would be impossible in the normal model as each 'handler' would be called in a new instance.
 
-Events are table structures with a 'type' key, which is true for Fibaro's own events. However, the framework allows for posting user defined events with 'Event.post(event[,time])'
+Events are table structures with a 'type' key, which is true for Fibaro's own events. However, the framework allows for posting user defined events with `Event.post(event[,time])`.
 The optional 'time' parameter specifies a time in the future that the event should be posted (if omitted it is posted imediatly). This turn the framework into a programming model. Ex. (main() is omitted in the examples from now)
 ```
 Event.event({type='loop'},
-            function(e) Log(LOG.LOG,"Ding!") Event:post({type='loop'},"+/00:10") end)
+     function(e) Log(LOG.LOG,"Ding!") Event:post({type='loop'},"+/00:10") end)
 Event.post({type='loop'})
 ```
-This will print "Ding!" imediatly, and then print "Ding!" every 10 minutes.
+This will print "Ding!" immediatly, and then print "Ding!" every 10 minutes.  
+
+The other advantage with `post` is that if a 'simulated' fibaro event is posted the handlers will react as if a real event was triggered. This is great for debugging the logic of your script. Ex.
+```Lua
+Event.post({type='property', deviceID=55, value='1'},"t/11:00")
+```
+This will send a property trigger for device 55 at 10:00 today. The eventhandler in the previous example will react and log that the light was turned on.
+
 The framework has a lot of additional features and examples documented in the [Wiki](../../wiki/Home).
