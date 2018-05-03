@@ -1,6 +1,6 @@
-local tExpr = true
+local tExpr = false
 local tRules = false
-local tShell = false
+local tShell = true
 local tEarth = false
 local tTest1 = false
 local tTest2 = false
@@ -84,7 +84,7 @@ if tShell then -- run an interactive shell to try out commands
   Event.event({type='shell'},function(env)
       io.write("Eval:") expr = io.read()
       if expr ~= 'exit' then
-        Log(LOG.LOG,"Eval %s = %s",expr,tojson(Rule.eval(expr)))
+        print(string.format("=> %s",tojson(Rule.eval(expr))))
         Event.post({type='shell', _sh=true},'+/00:10')
       end
     end)

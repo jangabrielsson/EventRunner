@@ -27,21 +27,7 @@ if dofile then dofile("EventRunnerDebug.lua") end
 
 ---------------- Callbacks to user code --------------------
 function main()
-  print(tojson(ScriptCompiler.parse("@t/sunset-00:10; 7")))
-  --dofile("test_rules1.lua") 
-  Rule.eval("@sunset-00:15 => kitchen.lamp:on")
-  Rule.eval([[@sunset-00:15 & $Presence~='away' => 
-                kitchen.lamp:on; log('Turning on lamp')]])
-  Rule.eval([[@sunset-00:15 & wday('mon-fri') & $Presence~='away' => 
-                kitchen.lamp:on; phone.jan:msg=log('Turning on lamp, Presence=%s',$Presence)]])
-                
-  Rule.eval("#property{deviceID=kitchen.lamp, value='$>0'} => log('kitchen lamp value=%s',value)")
-  Rule.eval("#loop{value='$i<10'} => log('value=%s',i); post(#loop{value=i+1},+/00:01)")
-  Rule.eval("post(#loop{value=1})")  
-  
-  Rule.eval("kitchen.lamp:isOn => log('kitchen lamp value=%s',kitchen.lamp:value)")
-
-  --dofile("TimeAndLight3.lua")
+  dofile("test_rules1.lua") 
 end -- main()
 ------------------- EventModel --------------------  
 local _supportedEvents = {property=true,global=true,event=true,remote=true}

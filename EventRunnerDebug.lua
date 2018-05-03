@@ -12,7 +12,7 @@ _REMOTE            = false  -- If true use FibaroSceneAPI to call functions on H
 _PORTLISTENER      = false
 _POLLINTERVAL      = 500 
 _PORT              = 6872
-_MEM               = true   -- log memoery usage
+_MEM               = false   -- log memoery usage
 _speedtime         = 48*6   -- nil run the local clock in normal speed, set to an int <x> will speed the clock through <x> hours
 __fibaroSceneId    = 32     -- Set to scene ID. On HC2 this variable is defined
 
