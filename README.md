@@ -56,5 +56,5 @@ Event.event({type='loop'},
             function(e) Log(LOG.LOG,"Ding!") Event:post({type='loop'},"+/00:10") end)
 Event.post({type='loop'})
 ```
-This will print "Ding!" imediatly, and then print "Ding!" every 10 minutes.
+This will print "Ding!" immediatly, and then print "Ding!" every 10 minutes.
 The framework has a lot of additional features and examples documented in the [Wiki](../../wiki/Home).
