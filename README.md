@@ -26,7 +26,7 @@ The '%% autostart' tells the scene to respond to triggers</br>
 </br>
 Every time a scene is triggered, a new instance of the scene is spawned, something that makes it difficult to "remember" state between scene invocations. There are global Fibaro variables that can be set and retrieved but they are a bit cumbersome use.
 
-This framework takes care of transforming a new scene instances to 'timer threads' in the intial scene instances. The model is based on events being posted to user defined 'event handlers'
+This framework takes care of transforming a new scene instances to 'timer threads' in the intial scene instances. The model is based on events being posted to user defined 'event handlers' in a `main()` function
 
 Handlers are defined with Event.event. Ex:
 ```
