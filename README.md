@@ -53,7 +53,7 @@ Events are table structures with a 'type' key, which is true for Fibaro's own ev
 The optional 'time' parameter specifies a time in the future that the event should be posted (if omitted it is posted imediatly). This turn the framework into a programming model. Ex. (main() is omitted in the examples from now)
 ```
 Event.event({type='loop'},
-            function(e) Log(LOG.LOG,"Ding!") Event:post({type='loop'},"+/00:10") end)
+     function(e) Log(LOG.LOG,"Ding!") Event:post({type='loop'},"+/00:10") end)
 Event.post({type='loop'})
 ```
 This will print "Ding!" immediatly, and then print "Ding!" every 10 minutes.
