@@ -49,7 +49,7 @@ end
 ```
 Something that would be impossible in the normal model as each 'handler' would be called in a new instance.
 
-Events are table structures with a 'type' key, which is true for Fibaro's own events. However, the framework allows for posting user defined events with `Event.post(event[,time])
+Events are table structures with a 'type' key, which is true for Fibaro's own events. However, the framework allows for posting user defined events with `Event.post(event[,time])`.
 The optional 'time' parameter specifies a time in the future that the event should be posted (if omitted it is posted imediatly). This turn the framework into a programming model. Ex. (main() is omitted in the examples from now)
 ```
 Event.event({type='loop'},
