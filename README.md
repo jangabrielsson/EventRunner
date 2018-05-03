@@ -56,5 +56,14 @@ Event.event({type='loop'},
      function(e) Log(LOG.LOG,"Ding!") Event:post({type='loop'},"+/00:10") end)
 Event.post({type='loop'})
 ```
-This will print "Ding!" immediatly, and then print "Ding!" every 10 minutes.
+This will print "Ding!" immediatly, and then print "Ding!" every 10 minutes.  
+
+The other advantage is that if a 'simulated' fibaro event is posted the handlers will react as if a real event was triggered. This is great for debugging the logic of your script. Ex.
+```Lua
+Event.post({type='property', deviceID=55, value='1'},"t/11:00")
+```
+This will send a property trigger for device 55 at 10:00 today. The eventhandler in the previous example will react and log that the light was turned on.
+
 The framework has a lot of additional features and examples documented in the [Wiki](../../wiki/Home).
+`post`is that if a fibaro event is posted the framework will react 
+`post`is that if a fibaro event is posted the framework will react 
