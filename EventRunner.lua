@@ -28,7 +28,19 @@ if dofile then dofile("EventRunnerDebug.lua") end
 ---------------- Callbacks to user code --------------------
 function main()
   print(tojson(ScriptCompiler.parse("@t/sunset-00:10; 7")))
-  dofile("test_rules1.lua") 
+  --dofile("test_rules1.lua") 
+  Rule.eval("@sunset-00:15 => kitchen.lamp:on")
+  Rule.eval([[@sunset-00:15 & $Presence~='away' => 
+                kitchen.lamp:on; log('Turning on lamp')]])
+  Rule.eval([[@sunset-00:15 & wday('mon-fri') & $Presence~='away' => 
+                kitchen.lamp:on; phone.jan:msg=log('Turning on lamp, Presence=%s',$Presence)]])
+                
+  Rule.eval("#property{deviceID=kitchen.lamp, value='$>0'} => log('kitchen lamp value=%s',value)")
+  Rule.eval("#loop{value='$i<10'} => log('value=%s',i); post(#loop{value=i+1},+/00:01)")
+  Rule.eval("post(#loop{value=1})")  
+  
+  Rule.eval("kitchen.lamp:isOn => log('kitchen lamp value=%s',kitchen.lamp:value)")
+
   --dofile("TimeAndLight3.lua")
 end -- main()
 ------------------- EventModel --------------------  
@@ -1127,12 +1139,12 @@ function newRuleCompiler()
       while _compileHook.reverseMap[ll] do ll = _compileHook.reverseMap[ll] end
       _compileHook.reverseMap[ll] = org
     else
-      local ids,dailys = getTriggers(h)
+      local ids,dailys,times = getTriggers(h)
       local action = Event._compileAction({'and',h,body})
       if #dailys>0 then -- 'daily' rule
         local m,ot=midnight(),osTime()
         _dailys[#_dailys+1]={dailys=dailys,action=action,org=org}
-        local times = compTimes(dailys)
+        times = compTimes(dailys)
         for _,t in ipairs(times) do if t+m >= ot then Event.post(action,t+m) end end
       elseif #ids>0 then -- id/glob trigger rule
         for _,id in ipairs(ids) do Event.event(id,action).org=org end

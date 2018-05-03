@@ -96,8 +96,8 @@ else
     local t = osClock()+n/1000
     while(osClock() < t) do end -- busy wait
   end
-  function _setClock(t)  end
-  function _setMaxTime(t) end -- hours
+  function _setClock(_)  end
+  function _setMaxTime(_) end -- hours
 end
 
 local _timers = nil
@@ -174,8 +174,8 @@ function _HTTP:request(url,options)
   req.headers = req.headers or {}
   req.sink = ltn12.sink.table(resp)
   if req.data then
-    req.headers["Content-Length"] = #data
-    req.source = ltn12.source.string(data)
+    req.headers["Content-Length"] = #req.data
+    req.source = ltn12.source.string(req.data)
   end
   local response, status, headers
   if url:lower():match("^https") then
@@ -212,7 +212,7 @@ local function apiCall(method,call,data,cType)
   if c>=200 and c<300 then
     return resp[1] and json.decode(table.concat(resp)) or nil
   end
-  Log(LOG.ERROR,"HC2 returned error '%d %s' - URL: '%s'.",c,s,req.url)
+  Log(LOG.ERROR,"HC2 returned error '%d %s' - URL: '%s'.",c,resp[1],req.url)
   os.exit(1)
 end
 
@@ -339,7 +339,7 @@ function startServer(port)
             j = l:match("(%b{})")
             if j then 
               Log(LOG.LOG,"<%s>%s:",c:getpeername(),j)
-              post(json.decode(j))
+              Event.post(json.decode(j))
             end
           end
           coroutine.yield(true)
