@@ -1,6 +1,7 @@
 local tExpr = false
 local tRules = false
-local tShell = true
+local tShell = false
+local tGEA = true
 local tEarth = false
 local tTest1 = false
 local tTest2 = false
@@ -198,8 +199,85 @@ if tScheduler then
 
 end
 
+if tGEA then
 
-if tEarth then -- Earth hour script
+local devs = {
+  Alicia = {Window = 36},
+  Oliver = {Dimmer = 267},
+  Elliot = {Dimmer = 274, Elliot_Skrivbord = 300},
+  BedRoom = {Sonny_Laddare = 37, Erika_Laddare = 288},
+  Farstukvist = {Tak = 276},
+  Wc = {Tak = 66},
+  Laundry_Room = {Tak = 51},
+  Kitchen = {KaffeBryggare = 272, Window = 250},
+  LivingRoom = {Hemma_Bio = 42, Tv = 43, Wii = 44, Bakom_Tv = 45, Bakom_Soffa = 269},
+  SENSORS = {Wc = 202, Laundry_Room = 228},
+  VD = {AllmanBelysning = 240, BarnensBelysning = 193, Garaget_Stolpe = 76}}
+for var,val in pairs(devs) do Util.defvar(var,val) end
+Util.reverseMapDef(devs)
+
+--Barnens belysning
+--Starta lamporna när globala variablen är 1.3 eller mind och klockan är mellan 13: 00-18: 50 slack vid 19 tiden.
+	Rule.eval("$Sun<=1.3 & 13:00..18:50 => VD.BarnensBelysning:btn=1") -- Tryck på knapp 1 på VD 193
+	Rule.eval("@19:00 => VD.BarnensBelysning:btn=2") -- Tryck på knapp 2 på VD 193
+	Rule.eval("@06:45 => Elliot.Dimmer:off")
+      
+  --UteBelysningen
+  Rule.eval("$Sun<=0.7 => Farstukvist.Tak:on") 
+  Rule.eval("$Sun<=0.7 => VD.Garaget_Stolpe:btn=1")  
+  Rule.eval("$Sun>=0.8 => Farstukvist.Tak:off") 
+  Rule.eval("$Sun>=0.8 => VD.Garaget_Stolpe:btn=1")  
+  
+-- Tänder Wc vid rörelse och Släcker 
+  Rule.eval("SENSORS.Wc:isOn & 05:01..22:30 => Wc.Tak:value=99") 
+  Rule.eval("SENSORS.Wc:isOn & 22:30..05:00 => Wc.Tak:value=30")   
+  Rule.eval("for(00:03,SENSORS.Wc:isOff) => Wc.Tak:off") 
+  
+-- Tänder Tvättstugan vid rörelse och Släcker 
+  Rule.eval("SENSORS.Laundry_Room:isOn & 00:00..23:59 => Laundry_Room.Tak:on")
+  Rule.eval("for(00:05,SENSORS.Laundry_Room:isOff) => Laundry_Room.Tak:off")  
+  
+--Vardagsrummet 
+--Standby killer Off
+  Rule.eval("@06:30 => LivingRoom.Hemma_Bio:on; LivingRoom.Tv:on; LivingRoom.Wii:on")
+--Standby killer On
+  Rule.eval("@01:30 => LivingRoom.Hemma_Bio:off; LivingRoom.Tv:off; LivingRoom.Wii:off")
+  
+--Köket
+  Rule.eval("for(00:40,Kitchen.KaffeBryggare:power>=50) => Kitchen.KaffeBryggare:off; phones:msg=log('Stänger av Kaffebryggaren %s',osdate('%X'))")
+ 
+--Sovrummet
+--Starta Laddare
+	Rule.eval("@22:00 => BedRoom:on") -- turn on everything in the bedrrom, happens to be only 2 chargers...
+--Laddare av
+	Rule.eval("@06:00 => BedRoom:off") -- turn on everything in the bedrrom, happens to be only 2 chargers...
+ 
+--Morgonbelysning om sol är mindre än 1
+  Rule.eval("$Sun<=1.0 & 05:30..12:50 & wday('mon-fri') => LivingRoom.Bakom_Soffa:on; LivingRoom.Bakom_Tv:on; Kitchen.Window:on")
+  Rule.eval("$Sun<=1.0 & 07:30..12:50 & wday('sat-sun') => LivingRoom.Bakom_Soffa:on; LivingRoom.Bakom_Tv:on; Kitchen.Window:on")
+  Rule.eval("$Sun>=1.1 & 05:46..12:52 & wday('sat-sun') => LivingRoom.Bakom_Soffa:off; LivingRoom.Bakom_Tv:off; Kitchen.Window:off")
+ 
+  Util.defvar('earthHourDate',function() return ("25/03/2017,31/03/2018,30/03/2019,28/03/2020"):match(os.date("%d/%m/%Y"))~=nil end)
+-- Earth Hour - Datum fram till 2020.
+-- Notis via push och Sonos om att Earth Hour Börjar om 30 min. 25/03/2017,31/03/2018,30/03/2019,28/03/2020
+  Rule.eval("@20:00 & $Status='Hemma' & earthHourDate() => phones:msg='Förbered levande ljus ifall ni vill se något i mörkret :)'")
+-- Sätter den globala variabeln till aktivt läge, 1.
+  Rule.eval("@20:30 & $Status='Hemma' & earthHourDate() => $EarthHour=1")
+-- Påbörjar Earth Hour. Släcker alla lampor, pushar ut notis pá mobiler och Sonos.
+  Rule.eval("$EarthHour==1 & $Status='Hemma' & earthHourDate() & hour(20:30) =>  phones:msg='Earth Hour påbörjad, Avslutas 21:30.' ; VD.AllmanBelysning:btn=2")
+-- Sätter den globala variabeln till inaktivt läge, 0.
+  Rule.eval("@21:30 & $Status='Hemma' & earthHourDate() => $EarthHour=0")
+-- Avslutar Earth Hour. Tänder lamporna igen, pushar ut notis to mobilize och Sonos.
+  Rule.eval("$EarthHour==0 & $Status='Hemma' & earthHourDate() & hour(21:30) =>  phones:msg='Earth Hour avslutad Lamporna tnds.' ; VD.AllmanBelysning:btn=1")
+  
+  --Test rules by simulating state changes
+  Rule.eval("@08:00+rnd(-02:00,02:00) => $Sun=1.0") --Simulate sun up
+  Rule.eval("@18:00+rnd(-02:00,02:00) => $Sun=0.3") -- Simulate sun down
+  Rule.eval("wait(t/13:00); SENSORS.Wc:on")         -- Simulate Wc sensor on
+  Rule.eval("wait(t/13:01); SENSORS.Wc:off")        -- Simulate Wc sensor off
+end
+
+if tEarth then -- Earth hour script. Saves values of lamps, turn them off at 20:30, and restore the values at 21:30
   Rule.load([[
     lights={td.lamp_roof,lr.lamp_roof_sofa}
     earthDates={2019/3/30/20:30,2020/3/28/20:30}

@@ -61,7 +61,8 @@ local function _poll()
   if l and l ~= "" and l:sub(1,3) ~= '<@>' then -- Something in the mailbox
     fibaro:setGlobal(_MAILBOX,"") -- clear mailbox
     Debug(4,"Incoming event:%",l)
-    Event.post(json.decode(l)) -- and post it to our "main()"
+    l = json.decode(l) l._sh=true
+    Event.post(l) -- and post it to our "main()"
   end
   setTimeout(_poll,250) -- check every 250ms
 end
@@ -550,7 +551,7 @@ function newScriptEngine()
     return doit(Util.mapF,function(id) local t = fibaro:getValue(ID(id,i),'value') fibaro:call(id,t>'0' and 'turnOff' or 'turnOn') end,s.pop())
   end
   local setIdFun={}
-  local _propMap={r='setR',g='setG',b='setB',color='setColor',armed='setArmed',w='setW',value='setValue',time='setTime'}
+  local _propMap={R='setR',G='setG',B='setB',color='setColor',armed='setArmed',W='setW',value='setValue',time='setTime'}
   local function setIdFuns(s,i,prop,id,v) 
     local p=_propMap[prop] _assert(p,"bad setProperty :%s",prop) doit(Util.mapF,function(id) fibaro:call(ID(id,i),p,v) end,id) 
   end
@@ -1007,8 +1008,6 @@ function newScriptCompiler()
         _passert(t.t =='rsquare',t.cp,"bad index [] operator")
         t = {t='op',v='.',cp=t.cp}
       end
-   --   if t.t=='neg' then
-   --     res.push({'neg',self.expr(tokens)})
       if t.t=='op' then
         if s.isEmpty() then s.push(t)
         else
