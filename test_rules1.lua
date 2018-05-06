@@ -1,7 +1,7 @@
 local tExpr = false
-local tRules = false
+local tRules = true
 local tShell = false
-local tGEA = true
+local tGEA = false
 local tEarth = false
 local tTest1 = false
 local tTest2 = false
@@ -113,7 +113,7 @@ if tScheduler then
   local dev = json.decode(fibaro:getGlobalValue('jTable')) -- Fetch device definitions
   Util.reverseMapDef(dev) -- Make device names availble for debugging
   -- Make variables available in scripts, e.g. kichen.lamp, kitchen.light etc
-  for v,val in pairs(dev) do Util.defvar(v,val) end 
+  Util.defvars(dev) 
   
   -- setup some groups - could also be part of 'conf'
   Rule.eval("downstairs_move={kitchen.sensor,hall.sensor,room.sensor}")
@@ -213,8 +213,8 @@ local devs = {
   LivingRoom = {Hemma_Bio = 42, Tv = 43, Wii = 44, Bakom_Tv = 45, Bakom_Soffa = 269},
   SENSORS = {Wc = 202, Laundry_Room = 228},
   VD = {AllmanBelysning = 240, BarnensBelysning = 193, Garaget_Stolpe = 76}}
-for var,val in pairs(devs) do Util.defvar(var,val) end
-Util.reverseMapDef(devs)
+  Util.defvars(devs)
+  Util.reverseMapDef(devs)
 
 --Barnens belysning
 --Starta lamporna när globala variablen är 1.3 eller mind och klockan är mellan 13: 00-18: 50 slack vid 19 tiden.
@@ -406,7 +406,7 @@ if tTest1 then
     user = {jan = {phone = 120 }}
   }
 
-  for k,j in pairs(d) do Util.defvar(k,j) end -- define variables from device table
+  Util.defvars(d)      -- define variables from device table
   Util.reverseMapDef(d)
 
   _setClock("t/08:00")

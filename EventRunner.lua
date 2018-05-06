@@ -27,6 +27,9 @@ if dofile then dofile("EventRunnerDebug.lua") end
 
 ---------------- Callbacks to user code --------------------
 function main()
+  --l=ScriptCompiler.compile(ScriptCompiler.parse("trace(true); b=3;a=8*b+10"))
+  --print(tojson(l))
+  --Rule.eval("trace(true); b=3;a=8*b+10")
   dofile("test_rules1.lua") 
 end -- main()
 ------------------- EventModel --------------------  
@@ -447,6 +450,9 @@ Util.S2 = {click = "26", double = "24", tripple = "25", hold = "22", release = "
 
 Util._vars = {} 
 function Util.defvar(var,expr) Util._vars[var]=expr end
+function Util.defvars(tab) 
+  for var,val in pairs(tab) do Util.defvar(var,val) end
+end
 
 Util._reverseVarTable = {}
 function Util.reverseMapDef(table) Util._reverseMap({},table) end
