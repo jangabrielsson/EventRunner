@@ -30,7 +30,9 @@ function main()
   --l=ScriptCompiler.compile(ScriptCompiler.parse("trace(true); b=3;a=8*b+10"))
   --print(tojson(l))
   --Rule.eval("trace(true); b=3;a=8*b+10")
-  dofile("test_rules1.lua") 
+  --Rule.eval("44:off; 45;off")
+  --Rule.eval("44:isOff & once(11:00..12:00) => log('HELLO')")
+  --dofile("test_rules1.lua") 
 end -- main()
 ------------------- EventModel --------------------  
 local _supportedEvents = {property=true,global=true,event=true,remote=true}
@@ -904,16 +906,16 @@ function newScriptCompiler()
 
   local _opMap = {['&']='and',['|']='or',['=']='set',[':']='prop',[';']='progn',['..']='betw', ['!']='not', ['@']='daily'}
   local function mapOp(op) return _opMap[op] or op end
-  
+
   local function _binop(s,res) res.push({mapOp(s.pop().v),table.unpack(res.lift(2))}) end
   local function _unnop(s,res) res.push({mapOp(s.pop().v),res.pop()}) end
   local _prec = {
     ['*'] = 10, ['/'] = 10, ['.'] = 12.5, ['+'] = 9, ['-'] = 9, [':'] = 12, ['..'] = 8.5, ['=>'] = -2, ['neg'] = 13, ['!'] = 6.5, ['@']=8.5,
     ['>']=7, ['<']=7, ['>=']=7, ['<=']=7, ['==']=7, ['~=']=7, ['&']=6, ['|']=5, ['=']=4, ['+=']=4, ['-=']=4, ['*=']=4, [';']=3.6, ['('] = 1, }
-  
+
   for i,j in pairs(_prec) do _prec[i]={j,_binop} end 
   _prec['neg']={13,_unnop} _prec['!']={6.5,_unnop} _prec['@']={8.5,_unnop}
-  
+
   local _tokens = {
     {"^(%b'')",'string'},{'^(%b"")','string'},
     {"^%#([0-9a-zA-Z]+{?)",'event'},
@@ -1094,9 +1096,12 @@ function newRuleCompiler()
   local triggFuns = {}
 
   local function getTriggers(e)
-    local ids,dailys={},{}
+    local ids,dailys,betw={},{},{}
     local function gt(k,e)
       if k=='daily' then dailys[#dailys+1 ]=ScriptCompiler.compile(e[2])
+      elseif k=='betw' then 
+        betw[#betw+1 ]=ScriptCompiler.compile(e[2])
+        betw[#betw+1 ]=ScriptCompiler.compile({'+',1,e[3]})
       elseif k=='glob' then ids[e[2] ] = {type='global', name=e[2]}
       elseif tFun[k] then 
         local cv = ScriptCompiler.compile(e[2])
@@ -1108,7 +1113,7 @@ function newRuleCompiler()
       return e
     end
     traverse(e,gt)
-    return ids and mapkl(function(k,v) return v end,ids),dailys
+    return ids and mapkl(function(k,v) return v end,ids),dailys,betw
   end
 
   function self.test(s) return {getTriggers(ScriptCompiler.parse(s))} end
@@ -1130,19 +1135,25 @@ function newRuleCompiler()
       while _compileHook.reverseMap[ll] do ll = _compileHook.reverseMap[ll] end
       _compileHook.reverseMap[ll] = org
     else
-      local ids,dailys,times = getTriggers(h)
+      local ids,dailys,betw,times = getTriggers(h)
       local action = Event._compileAction({'and',h,body})
-      if #dailys>0 then -- 'daily' rule
+      if #dailys>0 then -- 'daily' rule, ignore other triggers
         local m,ot=midnight(),osTime()
         _dailys[#_dailys+1]={dailys=dailys,action=action,org=org}
         times = compTimes(dailys)
         for _,t in ipairs(times) do if t+m >= ot then Event.post(action,t+m) end end
       elseif #ids>0 then -- id/glob trigger rule
         for _,id in ipairs(ids) do Event.event(id,action).org=org end
+        if #betw>0 then
+          local m,ot=midnight(),osTime()
+          _dailys[#_dailys+1]={dailys=betw,action=action,org=org}
+          times = compTimes(betw)
+          for _,t in ipairs(times) do if t+m >= ot then Event.post(action,t+m) end end
+        end
       else
         error(_format("no triggers found in rule '%s'",tojson(e)))
       end
-      res = {[Event.RULE]={time=times,device=ids}, action=action, org=org}
+      res = {[Event.RULE]={time=times,betw=betw,device=ids}, action=action, org=org}
     end
     rCounter=rCounter+1
     Log(LOG.SYSTEM,"Rule:%s:%.40s",rCounter,org:match("([^%c]*)"))
