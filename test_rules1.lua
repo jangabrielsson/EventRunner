@@ -538,11 +538,14 @@ if tRemoteAsync then -- example of doing remote/async calls
       if _callbacks[env.event.to] then _callbacks[env.event.to](env) _callbacks[env.event.to] = nil end
     end)
 
-  Util.defvar('foo',function(a,b) call('foo/3',{a,b}) end)
+  Util.defvar('foo',function(a,b) call('foo/2',{a,b}) end)
+  
   -- Handler waits 10min and does a reply, should propbably have a timeout parameter...
   -- This could trivially be extended to call functions in other scenes...
   Rule.eval("#RPC{from='$id', args='$args'} => wait(00:10); post(#RPC{to=id,res=args[1]+args[2]})")
-  Rule.eval("log('RES=%s',foo(4,5))")
+  
+  -- Here we call foo in the middle of an expression, foo suspends for 10min, returns 9 that becomes 14...
+  Rule.eval("log('RES=%s',2+foo(4,5)+3)")
 
 end
 

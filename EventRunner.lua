@@ -27,6 +27,7 @@ if dofile then dofile("EventRunnerDebug.lua") end
 
 ---------------- Callbacks to user code --------------------
 function main()
+  Rule.eval("4+4")
   dofile("test_rules1.lua") 
 end -- main()
 ------------------- EventModel --------------------  
@@ -1156,12 +1157,16 @@ function newRuleCompiler()
   end
 
   function self.eval(expro,log)
-    local expr = self.macroSubs(expro)
-    local res = ScriptCompiler.parse(expr)
-    res = ScriptCompiler.compile(res)
-    res = ScriptEngine.eval(res)
-    if log then Log(LOG.LOG,"%s",tojson(res)) end
-    return res
+    local status, res = pcall(function() 
+        local expr = self.macroSubs(expro)
+        local res = ScriptCompiler.parse(expr)
+        res = ScriptCompiler.compile(res)
+        res = ScriptEngine.eval(res)
+        if log then Log(LOG.LOG,"%s",tojson(res)) end
+        return res
+      end)
+    if not status then error({_format("Error evaulating '%s':%s",expro,res:match("([^:]*)$"))},3)
+    else return res end
   end
 
   function self.load(rules,log)
