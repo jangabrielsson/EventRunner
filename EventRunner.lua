@@ -27,12 +27,7 @@ if dofile then dofile("EventRunnerDebug.lua") end
 
 ---------------- Callbacks to user code --------------------
 function main()
-  --l=ScriptCompiler.compile(ScriptCompiler.parse("trace(true); b=3;a=8*b+10"))
-  --print(tojson(l))
-  --Rule.eval("trace(true); b=3;a=8*b+10")
-  --Rule.eval("44:off; 45;off")
-  --Rule.eval("44:isOff & once(11:00..12:00) => log('HELLO')")
-  --dofile("test_rules1.lua") 
+  dofile("test_rules1.lua") 
 end -- main()
 ------------------- EventModel --------------------  
 local _supportedEvents = {property=true,global=true,event=true,remote=true}
