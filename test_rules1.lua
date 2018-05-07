@@ -1,7 +1,7 @@
 local tExpr = false
-local tRules = true
+local tRules = false
 local tShell = false
-local tGEA = false
+local tGEA = true
 local tEarth = false
 local tTest1 = false
 local tTest2 = false
@@ -271,6 +271,7 @@ local devs = {
   Rule.eval("$EarthHour==0 & $Status='Hemma' & earthHourDate() & hour(21:30) =>  phones:msg='Earth Hour avslutad Lamporna tnds.' ; VD.AllmanBelysning:btn=1")
   
   --Test rules by simulating state changes
+  Rule.eval("$Sun=0.7")
   Rule.eval("@08:00+rnd(-02:00,02:00) => $Sun=1.0") --Simulate sun up
   Rule.eval("@18:00+rnd(-02:00,02:00) => $Sun=0.3") -- Simulate sun down
   Rule.eval("wait(t/13:00); SENSORS.Wc:on")         -- Simulate Wc sensor on
