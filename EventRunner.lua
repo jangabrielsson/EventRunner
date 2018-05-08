@@ -27,7 +27,8 @@ if dofile then dofile("EventRunnerDebug.lua") end
 
 ---------------- Callbacks to user code --------------------
 function main()
-  Rule.eval("4+4")
+  --Util.defvar("api",api)
+  --Rule.eval("log('Weather is %s',(api.get)('/weather').WeatherCondition)") - Fix
   dofile("test_rules1.lua") 
 end -- main()
 ------------------- EventModel --------------------  
@@ -1165,7 +1166,7 @@ function newRuleCompiler()
         if log then Log(LOG.LOG,"%s",tojson(res)) end
         return res
       end)
-    if not status then error({_format("Error evaulating '%s':%s",expro,res:match("([^:]*)$"))},3)
+    if not status then errThrow(_format("Error evaulating '%s'",expro),res)
     else return res end
   end
 
