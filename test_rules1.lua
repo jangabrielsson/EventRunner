@@ -46,8 +46,8 @@ if tExpr then -- test some standrad expression
   test("{88,99}:msg=frm('%s+%s=%s',6,8,6+8)")
   Util.defvar('f1',function(a,b,c) return a+b*c end)
   test("4+f1(1,2,3)+2")
-  test("a=fn(a,b) -> return(a+b) end; a(7,9)")
-  test("(fn(a,b) -> return(a+b) end)(7,9)")
+  test("a=fn(a,b) return(a+b) end; a(7,9)")
+  test("(fn(a,b)return(a+b) end)(7,9)")
   test("label(45,'test')='hello'")
   test("|| 11:00..12:00 & day('1-7') & wday('mon') >> log('Noon first Monday of the month!')")
   test("|| 11:00..12:00 & day('lastw-last') & wday('mon') >> log('Noon last Monday of the month!')")
@@ -312,8 +312,8 @@ if tHouse then
         log('Turning off kitchen spots after 10 min inactivity')
 
 -- Kitchen
-      daily(sunset-00:10) => press(kt.sink_led,1); log('Turn on kitchen sink light')
-      daily(sunrise+00:10) => press(kt.sink_led,2); log('Turn off kitchen sink light')
+      daily(sunset-00:10) => kt.sink_led:btn=1; log('Turn on kitchen sink light')
+      daily(sunrise+00:10) => kt.sink_led:btn=2; log('Turn off kitchen sink light')
       daily(sunset-00:10) => kt.lamp_table:on; log('Evening, turn on kitchen table light')
 
 -- Living room
@@ -432,7 +432,7 @@ if tTest1 then
   --printRule(y)
   --Rule.eval("post(#foo{val=1})")
 
-  Rule.eval("for(00:10,hall.door:breached) => send(user.jan.phone,log('Door open %s min',repeat(5)*10))")
+  Rule.eval("for(00:10,hall.door:breached) => user.jan.phone:msg=log('Door open %s min',repeat(5)*10)")
   post(prop(d.hall.door,0),"+/00:15")
   post(prop(d.hall.door,1),"+/00:20") 
 
@@ -508,7 +508,7 @@ if tTest2 then
   Rule.eval("post(#test{i=1})")
 
   Rule.eval("bed.sensor:breached & bed.lamp:isOff &manual(bed.lamp)>10*60 => bed.lamp:on;log('ON.Manual=%s',manual(bed.lamp))")
-  Rule.eval("for(00:10,bed.sensor:safe&bed.lamp:isOn) => || manual(bed.lamp)>10*60 >> bed.lamp:off ;repeat();log('OFF.Manual=%s',manual(bed.lamp)")
+  Rule.eval("for(00:10,bed.sensor:safe&bed.lamp:isOn) => || manual(bed.lamp)>10*60 >> bed.lamp:off ;repeat();log('OFF.Manual=%s',manual(bed.lamp))")
   Rule.eval("bed.sensor:breached&bed.lamp:isOff => bed.lamp:on;auto='aon';log('Auto.ON')")
   Rule.eval("for(00:10,bed.sensor:safe&bed.lamp:isOn) => bed.lamp:off;auto='aoff';log('Auto.OFF')")
   Rule.eval("bed.lamp:isOn => || auto~='aon' >> auto='m';log('Man.ON')")
