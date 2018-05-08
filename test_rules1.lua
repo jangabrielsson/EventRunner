@@ -523,29 +523,33 @@ end -- ruleTests2
 if tRemoteAsync then -- example of doing remote/async calls
   
   _callbacks={}
-  local function call(id,args)
-    id = id or tostring(args)
+  local function callAsync(to,fun,args)
+    local id,t = tostring(args),nil
     local callback = function(env,stack,cp,ctx)
-      _callbacks[id] = function(nenv)
-        stack.push(nenv.event.res)
+      _callbacks[id] = function(res)
+        if t then Event.cancel(t) end
+        stack.push(res)
         ScriptEngine.eval(env.code,env,stack,cp)
       end
     end
-    Event.post({type='RPC',from=id, args=args})
+    local addr,timeout = type(to)=='table' and to[1] or to, type(to)=='table' and to[2]
+    if timeout then t=Event.post(function() _callbacks[id]=nil end,osTime()+timeout) end
+    if tonumber(addr) then Event.postRemote(addr,{type='RPC',id=id,fun=fun,args=args})
+    else Event.post({type='RPC',id=id,fun=fun,args=args}) end
     error({type='yield', fun=callback})
   end
-  Event.event({type='RPC', to='$to'},function(env)
-      if _callbacks[env.event.to] then _callbacks[env.event.to](env) _callbacks[env.event.to] = nil end
+  Event.event({type='RPC', id='$id', res='$res'},function(env)
+      if _callbacks[env.p.id] then _callbacks[env.p.id](env.p.res) _callbacks[env.p.id] = nil end
     end)
 
-  Util.defvar('foo',function(a,b) call('foo/2',{a,b}) end)
+  Util.defvar('callAsync',function(addr,fun,...) callAsync(addr,fun,{...}) end)
   
   -- Handler waits 10min and does a reply, should propbably have a timeout parameter...
   -- This could trivially be extended to call functions in other scenes...
-  Rule.eval("#RPC{from='$id', args='$args'} => wait(00:10); post(#RPC{to=id,res=args[1]+args[2]})")
+  Rule.eval("#RPC{id='$id',fun='foo/2',args='$args'} => wait(00:10); post(#RPC{id=id,res=args[1]+args[2]})")
   
   -- Here we call foo in the middle of an expression, foo suspends for 10min, returns 9 that becomes 14...
-  Rule.eval("log('RES=%s',2+foo(4,5)+3)")
+  Rule.eval("log('RES=%s',2+callAsync({'local',60*13},'foo/2',4,5)+3)")
 
 end
 

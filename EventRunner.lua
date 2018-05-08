@@ -29,7 +29,7 @@ if dofile then dofile("EventRunnerDebug.lua") end
 function main()
   --Util.defvar("api",api)
   --Rule.eval("fn(a,b)return(a+b) end(5,4)",true)
-  --Rule.eval("log('Weather is %s',api.get('/weather').WeatherCondition)") -- Fix
+  --Rule.eval("log('Weather is %s',api.get('/weather').WeatherCondition)") 
   dofile("test_rules1.lua") 
 end -- main()
 ------------------- EventModel --------------------  
