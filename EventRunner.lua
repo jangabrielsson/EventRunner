@@ -30,7 +30,8 @@ function main()
   --Util.defvar("api",api)
   --Rule.eval("fn(a,b)return(a+b) end(5,4)",true)
   --Rule.eval("log('Weather is %s',api.get('/weather').WeatherCondition)") 
-  dofile("test_rules1.lua") 
+  dofile("timeAndLight3.lua")
+---  dofile("test_rules1.lua") 
 end -- main()
 ------------------- EventModel --------------------  
 local _supportedEvents = {property=true,global=true,event=true,remote=true}
@@ -1200,10 +1201,11 @@ function newScriptCompiler()
 
     Event.schedule("n/00:00",function(env)  -- Scheduler that every night posts 'daily' rules
         local midnight = midnight()
+        Log(LOG.LOG,"Scheduling")
         for _,d in ipairs(_dailys) do
           local times = compTimes(d.dailys)
           for _,t in ipairs(times) do 
-            --Log(LOG.LOG,"Scheduling at %s",osDate("%X",midnight+t))
+            Log(LOG.LOG,"Scheduling at %s",osDate("%X",midnight+t))
             Event.post(d.action,midnight+t,d) 
           end
         end
@@ -1223,7 +1225,6 @@ function newScriptCompiler()
     end
   end
   ScriptEngine.addInstr("date",makeDateInstr(function(s) return s end))             -- min,hour,days,month,wday
-  ScriptEngine.addInstr("hour",makeDateInstr(function(s) return "* "..s end))       -- hour('10-15'), hour('3,5,6')
   ScriptEngine.addInstr("day",makeDateInstr(function(s) return "* * "..s end))      -- day('1-31'), day('1,3,5')
   ScriptEngine.addInstr("month",makeDateInstr(function(s) return "* * * "..s end))  -- month('jan-feb'), month('jan,mar,jun')
   ScriptEngine.addInstr("wday",makeDateInstr(function(s) return "* * * * "..s end)) -- wday('fri-sat'), wday('mon,tue,wed')

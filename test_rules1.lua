@@ -300,7 +300,7 @@ if tHouse then
   -- collect garbage every night
   Event.schedule("n/00:00",function() collectgarbage("collect") end,{name='GC'})
   -- define macro that is true 08:00-12:00 on weekdays and 00:00-04:49 all days
-  Rule.macro('LIGHTTIME',"(wday('mon-fri')&hour('8-12')|hour('0-4'))")
+  Rule.macro('LIGHTTIME',"(wday('mon-fri')&08:00..12:00|00:00..04:00)")
 
   Rule.load([[
 -- Kitchen
