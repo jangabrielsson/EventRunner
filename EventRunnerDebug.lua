@@ -283,6 +283,7 @@ if not _REMOTE then
     ["off"] = "fibaro:call(%s,'%s')",
     ["setValue"] = "fibaro:call(%s,'%s', '%s', '%s')",
     ["setProperty"] = "fibaro:call(%s,'%s', '%s', '%s')",
+    ["setSlider"] = "fibaro:call(%s,'%s', '%s')",
     ["sendPush"] = "fibaro:call(%s,'%s', '%s')",
     ["pressButton"] = "fibaro:call(%s,'%s', '%s')"
   }

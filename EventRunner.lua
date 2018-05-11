@@ -30,8 +30,9 @@ function main()
   --Util.defvar("api",api)
   --Rule.eval("fn(a,b)return(a+b) end(5,4)",true)
   --Rule.eval("log('Weather is %s',api.get('/weather').WeatherCondition)") 
-  dofile("timeAndLight3.lua")
----  dofile("test_rules1.lua") 
+  --Rule.eval("@@10:00 => log('Hello')")
+--  dofile("timeAndLight3.lua")
+  dofile("test_rules1.lua") 
 end -- main()
 ------------------- EventModel --------------------  
 local _supportedEvents = {property=true,global=true,event=true,remote=true}
@@ -620,6 +621,9 @@ function newScriptEngine()
   instr['setLabel'] = function(s,n,e,i) local id,v,lbl = s.pop(),s.pop(),i[3]
     fibaro:call(ID(id,i),"setProperty",_format("ui.%s.value",lbl),tostring(v)) s.push(v) 
   end
+  instr['setSlider'] = function(s,n,e,i) local id,v,lbl = s.pop(),s.pop(),i[3]
+    fibaro:call(ID(id,i),"setSlider",tostring(lbl),tostring(v)) s.push(v) 
+  end
   instr['setRef'] = function(s,n,e,i) local r,v,k = s.pop(),s.pop() 
     if n==3 then r,k=s.pop(),r else k=i[3] end
     _assertf(type(r)=='table',"trying to set non-table value '%s'",function() return json.encode(r) end)
@@ -660,9 +664,13 @@ function newScriptEngine()
   instr['fjson'] = function(s,n) s.push(json.decode(s.pop())) end
   instr['osdate'] = function(s,n) local x,y = s.ref(n-1),(n>1 and s.pop() or nil) s.pop(); s.push(osDate(x,y)) end
   instr['daily'] = function(s,n,e) s.pop() s.push(true) end
+  instr['schedule'] = function(s,n,e) local t,code = s.pop(),e.code 
+    Event.post(function() self.eval(code) end,osTime()+t) s.push(true)
+  end
   instr['ostime'] = function(s,n) s.push(osTime()) end
   instr['frm'] = function(s,n) s.push(string.format(table.unpack(s.lift(n)))) end
   instr['label'] = function(s,n,e,i) local nm,id = s.pop(),s.pop() s.push(fibaro:get(ID(id,i),_format("ui.%s.value",nm))) end
+  instr['slider'] = instr['label']
   instr['once'] = function(s,n,e,i) local f; i[4],f = s.pop(),i[4]; s.push(not f and i[4]) end
   instr['always'] = function(s,n,e,i) s.pop(n) s.push(true) end 
   instr['post'] = function(s,n) local e,t=s.pop(),nil; if n==2 then t=e; e=s.pop() end Event.post(e,t) s.push(e) end
@@ -830,8 +838,8 @@ function newScriptCompiler()
   end
   _comp['set'] = function(e,ops)
     local ref,val=e[2],e[3]
-    local setF = type(ref)=='table' and ({var='setVar',glob='setGlob',aref='setRef',label='setLabel',prop='setProp'})[ref[1]]
-    if setF=='setRef' or setF=='setLabel' or setF=='setProp' then -- ["setRef,["var","foo"],"bar",5]
+    local setF = type(ref)=='table' and ({var='setVar',glob='setGlob',aref='setRef',label='setLabel',slider='setSlider',prop='setProp'})[ref[1]]
+    if setF=='setRef' or setF=='setLabel' or setF=='setProp' or setF=='setSlider' then -- ["setRef,["var","foo"],"bar",5]
       local expr,idx = ref[2],ref[3]
       compT(val,ops) compT(expr,ops)
       idx = setF=='setProp' and idx[2] or idx
@@ -903,17 +911,17 @@ function newScriptCompiler()
   function self.precompile(e) return traverse(e,function (k,e) return preC[k] and preC[k](k,e) or e end) end
   function self.compile(expr) local code = {} compT(self.precompile(expr),code) return code end
 
-  local _opMap = {['&']='and',['|']='or',['=']='set',[':']='prop',[';']='progn',['..']='betw', ['!']='not', ['@']='daily'}
+  local _opMap = {['&']='and',['|']='or',['=']='set',[':']='prop',[';']='progn',['..']='betw', ['!']='not', ['@']='daily', ['@@']='schedule'}
   local function mapOp(op) return _opMap[op] or op end
 
   local function _binop(s,res) res.push({mapOp(s.pop().v),table.unpack(res.lift(2))}) end
   local function _unnop(s,res) res.push({mapOp(s.pop().v),res.pop()}) end
   local _prec = {
-    ['*'] = 10, ['/'] = 10, ['.'] = 12.5, ['+'] = 9, ['-'] = 9, [':'] = 12, ['..'] = 8.5, ['=>'] = -2, ['neg'] = 13, ['!'] = 6.5, ['@']=8.5,
+    ['*'] = 10, ['/'] = 10, ['.'] = 12.5, ['+'] = 9, ['-'] = 9, [':'] = 12, ['..'] = 8.5, ['=>'] = -2, ['neg'] = 13, ['!'] = 6.5, ['@']=8.5, ['@@']=8.5,
     ['>']=7, ['<']=7, ['>=']=7, ['<=']=7, ['==']=7, ['~=']=7, ['&']=6, ['|']=5, ['=']=4, ['+=']=4, ['-=']=4, ['*=']=4, [';']=3.6, ['('] = 1, }
 
   for i,j in pairs(_prec) do _prec[i]={j,_binop} end 
-  _prec['neg']={13,_unnop} _prec['!']={6.5,_unnop} _prec['@']={8.5,_unnop}
+  _prec['neg']={13,_unnop} _prec['!']={6.5,_unnop} _prec['@']={8.5,_unnop} _prec['@@']={8.5,_unnop}
 
   local _tokens = {
     {"^(%b'')",'string'},{'^(%b"")','string'},
@@ -931,7 +939,7 @@ function newScriptCompiler()
     {"^([_a-zA-Z][_0-9a-zA-Z]*)",'symbol'},
     {"^(%.%.)",'op'},{"^(->)",'op'},    
     {"^(%d+%.?%d*)",'num'},
-    {"^(%|%|)",'token'},{"^(>>)",'token'},{"^(=>)",'token'},
+    {"^(%|%|)",'token'},{"^(>>)",'token'},{"^(=>)",'token'},{"^(@@)",'op'},
     {"^([%*%+%-/&%.:~=><%|!@]+)",'op'},
   }
 
@@ -1102,9 +1110,10 @@ function newScriptCompiler()
     local triggFuns = {}
 
     local function getTriggers(e)
-      local ids,dailys,betw={},{},{}
+      local ids,dailys,betw,sched={},{},{},false
       local function gt(k,e)
         if k=='daily' then dailys[#dailys+1 ]=ScriptCompiler.compile(e[2])
+        elseif k=='schedule' then sched=true
         elseif k=='betw' then 
           betw[#betw+1 ]=ScriptCompiler.compile(e[2])
           betw[#betw+1 ]=ScriptCompiler.compile({'+',1,e[3]})
@@ -1119,7 +1128,7 @@ function newScriptCompiler()
         return e
       end
       traverse(e,gt)
-      return ids and mapkl(function(k,v) return v end,ids),dailys,betw
+      return ids and mapkl(function(k,v) return v end,ids),dailys,betw,sched
     end
 
     function self.test(s) return {getTriggers(ScriptCompiler.parse(s))} end
@@ -1141,9 +1150,10 @@ function newScriptCompiler()
         while _compileHook.reverseMap[ll] do ll = _compileHook.reverseMap[ll] end
         _compileHook.reverseMap[ll] = org
       else
-        local ids,dailys,betw,times = getTriggers(h)
+        local ids,dailys,betw,sched,times = getTriggers(h)
         local action = Event._compileAction({'and',h,body})
-        if #dailys>0 then -- 'daily' rule, ignore other triggers
+        if sched then Event.post(action)
+        elseif #dailys>0 then -- 'daily' rule, ignore other triggers
           local m,ot=midnight(),osTime()
           _dailys[#_dailys+1]={dailys=dailys,action=action,org=org}
           times = compTimes(dailys)
@@ -1201,7 +1211,7 @@ function newScriptCompiler()
 
     Event.schedule("n/00:00",function(env)  -- Scheduler that every night posts 'daily' rules
         local midnight = midnight()
-        Log(LOG.LOG,"Scheduling")
+        --Log(LOG.LOG,"Scheduling")
         for _,d in ipairs(_dailys) do
           local times = compTimes(d.dailys)
           for _,t in ipairs(times) do 
