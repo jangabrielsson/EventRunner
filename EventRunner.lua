@@ -37,8 +37,8 @@ function main()
   -- ...
   -- rule("@sunset => lamp:off")
   -- ...
-  
-  dofile("example_rules.lua") -- test rules for now...
+
+-- dofile("example_rules.lua") -- test rules for now...
 
 end -- main()
 ------------------- EventModel --------------------  
@@ -221,20 +221,20 @@ function newEventEngine()
     return _unify(pattern,expr) and matches or false
   end
 
-  local function ruleError(res,rule,def)
+  local function ruleError(res,src,def)
     res = type(res)=='table' and table.concat(res,' ') or res
-    rule = rule and rule.org or def
-    Log(LOG.ERROR,"Error in '%s': %s",rule,res)
+    src = src or def
+    Log(LOG.ERROR,"Error in '%s': %s",src,res)
   end
 
-  function self.post(e,time,rule) -- time in 'toTime' format, see below.
+  function self.post(e,time,src) -- time in 'toTime' format, see below.
     _assert(isEvent(e) or type(e) == 'function', "Bad2 event format %s",tojson(e))
     time = toTime(time or osTime())
     if time < osTime() then return nil end
     if type(e) == 'function' then 
       return {[self.TIMER]=setTimeout(function() 
             local status,res = pcall(e) 
-            if not status then ruleError(res,rule,"timer") end
+            if not status then ruleError(res,src,"timer") end
           end,1000*(time-osTime()))}
     end
     if _debugLevel >= 3 and not e._sh then 
@@ -278,7 +278,7 @@ function newEventEngine()
     _compilePattern(e)
     _handlers[e.type] = _handlers[e.type] or {}
     local rules = _handlers[e.type]
-    local rule,fn = {[self.RULE]=e, action=action, org=doc}, true
+    local rule,fn = {[self.RULE]=e, action=action, src=doc}, true
     for _,rs in ipairs(rules) do -- Collect handlers with identical patterns. {{e1,e2,e3},{e1,e2,e3}}
       if _equal(e,rs[1][self.RULE]) then rs[#rs+1] = rule fn = false break end
     end
@@ -300,7 +300,7 @@ function newEventEngine()
         tp = self.post(loop, time) 
       end)
     local res = {
-      [self.RULE] = {}, org=name, --- res ??????
+      [self.RULE] = {}, src=name, --- res ??????
       enable = function() if not tp then tp = self.post(loop,start and 0 or time) end return res end, 
       disable= function() tp = self.cancel(tp) return res end, 
     }
@@ -320,7 +320,7 @@ function newEventEngine()
     local status, res = pcall(function() env.rule.action(env) end) -- call the associated action
     if not status then
       ruleError(res,env.rule,"rule")
-      self.post({type='error',err=res,rule=env.rule.org,event=tojson(env.event),_sh=true})    -- Send error back
+      self.post({type='error',err=res,rule=env.rule.src,event=tojson(env.event),_sh=true})    -- Send error back
       env.rule._disabled = true                            -- disable rule to not generate more errors
     end
   end
@@ -672,7 +672,7 @@ function newScriptEngine()
   instr['osdate'] = function(s,n) local x,y = s.ref(n-1),(n>1 and s.pop() or nil) s.pop(); s.push(osDate(x,y)) end
   instr['daily'] = function(s,n,e) s.pop() s.push(true) end
   instr['schedule'] = function(s,n,e) local t,code = s.pop(),e.code 
-    Event.post(function() self.eval(code) end,osTime()+t) s.push(true)
+    Event.post(function() self.eval(code) end,osTime()+t,e.src) s.push(true)
   end
   instr['ostime'] = function(s,n) s.push(osTime()) end
   instr['frm'] = function(s,n) s.push(string.format(table.unpack(s.lift(n)))) end
@@ -691,7 +691,7 @@ function newScriptEngine()
     elseif i[5] then i[5]=false s.push(true) -- Timer expired, return true
     else 
       if t<midnight() then t = osTime()+t end -- Allow both relative and absolute time... e.g '10:00'->midnight+10:00
-      i[4]=Event.post(function() i[4]=nil i[5]=true self.eval(e.code,e,e.stack,cp) end,t,e.rule) s.push(false) error({type='yield'})
+      i[4]=Event.post(function() i[4]=nil i[5]=true self.eval(e.code,e,e.stack,cp) end,t,e.src) s.push(false) error({type='yield'})
     end 
   end
   instr['repeat'] = function(s,n,e) 
@@ -708,7 +708,7 @@ function newScriptEngine()
       i[6] = nil; 
       if val then
         i[7] = (i[7] or 0)+1 -- Times we have repeated
-        e.forR={function() Event.post(rep,time+osTime(),e.rule) return i[7] end,i[7]}
+        e.forR={function() Event.post(rep,time+osTime(),e.src) return i[7] end,i[7]}
       end
       s.push(val) 
       return
@@ -716,7 +716,7 @@ function newScriptEngine()
     i[7] = 0
     if i[5] and (not val) then i[5] = Event.cancel(i[5]) --Log(LOG.LOG,"Killing timer")-- Timer already running, and false, stop timer
     elseif (not i[5]) and val then                        -- Timer not running, and true, start timer
-      i[5]=Event.post(rep,time+osTime(),e.rule) --Log(LOG.LOG,"Starting timer")
+      i[5]=Event.post(rep,time+osTime(),e.src) --Log(LOG.LOG,"Starting timer")
     end
     s.push(false)
   end
@@ -1148,38 +1148,38 @@ function newScriptCompiler()
       return mapkl(function(k,v) return k end,t2)
     end
 
-    function self.compRule(e,org)
+    function self.compRule(e,src)
       local h,body,res = e[2],e[3]
       if type(h)=='table' and (h[1]=='%table' or h[1]=='quote' and type(h[2])=='table') then -- event matching rule, Needs check for 'type'!!!!
         local ep = ScriptCompiler.compile(h)
-        res = Event.event((ScriptEngine.eval(ep)),body) res.org=org
+        res = Event.event((ScriptEngine.eval(ep)),body) res.src=src
         local ll = res.action
         while _compileHook.reverseMap[ll] do ll = _compileHook.reverseMap[ll] end
-        _compileHook.reverseMap[ll] = org
+        _compileHook.reverseMap[ll] = src
       else
         local ids,dailys,betw,sched,times = getTriggers(h)
         local action = Event._compileAction({'and',h,body})
-        if sched then Event.post(action)
+        if sched then Event.post(action,nil,src)
         elseif #dailys>0 then -- 'daily' rule, ignore other triggers
           local m,ot=midnight(),osTime()
-          _dailys[#_dailys+1]={dailys=dailys,action=action,org=org}
+          _dailys[#_dailys+1]={dailys=dailys,action=action,src=src}
           times = compTimes(dailys)
-          for _,t in ipairs(times) do if t+m >= ot then Event.post(action,t+m) end end
+          for _,t in ipairs(times) do if t+m >= ot then Event.post(action,t+m,src) end end
         elseif #ids>0 then -- id/glob trigger rule
-          for _,id in ipairs(ids) do Event.event(id,action).org=org end
+          for _,id in ipairs(ids) do Event.event(id,action).src=src end
           if #betw>0 then
             local m,ot=midnight(),osTime()
-            _dailys[#_dailys+1]={dailys=betw,action=action,org=org}
+            _dailys[#_dailys+1]={dailys=betw,action=action,src=src}
             times = compTimes(betw)
-            for _,t in ipairs(times) do if t+m >= ot then Event.post(action,t+m) end end
+            for _,t in ipairs(times) do if t+m >= ot then Event.post(action,t+m,src) end end
           end
         else
           error(_format("no triggers found in rule '%s'",tojson(e)))
         end
-        res = {[Event.RULE]={time=times,betw=betw,device=ids}, action=action, org=org}
+        res = {[Event.RULE]={time=times,betw=betw,device=ids}, action=action, src=src}
       end
       rCounter=rCounter+1
-      Log(LOG.SYSTEM,"Rule:%s:%.40s",rCounter,org:match("([^%c]*)"))
+      Log(LOG.SYSTEM,"Rule:%s:%.40s",rCounter,src:match("([^%c]*)"))
       return res
     end
 
@@ -1188,7 +1188,7 @@ function newScriptCompiler()
           local expr = self.macroSubs(expro)
           local res = ScriptCompiler.parse(expr)
           res = ScriptCompiler.compile(res)
-          res = ScriptEngine.eval(res)
+          res = ScriptEngine.eval(res,{src=expro})
           if log then Log(LOG.LOG,"%s",tojson(res)) end
           return res
         end)
@@ -1223,7 +1223,7 @@ function newScriptCompiler()
           local times = compTimes(d.dailys)
           for _,t in ipairs(times) do 
             Log(LOG.LOG,"Scheduling at %s",osDate("%X",midnight+t))
-            Event.post(d.action,midnight+t,d) 
+            Event.post(d.action,midnight+t,d.src) 
           end
         end
       end)
