@@ -8,7 +8,7 @@
 counter
 --]]
 
-_version = "0.999" 
+_version = "1.0" 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -27,12 +27,19 @@ if dofile then dofile("EventRunnerDebug.lua") end
 
 ---------------- Callbacks to user code --------------------
 function main()
-  --Util.defvar("api",api)
-  --Rule.eval("fn(a,b)return(a+b) end(5,4)",true)
-  --Rule.eval("log('Weather is %s',api.get('/weather').WeatherCondition)") 
-  --Rule.eval("@@10:00 => log('Hello')")
---  dofile("timeAndLight3.lua")
-  dofile("test_rules1.lua") 
+  
+  -- Your own rules here
+  -- local rules=Rule.eval
+  -- local define = Util.defvar
+  -- local devs = json.decode(fibaro:getGlobalValue(_deviceTable))
+  -- Util.defvars(devs)
+  -- Util.reverseMap(devs)
+  -- ...
+  -- rule("@sunset => lamp:off")
+  -- ...
+  
+  dofile("example_rules.lua") -- test rules for now...
+
 end -- main()
 ------------------- EventModel --------------------  
 local _supportedEvents = {property=true,global=true,event=true,remote=true}
@@ -657,7 +664,7 @@ function newScriptEngine()
   instr['~='] = function(s,n) s.push(tostring(s.pop())~=tostring(s.pop())) end
   instr['=='] = function(s,n) s.push(tostring(s.pop())==tostring(s.pop())) end
   instr['log'] = function(s,n) s.push(Log(LOG.LOG,table.unpack(s.lift(n)))) end
-  instr['rnd'] = function(s,n) local ma,mi=s.pop(),s.pop() s.push(math.random(mi,ma)) end
+  instr['rnd'] = function(s,n) local ma,mi=s.pop(),n>1 and s.pop() or 1 s.push(math.random(mi,ma)) end
   instr['sum'] = function(s,n) local m,res=s.pop(),0 for _,x in ipairs(m) do res=res+x end s.push(res) end 
   instr['length'] = function(s,n) s.push(#(s.pop())) end
   instr['tjson'] = function(s,n) s.push(tojson(s.pop())) end

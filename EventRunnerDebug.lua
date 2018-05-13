@@ -6,7 +6,7 @@
       _PORTLISTENER=true starts a listener on a socket for receieving sourcetriggers/events from HC2 scene
 --]] 
 
-if _version ~= "0.999" then error("Bad version of EventRunnerDebug") end 
+if _version ~= "1.0" then error("Bad version of EventRunnerDebug") end 
 
 _REMOTE            = false  -- If true use FibaroSceneAPI to call functions on HC2, else emulate them locally...
 _PORTLISTENER      = false
@@ -281,6 +281,13 @@ if not _REMOTE then
     ["turnOff"] = "fibaro:call(%s,'%s')",
     ["on"] = "fibaro:call(%s,'%s')",
     ["off"] = "fibaro:call(%s,'%s')",
+    ["setR"] = "fibaro:call(%s,'%s', '%s')",
+    ["setG"] = "fibaro:call(%s,'%s', '%s')",
+    ["setB"] = "fibaro:call(%s,'%s', '%s')",
+    ["setW"] = "fibaro:call(%s,'%s', '%s')",
+    ["setArmed"] = "fibaro:call(%s,'%s', '%s')",
+    ["setColor"] = "fibaro:call(%s,'%s', '%s')",
+    ["setTime"] = "fibaro:call(%s,'%s', '%s')",
     ["setValue"] = "fibaro:call(%s,'%s', '%s', '%s')",
     ["setProperty"] = "fibaro:call(%s,'%s', '%s', '%s')",
     ["setSlider"] = "fibaro:call(%s,'%s', '%s')",
