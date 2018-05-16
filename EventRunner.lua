@@ -27,7 +27,12 @@ if dofile then dofile("EventRunnerDebug.lua") end
 
 ---------------- Callbacks to user code --------------------
 function main()
-  
+  function foo(a) return a+2 end
+  b = 8
+  local c = 9
+  Rule.eval("foo(6)",true)
+  Rule.eval("b",true)
+  Rule.eval("c",true)
   -- Your own rules here
   -- local rules=Rule.eval
   -- local define = Util.defvar
@@ -38,7 +43,7 @@ function main()
   -- rule("@sunset => lamp:off")
   -- ...
 
--- dofile("example_rules.lua") -- test rules for now...
+ dofile("example_rules.lua") -- test rules for now...
 
 end -- main()
 ------------------- EventModel --------------------  
@@ -584,7 +589,7 @@ function newScriptEngine()
   local function _coerce(x,y) local x1 = tonumber(x) if x1 then return x1,tonumber(y) else return x,y end end
   local function getVar(v,e) local vars = e.context 
     while vars do local v1 = vars[v] if v1 then return v1[1] else vars=vars.__next end end
-    return Util._vars[v]
+    return Util._vars[v] or _ENV[v]
   end
   local function setVar(var,val,e) local vars = e.context
     while vars do if vars[var] then vars[var][1]=val return val else vars = vars.__next end end
