@@ -27,12 +27,10 @@ if dofile then dofile("EventRunnerDebug.lua") end
 
 ---------------- Callbacks to user code --------------------
 function main()
-  function foo(a) return a+2 end
-  b = 8
-  local c = 9
-  Rule.eval("foo(6)",true)
-  Rule.eval("b",true)
-  Rule.eval("c",true)
+  --function foo(a) return a+2 end
+  --b = 8
+  ---Rule.eval("foo(6)",true)
+  --Rule.eval("b",true)
   -- Your own rules here
   -- local rules=Rule.eval
   -- local define = Util.defvar

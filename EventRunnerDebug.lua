@@ -26,7 +26,7 @@ if creds then creds() end
 
 _OFFLINE           = true   -- Always true if we include this file (e.g. not running on the HC2)
 _HC2               = false  -- Always false if we include this file
-
+--_ENV               = 
 mime = require('mime')
 https = require ("ssl.https")
 ltn12 = require("ltn12")
@@ -37,6 +37,7 @@ fibaro = {}
 if _REMOTE then
   require ("FibaroSceneAPI") 
 end
+_ENV = _ENV or _G or {}
 _FDEB = 1 -- 0: no debug, 1: log calls, 2: log everything
 function fibaro:getSourceTrigger() return {type = "autostart"} end
 
