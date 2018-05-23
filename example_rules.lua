@@ -1,5 +1,5 @@
-local tExpr = false
-local tRules = true
+local tExpr = true
+local tRules = false
 local tShell = false
 local tGEA = false
 local tEarth = false
@@ -48,7 +48,7 @@ if tExpr then -- test some standard expression
   Util.defvar('f1',function(a,b,c) return a+b*c end)
   test("4+f1(1,2,3)+2")
   test("a=fn(a,b) return(a+b) end; a(7,9)")
-  test("(fn(a,b)return(a+b) end)(7,9)")
+  --test("(fn(a,b)return(a+b) end)(7,9)")
   test("label(45,'test')='hello'")
   test("|| 11:00..12:00 & day('1-7') & wday('mon') >> log('Noon first Monday of the month!')")
   test("|| 11:00..12:00 & day('lastw-last') & wday('mon') >> log('Noon last Monday of the month!')")
