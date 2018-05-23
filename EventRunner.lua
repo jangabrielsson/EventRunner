@@ -965,7 +965,7 @@ function newScriptCompiler()
       s = s:gsub(_tokens[i][1],
         function(m) local r,to = "",_tokens[i]
           if to[2]=='num' and m:match("%.$") then m=m:sub(1,-2); r ='.' end -- hack for e.g. '7.'
-          if m == '(' and tkns[#tkns].t ~= 'fun' and tkns[#tkns].v:match("^[%]%)%d%a-zA-Z]") then 
+          if m == '(' and #tkns>0 and tkns[#tkns].t ~= 'fun' and tkns[#tkns].v:match("^[%]%)%d%a-zA-Z]") then 
             m='call' to={1,'call'} end
             if m == '-' and 
             (#tkns==0 or tkns[#tkns].t=='call' or tkns[#tkns].t=='efun' or tkns[#tkns].v:match("^[+%-*/({.><=&|;,]")) then m='neg' to={1,'op'} end
