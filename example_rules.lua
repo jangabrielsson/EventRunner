@@ -1,5 +1,5 @@
-local tExpr = true
-local tRules = false
+local tExpr = false
+local tRules = true
 local tShell = false
 local tGEA = false
 local tEarth = false
@@ -201,7 +201,7 @@ if tScheduler then
 end
 
 if tGEA then
-
+   _setClock("t/06:00") -- start simulation at 06:00
   local devs = {
     Alicia = {Window = 36},
     Oliver = {Dimmer = 267},
@@ -295,6 +295,7 @@ if tEarth then -- Earth hour script. Saves values of lamps, turn them off at 20:
 end
 
 if tPresence then
+   _setClock("t/06:00") -- start simulation at 06:00
   local rule = Rule.eval
   rule("sensors={99,98,97}; door=88; home=true")
   rule("lamps={22,33,44,55}")
