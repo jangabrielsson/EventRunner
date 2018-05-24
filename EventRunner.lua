@@ -40,8 +40,10 @@ function main()
   -- ...
   -- rule("@sunset => lamp:off")
   -- ...
-
- dofile("example_rules.lua") -- test rules for now...
+  Event.post({type='event', event = {data = {deviceId=56, keyId='1'}}},"+/00:00:01") 
+  Event.post({type='event', event = {data = {deviceId=56, keyId='2'}}},"+/00:00:03") 
+  Event.post({type='event', event = {data = {deviceId=56, keyId='3'}}},"+/00:00:05") 
+ --dofile("example_rules.lua") -- test rules for now...
 
 end -- main()
 ------------------- EventModel --------------------  
@@ -320,6 +322,8 @@ function newEventEngine()
   end
 
   local function _invokeRule(env)
+    local t = osTime()
+    env.last,env.rule.time = t-(env.rule.time or 0),t
     local status, res = pcall(function() env.rule.action(env) end) -- call the associated action
     if not status then
       ruleError(res,env.rule,"rule")
@@ -1252,7 +1256,9 @@ function newScriptCompiler()
 -- Support for CentralSceneEvent & WeatherChangedEvent
   _lastCSEvent = {}
   _lastWeatherEvent = {}
-  Event.event({type='event'}, function(env) env.event.event._sh=true Event.post(env.event.event) end)
+  Event.event({type='event'}, function(env) env.event.event._sh=true 
+      env.event.event.type = env.event.event.type or 'CentralSceneEvent' -- default to centralSceneEvent
+      Event.post(env.event.event) end)
   Event.event({type='CentralSceneEvent'}, 
     function(env) _lastCSEvent[env.event.data.deviceId] = env.event.data end)
   Event.event({type='WeatherChangedEvent'}, 
