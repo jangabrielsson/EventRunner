@@ -27,20 +27,10 @@ if dofile then dofile("EventRunnerDebug.lua") end
 
 ---------------- Callbacks to user code --------------------
 function main()
-  --function foo(a) return a+2 end
-  --b = 8
-  ---Rule.eval("foo(6)",true)
-  --Rule.eval("b",true)
-  -- Your own rules here
-  -- local rules=Rule.eval
-  -- local define = Util.defvar
-  -- local devs = json.decode(fibaro:getGlobalValue(_deviceTable))
-  -- Util.defvars(devs)
-  -- Util.reverseMap(devs)
-  -- ...
-  -- rule("@sunset => lamp:off")
-  -- ...
- dofile("example_rules.lua") -- test rules for now...
+  --local devs = json.decode(fibaro:getGlobalValue(_deviceTable))
+  --Util.defvars(devs)
+  --Util.reverseMapDef(devs)
+  dofile("example_rules.lua") -- test rules for now...
 
 end -- main()
 ------------------- EventModel --------------------  

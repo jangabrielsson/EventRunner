@@ -1,3 +1,10 @@
+--[[
+
+  These are example rules that can be enabled and run for testing.
+  It depends on the orginal devicemap.data file being present in the working directory
+  (to initoialize the HomeTable)
+  
+--]]
 local tExpr = false
 local tRules = true
 local tShell = false
