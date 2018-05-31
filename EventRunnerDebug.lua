@@ -67,13 +67,14 @@ function split(s, sep)
 end
 
 _timeAdjust = nil
+_DSTadjust = os.date("*t").isdst and -60*60 or 0
 
 if _speedtime then -- Special version of time functions
   local _startTime = os.time()
   local _maxTime = _startTime + _speedtime*60*60
   local _sleep = 0
   function osTime(arg1)
-    if arg1 then return os.time(arg1) end
+    if arg1 then arg1.hour = arg1.hour return os.time(arg1) end
     local t = _startTime+_sleep+(os.time()-_startTime)
     if t > _maxTime then 
       print(_format("Max time (_speedtime), %s hours, reached, exiting",_speedtime))

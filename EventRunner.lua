@@ -555,7 +555,7 @@ function newScriptEngine()
   getIdFun['lux']=function(s,i) return getIdFuns(s,i,'value') end
   getIdFun['temp']=getIdFun['lux']
   getIdFun['start']=function(s,i) doit(Util.mapF,function(id) fibaro:startScene(ID(id,i)) end,s.pop()) return true end
-  getIdFun['stop']=function(s,i) doit(Util.mapF,function(id) fibaro:killScene(ID(id,i)) end,s.pop()) return true end  
+  getIdFun['stop']=function(s,i) doit(Util.mapF,function(id) fibaro:killScenes(ID(id,i)) end,s.pop()) return true end  
   getIdFun['toggle']=function(s,i)
     return doit(Util.mapF,function(id) local t = fibaro:getValue(ID(id,i),'value') fibaro:call(id,t>'0' and 'turnOff' or 'turnOn') end,s.pop())
   end
@@ -1211,6 +1211,7 @@ function newScriptCompiler()
     function self.macroSubs(str) for m,s in pairs(_macros) do str = str:gsub(m,s) end return str end
 
     Event.schedule("n/00:00",function(env)  -- Scheduler that every night posts 'daily' rules
+        _DSTadjust = os.date("*t").isdst and -60*60 or 0
         local midnight = midnight()
         --Log(LOG.LOG,"Scheduling")
         for _,d in ipairs(_dailys) do

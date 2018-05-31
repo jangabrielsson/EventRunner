@@ -49,6 +49,7 @@ if tExpr then -- test some standard expression
   test("a = {1,2,3}")
   test("add(a,4)")
   test("a = {77,99,100}; a:on")
+  test("11:30+05:40==17:10")
   test("a:isOn")
   test("a:isOff")
   test("{88,99}:msg=frm('%s+%s=%s',6,8,6+8)")
