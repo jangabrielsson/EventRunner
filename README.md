@@ -65,6 +65,13 @@ Event.post({type='loop'})
 ```
 This will print "Ding!" immediatly, and then print "Ding!" every 10 minutes.  
 
+```
+Event.event({type='loop'},
+            function(e) Log(LOG.LOG,"Dong!") Event:post({type='loop'},"n/15:45") end)
+Event.post({type='loop'},"n/15:45")
+```
+This will print "Dong!" at 15:45 every day.  
+
 The other advantage with `post` is that if a 'simulated' fibaro event is posted the handlers will react as if a real event was triggered. This is great for debugging the logic of your script. Ex.
 ```Lua
 Event.post({type='property', deviceID=55, value='1'},"t/11:00")
@@ -82,6 +89,7 @@ Util.defvar('counter',0)
 Rule.eval("55:value>0 => counter=counter+1; log('Light turned on %s times',counter); 44:on")
 
 Rule.eval("@@00:10 => log('Ding!')") -- Log 'Ding!' every 10 minute
+Rule.eval("@15:45 => log('Dong!')") -- Log 'Dong!' 15:45 every day
 
 Rule.eval("wait(t/11:00); 55:on") -- turn on light at 11:00 today
 ```
