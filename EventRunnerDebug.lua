@@ -1,6 +1,6 @@
 --[[
 
-      EventRunnerLight. Single scene instance framework
+      EventRunnerDebug. EventRunner support
       GNU GENERAL PUBLIC LICENSE. Version 3, 29 June 2007
       Author Jan Gabrielson, Email: jan@gabrielsson.com
 
