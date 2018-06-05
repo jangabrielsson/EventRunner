@@ -8,6 +8,7 @@ counter
 
 --[[
 -- EventRunnerLight. Single scene instance framework
+-- Stripped down version of EventRunner without Event and Script support
 -- Copyright 2018 Jan Gabrielsson. All Rights Reserved.
 -- Email: jan@gabrielsson.com
 --]]
