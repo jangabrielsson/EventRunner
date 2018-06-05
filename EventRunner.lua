@@ -30,7 +30,8 @@ function main()
   --local devs = json.decode(fibaro:getGlobalValue(_deviceTable))
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
-  dofile("example_rules.lua") -- test rules for now...
+
+  dofile("example_rules.lua") -- some example rules to try out...
 
 end -- main()
 ------------------- EventModel --------------------  
@@ -1247,58 +1248,58 @@ function newScriptCompiler()
   Event.event({type='event'}, function(env) env.event.event._sh=true 
       env.event.event.type = env.event.event.type or 'CentralSceneEvent' -- default to centralSceneEvent
       Event.post(env.event.event) end)
-  Event.event({type='CentralSceneEvent'}, 
-    function(env) _lastCSEvent[env.event.data.deviceId] = env.event.data end)
-  Event.event({type='WeatherChangedEvent'}, 
-    function(env) _lastWeatherEvent[env.event.data.change] = env.event.data; _lastWeatherEvent['*'] = env.event.data end)
+    Event.event({type='CentralSceneEvent'}, 
+      function(env) _lastCSEvent[env.event.data.deviceId] = env.event.data end)
+    Event.event({type='WeatherChangedEvent'}, 
+      function(env) _lastWeatherEvent[env.event.data.change] = env.event.data; _lastWeatherEvent['*'] = env.event.data end)
 
-  Rule.addTrigger('csEvent',
-    function(s,n,e,i) return s.push(_lastCSEvent[s.pop()]) end,
-    function(id) return {type='CentralSceneEvent',data={deviceId=id}} end)
-  Rule.addTrigger('weather',
-    function(s,n,e,i) local k = n>0 and s.pop() or '*'; return s.push(_lastWeatherEvent[k]) end,
-    function(id) return {type='WeatherChangedEvent',data={changed=id}} end)
+    Rule.addTrigger('csEvent',
+      function(s,n,e,i) return s.push(_lastCSEvent[s.pop()]) end,
+      function(id) return {type='CentralSceneEvent',data={deviceId=id}} end)
+    Rule.addTrigger('weather',
+      function(s,n,e,i) local k = n>0 and s.pop() or '*'; return s.push(_lastWeatherEvent[k]) end,
+      function(id) return {type='WeatherChangedEvent',data={changed=id}} end)
 
 --- SceneActivation constants
-  Util.defvar('S1',Util.S1)
-  Util.defvar('S2',Util.S2)
+    Util.defvar('S1',Util.S1)
+    Util.defvar('S2',Util.S2)
 
 ---- Print rule definition -------------
 
-  function printRule(e)
-    print(_format("Event:%s",tojson(e[Event.RULE])))
-    local code = _compileHook.reverseMap[e.action]
-    local scr = _compileHook.reverseMap[code]
-    local expr = _compileHook.reverseMap[scr]
+    function printRule(e)
+      print(_format("Event:%s",tojson(e[Event.RULE])))
+      local code = _compileHook.reverseMap[e.action]
+      local scr = _compileHook.reverseMap[code]
+      local expr = _compileHook.reverseMap[scr]
 
-    if expr then Log(LOG.LOG,"Expr:%s",expr) end
-    if scr then Log(LOG.LOG,"Script:%s",tojson(scr)) end
-    if code then Log(LOG.LOG,"Code:") ScriptCompiler.dump(code) end
-    Log(LOG.LOG,"Addr:%s",tostring(e.action))
-  end
-
----------------------- Startup -----------------------------    
-  if _type == 'autostart' or _type == 'other' then
-    Log(LOG.WELCOME,_format("%sEventRunner v%s",_sceneName and (_sceneName.." - " or ""),_version))
-
-    if _HC2 and fibaro:getGlobalModificationTime(_MAILBOX) == nil then
-      api.post("/globalVariables/",{name=_MAILBOX})
-    end 
-
-    if _HC2 then fibaro:setGlobal(_MAILBOX,"") _poll() end -- start polling mailbox
-
-    Log(LOG.SYSTEM,"Loading rules")
-    local status, res = pcall(function() main() end)
-    if not status then 
-      Log(LOG.ERROR,"Error loading rules:%s",type(res)=='table' and table.concat(res,' ') or res) fibaro:abort() 
+      if expr then Log(LOG.LOG,"Expr:%s",expr) end
+      if scr then Log(LOG.LOG,"Script:%s",tojson(scr)) end
+      if code then Log(LOG.LOG,"Code:") ScriptCompiler.dump(code) end
+      Log(LOG.LOG,"Addr:%s",tostring(e.action))
     end
 
-    _trigger.type = 'start' -- 'startup' and 'other' -> 'start'
-    _trigger._sh = true
-    Event.post(_trigger)
+---------------------- Startup -----------------------------    
+    if _type == 'autostart' or _type == 'other' then
+      Log(LOG.WELCOME,_format("%sEventRunner v%s",_sceneName and (_sceneName.." - " or ""),_version))
 
-    Log(LOG.SYSTEM,"Scene running")
-    Log(LOG.SYSTEM,"Sunrise %s, Sunset %s",fibaro:getValue(1,'sunriseHour'),fibaro:getValue(1,'sunsetHour'))
-    collectgarbage("collect") GC=collectgarbage("count")
-    if _OFFLINE then _System.runTimers() end
-  end
+      if _HC2 and fibaro:getGlobalModificationTime(_MAILBOX) == nil then
+        api.post("/globalVariables/",{name=_MAILBOX})
+      end 
+
+      if _HC2 then fibaro:setGlobal(_MAILBOX,"") _poll() end -- start polling mailbox
+
+      Log(LOG.SYSTEM,"Loading rules")
+      local status, res = pcall(function() main() end)
+      if not status then 
+        Log(LOG.ERROR,"Error loading rules:%s",type(res)=='table' and table.concat(res,' ') or res) fibaro:abort() 
+      end
+
+      _trigger.type = 'start' -- 'startup' and 'other' -> 'start'
+      _trigger._sh = true
+      Event.post(_trigger)
+
+      Log(LOG.SYSTEM,"Scene running")
+      Log(LOG.SYSTEM,"Sunrise %s, Sunset %s",fibaro:getValue(1,'sunriseHour'),fibaro:getValue(1,'sunsetHour'))
+      collectgarbage("collect") GC=collectgarbage("count")
+      if _OFFLINE then _System.runTimers() end
+    end
