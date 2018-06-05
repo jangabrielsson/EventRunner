@@ -1,4 +1,9 @@
 --[[
+
+      EventRunnerLight. Single scene instance framework
+      GNU GENERAL PUBLIC LICENSE. Version 3, 29 June 2007
+      Author Jan Gabrielson, Email: jan@gabrielsson.com
+
       Offline support for HC2 functions
       Can use FibaroSceneAPI/Lualibs for HC2 remote invocation (_REMOTE=true)
       (See tutorial at https://forum.fibaro.com/index.php?/topic/24319-tutorial-zerobrane-usage-lua-coding/)
