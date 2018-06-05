@@ -38,6 +38,7 @@ if _REMOTE then
   require ("FibaroSceneAPI") 
 end
 _ENV = _ENV or _G or {}
+_debugLevel = _debugLevel or 3
 _FDEB = 1 -- 0: no debug, 1: log calls, 2: log everything
 function fibaro:getSourceTrigger() return {type = "autostart"} end
 
