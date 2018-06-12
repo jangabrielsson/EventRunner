@@ -1,8 +1,7 @@
 # EventRunner
 Scene event framework for Fibaro HC2 (visit [Wiki](../../wiki/Home) for more details)
 
-EventRunner for HC2.
-This framework is way to combine schedulers and trigger rules within a single scene. It is an 'event' based model where rules can be written in either Lua or a homemade "script language", or a mix of both. The framework allows the coder to work within a single scene instance and not bother about multiple scene instances being triggered. This means that a scene can keep state in local Lua variables and not having to rely on Fibaro globals to remember things between scene invocations. This also means that the scene is always running while active, however it is very conservative on systems resources. Things that need to be remembered between restart of the scene/HC2 need of course to be stored somewhere permanently e.g. using Fibaro globals.
+This framework is a way to combine schedulers and trigger rules within a single scene instance. It is an 'event' based model where rules can be written in either Lua or a homemade "script language", or a mix of both. The framework allows the programmer to work within a single scene instance and not bother about multiple scene instances being triggered. This means that a scene can keep state in local Lua variables and not having to rely on Fibaro globals to remember things between scene invocations. This also means that the scene is always running while active, however it is very conservative on systems resources. Things that need to be remembered between restart of the scene/HC2 need of course to be stored somewhere permanently e.g. using Fibaro globals.
 
 The goal with the script syntax has been to be able to concisely express typical scheduling/triggering logic needed in my own home automation system; Things that need to happen at specific times. Things that need to be done because of triggers in the systems. And things that should happen if some conditions are true for a given time.
 Rules also need to be able to take into considerations additional conditions like day of week, values of global or local variables etc. More about the script language [here](https://github.com/jangabrielsson/EventRunner/wiki/Script-expressions)
@@ -34,7 +33,7 @@ The '%% autostart' tells the scene to respond to triggers
 Every time a scene is triggered, a new instance of the scene is spawned, something that makes it difficult to "remember" state between scene invocations. There are global Fibaro variables that can be set and retrieved but they are a bit cumbersome to use.
 
 ## The solution
-This framework takes care of transforming a new scene instances to 'timer threads' in the intial scene instance. The model is based on events being posted to user defined 'event handlers'
+This framework takes care of transforming a new spawned scene instance to a 'timer thread' in the initial scene instance. The model is based on events being posted to user defined 'event handlers'
 
 ![](https://github.com/jangabrielsson/EventRunner/blob/master/Events_101.png)
 Handlers are defined with Event.event. Ex:
@@ -57,13 +56,13 @@ end
 ```
 Something that would be impossible in the normal model as each 'handler' would be called in a new instance.
 
-Events are table structures with a 'type' key, which is true for Fibaro's own events. However, the framework allows for posting user defined events with 'Event.post(event[,time])' The optional 'time' parameter specifies a time in the future that the event should be posted (if omitted it is posted imediatly). This turn the framework into a programming model. Ex. (main() is omitted in the examples from now)
+Events are table structures with a 'type' key, which is true for Fibaro's own events. However, the framework allows for posting user defined events with 'Event.post(event[,time])' The optional 'time' parameter specifies a time in the future that the event should be posted (if omitted it is posted immediately). This turn the framework into a programming model. Ex. (main() is omitted in the examples from now)
 ```
 Event.event({type='loop'},
             function(e) Log(LOG.LOG,"Ding!") Event:post({type='loop'},"+/00:10") end)
 Event.post({type='loop'})
 ```
-This will print "Ding!" immediatly, and then print "Ding!" every 10 minutes.  
+This will print "Ding!" immediately, and then print "Ding!" every 10 minutes.  
 
 ```
 Event.event({type='loop'},
@@ -93,5 +92,3 @@ Rule.eval("@15:45 => log('Dong!')") -- Log 'Dong!' 15:45 every day
 
 Rule.eval("wait(t/11:00); 55:on") -- turn on light at 11:00 today
 ```
-
-The framework has a lot of additional features and examples documented in the [Wiki](../../wiki/Home).
