@@ -17,14 +17,29 @@ if dofile then dofile("EventRunnerDebug.lua") end -- Support for running off-lin
 
 ---- Single scene instance, all fibaro triggers call main(sourceTrigger) ------------
 
-local counter = 0
+local currentKey = nil -- Hey, this lua variable keeps its value between scene triggers
+local time = os.time() -- Hey, this lua variable keeps its value between scene triggers
 
 function main(sourceTrigger)
   local event = sourceTrigger
 
-  if event.type == 'property' and event.deviceID == '55' then
-    counter=counter+1
-    fibaro:debug("Light 55 has changed states "..counter.." times")
+-- Example scene triggering on Fibaro remote keys 1-2-3 within 2x3seconds
+  if event.type == 'CentralSceneEvent' then
+    local keyPressed = event.event.data.keyId
+    if keyPressed == '1' then 
+      currentKey=1
+      time=os.time()
+    elseif keyPressed == '2' and currentKey==1 and os.time()-time < 3 then
+      currentKey = 2
+      time=os.time()
+    elseif keyPressed == '3' and currentKey==2 and os.time()-time < 3 then
+      fibaro:debug("Key 1-2-3 pressed within 2x3sec")
+    end
+  end
+   if event.type=='autostart' then
+    setTimeout(function() main({type='CentralSceneEvent',event={data={keyId='1'}}}) end,3000)
+    setTimeout(function() main({type='CentralSceneEvent',event={data={keyId='2'}}}) end,5000)
+    setTimeout(function() main({type='CentralSceneEvent',event={data={keyId='3'}}}) end,7000)
   end
 
 end -- main()
