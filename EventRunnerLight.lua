@@ -70,7 +70,7 @@ local function _poll()
   local l = fibaro:getGlobal(_MAILBOX)
   if l and l ~= "" and l:sub(1,3) ~= '<@>' then -- Something in the mailbox
     fibaro:setGlobal(_MAILBOX,"") -- clear mailbox
-    main(json.decode(l) ) -- and "post" it to our "main()"
+    setTimeout(function() main(json.decode(l)) end, 0) -- and "post" it to our "main()" in new "thread"
   end
   setTimeout(_poll,250) -- check every 250ms
 end
