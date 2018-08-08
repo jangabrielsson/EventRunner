@@ -36,7 +36,9 @@ function main(sourceTrigger)
       fibaro:debug("Key 1-2-3 pressed within 2x3sec")
     end
   end
-   if event.type=='autostart' then
+  
+  -- Test logic by posting events in 3,5, and 7 seconds
+  if event.type=='autostart' then
     setTimeout(function() main({type='CentralSceneEvent',event={data={keyId='1'}}}) end,3000)
     setTimeout(function() main({type='CentralSceneEvent',event={data={keyId='2'}}}) end,5000)
     setTimeout(function() main({type='CentralSceneEvent',event={data={keyId='3'}}}) end,7000)
