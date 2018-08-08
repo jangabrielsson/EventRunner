@@ -266,7 +266,6 @@ if not _REMOTE then
   end
   function fibaro:getGlobalValue(id) return (fibaro:getGlobal(id)) end
   function fibaro:getGlobalModificationTime(id) return select(2,fibaro:getGlobal(id)) end
-  function fibaro:getModificationTime(id,prop) return select(2,fibaro:get(id,prop)) end
   
   function fibaro:setGlobal(v,x) 
     Debug((_FDEB > 1) and 1 or 10,"fibaro:setGlobal('%s','%s')",v,x)

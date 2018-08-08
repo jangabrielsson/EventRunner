@@ -1,62 +1,57 @@
 --[[
 %% properties
+55 value
 %% events
-124 CentralSceneEvent 1 Pressed
-124 CentralSceneEvent 2 Pressed
-124 CentralSceneEvent 3 Pressed
 %% globals
 counter
 --]]
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 --[[
 -- EventRunnerLight. Single scene instance framework
 -- Stripped down version of EventRunner without Event and Script support
+=======
+--[[
+-- EventRunnerLight. Single scene instance framework
+>>>>>>> parent of fb672b5... Fixes
 -- Copyright 2018 Jan Gabrielsson. All Rights Reserved.
 -- Email: jan@gabrielsson.com
 --]]
 
+<<<<<<< HEAD
 >>>>>>> a7cb9f66945788863d79f7a6cfeb483626af27f3
+=======
+>>>>>>> parent of fb672b5... Fixes
 _HC2,_version = true,"1.0" 
 if dofile then dofile("EventRunnerDebug.lua") end -- Support for running off-line on PC/Mac
 
 ---- Single scene instance, all fibaro triggers call main(sourceTrigger) ------------
-local currentKey = nil -- Hey, this lua variable keeps its value between scene triggers
-local time = os.time() -- Hey, this lua variable keeps its value between scene triggers
 
-function main(sourceTrigger) -- called for every incoming sourceTrigger
+local counter = 0
+
+function main(sourceTrigger)
   local event = sourceTrigger
 
-  -- Example scene triggering on Fibaro remote keys 1-2-3 within 2x3seconds
-  if event.type == 'CentralSceneEvent' then
-    local keyPressed = event.event.data.keyId
-    if keyPressed == '1' then 
-      currentKey=1
-      time=os.time()
-    elseif keyPressed == '2' and currentKey==1 and os.time()-time < 3 then
-      currentKey = 2
-      time=os.time()
-    elseif keyPressed == '3' and currentKey==2 and os.time()-time < 3 then
-      fibaro:debug("Key 1-2-3 pressed within 2x3sec")
-    end
-  end
-
-  if event.type=='autostart' then
-    setTimeout(function() main({type='CentralSceneEvent',event={data={keyId='1'}}}) end,3000)
-    setTimeout(function() main({type='CentralSceneEvent',event={data={keyId='2'}}}) end,5000)
-    setTimeout(function() main({type='CentralSceneEvent',event={data={keyId='3'}}}) end,7000)
+  if event.type == 'property' and event.deviceID == '55' then
+    counter=counter+1
+    fibaro:debug("Light 55 has changed states "..counter.." times")
   end
 
 end -- main()
 
------------------------- Scene support, do not change ---------------------------  
+------------------------ Framework, do not change ---------------------------  
 -- Spawned scene instances post triggers back to starting scene instance ----
 local _trigger = fibaro:getSourceTrigger()
 local _type, _source = _trigger.type, _trigger
 local _MAILBOX = "MAILBOX"..__fibaroSceneId 
-if _type == 'other' and fibaro:args() then _trigger,_type = fibaro:args()[1],'remote'end
 
+if _type == 'other' and fibaro:args() then
+  _trigger,_type = fibaro:args()[1],'remote'
+end
+
+---------- Producer(s) - Handing over incoming triggers to consumer --------------------
 if ({property=true,global=true,event=true,remote=true})[_type] then
   local event = type(_trigger) ~= 'string' and json.encode(_trigger) or _trigger
   local ticket = '<@>'..tostring(_source)..event
@@ -72,7 +67,7 @@ local function _poll()
   local l = fibaro:getGlobal(_MAILBOX)
   if l and l ~= "" and l:sub(1,3) ~= '<@>' then -- Something in the mailbox
     fibaro:setGlobal(_MAILBOX,"") -- clear mailbox
-    setTimeout(function() main(json.decode(l)) end,0) -- and "post" it to our "main()" in new "thread"
+    main(json.decode(l) ) -- and "post" it to our "main()"
   end
   setTimeout(_poll,250) -- check every 250ms
 end
@@ -84,8 +79,12 @@ if _type == 'autostart' or _type == 'other' then
   if _HC2 then fibaro:setGlobal(_MAILBOX,"") _poll() end -- start polling mailbox
   main(_trigger)
   if _OFFLINE then _System.runTimers() end
+<<<<<<< HEAD
 end
 <<<<<<< HEAD
 
 =======
 >>>>>>> a7cb9f66945788863d79f7a6cfeb483626af27f3
+=======
+end
+>>>>>>> parent of fb672b5... Fixes
