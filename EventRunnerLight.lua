@@ -68,4 +68,3 @@ if _type == 'autostart' or _type == 'other' then
   main(_trigger)
   if _OFFLINE then _System.runTimers() end
 end
-
