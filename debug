@@ -1,0 +1,115 @@
+  instr['%pop'] = function(s) s.pop() end
+  instr['%push'] = function(s,val) s.push(val) end
+  instr['%time'] = function(s,f,env,i) s.push(timeFs[f](i[3])) end 
+  instr['%ifnskip'] = function(s,offs,e,i) if not s.ref(0) then return offs end end
+  instr['%ifskip'] = function(s,offs,e,i) if s.ref(0) then return offs end end
+  instr['%addr'] = function(s,addr) s.push(addr) end
+  instr['%jmp'] = function(s,addr,e,i) local c,cp,p = e.code,e.cp,i[3] or 0
+    if i[4] then s.pop(p) return i[4]-cp end -- First time we search for the label and cache the position
+    for k=1,#c do if c[k][1]=='%addr' and c[k][3]==a then i[4]=k s.pop(p) return k-cp end end 
+    error({"jump to bad address:"..addr}) 
+  end
+  instr['%fn'] = function(s,vars,e) local cnxt = e.context or {__instr={}}
+    for i=1,#vars do cnxt[vars[i]]={s.pop()} end 
+  end
+  instr['%rule'] = function(s) local r,b,h=s.pop(),s.pop(),s.pop() s.push(Rule.compRule({'=>',h,b},r)) end
+  instr['%prop'] = function(s,prop,e,i) s.push(devFun[prop](ID(s.pop(),i))) end
+  instr['%apply'] = function(s,n,e) local f = s.pop()
+    local fun = type(f) == 'string' and getVar(f,e) or f
+    if type(fun)=='function' then s.push(fun(table.unpack(s.lift(n)))) 
+    elseif type(fun)=='table' and type(fun[1]=='table') and fun[1][1]=='%fn' then
+      local context = {__instr={}, __ret={e.cp,e.code}, __next=e.context}
+      e.context,e.cp,e.code=context,0,fun 
+    else _assert(false,"undefined fun '%s'",f) end
+  end
+  instr['return'] = function(s,n,e) local cnxt=e.context
+    if cnxt.__ret then e.cp,e.code=cnxt.__ret[1 ],cnxt.__ret[2 ] e.context=cnxt.__next 
+      if n==0 then s.push(false) end
+    else error("return out of context") end
+  end
+  instr['%table'] = function(s,k,e) local t = {} for j=#k,1,-1 do t[k[j]] = s.pop() end s.push(t) end
+  instr['%var'] = function(s,var,e) s.push(getVar(var,e)) end
+  instr['%glob'] = function(s,var) s.push(fibaro:getGlobal(var)) end
+  instr['%setVar'] = function(s,var,e) local val,vars = s.pop(),e.context
+    while vars do if vars[var] then vars[var][1]=val s.push(val) return else vars = vars.__next end end
+    Util._vars[var]=val s.push(val)
+  end
+  instr['%setGlob'] = function(s,var) local v = s.pop() fibaro:setGlobal(var,v) s.push(v) end
+  instr['%setLabel'] = function(s,lbl,e,i) local id,v = s.pop(),s.pop() 
+    fibaro:call(ID(id,i),"setProperty",_format("ui.%s.value",lbl),tostring(v)) s.push(v) 
+  end
+  instr['%setRef'] = function(s,a) local r,v = s.pop(),s.pop() 
+    if a==nil then r,a=s.pop(),r end
+    _assertf(type(r)=='table',"trying to set non-table value '%s'",function() return json.encode(r) end)
+    r[a]= v; s.push(v) 
+  end
+  instr['%aref'] = function(s,a,e,i) local k,tab 
+    if a then k,tab=a,s.pop() else k,tab=s.pop(),s.pop() end
+    _assert(type(tab)=='table',"attempting to index non table with key:'%s'",k)
+    s.push(tab[k])
+  end
+  instr['trace'] = function(s,n) _traceInstrs=s.ref(0) end
+  instr['env'] = function(s,n,e) s.push(e) end
+  instr['yield'] = function(s,n) s.push(true) error({type='yield'}) end
+  instr['not'] = function(s,n) s.push(not s.pop()) end
+  instr['neg'] = function(s,n) s.push(-tonumber(s.pop())) end
+  instr['+'] = function(s,n) s.push(s.pop()+s.pop()) end
+  instr['-'] = function(s,n) s.push(-s.pop()+s.pop()) end
+  instr['*'] = function(s,n) s.push(s.pop()*s.pop()) end
+  instr['/'] = function(s,n) s.push(1.0/(s.pop()/s.pop())) end
+  instr['>'] = function(s,n) local y,x=_coerce(s.pop(),s.pop()) s.push(x>y) end
+  instr['<'] = function(s,n) local y,x=_coerce(s.pop(),s.pop()) s.push(x<y) end
+  instr['>='] = function(s,n) local y,x=_coerce(s.pop(),s.pop()) s.push(x>=y) end
+  instr['<='] = function(s,n) local y,x=_coerce(s.pop(),s.pop()) s.push(x<=y) end
+  instr['~='] = function(s,n) s.push(tostring(s.pop())~=tostring(s.pop())) end
+  instr['=='] = function(s,n) s.push(tostring(s.pop())==tostring(s.pop())) end
+  instr['log'] = function(s,n) s.push(Log(LOG.LOG,table.unpack(s.lift(n)))) end
+  instr['print'] = function(s,n) print(s.ref(0)) end
+  instr['tjson'] = function(s,n) local t = s.pop() s.push(tojson(t)) end
+  instr['osdate'] = function(s,n) local x,y = s.ref(n-1), n>1 and s.pop() s.pop(); s.push(os.date(x,y)) end
+  instr['daily'] = function(s,n,e) s.pop() s.push(true) end
+  instr['ostime'] = function(s,n) s.push(osTime()) end
+  instr['frm'] = function(s,n) s.push(string.format(table.unpack(s.lift(n)))) end
+  instr['label'] = function(s,n,e,i) local nm,id = s.pop(),s.pop() s.push(fibaro:get(ID(id,i),_format("ui.%s.value",nm))) end
+  instr['last'] = function(s,n,e,i) s.push(select(2,fibaro:get(ID(s.pop(),i),'value'))) end
+  instr['setValue'] = function(s,n,e,i) local v,id=s.pop(),s.pop() fibaro:call(ID(id,i),'setValue',v) s.push(v) end
+  instr['on'] = function(s,n,e,i) doit(Util.mapF,function(id) fibaro:call(ID(id,i),'turnOn') end,s.pop()) s.push(true) end
+  instr['isOn'] = function(s,n,e,i) s.push(doit(Util.mapOr,function(id) return fibaro:getValue(ID(id,i),'value') > '0' end,s.pop())) end
+  instr['off'] = function(s,n,e,i) doit(Util.mapF,function(id) fibaro:call(ID(id,i),'turnOff') end,s.pop()) s.push(true) end
+  instr['isOff'] = function(s,n,e,i) s.push(doit(Util.mapAnd,function(id) return fibaro:getValue(ID(id,i),'value') == '0' end,s.pop())) end
+  instr['toggle'] = function(s,n,e,i)
+    s.push(doit(Util.mapF,function(id) local t = fibaro:getValue(ID(id,i),'value') fibaro:call(id,t>'0' and 'turnOff' or 'turnOn') end,s.pop()))
+  end
+  instr['power'] = function(s,n,e,i) s.push(fibaro:getValue(ID(s.pop(),i),'value')) end
+  instr['lux'] = instr['power'] instr['temp'] = instr['power'] instr['sense'] = instr['power']
+  instr['value'] = instr['power'] instr['trigger'] = instr['power']
+  instr['send'] = function(s,n,e,i) local m,id = s.pop(), ID(s.pop(),i) fibaro:call(id,'sendPush',m) s.push(m) end
+  instr['press'] = function(s,n,e,i) local key,id = s.pop(),ID(s.pop(),i) fibaro:call(id,'pressButton', key) end
+  instr['scene'] = function(s,n,e,i) s.push(fibaro:getValue(ID(s.pop(),i),'sceneActivation')) end
+  instr['once'] = function(s,n,e,i) local f; i[4],f = s.pop(),i[4]; s.push(not f and i[4]) end
+  instr['always'] = function(s,n,e,i) s.pop(n) s.push(true) end 
+  instr['post'] = function(s,n) local e,t=s.pop(),nil; if n==2 then t=e; e=s.pop() end Event.post(e,t) s.push(e) end
+  instr['safe'] = instr['isOff'] 
+  instr['SP'] = function(s,n,e,i) print("SP:"..s.size()) s.push(true) end
+  instr['manual'] = function(s,n) s.push(Event.lastManual(s.pop())) end
+  instr['add'] = function(s,n) local v,t=s.pop(),s.pop() table.insert(t,v) s.push(t) end
+  instr['start'] = function(s,n) fibaro:startScene(ID(s.pop(),i)) s.push(true) end
+  instr['stop'] = function(s,n) fibaro:killScene(ID(s.pop(),i)) s.push(true) end
+  instr['breached'] = instr['isOn'] 
+  instr['betw'] = function(s,n) local t2,t1,now=s.pop(),s.pop(),osTime()-midnight()
+    if t1<=t2 then s.push(t1 <= now and now <= t2) else s.push(now >= t1 or now <= t2) end 
+  end
+  instr['wait'] = function(s,n,e,i) local t,cp=s.pop(),e.cp
+    if i[4] then s.push(false) -- Already 'waiting'
+    elseif i[5] then i[5]=false s.push(true) -- Timer expired, return true
+    else 
+      if t<midnight() then t = osTime()+t end -- Allow both relative and absolute time... e.g '10:00'->midnight+10:00
+      i[4]=Event.post(function() i[4]=nil i[5]=true self.eval(e.code,e,e.stack,cp) end,t) s.push(false) error({type='yield'})
+    end 
+  end
+  instr['repeat'] = function(s,n,e) 
+    local v,c = n>0 and s.pop() or math.huge
+    if not e.forR then s.push(0) 
+    elseif v > e.forR[2] then s.push(e.forR[1]()) else s.push(e.forR[2]) end 
+  end
+  instr['for'] = function(s,n,e,i) 

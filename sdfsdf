@@ -1,0 +1,16 @@
+
+
+
+
+
+rule("sensors:breached => || door:safe >> home=true; post(#home)")
+rule("door:breached => home=false")
+rule("for(00:30,sensors:safe & door:safe) => || home==false >> home=true; post(#away)")
+
+rule("#home => sim=false; log('Stopping presence simulation')")
+rule("#away => || !sim >> sim=true; post(#sim); log('Starting presence simulation')")
+
+rule("lamps={22,33,44,55}")
+rule("#sim => || sim >> lamp=lamps[rnd(length(lamps))]; lamp:toggle; post(#sim,ostime()+00:05+rnd(00:30))")
+
+
