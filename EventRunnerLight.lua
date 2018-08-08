@@ -8,6 +8,16 @@
 counter
 --]]
 
+<<<<<<< HEAD
+=======
+--[[
+-- EventRunnerLight. Single scene instance framework
+-- Stripped down version of EventRunner without Event and Script support
+-- Copyright 2018 Jan Gabrielsson. All Rights Reserved.
+-- Email: jan@gabrielsson.com
+--]]
+
+>>>>>>> a7cb9f66945788863d79f7a6cfeb483626af27f3
 _HC2,_version = true,"1.0" 
 if dofile then dofile("EventRunnerDebug.lua") end -- Support for running off-line on PC/Mac
 
@@ -75,4 +85,7 @@ if _type == 'autostart' or _type == 'other' then
   main(_trigger)
   if _OFFLINE then _System.runTimers() end
 end
+<<<<<<< HEAD
 
+=======
+>>>>>>> a7cb9f66945788863d79f7a6cfeb483626af27f3
