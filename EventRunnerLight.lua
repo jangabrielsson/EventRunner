@@ -6,40 +6,12 @@
 counter
 --]]
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
 --[[
 -- EventRunnerLight. Single scene instance framework
--- Stripped down version of EventRunner without Event and Script support
-=======
---[[
--- EventRunnerLight. Single scene instance framework
->>>>>>> parent of fb672b5... Fixes
-=======
---[[
--- EventRunnerLight. Single scene instance framework
->>>>>>> parent of fb672b5... Fixes
-=======
---[[
--- EventRunnerLight. Single scene instance framework
->>>>>>> parent of fb672b5... Fixes
 -- Copyright 2018 Jan Gabrielsson. All Rights Reserved.
 -- Email: jan@gabrielsson.com
 --]]
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> a7cb9f66945788863d79f7a6cfeb483626af27f3
-=======
->>>>>>> parent of fb672b5... Fixes
-=======
->>>>>>> parent of fb672b5... Fixes
-=======
->>>>>>> parent of fb672b5... Fixes
 _HC2,_version = true,"1.0" 
 if dofile then dofile("EventRunnerDebug.lua") end -- Support for running off-line on PC/Mac
 
@@ -95,20 +67,5 @@ if _type == 'autostart' or _type == 'other' then
   if _HC2 then fibaro:setGlobal(_MAILBOX,"") _poll() end -- start polling mailbox
   main(_trigger)
   if _OFFLINE then _System.runTimers() end
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
 end
-<<<<<<< HEAD
 
-=======
->>>>>>> a7cb9f66945788863d79f7a6cfeb483626af27f3
-=======
-end
->>>>>>> parent of fb672b5... Fixes
-=======
-end
->>>>>>> parent of fb672b5... Fixes
-=======
-end
->>>>>>> parent of fb672b5... Fixes
