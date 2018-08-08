@@ -8,10 +8,15 @@ counter
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 --[[
 -- EventRunnerLight. Single scene instance framework
 -- Stripped down version of EventRunner without Event and Script support
+=======
+--[[
+-- EventRunnerLight. Single scene instance framework
+>>>>>>> parent of fb672b5... Fixes
 =======
 --[[
 -- EventRunnerLight. Single scene instance framework
@@ -21,7 +26,10 @@ counter
 --]]
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 >>>>>>> a7cb9f66945788863d79f7a6cfeb483626af27f3
+=======
+>>>>>>> parent of fb672b5... Fixes
 =======
 >>>>>>> parent of fb672b5... Fixes
 _HC2,_version = true,"1.0" 
@@ -80,11 +88,15 @@ if _type == 'autostart' or _type == 'other' then
   main(_trigger)
   if _OFFLINE then _System.runTimers() end
 <<<<<<< HEAD
+<<<<<<< HEAD
 end
 <<<<<<< HEAD
 
 =======
 >>>>>>> a7cb9f66945788863d79f7a6cfeb483626af27f3
+=======
+end
+>>>>>>> parent of fb672b5... Fixes
 =======
 end
 >>>>>>> parent of fb672b5... Fixes
