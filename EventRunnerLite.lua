@@ -2,6 +2,7 @@
 %% properties
 55 value
 %% events
+66 CentralSceneEvent
 %% globals
 counter
 --]]
