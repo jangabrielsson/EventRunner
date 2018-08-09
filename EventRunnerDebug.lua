@@ -18,7 +18,7 @@ _PORTLISTENER      = false
 _POLLINTERVAL      = 500 
 _PORT              = 6872
 _MEM               = false   -- log memoery usage
-_speedtime         = 48*6   -- nil run the local clock in normal speed, set to an int <x> will speed the clock through <x> hours
+_speedtime         = false; --48*6   -- nil run the local clock in normal speed, set to an int <x> will speed the clock through <x> hours
 __fibaroSceneId    = 32     -- Set to scene ID. On HC2 this variable is defined
 
 hc2_user           = "xxx" -- HC2 credentials, used for api.x/FibaroSceneAPI calls
@@ -98,7 +98,7 @@ if _speedtime then -- Special version of time functions
   function _setClock(t) _timeAdjust = _timeAdjust or toTime(t)-osTime() end -- 
   function _setMaxTime(t) _maxTime = _startTime + t*60*60 end -- hours
 else
-  osTime = function(arg) return arg and os.time(arg) or os.time()+_timeAdjust end
+  osTime = function(arg) return arg and os.time(arg) or os.time()+(_timeAdjust or 0) end
   osClock = os.clock
   function fibaro:sleep(n)  
     local t = osClock()+n/1000
@@ -108,7 +108,7 @@ else
   function _setMaxTime(_) end -- hours
 end
 
-local _timers = nil
+_timers = nil
 
 function setTimeout(fun,time,doc)
   assert(type(fun)=='function' and type(time)=='number',"Bad arguments to setTimeout")

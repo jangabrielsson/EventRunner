@@ -14,6 +14,7 @@ counter
 --]]
 
 _version = "1.0" 
+_timers = nil
 if dofile then dofile("EventRunnerDebug.lua") end -- Support for running off-line on PC/Mac
 
 ---- Single scene instance, all fibaro triggers call main(sourceTrigger) ------------
@@ -30,9 +31,11 @@ function main(sourceTrigger)
     if keyPressed == '1' then 
       currentKey=1
       time=os.time()
+      fibaro:debug("1 pressed "..os.date("%X"))
     elseif keyPressed == '2' and currentKey==1 and os.time()-time < 3 then
       currentKey = 2
       time=os.time()
+      fibaro:debug("2 pressed "..os.date("%X"))
     elseif keyPressed == '3' and currentKey==2 and os.time()-time < 3 then
       fibaro:debug("Key 1-2-3 pressed within 2x3sec")
     end
@@ -43,6 +46,7 @@ function main(sourceTrigger)
     setTimeout(function() main({type='CentralSceneEvent',event={data={keyId='1'}}}) end,3000)
     setTimeout(function() main({type='CentralSceneEvent',event={data={keyId='2'}}}) end,5000)
     setTimeout(function() main({type='CentralSceneEvent',event={data={keyId='3'}}}) end,7000)
+    setTimeout(function() end,70000)
   end
 
 end -- main()
@@ -60,7 +64,7 @@ end
 ---------- Producer(s) - Handing over incoming triggers to consumer --------------------
 if ({property=true,global=true,event=true,remote=true})[_type] then
   local event = type(_trigger) ~= 'string' and json.encode(_trigger) or _trigger
-  local ticket = String.format('<@>%s%s',tostring(_source),event)
+  local ticket = string.format('<@>%s%s',tostring(_source),event)
   repeat 
     while(fibaro:getGlobal(_MAILBOX) ~= "") do fibaro:sleep(100) end -- try again in 100ms
     fibaro:setGlobal(_MAILBOX,ticket) -- try to acquire lock
@@ -84,5 +88,6 @@ if _type == 'autostart' or _type == 'other' then
   end 
   if not _OFFLINE then fibaro:setGlobal(_MAILBOX,"") _poll() end -- start polling mailbox
   main(_trigger)
-  if _OFFLINE then _System.runTimers() end
+  dofile("t.lua")
+  --if _OFFLINE then _System.runTimers() end
 end
