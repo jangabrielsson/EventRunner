@@ -46,7 +46,6 @@ function main(sourceTrigger)
     setTimeout(function() main({type='CentralSceneEvent',event={data={keyId='1'}}}) end,3000)
     setTimeout(function() main({type='CentralSceneEvent',event={data={keyId='2'}}}) end,5000)
     setTimeout(function() main({type='CentralSceneEvent',event={data={keyId='3'}}}) end,7000)
-    setTimeout(function() end,70000)
   end
 
 end -- main()
