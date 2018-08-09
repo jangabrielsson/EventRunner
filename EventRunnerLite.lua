@@ -12,7 +12,7 @@ counter
 -- Email: jan@gabrielsson.com
 --]]
 
-_HC2,_version = true,"1.0" 
+_version = "1.0" 
 if dofile then dofile("EventRunnerDebug.lua") end -- Support for running off-line on PC/Mac
 
 ---- Single scene instance, all fibaro triggers call main(sourceTrigger) ------------
@@ -59,7 +59,7 @@ end
 ---------- Producer(s) - Handing over incoming triggers to consumer --------------------
 if ({property=true,global=true,event=true,remote=true})[_type] then
   local event = type(_trigger) ~= 'string' and json.encode(_trigger) or _trigger
-  local ticket = '<@>'..tostring(_source)..event
+  local ticket = String.format('<@>%s%s',tostring(_source),event)
   repeat 
     while(fibaro:getGlobal(_MAILBOX) ~= "") do fibaro:sleep(100) end -- try again in 100ms
     fibaro:setGlobal(_MAILBOX,ticket) -- try to acquire lock
@@ -78,10 +78,10 @@ local function _poll()
 end
 
 if _type == 'autostart' or _type == 'other' then
-  if _HC2 and fibaro:getGlobalModificationTime(_MAILBOX) == nil then
+  if not _OFFLINE and fibaro:getGlobalModificationTime(_MAILBOX) == nil then
     api.post("/globalVariables/",{name=_MAILBOX})
   end 
-  if _HC2 then fibaro:setGlobal(_MAILBOX,"") _poll() end -- start polling mailbox
+  if not _OFFLINE then fibaro:setGlobal(_MAILBOX,"") _poll() end -- start polling mailbox
   main(_trigger)
   if _OFFLINE then _System.runTimers() end
 end
