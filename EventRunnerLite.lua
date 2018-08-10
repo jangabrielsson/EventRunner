@@ -33,11 +33,11 @@ function main(sourceTrigger)
     if keyPressed == '1' then 
       currentKey=1
       time=osTime()
-      printf("1 pressed %s at",osDate("%X"))
+      printf("1 pressed at %s",osDate("%X"))
     elseif keyPressed == '2' and currentKey==1 and osTime()-time < 3 then
       currentKey = 2
       time=osTime()
-      printf("2 pressed %s at ",osDate("%X"))
+      printf("2 pressed at %s",osDate("%X"))
     elseif keyPressed == '3' and currentKey==2 and osTime()-time < 3 then
       printf("Key 1-2-3 pressed within 2x3sec at %s",osDate("%X"))
     end
