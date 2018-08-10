@@ -43,9 +43,9 @@ function main(sourceTrigger)
 
   -- Test logic by posting events in 3,5, and 7 seconds
   if event.type=='autostart' or event.type=='other' then
-    setTimeout(function() main({type='event',event={data={keyId=1}}}) end,3000)
-    setTimeout(function() main({type='event',event={data={keyId=2}}}) end,5000)
-    setTimeout(function() main({type='event',event={data={keyId=3}}}) end,7000)
+    post({type='event',event={data={keyId=1}}},3)
+    post({type='event',event={data={keyId=2}}},5)
+    post({type='event',event={data={keyId=3}}},7)
   end
 
 end -- main()
@@ -60,6 +60,9 @@ if _type == 'other' and fibaro:args() then
   _trigger,_type = fibaro:args()[1],'remote'
 end
 
+function post(event, time)
+  setTimeout(function() main(event) end,(time or 0)*1000)
+end
 ---------- Producer(s) - Handing over incoming triggers to consumer --------------------
 if ({property=true,global=true,event=true,remote=true})[_type] then
   local event = type(_trigger) ~= 'string' and json.encode(_trigger) or _trigger
