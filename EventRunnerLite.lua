@@ -19,9 +19,9 @@ if dofile then dofile("EventRunnerDebug.lua") end -- Support for running off-lin
 
 ---- Single scene instance, all fibaro triggers call main(sourceTrigger) ------------
 
-local currentKey = nil -- Hey, this lua variable keeps its value between scene triggers
+local previousKey = nil -- Hey, this lua variable keeps its value between scene triggers
 local time = osTime() -- Hey, this lua variable keeps its value between scene triggers
-local function printf(...) fibaro:debug(string.format(...)) end
+function printf(...) fibaro:debug(string.format(...)) end
 
 function main(sourceTrigger)
   local event = sourceTrigger
@@ -29,14 +29,14 @@ function main(sourceTrigger)
   if event.type == 'event' then
     local keyPressed = event.event.data.keyId
     if keyPressed == 1 then 
-      currentKey=1
+      previousKey=1
       time=osTime()
       printf("key 1 pressed at %s",osDate("%X"))
-    elseif keyPressed == 2 and currentKey==1 and osTime()-time < 3 then
-      currentKey = 2
+    elseif keyPressed == 2 and previousKey == 1 and osTime()-time < 3 then
+      previousKey = 2
       time=osTime()
       printf("key 2 pressed at %s",osDate("%X"))
-    elseif keyPressed == 3 and currentKey==2 and osTime()-time < 3 then
+    elseif keyPressed == 3 and previousKey == 2 and osTime()-time < 3 then
       printf("Key 3 pressed at %s, Keys 1-2-3 pressed within 2x3sec",osDate("%X"))
     end
   end
