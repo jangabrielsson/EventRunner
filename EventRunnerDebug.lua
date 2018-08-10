@@ -12,25 +12,29 @@
 --]] 
 
 if _version ~= "1.0" then error("Bad version of EventRunnerDebug") end 
-
+_SPEEDTIME         = 48*4   -- nil run the local clock in normal speed, set to an int <x> will speed the clock through <x> hours
 _REMOTE            = false  -- If true use FibaroSceneAPI to call functions on HC2, else emulate them locally...
+_GUI               = false
+
+-- Server parameters
 _PORTLISTENER      = false
 _POLLINTERVAL      = 500 
 _PORT              = 6872
-_MEM               = false   -- log memoery usage
-_speedtime         = false; --48*6   -- nil run the local clock in normal speed, set to an int <x> will speed the clock through <x> hours
-__fibaroSceneId    = 32     -- Set to scene ID. On HC2 this variable is defined
+_MEM               = false  -- log memory usage
 
-hc2_user           = "xxx" -- HC2 credentials, used for api.x/FibaroSceneAPI calls
+-- HC2 credentials and parameters
+hc2_user           = "xxx" -- used for api.x/FibaroSceneAPI calls
 hc2_pwd            = "xxx" 
 hc2_ip             = "192.168.1.69" -- IP of HC2
-local creds = loadfile("credentials.lua")
+local creds = loadfile("credentials.lua") -- To not accidently commit credentials to Github...
 if creds then creds() end
 
-------------------------------------------------------------
+__fibaroSceneId    = 32     -- Set to scene ID. On HC2 this variable is defined
 
-_OFFLINE           = true   -- Always true if we include this file (e.g. not running on the HC2)
-_HC2               = false  -- Always false if we include this file
+--- Don't touch --------------------------------------------------
+
+_OFFLINE           = true          -- Always true if we include this file (e.g. not running on the HC2)
+_HC2               = not _OFFLINE  -- Always false if we include this file
 --_ENV               = 
 mime = require('mime')
 https = require ("ssl.https")
@@ -62,6 +66,7 @@ function _Msg(level,color,message,...)
   end
 end
 function Debug(level,message,...) _Msg(level,DEBUGCOLOR,message,...) end
+LOG = {WELCOME = "orange",DEBUG = "white", SYSTEM = "Cyan", LOG = "green", ERROR = "Tomato"}
 function Log(color,message,...) return _Msg(-100,color,message,...) end
 
 function split(s, sep)
@@ -73,36 +78,31 @@ function split(s, sep)
 end
 
 _timeAdjust = nil
-_DSTadjust = os.date("*t").isdst and -60*60 or 0
 
-if _speedtime then -- Special version of time functions
+if _SPEEDTIME then -- Special version of time functions
   local _startTime = os.time()
-  local _maxTime = _startTime + _speedtime*60*60
+  local _maxTime = _startTime + _SPEEDTIME*60*60
   local _sleep = 0
+  function exceededTime()
+    return _startTime+_sleep+(os.time()-_startTime) > _maxTime
+  end
+  function osDate(p,t) return t and os.date(p,t) or osDate(p,osTime()) end
   function osTime(arg1)
-    if arg1 then arg1.hour = arg1.hour return os.time(arg1) end
+    if arg1 then return os.time(arg1) end
     local t = _startTime+_sleep+(os.time()-_startTime)
-    if t > _maxTime then 
-      print(_format("Max time (_speedtime), %s hours, reached, exiting",_speedtime))
-      EventEngine,ScriptEngine,ScriptCompiler,RuleEngine,Util=nil,nil,nil,nil,nil
-      collectgarbage("collect") 
-      print(_format("Memory start-end:%.2f",collectgarbage("count")-GC))
-      os.exit() 
-    end
     return t+(_timeAdjust or 0)
   end
   function fibaro:sleep(n) 
     _sleep = _sleep + n/1000 --math.floor(n/1000) 
   end
-  function osClock() return osTime() end
   function _setClock(t) _timeAdjust = _timeAdjust or toTime(t)-osTime() end -- 
   function _setMaxTime(t) _maxTime = _startTime + t*60*60 end -- hours
+
 else
   osTime = function(arg) return arg and os.time(arg) or os.time()+(_timeAdjust or 0) end
-  osClock = os.clock
   function fibaro:sleep(n)  
-    local t = osClock()+n/1000
-    while(osClock() < t) do end -- busy wait
+    local t = osTime()+n/1000
+    while(osTime() < t) do end -- busy wait
   end
   function _setClock(_)  end
   function _setMaxTime(_) end -- hours
@@ -112,7 +112,7 @@ _timers = nil
 
 function setTimeout(fun,time,doc)
   assert(type(fun)=='function' and type(time)=='number',"Bad arguments to setTimeout")
-  local cp = {time=1000*osClock()+time,fun=fun,doc=doc,next=nil}
+  local cp = {time=osTime()+time/1000,fun=fun,doc=doc,next=nil}
   if _timers == nil then _timers = cp
   elseif cp.time < _timers.time then cp.next = _timers; _timers = cp
   else
@@ -156,10 +156,17 @@ end
 
 function _System.runTimers()
   while _timers ~= nil do
-    local l = _timers.time-1000*osClock()
-    Debug(5,"Next timer %s at %sms sleeping %sms",_timers.doc,_timers.time,l)
+    if exceededTime() then
+      print(_format("Max time (_speedtime), %s hours, reached, exiting",_SPEEDTIME))
+      EventEngine,ScriptEngine,ScriptCompiler,RuleEngine,Util=nil,nil,nil,nil,nil
+      collectgarbage("collect") 
+      print(_format("Memory start-end:%.2f",collectgarbage("count")-GC))
+      os.exit() 
+    end
+    local l = _timers.time-osTime()
+    Debug(5,"Next timer %s at %s sleeping %ss",_timers.doc,osDate("%X",_timers.time),l)
     if l > 0 then
-      fibaro:sleep(l) 
+      fibaro:sleep(1000*l) 
     end
     local f = _timers.fun
     _timers = _timers.next
@@ -234,11 +241,11 @@ if not _REMOTE then
   -- caching fibaro:setValue to return right value when calling fibaro:getValue
   fibaro._fibaroCalls = {['1sunsetHour'] = {"18:00",os.time()}, ['1sunriseHour'] = {"06:00",os.time()}}
   fibaro._globals = {}
-  
+
   function fibaro:debug(str) print(str) end
   function fibaro:countScenes() return 1 end
   function fibaro:abort() os.exit() end
-  
+
   if not Util then
     Util = { reverseVar = function(id) return id end, prettyEncode = function(j) return json.encode(j) end  }
   end
@@ -248,7 +255,7 @@ if not _REMOTE then
     fibaro._fibaroCalls[e.deviceID..(e.propertyName or 'value')] = {tostring(e.value),osTime()} 
   end
   _simFuns['global'] = function(e) fibaro._globals[e.name] = {e.value, osTime()} end
-  
+
   function fibaro:get(id,prop)
     Debug((_FDEB > 1) and 1 or 10,"fibaro:get('%s','%s')",Util.reverseVar(id),prop)
     local keyid = id..prop
@@ -266,7 +273,7 @@ if not _REMOTE then
   end
   function fibaro:getGlobalValue(id) return (fibaro:getGlobal(id)) end
   function fibaro:getGlobalModificationTime(id) return select(2,fibaro:getGlobal(id)) end
-  
+
   function fibaro:setGlobal(v,x) 
     Debug((_FDEB > 1) and 1 or 10,"fibaro:setGlobal('%s','%s')",v,x)
     if fibaro._globals[v] == nil or fibaro._globals[v][1] ~= x then
@@ -328,6 +335,181 @@ if not _REMOTE then
   end
 end
 ------
+
+if _GUI then
+  require("wx")
+
+  UI = {}
+
+-- create MyFrame1
+  UI.MyFrame1 = wx.wxFrame (wx.NULL, wx.wxID_ANY, "EventRunner", wx.wxDefaultPosition, wx.wxSize( 535,241 ), wx.wxDEFAULT_FRAME_STYLE+wx.wxTAB_TRAVERSAL )
+  UI.MyFrame1:SetSizeHints( wx.wxDefaultSize, wx.wxDefaultSize )
+
+  UI.bSizer1 = wx.wxBoxSizer( wx.wxVERTICAL )
+
+  UI.bSizer2 = wx.wxBoxSizer( wx.wxHORIZONTAL )
+
+  UI.m_button_run = wx.wxButton( UI.MyFrame1, wx.wxID_ANY, "Run", wx.wxDefaultPosition, wx.wxDefaultSize, 0 )
+  UI.bSizer2:Add( UI.m_button_run, 0, wx.wxALL, 10 )
+
+  UI.m_radioBox_timeChoices = { "Real time", "Speed time" }
+  UI.m_radioBox_time = wx.wxRadioBox( UI.MyFrame1, wx.wxID_ANY, "", wx.wxDefaultPosition, wx.wxDefaultSize, UI.m_radioBox_timeChoices, 1, wx.wxRA_SPECIFY_ROWS )
+  UI.m_radioBox_time:SetSelection( 0 )
+  UI.bSizer2:Add( UI.m_radioBox_time, 0, wx.wxALL, 5 )
+
+  UI.m_staticText1 = wx.wxStaticText( UI.MyFrame1, wx.wxID_ANY, "Hours:", wx.wxPoint( -1,-1 ), wx.wxDefaultSize, 0 )
+  UI.m_staticText1:Wrap( -1 )
+  UI.bSizer2:Add( UI.m_staticText1, 0, wx.wxALL, 10 )
+
+  UI.m_textCtrl_time = wx.wxTextCtrl( UI.MyFrame1, wx.wxID_ANY, "", wx.wxDefaultPosition, wx.wxDefaultSize, 0 )
+  UI.bSizer2:Add( UI.m_textCtrl_time, 0, wx.wxALL, 10 )
+
+
+  UI.bSizer1:Add( UI.bSizer2, 0, wx.wxEXPAND, 5 )
+
+  UI.m_button_stop = wx.wxButton( UI.MyFrame1, wx.wxID_ANY, "Stop", wx.wxDefaultPosition, wx.wxDefaultSize, 0 )
+  UI.bSizer1:Add( UI.m_button_stop, 0, wx.wxALL, 10 )
+
+  UI.m_staticline1 = wx.wxStaticLine( UI.MyFrame1, wx.wxID_ANY, wx.wxDefaultPosition, wx.wxDefaultSize, wx.wxLI_HORIZONTAL )
+  UI.bSizer1:Add( UI.m_staticline1, 0, wx.wxEXPAND  + wx. wxALL, 5 )
+
+  UI.bSizer3 = wx.wxBoxSizer( wx.wxHORIZONTAL )
+
+  UI.m_staticText3 = wx.wxStaticText( UI.MyFrame1, wx.wxID_ANY, "Event:", wx.wxDefaultPosition, wx.wxDefaultSize, 0 )
+  UI.m_staticText3:Wrap( -1 )
+  UI.bSizer3:Add( UI.m_staticText3, 0, wx.wxALL, 10 )
+
+  UI.m_textCtrl_event = wx.wxTextCtrl( UI.MyFrame1, wx.wxID_ANY, "", wx.wxDefaultPosition, wx.wxDefaultSize, 0 )
+  UI.bSizer3:Add( UI.m_textCtrl_event, 1, wx.wxALL, 10 )
+  UI.m_textCtrl_event:SetValue("{'type':'CentralSceneEvent','event':{'data':{'keyId':'1'}}}")
+
+
+  UI.bSizer1:Add( UI.bSizer3, 0, wx.wxEXPAND, 10 )
+
+  UI.m_button_post = wx.wxButton( UI.MyFrame1, wx.wxID_ANY, "Post", wx.wxDefaultPosition, wx.wxDefaultSize, 0 )
+  UI.bSizer1:Add( UI.m_button_post, 0, wx.wxALL, 10 )
+
+
+  UI.MyFrame1:SetSizer( UI.bSizer1 )
+  UI.MyFrame1:Layout()
+
+  --UI.MyFrame1:Centre( wx.wxBOTH )
+
+  -- Connect Events
+  gstimer = nil
+  UI.m_button_run:Connect( wx.wxEVT_COMMAND_BUTTON_CLICKED, function(event)
+      --implements run
+      _System._setup()
+      gstimer = wx.wxTimer(UI.MyFrame1)
+      _System.runTimers() -- gstimer:Start(1,wx.wxTIMER_ONE_SHOT )
+      event:Skip()
+    end )
+
+  UI.m_button_stop:Connect( wx.wxEVT_COMMAND_BUTTON_CLICKED, function(event)
+      --implements stop
+      if gstimer then gstimer:Stop() end
+      wx.wxGetApp():ExitMainLoop()
+      --fibaro:abort()
+      event:Skip()
+    end )
+
+  UI.m_button_post:Connect( wx.wxEVT_COMMAND_BUTTON_CLICKED, function(event)
+      --implements post
+      local ev=json.decode(UI.m_textCtrl_event:GetValue())
+      Log(LOG.LOG,"Posting event '%s'",UI.m_textCtrl_event:GetValue())
+      if Event then
+        Event.post(ev,0)
+      else
+        setTimeout(function() main(ev) end,0)
+      end
+      event:Skip()
+    end )
+
+  function gSleep(ms1,ms2)
+    if _SPEEDTIME then
+      if exceededTime() then
+        Debug(1,"Max time (_speedtime), %s hours, reached, exiting",_SPEEDTIME)
+        EventEngine,ScriptEngine,ScriptCompiler,RuleEngine,Util=nil,nil,nil,nil,nil
+        collectgarbage("collect") 
+        print(_format("Memory start-end:%.2f",collectgarbage("count")-GC))
+        gstimer:Stop()
+        wx.wxGetApp():ExitMainLoop()
+      end
+      fibaro:sleep(ms1) -- sleep 10min
+      gstimer:Stop()
+      gstimer:Start(1,wx.wxTIMER_ONE_SHOT) 
+    else
+      gstimer:Stop()
+      gstimer:Start(ms2,wx.wxTIMER_ONE_SHOT) 
+    end
+  end
+
+  function _System.runTimers()
+    if _timers == nil then gSleep(10*60*1000,200) return end
+    while _timers ~= nil and _timers.time-osTime() <= 0 do
+      local f = _timers.fun
+      _timers = _timers.next
+      f()
+    end
+    if _timers then
+      local l = _timers.time-osTime()
+      Debug(5,"Timer %s sleeping %ss",_timers.doc,l)
+      gSleep(1000*l,1000*l)
+    else
+      gSleep(10*60*1000,200)
+    end
+  end
+
+  UI.MyFrame1:Connect(wx.wxEVT_TIMER, _System.runTimers) 
+
+  UI.MyFrame1:Restore(); -- restore the window if minimized
+  UI.MyFrame1:Iconize(false); -- show the window
+  UI.MyFrame1:SetFocus(); -- show the window
+  UI.MyFrame1:Raise();  -- bring window to front
+  UI.MyFrame1:Show(true);  -- bring window to front
+
+  function setTimeout(fun,time,doc)
+    assert(type(fun)=='function' and type(time)=='number',"Bad arguments to setTimeout")
+    local cp = {time=osTime()+time/1000,fun=fun,doc=doc,next=nil}
+    Debug(5,"Timer %s at %s",cp.doc,osDate("%X",cp.time))
+    if _timers == nil then _timers = cp
+    elseif cp.time < _timers.time then cp.next = _timers; _timers = cp
+    else
+      local tp = _timers
+      while tp.next do
+        if cp.time < tp.next.time then 
+          cp.next = tp.next; tp.next = cp; 
+          if gstimer then 
+            gstimer:Stop()
+            gstimer:Start(1,wx.wxTIMER_ONE_SHOT )
+          end
+          return cp
+        end
+        tp = tp.next
+      end
+      tp.next = cp
+    end
+    if gstimer then
+      gstimer:Stop()
+      gstimer:Start(1,wx.wxTIMER_ONE_SHOT )
+    end
+    return cp
+  end
+
+end
+
+function _System.runOffline(setup)
+  if _GUI then
+    _System._setup = setup
+    Log(LOG.SYSTEM,"Using wxWidgets. Please press 'Run' in GUI to start scene")
+    wx.wxGetApp():MainLoop()
+  else
+    setup()
+    _System.runTimers()
+  end
+end
+
+---- Remote server support ------------------
 
 function startServer(port)
   local someRandomIP = "192.168.1.122" --This address you make up

@@ -20,7 +20,6 @@ _sceneName   = "Demo"        -- Set to scene/script name
 _debugLevel  = 3
 _deviceTable = "deviceTable" -- Name of json struct with configuration data (i.e. "HomeTable")
 
-_HC2 = true
 Event = {}
 -- If running offline we need our own setTimeout and net.HTTPClient() and other fibaro funs...
 if dofile then dofile("EventRunnerDebug.lua") end
@@ -50,7 +49,7 @@ end
 ---------- Producer(s) - Handing over incoming triggers to consumer --------------------
 if _supportedEvents[_type] then
   local event = type(_trigger) ~= 'string' and json.encode(_trigger) or _trigger
-  local ticket = '<@>'..tostring(_source)..event
+  local ticket = string.format('<@>%s%s',tostring(_source),event)
   repeat 
     while(fibaro:getGlobal(_MAILBOX) ~= "") do fibaro:sleep(100) end -- try again in 100ms
     fibaro:setGlobal(_MAILBOX,ticket) -- try to acquire lock
@@ -76,7 +75,7 @@ end
 LOG = {WELCOME = "orange",DEBUG = "white", SYSTEM = "Cyan", LOG = "green", ERROR = "Tomato"}
 _format = string.format
 
-if _HC2 then -- if running on the HC2
+if not _OFFLINE then -- if running on the HC2
   function _Msg(level,color,message,...)
     if (_debugLevel >= level) then
       local args = type(... or 42) == 'function' and {(...)()} or {...}
@@ -87,7 +86,6 @@ if _HC2 then -- if running on the HC2
   end
   if not _timeAdjust then _timeAdjust = 0 end -- support for adjusting for hw time drift on HC2
   osTime = function(arg) return arg and os.time(arg) or os.time()+_timeAdjust end
-  osClock = os.clock
   function _setClock(_) end
   function _setMaxTime(_) end
 end
@@ -1286,24 +1284,31 @@ end
 if _type == 'autostart' or _type == 'other' then
   Log(LOG.WELCOME,_format("%sEventRunner v%s",_sceneName and (_sceneName.." - " or ""),_version))
 
-  if _HC2 and fibaro:getGlobalModificationTime(_MAILBOX) == nil then
+  if not _OFFLINE and fibaro:getGlobalModificationTime(_MAILBOX) == nil then
     api.post("/globalVariables/",{name=_MAILBOX})
   end 
 
-  if _HC2 then fibaro:setGlobal(_MAILBOX,"") _poll() end -- start polling mailbox
+  GC = 0
+  function setUp()
+    Log(LOG.SYSTEM,"Loading rules")
+    local status, res = pcall(function() main() end)
+    if not status then 
+      Log(LOG.ERROR,"Error loading rules:%s",type(res)=='table' and table.concat(res,' ') or res) fibaro:abort() 
+    end
 
-  Log(LOG.SYSTEM,"Loading rules")
-  local status, res = pcall(function() main() end)
-  if not status then 
-    Log(LOG.ERROR,"Error loading rules:%s",type(res)=='table' and table.concat(res,' ') or res) fibaro:abort() 
+    _trigger._sh = true
+    Event.post(_trigger)
+
+    Log(LOG.SYSTEM,"Scene running")
+    Log(LOG.SYSTEM,"Sunrise %s, Sunset %s",fibaro:getValue(1,'sunriseHour'),fibaro:getValue(1,'sunsetHour'))
+    collectgarbage("collect") GC=collectgarbage("count")
   end
 
-  _trigger.type = 'start' -- 'startup' and 'other' -> 'start'
-  _trigger._sh = true
-  Event.post(_trigger)
-
-  Log(LOG.SYSTEM,"Scene running")
-  Log(LOG.SYSTEM,"Sunrise %s, Sunset %s",fibaro:getValue(1,'sunriseHour'),fibaro:getValue(1,'sunsetHour'))
-  collectgarbage("collect") GC=collectgarbage("count")
-  if _OFFLINE then _System.runTimers() end
+  if not _OFFLINE then 
+    fibaro:setGlobal(_MAILBOX,"") 
+    _poll()  -- start polling mailbox
+    setUp()
+  else 
+    _System.runOffline(setUp) 
+  end
 end

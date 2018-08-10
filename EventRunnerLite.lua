@@ -14,13 +14,15 @@ counter
 --]]
 
 _version = "1.0" 
-_timers = nil
+osTime = os.time
+osDate = os.date
 if dofile then dofile("EventRunnerDebug.lua") end -- Support for running off-line on PC/Mac
 
 ---- Single scene instance, all fibaro triggers call main(sourceTrigger) ------------
 
 local currentKey = nil -- Hey, this lua variable keeps its value between scene triggers
-local time = os.time() -- Hey, this lua variable keeps its value between scene triggers
+local time = osTime() -- Hey, this lua variable keeps its value between scene triggers
+local function printf(...) fibaro:debug(string.format(...)) end
 
 function main(sourceTrigger)
   local event = sourceTrigger
@@ -30,22 +32,22 @@ function main(sourceTrigger)
     local keyPressed = event.event.data.keyId
     if keyPressed == '1' then 
       currentKey=1
-      time=os.time()
-      fibaro:debug("1 pressed "..os.date("%X"))
-    elseif keyPressed == '2' and currentKey==1 and os.time()-time < 3 then
+      time=osTime()
+      printf("1 pressed %s",osDate("%X"))
+    elseif keyPressed == '2' and currentKey==1 and osTime()-time < 3 then
       currentKey = 2
-      time=os.time()
-      fibaro:debug("2 pressed "..os.date("%X"))
-    elseif keyPressed == '3' and currentKey==2 and os.time()-time < 3 then
-      fibaro:debug("Key 1-2-3 pressed within 2x3sec")
+      time=osTime()
+      printf("2 pressed %s",osDate("%X"))
+    elseif keyPressed == '3' and currentKey==2 and osTime()-time < 3 then
+      printf("Key 1-2-3 pressed within 2x3sec at %s",osDate("%X"))
     end
   end
-  
+
   -- Test logic by posting events in 3,5, and 7 seconds
-  if event.type=='autostart' then
-    setTimeout(function() main({type='CentralSceneEvent',event={data={keyId='1'}}}) end,3000)
-    setTimeout(function() main({type='CentralSceneEvent',event={data={keyId='2'}}}) end,5000)
-    setTimeout(function() main({type='CentralSceneEvent',event={data={keyId='3'}}}) end,7000)
+  if event.type=='autostart' or event.type=='other' then
+    setTimeout(function() main({type='CentralSceneEvent',event={data={keyId='1'}}}) end,3000,"A")
+    setTimeout(function() main({type='CentralSceneEvent',event={data={keyId='2'}}}) end,5000,"B")
+    setTimeout(function() main({type='CentralSceneEvent',event={data={keyId='3'}}}) end,7000,"C")
   end
 
 end -- main()
@@ -86,7 +88,11 @@ if _type == 'autostart' or _type == 'other' then
     api.post("/globalVariables/",{name=_MAILBOX})
   end 
   if not _OFFLINE then fibaro:setGlobal(_MAILBOX,"") _poll() end -- start polling mailbox
-  main(_trigger)
-  dofile("t.lua")
-  --if _OFFLINE then _System.runTimers() end
+
+  if _OFFLINE then 
+    collectgarbage("collect") GC=collectgarbage("count")
+    _System.runOffline(function() main(_trigger) end) 
+  else
+    main(_trigger)
+  end
 end
