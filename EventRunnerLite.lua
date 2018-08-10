@@ -1,8 +1,7 @@
 --[[
 %% properties
-55 value
 %% events
-66 CentralSceneEvent
+5 CentralSceneEvent
 %% globals
 counter
 --]]
@@ -26,28 +25,27 @@ local function printf(...) fibaro:debug(string.format(...)) end
 
 function main(sourceTrigger)
   local event = sourceTrigger
-
 -- Example scene triggering on Fibaro remote keys 1-2-3 within 2x3seconds
-  if event.type == 'CentralSceneEvent' then
+  if event.type == 'event' then
     local keyPressed = event.event.data.keyId
-    if keyPressed == '1' then 
+    if keyPressed == 1 then 
       currentKey=1
       time=osTime()
-      printf("1 pressed at %s",osDate("%X"))
-    elseif keyPressed == '2' and currentKey==1 and osTime()-time < 3 then
+      printf("key 1 pressed at %s",osDate("%X"))
+    elseif keyPressed == 2 and currentKey==1 and osTime()-time < 3 then
       currentKey = 2
       time=osTime()
-      printf("2 pressed at %s",osDate("%X"))
-    elseif keyPressed == '3' and currentKey==2 and osTime()-time < 3 then
-      printf("Key 1-2-3 pressed within 2x3sec at %s",osDate("%X"))
+      printf("key 2 pressed at %s",osDate("%X"))
+    elseif keyPressed == 3 and currentKey==2 and osTime()-time < 3 then
+      printf("Key 3 pressed at %s, Keys 1-2-3 pressed within 2x3sec",osDate("%X"))
     end
   end
 
   -- Test logic by posting events in 3,5, and 7 seconds
   if event.type=='autostart' or event.type=='other' then
-    setTimeout(function() main({type='CentralSceneEvent',event={data={keyId='1'}}}) end,3000,"A")
-    setTimeout(function() main({type='CentralSceneEvent',event={data={keyId='2'}}}) end,5000,"B")
-    setTimeout(function() main({type='CentralSceneEvent',event={data={keyId='3'}}}) end,7000,"C")
+    setTimeout(function() main({type='event',event={data={keyId=1}}}) end,3000)
+    setTimeout(function() main({type='event',event={data={keyId=2}}}) end,5000)
+    setTimeout(function() main({type='event',event={data={keyId=3}}}) end,7000)
   end
 
 end -- main()
@@ -87,6 +85,7 @@ if _type == 'autostart' or _type == 'other' then
   if not _OFFLINE and fibaro:getGlobalModificationTime(_MAILBOX) == nil then
     api.post("/globalVariables/",{name=_MAILBOX})
   end 
+  printf("Starting EventRunnerLite demo")
   if not _OFFLINE then 
     fibaro:setGlobal(_MAILBOX,"") 
     _poll()  -- start polling mailbox
