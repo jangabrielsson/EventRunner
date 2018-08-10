@@ -14,7 +14,7 @@
 if _version ~= "1.0" then error("Bad version of EventRunnerDebug") end 
 _SPEEDTIME         = 48*4   -- nil run the local clock in normal speed, set to an int <x> will speed the clock through <x> hours
 _REMOTE            = false  -- If true use FibaroSceneAPI to call functions on HC2, else emulate them locally...
-_GUI               = false
+_GUI               = true
 
 -- Server parameters
 _PORTLISTENER      = false
@@ -79,7 +79,7 @@ end
 
 _timeAdjust = nil
 
-if _SPEEDTIME then -- Special version of time functions
+function _setUpSpeedTime() -- Special version of time functions
   local _startTime = os.time()
   local _maxTime = _startTime + _SPEEDTIME*60*60
   local _sleep = 0
@@ -97,16 +97,15 @@ if _SPEEDTIME then -- Special version of time functions
   end
   function _setClock(t) _timeAdjust = _timeAdjust or toTime(t)-osTime() end -- 
   function _setMaxTime(t) _maxTime = _startTime + t*60*60 end -- hours
-
-else
-  osTime = function(arg) return arg and os.time(arg) or os.time()+(_timeAdjust or 0) end
-  function fibaro:sleep(n)  
-    local t = osTime()+n/1000
-    while(osTime() < t) do end -- busy wait
-  end
-  function _setClock(_)  end
-  function _setMaxTime(_) end -- hours
 end
+
+osTime = function(arg) return arg and os.time(arg) or os.time()+(_timeAdjust or 0) end
+function fibaro:sleep(n)  
+  local t = osTime()+n/1000
+  while(osTime() < t) do end -- busy wait
+end
+function _setClock(_)  end
+function _setMaxTime(_) end -- hours
 
 _timers = nil
 
@@ -363,7 +362,7 @@ if _GUI then
 
   UI.m_textCtrl_time = wx.wxTextCtrl( UI.MyFrame1, wx.wxID_ANY, "", wx.wxDefaultPosition, wx.wxDefaultSize, 0 )
   UI.bSizer2:Add( UI.m_textCtrl_time, 0, wx.wxALL, 10 )
-
+  UI.m_textCtrl_time:SetValue(_SPEEDTIME and tostring(_SPEEDTIME) or "")
 
   UI.bSizer1:Add( UI.bSizer2, 0, wx.wxEXPAND, 5 )
 
@@ -399,6 +398,13 @@ if _GUI then
   gstimer = nil
   UI.m_button_run:Connect( wx.wxEVT_COMMAND_BUTTON_CLICKED, function(event)
       --implements run
+      local realtime = UI.m_radioBox_time:GetSelection()==0
+      local speedhours = UI.m_textCtrl_time:GetValue() or "0"
+      speedhours = tonumber(speedhours ~= "" and speedhours or "0")
+      if not realtime then _SPEEDTIME = speedhours else _SPEEDTIME = nil end
+      --Log(LOG.LOG,"Time1:%s",realtime)
+      --Log(LOG.LOG,"Time2:%s",speedhours)
+      if _SPEEDTIME then _setUpSpeedTime() end
       _System._setup()
       gstimer = wx.wxTimer(UI.MyFrame1)
       _System.runTimers() -- gstimer:Start(1,wx.wxTIMER_ONE_SHOT )
@@ -504,6 +510,7 @@ function _System.runOffline(setup)
     Log(LOG.SYSTEM,"Using wxWidgets. Please press 'Run' in GUI to start scene")
     wx.wxGetApp():MainLoop()
   else
+    if _SPEEDTIME then _setUpSpeedTime() end
     setup()
     _System.runTimers()
   end
