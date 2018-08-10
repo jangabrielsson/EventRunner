@@ -33,11 +33,11 @@ function main(sourceTrigger)
     if keyPressed == '1' then 
       currentKey=1
       time=osTime()
-      printf("1 pressed %s",osDate("%X"))
+      printf("1 pressed %s at",osDate("%X"))
     elseif keyPressed == '2' and currentKey==1 and osTime()-time < 3 then
       currentKey = 2
       time=osTime()
-      printf("2 pressed %s",osDate("%X"))
+      printf("2 pressed %s at ",osDate("%X"))
     elseif keyPressed == '3' and currentKey==2 and osTime()-time < 3 then
       printf("Key 1-2-3 pressed within 2x3sec at %s",osDate("%X"))
     end
@@ -87,12 +87,12 @@ if _type == 'autostart' or _type == 'other' then
   if not _OFFLINE and fibaro:getGlobalModificationTime(_MAILBOX) == nil then
     api.post("/globalVariables/",{name=_MAILBOX})
   end 
-  if not _OFFLINE then fibaro:setGlobal(_MAILBOX,"") _poll() end -- start polling mailbox
-
-  if _OFFLINE then 
+  if not _OFFLINE then 
+    fibaro:setGlobal(_MAILBOX,"") 
+    _poll()  -- start polling mailbox
+    main(_trigger)
+  else
     collectgarbage("collect") GC=collectgarbage("count")
     _System.runOffline(function() main(_trigger) end) 
-  else
-    main(_trigger)
   end
 end
