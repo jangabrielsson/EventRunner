@@ -3,6 +3,7 @@
 55 value
 66 value
 77 value
+88 value
 %% events
 5 CentralSceneEvent
 %% globals
@@ -22,9 +23,11 @@ if dofile then dofile("EventRunnerDebug.lua") end -- Support for running off-lin
 
 ---- Single scene instance, all fibaro triggers call main(sourceTrigger) ------------
 
-local previousKey = nil -- Hey, this lua variable keeps its value between scene triggers
+local previousKey = nil -- Hey, these are lua variables keeping their values between scene triggers
 local time = osTime() -- Hey, this lua variable keeps its value between scene triggers
+local ref1,ref2 = nil,nil
 local keyRep = 0
+local lamps = {[55]={time=60},[66]={time=2*60,ref=nil},[77]={time=3*60,ref=nil}} -- Best to keep outside main()
 function printf(...) fibaro:debug(string.format(...)) end
 
 function main(sourceTrigger)
@@ -54,25 +57,23 @@ function main(sourceTrigger)
   end
 
   -- Example code triggering on Fibaro remote key 4 not pressed within 10 seconds
-  local ref=nil
   if event.type == 'event' and event.event.data.keyId == 4 then
-    cancel(ref) -- Key pressed, cancel post/timer
-    ref = post({type='Timeout'},10) -- and wait another 10s
+    cancel(ref1) -- Key pressed, cancel post/timer
+    ref1 = post({type='Timeout'},10) -- and wait another 10s
     printf("Key 4 pressed, resetting timer")
   end
   if event.type == 'Timeout' then -- Post/timer timed out
     keyRep = keyRep+1
     printf("Key 4 not pressed within %s seconds!",keyRep*10)
     if keyRep < 5 then
-      ref = post({type='Timeout'},10) -- wait another 10s
+      ref1 = post({type='Timeout'},10) -- wait another 10s
     end
   end
   if event.type=='autostart' or event.type=='other' then -- Start watching key 4 when starting scene
-    ref = post({type='Timeout'},10)
+    ref1 = post({type='Timeout'},10)
   end
 
   -- Example code watching if lamps are turned on more than specified time, and then turn them off
-  local lamps = {[55]={time=60},[66]={time=2*60,ref=nil},[77]={time=3*60,ref=nil}} -- Best to keep outside main()
   if event.type == 'property' and lamps[event.deviceID] then
     local id = event.deviceID
     local val = fibaro:getValue(id,'value') 
@@ -93,14 +94,28 @@ function main(sourceTrigger)
   if event.type=='autostart' or event.type=='other' then
     -- Start watching lamps at startup
     for id,_ in pairs(lamps) do post({type='property',deviceID=id},0) end 
-    
+
     -- Test logic of lamps
     post({type='call', f=function() fibaro:call(55,'turnOn') end},60) -- turn on lamp 55 in 60 seconds
     post({type='call', f=function() fibaro:call(66,'turnOn') end},70) -- turn on lamp 66 in 70 seconds
     post({type='call', f=function() fibaro:call(77,'turnOn') end},80) -- turn on lamp 77 in 80 seconds
   end
 
-  if event.type == 'call' then event.f() end
+  -- Turn on light 99 when sensor 88 is breached, and turn off 99 if sensor not breached again within 2 minutes
+  if event.deviceID == 88 then
+    if fibaro:getValue(88,'value') > '0' then
+      if fibaro:getValue(99,'value') < '1' then fibaro:call(99,'turnOn') end
+      ref2 = cancel(ref2) -- cancel timer
+    else
+      ref2 = post({type='call',f=function() printf("No movement for 2 minutes!") fibaro:call(99,'turnOff'); ref2=nil end},2*60)
+    end
+  end
+  if event.type=='autostart' or event.type=='other' and not _OFFLINE then -- only works offline
+    post({type='call',f=function() fibaro:call(88,'setValue','1') end},5*60)
+    post({type='call',f=function() fibaro:call(88,'setValue','0') end},5*60+30)
+  end
+  
+  if event.type == 'call' then event.f() end -- Generic event for posting function calls
 end -- main()
 
 ------------------------ Framework, do not change ---------------------------  
