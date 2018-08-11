@@ -1284,8 +1284,11 @@ end
 if _type == 'autostart' or _type == 'other' then
   Log(LOG.WELCOME,_format("%sEventRunner v%s",_sceneName and (_sceneName.." - " or ""),_version))
 
-  if not _OFFLINE and fibaro:getGlobalModificationTime(_MAILBOX) == nil then
-    api.post("/globalVariables/",{name=_MAILBOX})
+  if not _OFFLINE then
+    for _,v in ipairs(api.get("/globalVariables/")) do -- To avoid "API: Not found"
+      if _MAILBOX == v.name then _CREATE=true break end
+    end
+    if not _CREATE then api.post("/globalVariables/",{name=_MAILBOX}) end
   end 
 
   GC = 0

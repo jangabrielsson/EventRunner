@@ -114,7 +114,7 @@ function main(sourceTrigger)
     post({type='call',f=function() fibaro:call(88,'setValue','1') end},5*60)
     post({type='call',f=function() fibaro:call(88,'setValue','0') end},5*60+30)
   end
-  
+
   if event.type == 'call' then event.f() end -- Generic event for posting function calls
 end -- main()
 
@@ -154,11 +154,12 @@ local function _poll()
 end
 
 if _type == 'autostart' or _type == 'other' then
-  if not _OFFLINE and fibaro:getGlobalModificationTime(_MAILBOX) == nil then
-    api.post("/globalVariables/",{name=_MAILBOX})
-  end 
   printf("Starting EventRunnerLite demo")
   if not _OFFLINE then 
+    for _,v in ipairs(api.get("/globalVariables/")) do -- To avoid "API: Not found"
+      if _MAILBOX == v.name then _CREATE=true break end
+    end
+    if not _CREATE then api.post("/globalVariables/",{name=_MAILBOX}) end
     fibaro:setGlobal(_MAILBOX,"") 
     _poll()  -- start polling mailbox
     main(_trigger)
