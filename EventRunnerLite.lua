@@ -95,11 +95,12 @@ function main(sourceTrigger)
     for id,_ in pairs(lamps) do post({type='property',deviceID=id},0) end 
     
     -- Test logic of lamps
-    post(function() fibaro:call(55,'turnOn') end,60) -- turn on lamp 55 in 60 seconds
-    post(function() fibaro:call(66,'turnOn') end,70) -- turn on lamp 66 in 70 seconds
-    post(function() fibaro:call(77,'turnOn') end,80) -- turn on lamp 77 in 80 seconds
+    post({type='call', f=function() fibaro:call(55,'turnOn') end},60) -- turn on lamp 55 in 60 seconds
+    post({type='call', f=function() fibaro:call(66,'turnOn') end},70) -- turn on lamp 66 in 70 seconds
+    post({type='call', f=function() fibaro:call(77,'turnOn') end},80) -- turn on lamp 77 in 80 seconds
   end
 
+  if event.type == 'call' then event.f() end
 end -- main()
 
 ------------------------ Framework, do not change ---------------------------  
@@ -112,10 +113,7 @@ if _type == 'other' and fibaro:args() then
   _trigger,_type = fibaro:args()[1],'remote'
 end
 
-function post(event, time)
-  local f = type(event) == 'table' and function() main(event) end or event
-  return setTimeout(f,(time or 0)*1000)
-end
+function post(event, time) return setTimeout(function() main(event) end,(time or 0)*1000) end
 function cancel(ref) if ref then clearTimeout(ref) end return nil end
 function postRemote(sceneID,event) event._from=__fibaroSceneId; fibaro:startScene(sceneID,{json.encode(event)}) end
 
