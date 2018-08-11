@@ -1,5 +1,8 @@
 --[[
 %% properties
+55 value
+66 value
+77 value
 %% events
 5 CentralSceneEvent
 %% globals
@@ -21,11 +24,13 @@ if dofile then dofile("EventRunnerDebug.lua") end -- Support for running off-lin
 
 local previousKey = nil -- Hey, this lua variable keeps its value between scene triggers
 local time = osTime() -- Hey, this lua variable keeps its value between scene triggers
+local keyRep = 0
 function printf(...) fibaro:debug(string.format(...)) end
 
 function main(sourceTrigger)
   local event = sourceTrigger
--- Example scene triggering on Fibaro remote keys 1-2-3 within 2x3seconds
+
+-- Example code triggering on Fibaro remote keys 1-2-3 within 2x3seconds
   if event.type == 'event' then
     local keyPressed = event.event.data.keyId
     if keyPressed == 1 then 
@@ -41,11 +46,58 @@ function main(sourceTrigger)
     end
   end
 
-  -- Test logic by posting events in 3,5, and 7 seconds
+  -- Test logic by posting key events in 3,5, and 7 seconds
   if event.type=='autostart' or event.type=='other' then
     post({type='event',event={data={keyId=1}}},3)
     post({type='event',event={data={keyId=2}}},5)
     post({type='event',event={data={keyId=3}}},7)
+  end
+
+  -- Example code triggering on Fibaro remote key 4 not pressed within 10 seconds
+  local ref=nil
+  if event.type == 'event' and event.event.data.keyId == 4 then
+    cancel(ref) -- Key pressed, cancel post/timer
+    ref = post({type='Timeout'},10) -- and wait another 10s
+    printf("Key 4 pressed, resetting timer")
+  end
+  if event.type == 'Timeout' then -- Post/timer timed out
+    keyRep = keyRep+1
+    printf("Key 4 not pressed within %s seconds!",keyRep*10)
+    if keyRep < 5 then
+      ref = post({type='Timeout'},10) -- wait another 10s
+    end
+  end
+  if event.type=='autostart' or event.type=='other' then -- Start watching key 4 when starting scene
+    ref = post({type='Timeout'},10)
+  end
+
+  -- Example code watching if lamps are turned on more than specified time, and then turn them off
+  local lamps = {[55]={time=60},[66]={time=2*60,ref=nil},[77]={time=3*60,ref=nil}} -- Best to keep outside main()
+  if event.type == 'property' and lamps[event.deviceID] then
+    local id = event.deviceID
+    local val = fibaro:getValue(id,'value') 
+    if val>"0" then 
+      cancel(lamps[id].ref) 
+      printf("Watching lamp %s for %s seconds",id,lamps[id].time)
+      lamps[id].ref = post({type='turnOff',deviceID=id},lamps[id].time)
+    elseif val < "1" then
+      printf("Stop watching lamp %s",id) -- Could easily add check for sensor too...
+      lamps[id].ref = cancel(lamps[id].ref)
+    end 
+  end
+  if event.type == 'turnOff' then
+    local id = event.deviceID
+    lamps[id].ref = nil
+    fibaro:call(id,'turnOff')
+  end
+  if event.type=='autostart' or event.type=='other' then
+    -- Start watching lamps at startup
+    for id,_ in pairs(lamps) do post({type='property',deviceID=id},0) end 
+    
+    -- Test logic of lamps
+    post(function() fibaro:call(55,'turnOn') end,60) -- turn on lamp 55 in 60 seconds
+    post(function() fibaro:call(66,'turnOn') end,70) -- turn on lamp 66 in 70 seconds
+    post(function() fibaro:call(77,'turnOn') end,80) -- turn on lamp 77 in 80 seconds
   end
 
 end -- main()
@@ -61,8 +113,12 @@ if _type == 'other' and fibaro:args() then
 end
 
 function post(event, time)
-  setTimeout(function() main(event) end,(time or 0)*1000)
+  local f = type(event) == 'table' and function() main(event) end or event
+  return setTimeout(f,(time or 0)*1000)
 end
+function cancel(ref) if ref then clearTimeout(ref) end return nil end
+function postRemote(sceneID,event) event._from=__fibaroSceneId; fibaro:startScene(sceneID,{json.encode(event)}) end
+
 ---------- Producer(s) - Handing over incoming triggers to consumer --------------------
 if ({property=true,global=true,event=true,remote=true})[_type] then
   local event = type(_trigger) ~= 'string' and json.encode(_trigger) or _trigger
@@ -79,7 +135,7 @@ local function _poll()
   local l = fibaro:getGlobal(_MAILBOX)
   if l and l ~= "" and l:sub(1,3) ~= '<@>' then -- Something in the mailbox
     fibaro:setGlobal(_MAILBOX,"") -- clear mailbox
-    setTimeout(function() main(json.decode(l)) end, 0) -- and "post" it to our "main()" in new "thread"
+    post(json.decode(l)) -- and "post" it to our "main()" in new "thread"
   end
   setTimeout(_poll,250) -- check every 250ms
 end

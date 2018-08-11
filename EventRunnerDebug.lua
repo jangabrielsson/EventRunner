@@ -276,7 +276,8 @@ if not _REMOTE then
   function fibaro:setGlobal(v,x) 
     Debug((_FDEB > 1) and 1 or 10,"fibaro:setGlobal('%s','%s')",v,x)
     if fibaro._globals[v] == nil or fibaro._globals[v][1] ~= x then
-      if Event.post then Event.post({type='global', name=v, value=x, _sh=true}) end
+      local ev = {type='global', name=v, value=x, _sh=true}
+      if Event then if Event.post then Event.post(ev) end else setTimeout(function() main(ev) end,0) end
     end
     fibaro._globals[v] = {x,osTime and osTime() or os.time()}
   end
@@ -318,7 +319,8 @@ if not _REMOTE then
     local v = ({turnOff="0",turnOn="99",on="99",off="0"})[prop] or (prop=='setValue' and val1)
     if v then prop='value' val1=v end
     if prop == 'value' and (not fibaro._fibaroCalls[idkey..prop] or fibaro._fibaroCalls[idkey..prop][1]~=val1) then
-      Event.post({type='property', deviceID=id, propertyName=prop, value=val1, _sh=true})
+      local ev = {type='property', deviceID=id, propertyName=prop, value=val1, _sh=true}
+      if Event then Event.post(ev) else setTimeout(function() main(ev) end,0) end
     end
     fibaro._fibaroCalls[idkey..prop] = {val1,osTime()}
   end
