@@ -1,5 +1,6 @@
 # EventRunner
-Scene event framework for Fibaro HC2 (visit [Wiki](../../wiki/Home) for more details)
+Scene event framework for Fibaro HC2 (visit [Wiki](../../wiki/Home) for more details)   
+There is also an [EventRunnerLite]../../wiki/Lite) framework with all the bells and whistles sclaed down that may be a gentler introduction to the single-instance/event model of codingscenes.   
 
 This framework is a way to combine schedulers and trigger rules within a single scene instance. It is an 'event' based model where rules can be written in either Lua or a homemade "script language", or a mix of both. The framework allows the programmer to work within a single scene instance and not bother about multiple scene instances being triggered. This means that a scene can keep state in local Lua variables and not having to rely on Fibaro globals to remember things between scene invocations. This also means that the scene is always running while active, however it is very conservative on systems resources. Things that need to be remembered between restart of the scene/HC2 need of course to be stored somewhere permanently e.g. using Fibaro globals.
 
