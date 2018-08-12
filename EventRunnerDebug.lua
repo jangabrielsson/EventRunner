@@ -14,7 +14,7 @@
 if _version ~= "1.0" then error("Bad version of EventRunnerDebug") end 
 _SPEEDTIME         = 48*4   -- nil run the local clock in normal speed, set to an int <x> will speed the clock through <x> hours
 _REMOTE            = false  -- If true use FibaroSceneAPI to call functions on HC2, else emulate them locally...
-_GUI               = true
+_GUI               = false -- Needs wxwidgets support (e.g. require "wx"). Works in ZeroBrane under Lua 5.1.
 
 -- Server parameters
 _PORTLISTENER      = false
@@ -130,7 +130,7 @@ function clearTimeout(ref)
     _timers = _timers.next
   elseif ref then
     local tp = _timers
-    while tp.next do
+    while tp and tp.next do
       if tp.next == ref then tp.next = ref.next return end
       tp = tp.next
     end

@@ -30,6 +30,12 @@ local keyRep = 0
 local lamps = {[55]={time=60},[66]={time=2*60,ref=nil},[77]={time=3*60,ref=nil}} -- Best to keep outside main()
 function printf(...) fibaro:debug(string.format(...)) end
 
+local presenceScene = 133
+local sensors = {[99]=true,[199]=true,[201]=true,[301]=true}
+local breached, ref3 = false, nil
+local lamps2 = {55,66,77}
+local ref4 = nil
+
 function main(sourceTrigger)
   local event = sourceTrigger
 
@@ -113,6 +119,77 @@ function main(sourceTrigger)
   if event.type=='autostart' or event.type=='other' and not _OFFLINE then -- only works offline
     post({type='call',f=function() fibaro:call(88,'setValue','1') end},5*60)
     post({type='call',f=function() fibaro:call(88,'setValue','0') end},5*60+30)
+  end
+
+  if event.deviceID and sensors[event.deviceID] then
+    local n = 0  -- count how many sensors are breached
+    for id,_ in pairs(sensors) do if fibaro:getValue(id,'value') > '0' then n=n+1 end end
+    if n > 0 and not breached then
+      breached = true
+      ref3 = cancel(ref3)
+      --postRemote(presenceScene,{type='presence',state='stop'})
+      post({type='presence',state='stop'})
+    elseif n == 0 and breached then
+      breached = false
+      ref3 = post({type='away'},10*60) -- Assume away if no breach in 10 minutes
+    end
+  end
+
+  if event.type == 'away' then
+    --postRemote(presenceScene,{type='presence',state='start'})
+    post({type='presence',state='start'})
+  end
+
+  if event.type == 'presence' and event.state=='start' then
+    printf("Starting presence simulation")
+    post({type='simulate'})
+  end
+
+  if event.type == 'simulate' then
+    local id = lamps2[math.random(1,#lamps2)] -- choose a lamp
+    fibaro:call(id,fibaro:getValue(id,'value') > '0' and 'turnOff' or 'turnOn') -- toggle light
+    ref4 = post(event,math.random(5,15)*60) -- Run again in 5-15 minutes
+  end
+
+  if event.type=='presence' and event.state == 'stop' then
+    printf("Stopping presence simulation")
+    ref4 = cancel(ref4)
+  end
+
+  if _OFFLINE and event.type=='autostart' or event.type=='other' then -- only works offline
+    post({type='call', f=function() fibaro:call(99,'setValue',"1") end},10)
+    post({type='call', f=function() fibaro:call(99,'setValue',"0") end},20)
+    post({type='call', f=function() fibaro:call(99,'setValue',"1") end},60*60)
+  end
+
+  local times = {
+    {"09:30",function() fibaro:debug("Good morning!") end},
+    {"13:10",function() fibaro:debug("Lunch!") end},
+    {"17:00",function() fibaro:debug("Evening!") end}}
+
+
+  if event.type == 'time' then
+    fibaro:debug("It's time "..osDate("%X ")..event.time)
+    -- carry out whatever actions...
+    event.action()
+    post(event,24*60*60) -- Re-post the event next day at the same time.
+  end
+
+  -- setUp initial posts of daily events
+  if event.type == 'autostart' or event.type == 'other' then 
+    local now = os.time()
+    local t = osDate("*t")
+    t.hour,t.min,t.sec = 0,0,0
+    local midnight = osTime(t) 
+    for _,ts in ipairs(times) do
+      local h,m = ts[1]:match("(%d%d):(%d%d)")
+      local tn = midnight+h*60*60+m*60
+      if tn >= now then 
+        post({type='time',time=ts[1], action=ts[2]},tn-now) -- Later today
+      else
+        post({type='time',time=ts[1], action=ts[2]},tn-now+24*60*60) -- Next day
+      end
+    end
   end
 
   if event.type == 'call' then event.f() end -- Generic event for posting function calls
