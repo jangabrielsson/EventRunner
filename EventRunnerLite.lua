@@ -221,6 +221,7 @@ if ({property=true,global=true,event=true,remote=true})[_type] then
   fibaro:abort() -- and exit
 end
 
+---------- Consumer - Handing over incoming triggers to main() --------------------
 local function _poll()
   local l = fibaro:getGlobal(_MAILBOX)
   if l and l ~= "" and l:sub(1,3) ~= '<@>' then -- Something in the mailbox
@@ -230,6 +231,7 @@ local function _poll()
   setTimeout(_poll,250) -- check every 250ms
 end
 
+---------- Startup - --------------------
 if _type == 'autostart' or _type == 'other' then
   printf("Starting EventRunnerLite demo")
   if not _OFFLINE then 
