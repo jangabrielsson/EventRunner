@@ -205,7 +205,28 @@ if _type == 'other' and fibaro:args() then
   _trigger,_type = fibaro:args()[1],'remote'
 end
 
-function post(event, time) return setTimeout(function() main(event) end,(time or 0)*1000) end
+function now() return 3600*osDate("%H")+60*osDate("%M")+osDate("%S") end
+function hm2sec(hmstr)
+  local sun,offs = hmstr:match("^(%a+)([+-]?%d*)")
+  if sun and (sun == 'sunset' or sun == 'sunrise') then
+    hmstr,offs = fibaro:getValue(1,sun.."Hour"), tonumber(offs) or 0
+  end
+  local h,m,s = hmstr:match("(%d+):(%d+):?(%d*)")
+  return h*3600+m*60+(tonumber(s) or 0)+(offs or 0)*60
+end
+
+function toTime(time)
+  if type(time) == 'number' then return time end
+  local p = time:sub(1,2)
+  if p == '+/' then return hm2sec(time:sub(3)) -- Plus now
+  elseif p == 'n/' then
+    local t1 = hm2sec(time:sub(3))-now()       -- Next
+    return t1 > 0 and t1 or t1+24*60*60
+  elseif p == 't/' then return  hm2sec(time:sub(3))-now() end -- Today
+  error("Bad toTime format: "..time)
+end
+
+function post(event, time) return setTimeout(function() main(event) end,(toTime(time or 0))*1000) end
 function cancel(ref) if ref then clearTimeout(ref) end return nil end
 function postRemote(sceneID,event) event._from=__fibaroSceneId; fibaro:startScene(sceneID,{json.encode(event)}) end
 
