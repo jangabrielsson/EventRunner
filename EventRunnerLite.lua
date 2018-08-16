@@ -38,7 +38,7 @@ local ref4 = nil
 
 function main(sourceTrigger)
   local event = sourceTrigger
-
+--[[
 -- Example code triggering on Fibaro remote keys 1-2-3 within 2x3seconds
   if event.type == 'event' then
     local keyPressed = event.event.data.keyId
@@ -191,6 +191,27 @@ function main(sourceTrigger)
       end
     end
   end
+--]]
+
+local times = {
+   {"n/09:30",function() fibaro:debug("Good morning!") end},
+   {"n/13:10",function() fibaro:debug("Lunch!") end},
+   {"n/sunset-10",function() fibaro:debug("Evening!") end}}
+function printf(...) fibaro:debug(string.format(...)) end
+
+
+  if event.type == 'time' then
+    printf("%s It's time %s",osDate("%X"),event.time:sub(3))
+    -- carry out whatever actions...
+    event.action()
+    post(event,24*60*60) -- Re-post the event next day at the same time.
+  end
+
+  -- setUp initial posts of daily events
+  if event.type == 'autostart' or event.type == 'other' then 
+    for _,ts in ipairs(times) do post({type='time',time=ts[1], action=ts[2]},ts[1]) end
+  end
+
 
   if event.type == 'call' then event.f() end -- Generic event for posting function calls
 end -- main()
@@ -205,7 +226,8 @@ if _type == 'other' and fibaro:args() then
   _trigger,_type = fibaro:args()[1],'remote'
 end
 
-function now() return 3600*osDate("%H")+60*osDate("%M")+osDate("%S") end
+function _midnight() t=os.date("*t"); t.min,t.hour,t.sec=0,0,0; return osTime(t) end
+
 function hm2sec(hmstr)
   local sun,offs = hmstr:match("^(%a+)([+-]?%d*)")
   if sun and (sun == 'sunset' or sun == 'sunrise') then
@@ -220,9 +242,9 @@ function toTime(time)
   local p = time:sub(1,2)
   if p == '+/' then return hm2sec(time:sub(3)) -- Plus now
   elseif p == 'n/' then
-    local t1 = hm2sec(time:sub(3))-now()       -- Next
+    local t1 = _midnight()+hm2sec(time:sub(3))-osTime()      -- Next
     return t1 > 0 and t1 or t1+24*60*60
-  elseif p == 't/' then return  hm2sec(time:sub(3))-now() end -- Today
+  elseif p == 't/' then return  _midnight()+hm2sec(time:sub(3))-osTime() end -- Today
   error("Bad toTime format: "..time)
 end
 
