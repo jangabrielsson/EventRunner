@@ -29,11 +29,8 @@ function main()
   --local devs = json.decode(fibaro:getGlobalValue(_deviceTable))
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
---function main()
-    -- lets start
-  --local dev = json.decode(fibaro:getGlobalValue('HomeTable')) -- Fetch device definitions
-  
-  dofile("example_rules.lua") -- some example rules to try out...
+ 
+ dofile("example_rules.lua") -- some example rules to try out...
 
 end -- main()
 ------------------- EventModel --------------------  
