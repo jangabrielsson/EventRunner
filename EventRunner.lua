@@ -29,7 +29,10 @@ function main()
   --local devs = json.decode(fibaro:getGlobalValue(_deviceTable))
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
-
+--function main()
+    -- lets start
+  --local dev = json.decode(fibaro:getGlobalValue('HomeTable')) -- Fetch device definitions
+  
   dofile("example_rules.lua") -- some example rules to try out...
 
 end -- main()
@@ -573,6 +576,7 @@ function newScriptEngine()
     ['midnight']=function(t) return midnight() end,
     ['sunset']=function(t) if t=='*' then return hm2sec('sunset') else return toTime(t.."/sunset") end end,
     ['sunrise']=function(t) if t=='*' then return hm2sec('sunrise') else return toTime(t.."/sunrise") end end,
+    ['wnum']=function(t) return tonumber(osDate("%V")) end,
     ['now']=function(t) return osTime()-midnight() end}
   local function _coerce(x,y) local x1 = tonumber(x) if x1 then return x1,tonumber(y) else return x,y end end
   local function getVar(v,e) local vars = e.context 
@@ -647,6 +651,7 @@ function newScriptEngine()
   instr['-'] = function(s,n) s.push(-s.pop()+s.pop()) end
   instr['*'] = function(s,n) s.push(s.pop()*s.pop()) end
   instr['/'] = function(s,n) s.push(1.0/(s.pop()/s.pop())) end
+  instr['%'] = function(s,n) local a,b=s.pop(),s.pop(); s.push(b % a) end
   instr['inc+'] = function(s,n,e,i) local var,val=i[3],i[4] or s.pop() s.push(setVar(var,getVar(var,e)+val,e)) end
   instr['inc-'] = function(s,n,e,i) local var,val=i[3],i[4] or s.pop() s.push(setVar(var,getVar(var,e)-val,e)) end
   instr['inc*'] = function(s,n,e,i) local var,val=i[3],i[4] or s.pop() s.push(setVar(var,getVar(var,e)*val,e)) end
@@ -774,7 +779,7 @@ function newScriptCompiler()
   function self._getComps() return _comp end
 
   local symbol={['{}'] = {{'quote',{}}}, ['true'] = {true}, ['false'] = {false}, ['nil'] = {nil},
-    ['env'] = {{'env'}}, ['now'] = {{'%time','now'}},['sunrise'] = {{'%time','sunrise','*'}}, ['sunset'] = {{'%time','sunset','*'}},
+    ['env'] = {{'env'}}, ['wnum'] = {{'%time','wnum'}},['now'] = {{'%time','now'}},['sunrise'] = {{'%time','sunrise','*'}}, ['sunset'] = {{'%time','sunset','*'}},
     ['midnight'] = {{'%time','midnight'}}}
 
   local function compT(e,ops)
@@ -890,6 +895,7 @@ function newScriptCompiler()
   preC['-'] = function(k,e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])-tonumber(e[3]) or e end
   preC['*'] = function(k,e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])*tonumber(e[3]) or e end
   preC['/'] = function(k,e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])/tonumber(e[3]) or e end
+  preC['%'] = function(k,e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])%tonumber(e[3]) or e end
   preC['time'] = function(k,e)
     local tm,ts = e[2]:match("([tn%+]?)/?(.+)")
     if tm == "" or tm==nil then tm = '*' end
@@ -917,7 +923,7 @@ function newScriptCompiler()
   local function _binop(s,res) res.push({mapOp(s.pop().v),table.unpack(res.lift(2))}) end
   local function _unnop(s,res) res.push({mapOp(s.pop().v),res.pop()}) end
   local _prec = {
-    ['*'] = 10, ['/'] = 10, ['.'] = 12.5, ['+'] = 9, ['-'] = 9, [':'] = 12, ['..'] = 8.5, ['=>'] = -2, ['neg'] = 13, ['!'] = 6.5, ['@']=8.5, ['@@']=8.5,
+    ['*'] = 10, ['/'] = 10, ['%'] = 10, ['.'] = 12.5, ['+'] = 9, ['-'] = 9, [':'] = 12, ['..'] = 8.5, ['=>'] = -2, ['neg'] = 13, ['!'] = 6.5, ['@']=8.5, ['@@']=8.5,
     ['>']=7, ['<']=7, ['>=']=7, ['<=']=7, ['==']=7, ['~=']=7, ['&']=6, ['|']=5, ['=']=4, ['+=']=4, ['-=']=4, ['*=']=4, [';']=3.6, ['('] = 1, }
 
   for i,j in pairs(_prec) do _prec[i]={j,_binop} end 
@@ -940,7 +946,7 @@ function newScriptCompiler()
     {"^(%.%.)",'op'},{"^(->)",'op'},    
     {"^(%d+%.?%d*)",'num'},
     {"^(%|%|)",'token'},{"^(>>)",'token'},{"^(=>)",'token'},{"^(@@)",'op'},
-    {"^([%*%+%-/&%.:~=><%|!@]+)",'op'},
+    {"^([%%%*%+%-/&%.:~=><%|!@]+)",'op'},
   }
 
   local _specT={bracks={['{']='lbrack',['}']='rbrack',[',']='token',['[']='lsquare',[']']='rsquare'},
@@ -1188,7 +1194,7 @@ function newRuleCompiler()
         if log then Log(LOG.LOG,"%s",tojson(res)) end
         return res
       end)
-    if not status then errThrow(_format("Error evaulating '%s'",expro),res)
+    if not status then errThrow(_format("Error evaluating '%s'",expro),res)
     else return res end
   end
 

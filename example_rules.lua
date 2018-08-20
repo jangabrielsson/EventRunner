@@ -5,8 +5,8 @@
   (to initoialize the HomeTable)
   
 --]]
-local tExpr = false
-local tRules = true
+local tExpr = true
+local tRules = false
 local tShell = false
 local tGEA = false
 local tEarth = false
@@ -60,6 +60,7 @@ if tExpr then -- test some standard expression
   test("label(45,'test')='hello'")
   test("|| 11:00..12:00 & day('1-7') & wday('mon') >> log('Noon first Monday of the month!')")
   test("|| 11:00..12:00 & day('lastw-last') & wday('mon') >> log('Noon last Monday of the month!')")
+  test("log('Week number is %s and week is %s',wnum,wnum % 2 == 1 & 'odd' | 'even')")
   test([[
     || 05:00..11:00 >> log('Morning at %s',osdate('%X')) 
     || 11:00..15:00 >> log('Day at %s',osdate('%X'))
@@ -92,7 +93,7 @@ end
 
 if tShell then -- run an interactive shell to try out commands
   Event.event({type='shell'},function(env)
-      io.write("Eval:") expr = io.read()
+      io.write("Eval> ") expr = io.read()
       if expr ~= 'exit' then
         print(string.format("=> %s",tojson(Rule.eval(expr))))
         Event.post({type='shell', _sh=true},'+/00:10')
