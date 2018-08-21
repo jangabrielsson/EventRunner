@@ -29,8 +29,8 @@ function main()
   --local devs = json.decode(fibaro:getGlobalValue(_deviceTable))
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
- 
- dofile("example_rules.lua") -- some example rules to try out...
+
+  dofile("example_rules.lua") -- some example rules to try out...
 
 end -- main()
 ------------------- EventModel --------------------  
@@ -566,6 +566,7 @@ function newScriptEngine()
   setIdFun['msg'] = function(s,i,id,v) local m = v doit(Util.mapF,function(id) fibaro:call(ID(id,i),'sendPush',m) end,id) return m end
   setIdFun['btn'] = function(s,i,id,v) local k = v doit(Util.mapF,function(id) fibaro:call(ID(id,i),'pressButton',k) end,id) return k end
 
+  local WEEKNMUMSTR = os.getenv and os.getenv('OS') and os.getenv('OS'):lower():match("windows") and "%W" or "%V"
   local timeFs ={["*"]=function(t) return t end,
     t=function(t) return t+midnight() end,
     ['+']=function(t) return t+osTime() end,
@@ -573,7 +574,7 @@ function newScriptEngine()
     ['midnight']=function(t) return midnight() end,
     ['sunset']=function(t) if t=='*' then return hm2sec('sunset') else return toTime(t.."/sunset") end end,
     ['sunrise']=function(t) if t=='*' then return hm2sec('sunrise') else return toTime(t.."/sunrise") end end,
-    ['wnum']=function(t) return tonumber(osDate("%V")) end,
+    ['wnum']=function(t) return tonumber(osDate(WEEKNMUMSTR)) end,
     ['now']=function(t) return osTime()-midnight() end}
   local function _coerce(x,y) local x1 = tonumber(x) if x1 then return x1,tonumber(y) else return x,y end end
   local function getVar(v,e) local vars = e.context 
