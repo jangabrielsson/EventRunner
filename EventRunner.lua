@@ -661,6 +661,7 @@ function newScriptEngine()
   instr['=='] = function(s,n) s.push(tostring(s.pop())==tostring(s.pop())) end
   instr['log'] = function(s,n) s.push(Log(LOG.LOG,table.unpack(s.lift(n)))) end
   instr['rnd'] = function(s,n) local ma,mi=s.pop(),n>1 and s.pop() or 1 s.push(math.random(mi,ma)) end
+  instr['round'] = function(s,n) local v=s.pop(); s.push(math.floor(v+0.5)) end
   instr['sum'] = function(s,n) local m,res=s.pop(),0 for _,x in ipairs(m) do res=res+x end s.push(res) end 
   instr['length'] = function(s,n) s.push(#(s.pop())) end
   instr['tjson'] = function(s,n) s.push(tojson(s.pop())) end
@@ -676,7 +677,8 @@ function newScriptEngine()
   instr['slider'] = instr['label']
   instr['once'] = function(s,n,e,i) local f; i[4],f = s.pop(),i[4]; s.push(not f and i[4]) end
   instr['always'] = function(s,n,e,i) s.pop(n) s.push(true) end 
-  instr['post'] = function(s,n) local e,t=s.pop(),nil; if n==2 then t=e; e=s.pop() end Event.post(e,t) s.push(e) end
+  instr['post'] = function(s,n) local e,t=s.pop(),nil; if n==2 then t=e; e=s.pop() end s.push(Event.post(e,t)) end
+  instr['cancel'] = function(s,n) Event.cancel(s.pop()) s.push(nil) end
   instr['manual'] = function(s,n) s.push(Event.lastManual(s.pop())) end
   instr['add'] = function(s,n) local v,t=s.pop(),s.pop() table.insert(t,v) s.push(t) end
   instr['betw'] = function(s,n) local t2,t1,now=s.pop(),s.pop(),osTime()-midnight()
@@ -698,21 +700,25 @@ function newScriptEngine()
   instr['for'] = function(s,n,e,i) 
     local val,time, stack, cp = s.pop(),s.pop(), e.stack, e.cp
     local code = e.code
-    local rep = function() i[6] = true; i[5] = nil; self.eval(code) end
+    local rep = function() i[6] = true; Log(LOG.LOG,"Exp:%s",tostring(i[5])); i[5] = nil; self.eval(code) end
     e.forR = nil -- Repeat function (see repeat())
+    Log(LOG.LOG,"FOR")
     if i[6] then -- true if timer has expired
+      Log(LOG.LOG,"Timer expired")
       i[6] = nil; 
-      if val then
-        i[7] = (i[7] or 0)+1 -- Times we have repeated
+      if val then 
+        i[7] = (i[7] or 0)+1 -- Times we have repeated 
+        print(string.format("REP:%s, TIME:%s",i[7],time))
         e.forR={function() Event.post(rep,time+osTime(),e.src) return i[7] end,i[7]}
       end
       s.push(val) 
       return
     end 
+    Log(LOG.LOG,"BBB")
     i[7] = 0
-    if i[5] and (not val) then i[5] = Event.cancel(i[5]) --Log(LOG.LOG,"Killing timer")-- Timer already running, and false, stop timer
+    if i[5] and (not val) then i[5] = Event.cancel(i[5]) Log(LOG.LOG,"Killing timer")-- Timer already running, and false, stop timer
     elseif (not i[5]) and val then                        -- Timer not running, and true, start timer
-      i[5]=Event.post(rep,time+osTime(),e.src) --Log(LOG.LOG,"Starting timer")
+      i[5]=Event.post(rep,time+osTime(),e.src) Log(LOG.LOG,"Starting timer %s",tostring(i[5]))
     end
     s.push(false)
   end
@@ -959,7 +965,7 @@ function newScriptCompiler()
       s = s:gsub(_tokens[ i ][ 1 ],
         function(m) local r,to = "",_tokens[i]
           if to[2]=='num' and m:match("%.$") then m=m:sub(1,-2); r ='.' end -- hack for e.g. '7.'
-          if m == '(' and #tkns>0 and tkns[#tkns ].t ~= 'fun' and tkns[#tkns ].v:match("^[%]%)%d%a-zA-Z]") then 
+          if m == '(' and #tkns>0 and tkns[#tkns ].t ~= 'fun' and tkns[#tkns ].v:match("^[%]%)%da-zA-Z]") then 
             m='call' to={1,'call'} 
           end
           if m == '-' and (#tkns==0 or tkns[#tkns ].t=='call' or tkns[#tkns ].t=='efun' or tkns[#tkns ].v:match("^[+%-*/({.><=&|;,]")) then 
