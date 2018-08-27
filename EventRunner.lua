@@ -702,23 +702,23 @@ function newScriptEngine()
     local code = e.code
     local rep = function() i[6] = true; Log(LOG.LOG,"Exp:%s",tostring(i[5])); i[5] = nil; self.eval(code) end
     e.forR = nil -- Repeat function (see repeat())
-    Log(LOG.LOG,"FOR")
+    --Log(LOG.LOG,"FOR")
     if i[6] then -- true if timer has expired
-      Log(LOG.LOG,"Timer expired")
+      --Log(LOG.LOG,"Timer expired")
       i[6] = nil; 
       if val then 
         i[7] = (i[7] or 0)+1 -- Times we have repeated 
-        print(string.format("REP:%s, TIME:%s",i[7],time))
+        --print(string.format("REP:%s, TIME:%s",i[7],time))
         e.forR={function() Event.post(rep,time+osTime(),e.src) return i[7] end,i[7]}
       end
       s.push(val) 
       return
     end 
-    Log(LOG.LOG,"BBB")
+    --Log(LOG.LOG,"BBB")
     i[7] = 0
-    if i[5] and (not val) then i[5] = Event.cancel(i[5]) Log(LOG.LOG,"Killing timer")-- Timer already running, and false, stop timer
+    if i[5] and (not val) then i[5] = Event.cancel(i[5]) --Log(LOG.LOG,"Killing timer")-- Timer already running, and false, stop timer
     elseif (not i[5]) and val then                        -- Timer not running, and true, start timer
-      i[5]=Event.post(rep,time+osTime(),e.src) Log(LOG.LOG,"Starting timer %s",tostring(i[5]))
+      i[5]=Event.post(rep,time+osTime(),e.src) --Log(LOG.LOG,"Starting timer %s",tostring(i[5]))
     end
     s.push(false)
   end
