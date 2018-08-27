@@ -29,7 +29,8 @@ function main()
   --local devs = json.decode(fibaro:getGlobalValue(_deviceTable))
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
-
+  -- lets start
+  
   dofile("example_rules.lua") -- some example rules to try out...
 
 end -- main()
@@ -700,7 +701,7 @@ function newScriptEngine()
   instr['for'] = function(s,n,e,i) 
     local val,time, stack, cp = s.pop(),s.pop(), e.stack, e.cp
     local code = e.code
-    local rep = function() i[6] = true; Log(LOG.LOG,"Exp:%s",tostring(i[5])); i[5] = nil; self.eval(code) end
+    local rep = function() i[6] = true; i[5] = nil; self.eval(code) end
     e.forR = nil -- Repeat function (see repeat())
     --Log(LOG.LOG,"FOR")
     if i[6] then -- true if timer has expired
