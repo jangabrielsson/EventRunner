@@ -30,7 +30,6 @@ function main()
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
   -- lets start
-  
   dofile("example_rules.lua") -- some example rules to try out...
 
 end -- main()
@@ -65,7 +64,7 @@ local function _poll()
   local l = fibaro:getGlobal(_MAILBOX)
   if l and l ~= "" and l:sub(1,3) ~= '<@>' then -- Something in the mailbox
     fibaro:setGlobal(_MAILBOX,"") -- clear mailbox
-    Debug(4,"Incoming event:%s",l)
+    Debug(4,"Incoming event:%",l)
     l = json.decode(l) l._sh=true
     Event.post(l) -- and post it to our "main()"
   end
@@ -1230,7 +1229,7 @@ function newRuleCompiler()
       for _,d in ipairs(_dailys) do
         local times = compTimes(d.dailys)
         for _,t in ipairs(times) do 
-          Log(LOG.LOG,"Scheduling at %s",osDate("%X",midnight+t))
+          Debug(4,"Scheduling at %s",osDate("%X",midnight+t))
           Event.post(d.action,midnight+t,d.src) 
         end
       end
