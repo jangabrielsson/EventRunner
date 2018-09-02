@@ -16,6 +16,7 @@ local tPresence = false
 local tHouse = false
 local tScheduler = false
 local tRemoteAsync = false
+local tTimes = false
 
 local function post(e,t) Event.post(e,t) end
 local function prop(id,state,prop) return {type='property', deviceID=id, propertyName=prop, value=state} end
@@ -586,6 +587,47 @@ if tRemoteAsync then -- example of doing remote/async calls
   Rule.eval("log('RES=%s',2+callAsync({'local',60*13},'foo/2',4,5)+3)")
 
 end
+
+if tTimes then
+  -- Decalare a script variable 'lamp' to have value 55 (e.g.deviceID)
+  Rule.eval("lamp=55")
+  -- Every day at 07:15, turn of lamp, e.g. deviceID 55
+  Rule.eval("@07:15 => lamp:off")
+  -- Every day at sunrise, turn off lamp
+  Rule.eval("@sunrise => lamp:off")
+  -- Every day at sunrise + 15min, turn off the lamp
+  Rule.eval("@sunrise+00:15 => lamp:off")
+  -- Every day at sunset, turn on lamp
+  Rule.eval("@sunset => lamp:off")
+  -- Every day at sunset-15min, turn on the lamp
+  Rule.eval("@sunset-00:15 => lamp:off")
+  -- Every day at sunrise and if it is Monday, turn off the lamp
+  Rule.eval("@sunrise & wday('mon') => lamp:off")
+  -- Every day at sunrise and if it is a weekday, turn off the lamp
+  Rule.eval("@sunrise & wday('mon-fri') => lamp:off")
+  -- Every day at sunrise on Monday,Wednesday,Friday,Saturday,Sunday, turn off the lamp 
+  Rule.eval("@sunrise & wday('mon,wed,fri-sun') => lamp:off")
+ -- Every day at sunrise the first day of the month, turn off the lamp 
+  Rule.eval("@sunrise & day('1') => lamp:off")
+ -- Every day at sunrise on the first 15 days of the month, turn off the lamp 
+  Rule.eval("@sunrise & day('1-15') => lamp:off")
+ -- Every day at sunrise on the last day of the month, turn off the lamp 
+  Rule.eval("@sunrise & day('last') => lamp:off")
+ -- Every day at sunrise on the first day of the last week of the month, turn off the lamp 
+  Rule.eval("@sunrise & day('lastw') => lamp:off")
+ -- Every day at sunrise on a Monday on the last week of the month, turn off the lamp 
+  Rule.eval("@sunrise & day('lastw-last') & wday('mon') => lamp:off")
+ -- Every day at sunrise January to Mars, turn off the lamp 
+  Rule.eval("@sunrise & month('jan-mar') => lamp:off")
+ -- Every day at sunrise on Mondays at even week numbers, turn off the lamp 
+  Rule.eval("@sunrise & wnum()%2 == 0 & wday('mon') => lamp:off")
+ -- Every day at sunrise on weekdays when fibaro global 'Presence' equals 'Home', turn off the lamp 
+  Rule.eval("@sunrise & $Presence=='Home' & wday('mon-fri') => lamp:off")
+-- Every day at sunrise on weekdays when fibaro global 'Presence' equals 'Home' or fibaro global 'Simulate' equals 'true', turn off the lamp 
+  Rule.eval("@sunrise & ($Presence=='Home' | $Simulate='true') & wday('mon-fri') => lamp:off")
+
+end
+
 
 Event.event({type='error'},function(env) local e = env.event -- catch errors and print them out
     Log(LOG.ERROR,"Runtime error %s for '%s' receiving event %s",e.err,e.rule,e.event) 

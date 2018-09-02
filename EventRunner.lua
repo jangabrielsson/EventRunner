@@ -33,7 +33,8 @@ function main()
   dofile("example_rules.lua") -- some example rules to try out...
 
 end -- main()
-------------------- EventModel --------------------  
+
+------------------- EventModel - Don't change! --------------------  
 local _supportedEvents = {property=true,global=true,event=true,remote=true}
 local _trigger = fibaro:getSourceTrigger()
 local _type, _source = _trigger.type, _trigger
@@ -46,7 +47,9 @@ end
 if not _FIB then
   _FIB={ get = fibaro.get, getGlobal = fibaro.getGlobal }
 end
+
 ---------- Producer(s) - Handing over incoming triggers to consumer --------------------
+
 if _supportedEvents[_type] then
   local event = type(_trigger) ~= 'string' and json.encode(_trigger) or _trigger
   local ticket = string.format('<@>%s%s',tostring(_source),event)
@@ -64,7 +67,7 @@ local function _poll()
   local l = fibaro:getGlobal(_MAILBOX)
   if l and l ~= "" and l:sub(1,3) ~= '<@>' then -- Something in the mailbox
     fibaro:setGlobal(_MAILBOX,"") -- clear mailbox
-    Debug(4,"Incoming event:%",l)
+    Debug(4,"Incoming event:%s",l)
     l = json.decode(l) l._sh=true
     Event.post(l) -- and post it to our "main()"
   end
@@ -1295,6 +1298,7 @@ if _type == 'autostart' or _type == 'other' then
   Log(LOG.WELCOME,_format("%sEventRunner v%s",_sceneName and (_sceneName.." - " or ""),_version))
 
   if not _OFFLINE then
+    Log(LOG.LOG,"Fibaro software version: %s",(api.get("/settings/info/")).currentVersion.version)
     if not string.find(json.encode((api.get("/globalVariables/"))),"\"".._MAILBOX.."\"") then
       api.post("/globalVariables/",{name=_MAILBOX}) 
     end

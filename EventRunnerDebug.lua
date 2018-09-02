@@ -25,7 +25,7 @@ _MEM               = false  -- log memory usage
 -- HC2 credentials and parameters
 hc2_user           = "xxx" -- used for api.x/FibaroSceneAPI calls
 hc2_pwd            = "xxx" 
-hc2_ip             = "192.168.1.69" -- IP of HC2
+hc2_ip             = "192.168.1.84" -- IP of HC2
 local creds = loadfile("credentials.lua") -- To not accidently commit credentials to Github...
 if creds then creds() end
 
