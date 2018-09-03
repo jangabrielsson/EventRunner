@@ -321,7 +321,7 @@ if not _REMOTE then
     if prop == 'value' and (not fibaro._fibaroCalls[idkey..prop] or fibaro._fibaroCalls[idkey..prop][1]~=val1) then
       local ev = {type='property', deviceID=id, propertyName=prop, value=val1, _sh=true}
       if Event then Event.post(ev) else setTimeout(function() main(ev) end,0) end
-    end
+    elseif prop == 'setProperty' then prop,val1=val1,val2 end
     fibaro._fibaroCalls[idkey..prop] = {val1,osTime()}
   end
 

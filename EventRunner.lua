@@ -30,6 +30,7 @@ function main()
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
   -- lets start
+
   dofile("example_rules.lua") -- some example rules to try out...
 
 end -- main()
@@ -228,7 +229,9 @@ function newEventEngine()
     if type(e) == 'function' then 
       return {[self.TIMER]=setTimeout(function() 
             local status,res = pcall(e) 
-            if not status then ruleError(res,src,"timer") end
+            if not status then 
+              ruleError(res,src,"timer") 
+            end
           end,1000*(time-osTime()))}
     end
     if _debugLevel >= 3 and not e._sh then 
@@ -323,9 +326,9 @@ function newEventEngine()
 
 -- {{e1,e2,e3},{e4,e5,e6}} 
   function self._handleEvent(e) -- running a posted event
+    if _getProp[e.type] then _getProp[e.type](e,e.value) end  -- patch events
     if _OFFLINE and not _REMOTE then if _simFuns[e.type] then _simFuns[e.type](e)  end end
     local env = {event = e, p={}}
-    if _getProp[e.type] then _getProp[e.type](e,e.value) end  -- patch events
     for _,rules in ipairs(_handlers[e.type] or {}) do -- Check all rules of 'type'
       local match = _match(rules[1][self.RULE],e)
       if match then
@@ -568,6 +571,7 @@ function newScriptEngine()
   end
   setIdFun['msg'] = function(s,i,id,v) local m = v doit(Util.mapF,function(id) fibaro:call(ID(id,i),'sendPush',m) end,id) return m end
   setIdFun['btn'] = function(s,i,id,v) local k = v doit(Util.mapF,function(id) fibaro:call(ID(id,i),'pressButton',k) end,id) return k end
+  setIdFun['start'] = function(s,i,id,v) local k = v doit(Util.mapF,function(id) fibaro:startScene(ID(id,i),k) end,id) return k end
 
   local WEEKNMUMSTR = os.getenv and os.getenv('OS') and os.getenv('OS'):lower():match("windows") and "%W" or "%V"
   local timeFs ={["*"]=function(t) return t end,
@@ -1122,7 +1126,8 @@ function newRuleCompiler()
   local self = {}
   local map,mapkl,traverse=Util.map,Util.mapkl,Util.traverse
   local _macros,_dailys,rCounter= {},{},0
-  local tFun={isOn=1,prop=1,isOff=1,power=1,bat=1,lux=1,safe=1,breached=1,sense=1,manual=1,value=1,temp=1,scene=1,trigger=1}
+  local tFun={isOn=1,prop=4,isOff=1,power=2,bat=4,lux=4,safe=4,breached=4,sense=4,manual=4,value=1,temp=1,scene=5,trigger=4,label=3}
+  local tFunN={[1]='value',[2]='power',[3]='ui',[4]=nil,[5]='sceneActivation'}
   local triggFuns = {}
 
   local function getTriggers(e)
@@ -1137,7 +1142,9 @@ function newRuleCompiler()
       elseif tFun[k] then 
         local cv = ScriptCompiler.compile(e[2])
         local v = ScriptEngine.eval(cv)
-        map(function(id) ids[id]={type='property', deviceID=id} end,type(v)=='table' and v or {v})
+        local pn = tFunN[tFun[k]]
+        if pn == 'ui' then pn = _format("ui.%s.value",e[3]) end
+        map(function(id) ids[id]={type='property', deviceID=id, propertyName=pn} end,type(v)=='table' and v or {v})
       elseif triggFuns[k] then local v = ScriptEngine.eval(ScriptCompiler.compile(e[2]))
         map(function(id) ids[id]=triggFuns[k](id) end,type(v)=='table' and v or {v})
       end

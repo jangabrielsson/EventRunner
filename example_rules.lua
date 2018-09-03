@@ -5,7 +5,7 @@
   (to initoialize the HomeTable)
   
 --]]
-local tExpr = true
+local tExpr = false
 local tRules = false
 local tShell = false
 local tGEA = false
@@ -13,7 +13,7 @@ local tEarth = false
 local tTest1 = false
 local tTest2 = false
 local tPresence = false
-local tHouse = false
+local tHouse = true
 local tScheduler = false
 local tRemoteAsync = false
 local tTimes = false
@@ -339,7 +339,7 @@ if tHouse then
 
   Rule.load([[
 -- Kitchen
-      for(00:10,kt.movement:safe&$LIGHTTIME$) => kt.lamp_table:off=true
+      for(00:10,kt.movement:safe&$LIGHTTIME$) => kt.lamp_table:off
 
       for(00:10,{kt.movement,lr.movement,ha.movement}:safe & $LIGHTTIME$) =>
         {kt.lamp_stove,kt.lamp_sink,ha.lamp_hall}:isOn &
@@ -407,17 +407,17 @@ if tHouse then
 -- SceneActivation events
   Rule.load([[
       lr.lamp_roof_holk:scene==S2.click =>
-        toggle(lr.lamp_roof_sofa); log('Toggling lamp downstairs')
+        lr.lamp_roof_sofa:toggle; log('Toggling lamp downstairs')
       bd.lamp_roof:scene==S2.click =>
-        toggle({bd.lamp_window, bd.bed_led}); log('Toggling bedroom lights')
+        {bd.lamp_window, bd.bed_led}:toggle; log('Toggling bedroom lights')
       ti.lamp_roof:scene==S2.click =>
-        toggle(ti.bed_led); log('Toggling Tim bedroom lights')
+        ti.bed_led:toggle; log('Toggling Tim bedroom lights')
       ti.lamp_roof:scene==S2.double =>
-        toggle(ti.lamp_window); log('Toggling Tim window lights')
+        ti.lamp_window:toggle; log('Toggling Tim window lights')
       ma.lamp_roof:scene==S2.click =>
-        toggle(ma.lamp_window); log('Toggling Max bedroom lights')
+        ma.lamp_window:toggle; log('Toggling Max bedroom lights')
       gr.lamp_roof:scene==S2.click =>
-        toggle(gr.lamp_window); log('Toggling Gameroom window lights')
+        gr.lamp_window:toggle; log('Toggling Gameroom window lights')
       kt.lamp_table:scene==S2.click =>
         || label(kt.sonos,'lblState')=='Playing' >> kt.sonos:btn=8 || true >> kt.sonos:btn=7;;
         log('Toggling Sonos %s',label(kt.sonos,'lblState'))
@@ -426,8 +426,8 @@ if tHouse then
     ]])
   --Rule.eval("trace(true)")
   -- test scene activations
-  --post(prop(dev.livingroom.lamp_roof_holk,Util.S2.click,'sceneActivation'),"n/09:10")
-  --post(prop(dev.livingroom.lamp_roof_holk,Util.S2.click,'sceneActivation'),"n/09:20")
+  post(prop(dev.livingroom.lamp_roof_holk,Util.S2.click,'sceneActivation'),"n/09:10")
+  post(prop(dev.livingroom.lamp_roof_holk,Util.S2.click,'sceneActivation'),"n/09:20")
 end -- houseRules
 -- #foo => || t >> print(x) ;; 
 if tTest1 then
@@ -626,6 +626,10 @@ if tTimes then
 -- Every day at sunrise on weekdays when fibaro global 'Presence' equals 'Home' or fibaro global 'Simulate' equals 'true', turn off the lamp 
   Rule.eval("@sunrise & ($Presence=='Home' | $Simulate='true') & wday('mon-fri') => lamp:off")
 
+-- Define a set of lamps
+  Rule.eval("lamps={55,66,77}")
+  Rule.eval("lamps:on")
+  Rule.eval("lamps:isOn => log(8)")
 end
 
 
