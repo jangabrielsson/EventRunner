@@ -20,6 +20,8 @@ _sceneName   = "Demo"        -- Set to scene/script name
 _debugLevel  = 3
 _deviceTable = "deviceTable" -- Name of json struct with configuration data (i.e. "HomeTable")
 
+
+
 Event = {}
 -- If running offline we need our own setTimeout and net.HTTPClient() and other fibaro funs...
 if dofile then dofile("EventRunnerDebug.lua") end
@@ -597,7 +599,7 @@ function newScriptEngine()
   function self.isInstr(i) return instr[i] end
   instr['pop'] = function(s) s.pop() end
   instr['push'] = function(s,n,e,i) s.push(i[3]) end
-  instr['time'] = function(s,n,e,i) s.push(timeFs[i[3] ](i[4])) end 
+  instr['time'] = function(s,n,e,i) if n==1 then s.push(toTime(s.pop())) else s.push(timeFs[i[3] ](i[4])) end end
   instr['ifnskip'] = function(s,n,e,i) if not s.ref(0) then e.cp=e.cp+i[3]-1 end end
   instr['ifskip'] = function(s,n,e,i) if s.ref(0) then e.cp=e.cp+i[3]-1 end end
   instr['addr'] = function(s,n,e,i) s.push(i[3]) end
@@ -908,6 +910,7 @@ function newScriptCompiler()
   preC['/'] = function(k,e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])/tonumber(e[3]) or e end
   preC['%'] = function(k,e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])%tonumber(e[3]) or e end
   preC['time'] = function(k,e)
+    if type(e[2])~='string' then return e end
     local tm,ts = e[2]:match("([tn%+]?)/?(.+)")
     if tm == "" or tm==nil then tm = '*' end
     if ts=='sunrise' or ts=='sunset' then return {'%time',ts,tm} end
@@ -1180,7 +1183,7 @@ function newRuleCompiler()
         local m,ot=midnight(),osTime()
         _dailys[#_dailys+1]={dailys=dailys,action=action,src=src}
         times = compTimes(dailys)
-        for _,t in ipairs(times) do if t+m >= ot then Event.post(action,t+m,src) end end
+        for _,t in ipairs(times) do _assert(tonumber(t),"@time not a number:%q",t) if t+m >= ot then Event.post(action,t+m,src) end end
       elseif #ids>0 then -- id/glob trigger rule
         for _,id in ipairs(ids) do Event.event(id,action).src=src end
         if #betw>0 then
