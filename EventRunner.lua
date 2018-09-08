@@ -20,8 +20,6 @@ _sceneName   = "Demo"        -- Set to scene/script name
 _debugLevel  = 3
 _deviceTable = "deviceTable" -- Name of json struct with configuration data (i.e. "HomeTable")
 
-
-
 Event = {}
 -- If running offline we need our own setTimeout and net.HTTPClient() and other fibaro funs...
 if dofile then dofile("EventRunnerDebug.lua") end
@@ -31,8 +29,7 @@ function main()
   --local devs = json.decode(fibaro:getGlobalValue(_deviceTable))
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
-  -- lets start
-
+  -- lets start  
   dofile("example_rules.lua") -- some example rules to try out...
 
 end -- main()
@@ -136,9 +133,9 @@ function hm2sec(hmstr)
   if sun and (sun == 'sunset' or sun == 'sunrise') then
     hmstr,offs = fibaro:getValue(1,sun.."Hour"), tonumber(offs) or 0
   end
-  local h,m,s = hmstr:match("(%d+):(%d+):?(%d*)")
+  local sg,h,m,s = hmstr:match("(%-?)(%d+):(%d+):?(%d*)")
   _assert(h and m,"Bad hm2sec string %s",hmstr)
-  return h*3600+m*60+(tonumber(s) or 0)+(offs or 0)*60
+  return (sg == '-' and -1 or 1)*(h*3600+m*60+(tonumber(s) or 0)+(offs or 0)*60)
 end
 
 function between(t11,t22)
@@ -611,7 +608,7 @@ function newScriptEngine()
   instr['fn'] = function(s,n,e,i) local vars,cnxt = i[3],e.context or {__instr={}} for i=1,n do cnxt[vars[i]]={s.pop()} end end
   instr['rule'] = function(s,n,e,i) local r,b,h=s.pop(),s.pop(),s.pop() s.push(Rule.compRule({'=>',h,b},r)) end
   instr['prop'] = function(s,n,e,i) local prop=i[3] if getIdFun[prop] then s.push(getIdFun[prop](s,i)) else s.push(getIdFuns(s,i,prop)) end end
-  instr['apply'] = function(s,n,e) local f = s.pop()
+  instr['apply'] = function(s,n,e,i) local f = s.pop()
     local fun = type(f) == 'string' and getVar(f,e) or f
     if type(fun)=='function' then s.push(fun(table.unpack(s.lift(n)))) 
     elseif type(fun)=='table' and type(fun[1]=='table') and fun[1][1]=='fn' then
@@ -922,9 +919,9 @@ function newScriptCompiler()
       t.year,t.month,t.day,t.hour,t.min,t.sec=year,month,day,h,m,((s~="" and s or 0) or 0)
       return {'%time',tm,osTime(t)}
     else
-      h,m,s = ts:match("(%d%d):(%d%d):?(%d*)")
+      sg,h,m,s = ts:match("(%-?)(%d%d):(%d%d):?(%d*)")
       _assert(h and m,"malformed time constant '%s'",e[2])
-      return {'%time',tm,h*3600+m*60+(s~="" and s or 0)}
+      return {'%time',tm,(sg == '-' and -1 or 1)*(h*3600+m*60+(s~="" and s or 0))}
     end
   end 
 
