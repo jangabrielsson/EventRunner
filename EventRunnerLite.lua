@@ -1,13 +1,7 @@
 --[[
 %% properties
-55 value
-66 value
-77 value
-88 value
 %% events
-5 CentralSceneEvent
 %% globals
-counter
 --]]
 
 --[[
@@ -193,12 +187,11 @@ function main(sourceTrigger)
   end
 --]]
 
-local times = {
-   {"n/09:30",function() fibaro:debug("Good morning!") end},
-   {"n/13:10",function() fibaro:debug("Lunch!") end},
-   {"n/sunset-10",function() fibaro:debug("Evening!") end}}
-function printf(...) fibaro:debug(string.format(...)) end
-
+  local times = {
+    {"n/09:30",function() fibaro:debug("Good morning!") end},
+    {"n/13:10",function() fibaro:debug("Lunch!") end},
+    {"n/sunset-10",function() fibaro:debug("Evening!") end}}
+  function printf(...) fibaro:debug(string.format(...)) end
 
   if event.type == 'time' then
     printf("%s It's time %s",osDate("%X"),event.time:sub(3))
@@ -214,6 +207,7 @@ function printf(...) fibaro:debug(string.format(...)) end
 
 
   if event.type == 'call' then event.f() end -- Generic event for posting function calls
+
 end -- main()
 
 ------------------------ Framework, do not change ---------------------------  
@@ -226,7 +220,7 @@ if _type == 'other' and fibaro:args() then
   _trigger,_type = fibaro:args()[1],'remote'
 end
 
-function _midnight() t=os.date("*t"); t.min,t.hour,t.sec=0,0,0; return osTime(t) end
+function _midnight() t=osDate("*t"); t.min,t.hour,t.sec=0,0,0; return osTime(t) end
 
 function hm2sec(hmstr)
   local sun,offs = hmstr:match("^(%a+)([+-]?%d*)")
@@ -244,8 +238,8 @@ function toTime(time)
   elseif p == 'n/' then
     local t1 = _midnight()+hm2sec(time:sub(3))-osTime()      -- Next
     return t1 > 0 and t1 or t1+24*60*60
-  elseif p == 't/' then return  _midnight()+hm2sec(time:sub(3))-osTime() end -- Today
-  error("Bad toTime format: "..time)
+  elseif p == 't/' then return  _midnight()+hm2sec(time:sub(3))-osTime()  -- Today
+  else return hm2sec(time) end
 end
 
 function post(event, time) return setTimeout(function() main(event) end,(toTime(time or 0))*1000) end
