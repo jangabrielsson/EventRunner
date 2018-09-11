@@ -1,6 +1,7 @@
 --[[
 %% properties
 %% events
+5 CentralSceneEvent
 %% globals
 --]]
 

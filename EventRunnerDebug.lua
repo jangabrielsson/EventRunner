@@ -61,7 +61,7 @@ function _Msg(level,color,message,...)
     local args = type(... or 42) == 'function' and {(...)()} or {...}
     message = string.format(message,table.unpack(args))
     local gc = _MEM and _format("mem:%-6.1f ",collectgarbage("count")) or ""
-    fibaro:debug(string.format("%s%s %s",gc,os.date("%a %b %d %X",osTime()),message)) 
+    fibaro:debug(string.format("%s%s %s",gc,os.date(":%a %b %d:",osTime()),message)) 
     return message
   end
 end
@@ -241,7 +241,7 @@ if not _REMOTE then
   fibaro._fibaroCalls = {['1sunsetHour'] = {"18:00",os.time()}, ['1sunriseHour'] = {"06:00",os.time()}}
   fibaro._globals = {}
 
-  function fibaro:debug(str) print(str) end
+  function fibaro:debug(str) print(_format("%s:%s",osDate("%X"),str)) end
   function fibaro:countScenes() return 1 end
   function fibaro:abort() os.exit() end
 
