@@ -61,7 +61,7 @@ function _Msg(level,color,message,...)
     local args = type(... or 42) == 'function' and {(...)()} or {...}
     message = string.format(message,table.unpack(args))
     local gc = _MEM and _format("mem:%-6.1f ",collectgarbage("count")) or ""
-    fibaro:debug(string.format("%s%s %s",gc,os.date(":%a %b %d:",osTime()),message)) 
+    fibaro:debug(string.format("%s%s %s",gc,os.date("%a %b %d:",osTime()),message)) 
     return message
   end
 end
@@ -175,6 +175,17 @@ function _System.runTimers()
 end
 
 function _System.setTimer(fun,time,doc) return setTimeout(fun,time,doc) end
+
+function urlencode(str)
+  if str then
+    str = str:gsub("\n", "\r\n")
+    str = str:gsub("([^%w %-%_%.%~])", function(c)
+        return ("%%%02X"):format(string.byte(c))
+      end)
+    str = str:gsub(" ", "+")
+  end
+  return str	
+end
 
 net = {} -- An emulation of Fibaro's net.HTTPClient
 -- It is synchronous, but synchronous is a speciell case of asynchronous.. :-)
