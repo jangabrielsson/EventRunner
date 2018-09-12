@@ -27,7 +27,7 @@ function printf(...) fibaro:debug(string.format(...)) end
 
 local presenceScene = 133
 local sensors = {[99]=true,[199]=true,[201]=true,[301]=true}
-local breached, ref3 = false, nil
+local breached, ref3 = true, nil
 local lamps2 = {55,66,77}
 local ref4 = nil
 
@@ -120,14 +120,13 @@ function main(sourceTrigger)
     local n = 0  -- count how many sensors are breached
     for id,_ in pairs(sensors) do if fibaro:getValue(id,'value') > '0' then n=n+1 end end
     if n > 0 and not breached then
-      breached = true
       ref3 = cancel(ref3)
       --postRemote(presenceScene,{type='presence',state='stop'})
       post({type='presence',state='stop'})
     elseif n == 0 and breached then
-      breached = false
       ref3 = post({type='away'},10*60) -- Assume away if no breach in 10 minutes
     end
+    breached = n>0
   end
 
   if event.type == 'away' then
