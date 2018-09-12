@@ -237,13 +237,16 @@ function toTime(time)
   local p = time:sub(1,2)
   if p == '+/' then return hm2sec(time:sub(3))+osTime() -- Plus now
   elseif p == 'n/' then
-    local t1 = _midnight()+hm2sec(time:sub(3))-osTime()      -- Next
-    return (t1 > 0 and t1 or t1+24*60*60)+osTime()
+    local t1 = _midnight()+hm2sec(time:sub(3))      -- Next
+    return t1 > osTime() and t1 or t1+24*60*60
   elseif p == 't/' then return  _midnight()+hm2sec(time:sub(3))  -- Today
   else return hm2sec(time) end
 end
 
-function post(event, time) return setTimeout(function() main(event) end,((time and toTime(time)-osTime()) or 0)*1000) end
+function post(event, time) 
+  if type(time)=='string' then time=toTime(time)-osTime() end
+  return setTimeout(function() main(event) end,(time or 0)*1000) 
+end
 function cancel(ref) if ref then clearTimeout(ref) end return nil end
 function postRemote(sceneID,event) event._from=__fibaroSceneId; fibaro:startScene(sceneID,{json.encode(event)}) end
 
