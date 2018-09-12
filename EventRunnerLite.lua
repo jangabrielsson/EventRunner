@@ -245,7 +245,9 @@ end
 
 function post(event, time) 
   if type(time)=='string' then time=toTime(time)-osTime() end
-  return setTimeout(function() main(event) end,(time or 0)*1000) 
+  return setTimeout(function() 
+      if _OFFLINE and not _REMOTE then if _simFuns[event.type] then _simFuns[event.type](event)  end end
+      main(event) end,(time or 0)*1000) 
 end
 function cancel(ref) if ref then clearTimeout(ref) end return nil end
 function postRemote(sceneID,event) event._from=__fibaroSceneId; fibaro:startScene(sceneID,{json.encode(event)}) end
