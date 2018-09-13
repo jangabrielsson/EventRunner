@@ -194,7 +194,7 @@ function main(sourceTrigger)
   function printf(...) fibaro:debug(string.format(...)) end
 
   if event.type == 'time' then
-    printf("%s It's time %s",osDate("%X"),event.time:sub(3))
+    printf("It's time %s",osDate("%X"),event.time:sub(3))
     -- carry out whatever actions...
     event.action()
     post(event,24*60*60) -- Re-post the event next day at the same time.
