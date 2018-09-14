@@ -11,7 +11,7 @@
       _PORTLISTENER=true starts a listener on a socket for receieving sourcetriggers/events from HC2 scene
 --]] 
 
-if _version ~= "1.0" then error("Bad version of EventRunnerDebug") end 
+if _version ~= "1.1" then error("Bad version of EventRunnerDebug") end 
 _SPEEDTIME         = 48*4   -- nil run the local clock in normal speed, set to an int <x> will speed the clock through <x> hours
 _REMOTE            = false  -- If true use FibaroSceneAPI to call functions on HC2, else emulate them locally...
 _GUI               = false -- Needs wxwidgets support (e.g. require "wx"). Works in ZeroBrane under Lua 5.1.
@@ -34,40 +34,36 @@ __fibaroSceneId    = 32     -- Set to scene ID. On HC2 this variable is defined
 --- Don't touch --------------------------------------------------
 
 _OFFLINE           = true          -- Always true if we include this file (e.g. not running on the HC2)
-_HC2               = not _OFFLINE  -- Always false if we include this file
---_ENV               = 
+_HC2               = not _OFFLINE  -- Always false if we include this file               = 
 mime = require('mime')
 https = require ("ssl.https")
 ltn12 = require("ltn12")
 json = require("json")
 socket = require("socket")
 http = require("socket.http")
+bit32=require("bit")
 fibaro = {}
+
 if _REMOTE then
   require ("FibaroSceneAPI") 
 end
+
 _ENV = _ENV or _G or {}
-_debugLevel = _debugLevel or 3
-_FDEB = 1 -- 0: no debug, 1: log calls, 2: log everything
+LOG = {WELCOME = "orange",DEBUG = "white", SYSTEM = "Cyan", LOG = "green", ERROR = "Tomato"}
+
 function fibaro:getSourceTrigger() return {type = "autostart"} end
 
 _format = string.format
-_FIB={}
-function _FIB:get(id,prop) local s,_FDEB=_FDEB,0; local v,t = fibaro:get(id,prop) _FDEB=s; return v,t end
-function _FIB:getGlobal(id) local s,_FDEB=_FDEB,0; local v,t = fibaro:getGlobal(id) _FDEB= s; return v,t end
 
-function _Msg(level,color,message,...)
-  if (_debugLevel >= level) then
-    local args = type(... or 42) == 'function' and {(...)()} or {...}
-    message = string.format(message,table.unpack(args))
-    local gc = _MEM and _format("mem:%-6.1f ",collectgarbage("count")) or ""
-    fibaro:debug(string.format("%s%s %s",gc,os.date("%a %b %d:",osTime()),message)) 
-    return message
-  end
+function _Msg(color,message,...)
+  local args = type(... or 42) == 'function' and {(...)()} or {...}
+  message = string.format(message,table.unpack(args))
+  local gc = _MEM and _format("mem:%-6.1f ",collectgarbage("count")) or ""
+  fibaro:debug(string.format("%s%s %s",gc,os.date("%a %b %d:",osTime()),message)) 
+  return message
 end
-function Debug(level,message,...) _Msg(level,DEBUGCOLOR,message,...) end
-LOG = {WELCOME = "orange",DEBUG = "white", SYSTEM = "Cyan", LOG = "green", ERROR = "Tomato"}
-function Log(color,message,...) return _Msg(-100,color,message,...) end
+function Debug(flag,message,...) if flag then _Msg(LOG.DEBUG,message,...) end end
+function Log(color,message,...) return _Msg(color,message,...) end
 
 function split(s, sep)
   local fields = {}
@@ -78,6 +74,8 @@ function split(s, sep)
 end
 
 _timeAdjust = nil
+
+osDate,osTime = os.date,os.time
 
 function _setUpSpeedTime() -- Special version of time functions
   local _startTime = os.time()
@@ -163,7 +161,7 @@ function _System.runTimers()
       os.exit() 
     end
     local l = _timers.time-osTime()
-    Debug(5,"Next timer %s at %s sleeping %ss",_timers.doc,osDate("%X",_timers.time),l)
+    Debug(_debugFlags.timers,"Next timer %s at %s sleeping %ss",_timers.doc and _timers.doc or tostring(_timers):sub(8),osDate("%X",_timers.time),l)
     if l > 0 then
       fibaro:sleep(1000*l) 
     end
@@ -171,7 +169,7 @@ function _System.runTimers()
     _timers = _timers.next
     f()
   end
-  Debug(0,"No timmers left - exiting!")
+  Debug(_debugFlags.timers,"No timmers left - exiting!")
 end
 
 function _System.setTimer(fun,time,doc) return setTimeout(fun,time,doc) end
@@ -266,26 +264,38 @@ if not _REMOTE then
   end
   _simFuns['global'] = function(e) fibaro._globals[e.name] = {e.value, osTime()} end
 
-  function fibaro:get(id,prop)
-    Debug((_FDEB > 1) and 1 or 10,"fibaro:get('%s','%s')",Util.reverseVar(id),prop)
+  function _getIdProp(id,prop)
     local keyid = id..prop
     local v = fibaro._fibaroCalls[keyid] or {'0',osTime()}
     fibaro._fibaroCalls[keyid] = v
     return table.unpack(v)
   end
 
+  function fibaro:get(id,prop)
+    Debug(_debugFlags.fibaroGet,"fibaro:get('%s','%s')",Util.reverseVar(id),prop)
+    return _getIdProp(id,prop)
+  end
+
   function fibaro:getValue(id,prop) return (fibaro:get(id,prop)) end
 
-  function fibaro:getGlobal(id) 
-    Debug((_FDEB > 1) and 1 or 10,"fibaro:getGlobal('%s')",id) 
+  function _getGlobal(id)
     fibaro._globals[id] = fibaro._globals[id] or {"",osTime()}
     return table.unpack(fibaro._globals[id])
+  end
+
+  function fibaro:getGlobal(id) 
+    Debug(_debugFlags.fibaroGet,"fibaro:getGlobal('%s')",id) 
+    return _getGlobal(id)
   end
   function fibaro:getGlobalValue(id) return (fibaro:getGlobal(id)) end
   function fibaro:getGlobalModificationTime(id) return select(2,fibaro:getGlobal(id)) end
 
   function fibaro:setGlobal(v,x) 
-    Debug((_FDEB > 1) and 1 or 10,"fibaro:setGlobal('%s','%s')",v,x)
+    Debug(_debugFlags.fibaro,"fibaro:setGlobal('%s','%s')",v,x)
+    _setGlobal(v,x)
+  end
+  
+  function _setGlobal(v,x) 
     if fibaro._globals[v] == nil or fibaro._globals[v][1] ~= x then
       local ev = {type='global', name=v, value=x, _sh=true}
       if Event then if Event.post then Event.post(ev) end else setTimeout(function() main(ev) end,0) end
@@ -297,10 +307,10 @@ if not _REMOTE then
   function fibaro:getDevicesId(s) return fibaro._getDevicesId end
 
   function fibaro:startScene(id,args) 
-    if args then Debug((_FDEB > 0) and 1 or 10,"fibaro:startScene(%s,%s)",Util.reverseVar(id),Util.prettyEncode(args)) 
-    else Debug((_FDEB > 0) and 1 or 10,"fibaro:startScene(%s)",Util.reverseVar(id)) end
+    if args then Debug(_debugFlags.fibaro,"fibaro:startScene(%s,%s)",Util.reverseVar(id),Util.prettyEncode(args)) 
+    else Debug(_debugFlags.fibaro,"fibaro:startScene(%s)",Util.reverseVar(id)) end
   end
-  function fibaro:killScenes(id) Debug(_FDEB > 0 and 1 or 10,"fibaro:stopScene(%s)",Util.reverseVar(id)) end
+  function fibaro:killScenes(id) Debug(_debugFlags.fibaro,"fibaro:stopScene(%s)",Util.reverseVar(id)) end
 
   local _callFormat = {
     ["turnOn"] = "fibaro:call(%s,'%s')",
@@ -325,7 +335,7 @@ if not _REMOTE then
     val2 = tostring(val2 or "")
     local dstr = _callFormat[prop] or "UNKNOWN"
     dstr = _format(dstr,Util.reverseVar(id),prop,val1,val2)
-    Debug((_FDEB > 0) and 1 or 10,dstr) 
+    Debug(_debugFlags.fibaro,dstr) 
     local idkey = tostring(id)
     local v = ({turnOff="0",turnOn="99",on="99",off="0"})[prop] or (prop=='setValue' and val1)
     if v then prop='value' val1=v end
@@ -339,8 +349,8 @@ if not _REMOTE then
   if _deviceTable then -- If you have a pre-made "HomeTable" structure, set it up here
     local devmap = io.open("devicemap.data", "r") -- local file with json structure
     if devmap then
-      fibaro:setGlobal(_deviceTable,devmap:read("*all"))
-      local t = fibaro:getGlobal(_deviceTable)
+      _setGlobal(_deviceTable,devmap:read("*all"))
+      local t = _getGlobal(_deviceTable)
       t = json.decode(t)
       devmap:close()
     end

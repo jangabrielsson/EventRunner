@@ -11,11 +11,11 @@
 -- Email: jan@gabrielsson.com
 --]]
 
-_version = "1.0" 
+_version = "1.1" 
 osTime = os.time
 osDate = os.date
+_debugFlags = { post=false,invoke=false,triggers=false,timers=false,fibaro=true,fibaroGet=false }
 if dofile then dofile("EventRunnerDebug.lua") end -- Support for running off-line on PC/Mac
-
 ---- Single scene instance, all fibaro triggers call main(sourceTrigger) ------------
 
 local previousKey = nil -- Hey, these are lua variables keeping their values between scene triggers
@@ -242,8 +242,11 @@ function toTime(time)
   else return hm2sec(time) end
 end
 
+if not Debug then function Debug(flag,message,...) if flag then fibaro:debug(string.format(message,...)) end end end
+
 function post(event, time) 
   if type(time)=='string' then time=toTime(time)-osTime() end
+  if _debugFlags.post then Debug(true,"Posting {type=%s,...} for %s",event.type,osDate("%X",time+osTime())) end
   return setTimeout(function() 
       if _OFFLINE and not _REMOTE then if _simFuns[event.type] then _simFuns[event.type](event)  end end
       main(event) end,(time or 0)*1000) 
@@ -268,6 +271,7 @@ local function _poll()
   local l = fibaro:getGlobal(_MAILBOX)
   if l and l ~= "" and l:sub(1,3) ~= '<@>' then -- Something in the mailbox
     fibaro:setGlobal(_MAILBOX,"") -- clear mailbox
+    Debug(_debugFlags.triggers,"Incoming event %s",l)
     post(json.decode(l)) -- and "post" it to our "main()" in new "thread"
   end
   setTimeout(_poll,250) -- check every 250ms

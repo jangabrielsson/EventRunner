@@ -17,7 +17,7 @@ _version = "1.0"
 --]]
 
 _sceneName   = "Demo"        -- Set to scene/script name
-_debugLevel  = 3
+_debugFlags = { post=false,invoke=false,triggers=false,dailys=false,timers=false,fibaro=true,fibaroGet=false }
 _deviceTable = "deviceTable" -- Name of json struct with configuration data (i.e. "HomeTable")
 
 Event = {}
@@ -43,10 +43,6 @@ if _type == 'other' and fibaro:args() then
   _trigger,_type = fibaro:args()[1],'remote'
 end
 
-if not _FIB then
-  _FIB={ get = fibaro.get, getGlobal = fibaro.getGlobal }
-end
-
 ---------- Producer(s) - Handing over incoming triggers to consumer --------------------
 
 if _supportedEvents[_type] then
@@ -66,7 +62,7 @@ local function _poll()
   local l = fibaro:getGlobal(_MAILBOX)
   if l and l ~= "" and l:sub(1,3) ~= '<@>' then -- Something in the mailbox
     fibaro:setGlobal(_MAILBOX,"") -- clear mailbox
-    Debug(4,"Incoming event:%s",l)
+    Debug(_debugFlags.triggers,"Incoming event:%s",l)
     l = json.decode(l) l._sh=true
     Event.post(l) -- and post it to our "main()"
   end
@@ -76,24 +72,25 @@ end
 ------------------------ Support functions -----------------
 LOG = {WELCOME = "orange",DEBUG = "white", SYSTEM = "Cyan", LOG = "green", ERROR = "Tomato"}
 _format = string.format
+if not _getIdProp then
+  _getIdProp = function(id,prop) return fibaro:get(id,prop) end; _getGlobal = function(id) return fibaro:getGlobal(id) end
+end
 
 if not _OFFLINE then -- if running on the HC2
-  function _Msg(level,color,message,...)
-    if (_debugLevel >= level) then
-      local args = type(... or 42) == 'function' and {(...)()} or {...}
-      local tadj = _timeAdjust > 0 and osDate("(%X) ") or ""
-      local m = _format('<span style="color:%s;">%s%s</span><br>', color, tadj, _format(message,table.unpack(args)))
-      fibaro:debug(m) return m
-    end
+  function _Msg(color,message,...)
+    local args = type(... or 42) == 'function' and {(...)()} or {...}
+    local tadj = _timeAdjust > 0 and osDate("(%X) ") or ""
+    local m = _format('<span style="color:%s;">%s%s</span><br>', color, tadj, _format(message,table.unpack(args)))
+    fibaro:debug(m) return m
   end
   if not _timeAdjust then _timeAdjust = 0 end -- support for adjusting for hw time drift on HC2
   osTime = function(arg) return arg and os.time(arg) or os.time()+_timeAdjust end
   function _setClock(_) end
   function _setMaxTime(_) end
+  function Debug(flag,message,...) if flag then _Msg(LOG.DEBUG,message,...) end end
+  function Log(color,message,...) return _Msg(color,message,...) end
 end
 
-function Debug(level,message,...) _Msg(level,LOG.DEBUG,message,...) end
-function Log(color,message,...) return _Msg(-100,color,message,...) end
 function osDate(f,t) t = t or osTime() return os.date(f,t) end
 function errThrow(m,err) if type(err) == 'table' then table.insert(err,1,m) else err = {m,err} end error(err) end
 function _assert(test,msg,...) if not test then msg = _format(msg,...) error({msg},3) end end
@@ -232,8 +229,8 @@ function newEventEngine()
             end
           end,1000*(time-osTime()))}
     end
-    if _debugLevel >= 3 and not e._sh then 
-      Debug(3,"Posting %s for %s",function() return tojson(e),osDate("%a %b %d %X",time) end)
+    if _debugFlags.post and not e._sh then 
+      Debug(_debugFlags.post,"Posting %s for %s",function() return tojson(e),osDate("%a %b %d %X",time) end)
     end
     return {[self.TIMER]=setTimeout(function() self._handleEvent(e) end,1000*(time-osTime()))}
   end
@@ -258,12 +255,12 @@ function newEventEngine()
   _getProp['property'] = function(e,v2)
     e.propertyName = e.propertyName or 'value'
     local id = e.deviceID
-    local v,t = _FIB:get(id,e.propertyName,true)
+    local v,t = _getIdProp(id,e.propertyName,true)
     e.value = v2 or v
     self.trackManual(id,e.value)
     return t
   end
-  _getProp['global'] = function(e,v2) local v,t = _FIB:getGlobal(e.name,true) e.value = v2 or v return t end
+  _getProp['global'] = function(e,v2) local v,t = _getGlobal(e.name,true) e.value = v2 or v return t end
 
   -- {type='property' deviceID=x, ...}
   function self.event(e,action,doc) -- define rules - event template + action
@@ -314,6 +311,7 @@ function newEventEngine()
   local function _invokeRule(env)
     local t = osTime()
     env.last,env.rule.time = t-(env.rule.time or 0),t
+    Debug(_debugFlags.invoke,"Invoking:%s",env.rule.src)
     local status, res = pcall(function() env.rule.action(env) end) -- call the associated action
     if not status then
       ruleError(res,env.rule,"rule")
@@ -1238,7 +1236,7 @@ function newRuleCompiler()
       for _,d in ipairs(_dailys) do
         local times = compTimes(d.dailys)
         for _,t in ipairs(times) do 
-          Debug(4,"Scheduling at %s",osDate("%X",midnight+t))
+          Debug(_debugFlags.dailys,"Scheduling at %s",osDate("%X",midnight+t))
           Event.post(d.action,midnight+t,d.src) 
         end
       end
