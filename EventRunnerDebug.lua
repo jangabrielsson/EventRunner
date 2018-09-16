@@ -32,6 +32,18 @@ if creds then creds() end
 __fibaroSceneId    = 32     -- Set to scene ID. On HC2 this variable is defined
 
 --- Don't touch --------------------------------------------------
+--[[
+_debugFlags = { 
+  post=true,       -- Log all posts
+  invoke=true,     -- Log all handlers being invoked (triggers, rules etc)
+  rule=false,      -- Log result from invoked script rule
+  triggers=false,  -- Log all externally incoming triggers (devices, globals etc)
+  dailys=false,    -- Log all dailys being scheduled at midnight
+  timers=false,    -- Log att timers (setTimeout) being scheduled)
+  fibaro=true,     -- Log all fibaro calls except get/set
+  fibaroGet=false  -- Log fibaro get/set
+}
+--]]
 
 _OFFLINE           = true          -- Always true if we include this file (e.g. not running on the HC2)
 _HC2               = not _OFFLINE  -- Always false if we include this file               = 

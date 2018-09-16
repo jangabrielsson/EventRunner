@@ -8,7 +8,7 @@
 counter
 --]]
 
-_version = "1.0" 
+_version = "1.1" 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -17,7 +17,7 @@ _version = "1.0"
 --]]
 
 _sceneName   = "Demo"        -- Set to scene/script name
-_debugFlags = { post=false,invoke=false,triggers=false,dailys=false,timers=false,fibaro=true,fibaroGet=false }
+_debugFlags = { post=false,invoke=true,triggers=false,dailys=false,timers=false,rule=true,fibaro=true,fibaroGet=false }
 _deviceTable = "deviceTable" -- Name of json struct with configuration data (i.e. "HomeTable")
 
 Event = {}
@@ -222,6 +222,7 @@ function newEventEngine()
     time = toTime(time or osTime())
     if time < osTime() then return nil end
     if type(e) == 'function' then 
+      Debug(_debugFlags.post,"Posting %s for %s",src or tostring(e),osDate("%a %b %d %X",time))
       return {[self.TIMER]=setTimeout(function() 
             local status,res = pcall(e) 
             if not status then 
@@ -229,9 +230,7 @@ function newEventEngine()
             end
           end,1000*(time-osTime()))}
     end
-    if _debugFlags.post and not e._sh then 
-      Debug(_debugFlags.post,"Posting %s for %s",function() return tojson(e),osDate("%a %b %d %X",time) end)
-    end
+    Debug(_debugFlags.post and not e._sh,"Posting %s for %s",function() return tojson(e),osDate("%a %b %d %X",time) end)
     return {[self.TIMER]=setTimeout(function() self._handleEvent(e) end,1000*(time-osTime()))}
   end
 
@@ -311,7 +310,7 @@ function newEventEngine()
   local function _invokeRule(env)
     local t = osTime()
     env.last,env.rule.time = t-(env.rule.time or 0),t
-    Debug(_debugFlags.invoke,"Invoking:%s",env.rule.src)
+    Debug(_debugFlags.invoke and not env.event._sh,"Invoking:%s",env.rule.src)
     local status, res = pcall(function() env.rule.action(env) end) -- call the associated action
     if not status then
       ruleError(res,env.rule,"rule")
@@ -563,7 +562,9 @@ function newScriptEngine()
   local setIdFun={}
   local _propMap={R='setR',G='setG',B='setB',color='setColor',armed='setArmed',W='setW',value='setValue',time='setTime'}
   local function setIdFuns(s,i,prop,id,v) 
-    local p=_propMap[prop] _assert(p,"bad setProperty :%s",prop) doit(Util.mapF,function(id) fibaro:call(ID(id,i),p,v) end,id) 
+    local p,vp=_propMap[prop],0 _assert(p,"bad setProperty :%s",prop)
+    local vf = type(v) == 'table' and function() vp=vp+1 return v[vp] end or function() return v end 
+    doit(Util.mapF,function(id) fibaro:call(ID(id,i),p,vf()) end,id) 
   end
   setIdFun['msg'] = function(s,i,id,v) local m = v doit(Util.mapF,function(id) fibaro:call(ID(id,i),'sendPush',m) end,id) return m end
   setIdFun['btn'] = function(s,i,id,v) local k = v doit(Util.mapF,function(id) fibaro:call(ID(id,i),'pressButton',k) end,id) return k end
@@ -619,6 +620,7 @@ function newScriptEngine()
     else error("return out of context") end
   end
   instr['table'] = function(s,n,e,i) local k,t = i[3],{} for j=n,1,-1 do t[k[j]] = s.pop() end s.push(t) end
+  instr['logRule'] = function(s,n,e,i) local src,res = s.pop(),s.pop() Debug(_debugFlags.rule,"=>[%s]%s",res,src) s.push(res) end
   instr['var'] = function(s,n,e,i) s.push(getVar(i[3],e)) end
   instr['glob'] = function(s,n,e,i) s.push(fibaro:getGlobal(i[3])) end
   instr['setVar'] =  function(s,n,e,i) local var,val = i[3],i[4] or s.pop() s.push(setVar(var,val,e)) end
@@ -1171,7 +1173,7 @@ function newRuleCompiler()
       _compileHook.reverseMap[ll] = src
     else
       local ids,dailys,betw,sched,times = getTriggers(h)
-      local action = Event._compileAction({'and',h,body})
+      local action = Event._compileAction({'and',_debugFlags.rule and {'logRule',h,src} or h,body})
       if sched then Event.post(action,nil,src)
       elseif #dailys>0 then -- 'daily' rule, ignore other triggers
         local m,ot=midnight(),osTime()

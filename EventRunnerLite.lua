@@ -33,7 +33,7 @@ local ref4 = nil
 
 function main(sourceTrigger)
   local event = sourceTrigger
-  if nil then
+
 -- Example code triggering on Fibaro remote keys 1-2-3 within 2x3seconds
     if event.type == 'event' then
       local keyPressed = event.event.data.keyId
@@ -56,7 +56,7 @@ function main(sourceTrigger)
       post({type='event',event={data={keyId=2}}},5)
       post({type='event',event={data={keyId=3}}},7)
     end
-
+--[[
     -- Example code triggering on Fibaro remote key 4 not pressed within 10 seconds
     if event.type == 'event' and event.event.data.keyId == 4 then
       cancel(ref1) -- Key pressed, cancel post/timer
@@ -115,7 +115,7 @@ function main(sourceTrigger)
       post({type='call',f=function() fibaro:call(88,'setValue','1') end},5*60)
       post({type='call',f=function() fibaro:call(88,'setValue','0') end},5*60+30)
     end
-  end
+
 
   if event.deviceID and sensors[event.deviceID] then
     local n = 0  -- count how many sensors are breached
@@ -205,8 +205,7 @@ function main(sourceTrigger)
     if event.type == 'autostart' or event.type == 'other' then 
       for _,ts in ipairs(times) do post({type='time',time=ts[1], action=ts[2]},ts[1]) end
     end
-
-  end
+  --]]
     if event.type == 'call' then event.f() end -- Generic event for posting function calls
 
 end -- main()
