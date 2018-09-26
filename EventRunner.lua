@@ -8,7 +8,7 @@
 counter
 --]]
 
-_version = "1.1" 
+_version = "1.1"  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -30,7 +30,6 @@ function main()
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
   -- lets start
-
   dofile("example_rules.lua") -- some example rules to try out...
 end -- main()
 
@@ -250,7 +249,6 @@ function newEventEngine()
     fibaro:startScene(sceneID,{json.encode(e)})
   end
 
-  local lastID = {}
   local _getProp = {}
   _getProp['property'] = function(e,v2)
     e.propertyName = e.propertyName or 'value'
@@ -337,23 +335,19 @@ function newEventEngine()
   end
 
   local fibCall = fibaro.call -- We intercept all fibaro:calls so we can detect manual invocations of switches
+  local lastID = {}
   fibaro.call = function(obj,id,a1,a2,a3)
-    local v = ({turnOff="0",turnOn="99",on="99",off="0"})[a1] or (a1=='setValue' and a2)
-    if v then lastID[id]={'m',v,osTime()} end
+    if ({turnOff=true,turnOn=true,on=true,off=true,setValue=true})[a1] then lastID[id]={script=true,time=osTime()} end
     fibCall(obj,id,a1,a2,a3)
   end
   function self.lastManual(id)
-    local e = lastID[id]
-    if not e or e[1]=='m' then return -1 
-    else return osTime()-e[3] end
+    lastID[id] = lastID[id] or {time=0}
+    if lastID[id].script then return -1 
+    else return osTime()-lastID[id].time end
   end
   function self.trackManual(id,value)
-    if lastID[id]==nil or lastID[id][1]=='h' then 
-      lastID[id]={'h',value,osTime()}
-    else 
-      local iv = lastID[id]
-      if not(iv[2] == value and osTime()-iv[3] < 2) then lastID[id]={'h',value,osTime()} end
-    end
+    lastID[id] = lastID[id] or {time=0}
+    if lastID[id].script==nil or osTime()-lastID[id].time>1 then lastID[id]={time=osTime()} end -- Update last manual
   end
   return self
 end
