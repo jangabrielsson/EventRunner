@@ -11,12 +11,13 @@ local tShell = false
 local tGEA = false
 local tEarth = false
 local tTest1 = false
-local tTest2 = false
+local tTest2 = true
 local tPresence = false
-local tHouse = true
+local tHouse = false
 local tScheduler = false
 local tRemoteAsync = false
 local tTimes = false
+local tTriggerTuturial = false
 
 local function post(e,t) Event.post(e,t) end
 local function prop(id,state,prop) return {type='property', deviceID=id, propertyName=prop, value=state} end
@@ -542,8 +543,8 @@ if tTest2 then
   y=Rule.eval("#test{i='$i<=10'} => wait(00:10); log('i=%d',i); post(#test{i=i+1})") -- Print i every 10min
   Rule.eval("post(#test{i=1})")
 
-  Rule.eval("bed.sensor:breached & bed.lamp:isOff &manual(bed.lamp)>10*60 => bed.lamp:on;log('ON.Manual=%s',manual(bed.lamp))")
-  Rule.eval("for(00:10,bed.sensor:safe&bed.lamp:isOn) => || manual(bed.lamp)>10*60 >> bed.lamp:off ;repeat();log('OFF.Manual=%s',manual(bed.lamp))")
+  Rule.eval("bed.sensor:breached & bed.lamp:isOff &bed.lamp:manual>10*60 => bed.lamp:on;log('ON.Manual=%s',bed.lamp:manual)")
+  Rule.eval("for(00:10,bed.sensor:safe&bed.lamp:isOn) => || bed.lamp:manual>10*60 >> bed.lamp:off ;repeat();log('OFF.Manual=%s',bed.lamp:manual)")
   Rule.eval("bed.sensor:breached&bed.lamp:isOff => bed.lamp:on;auto='aon';log('Auto.ON')")
   Rule.eval("for(00:10,bed.sensor:safe&bed.lamp:isOn) => bed.lamp:off;auto='aoff';log('Auto.OFF')")
   Rule.eval("bed.lamp:isOn => || auto~='aon' >> auto='m';log('Man.ON')")
@@ -589,7 +590,7 @@ if tRemoteAsync then -- example of doing remote/async calls
 end
 
 if tTimes then
-  -- Decalare a script variable 'lamp' to have value 55 (e.g.deviceID)
+  -- Decalare a script variable 'lamp' to have value 55 (e.g. a deviceID)
   Rule.eval("lamp=55")
   -- Every day at 07:15, turn of lamp, e.g. deviceID 55
   Rule.eval("@07:15 => lamp:off")
@@ -620,7 +621,7 @@ if tTimes then
  -- Every day at sunrise January to Mars, turn off the lamp 
   Rule.eval("@sunrise & month('jan-mar') => lamp:off")
  -- Every day at sunrise on Mondays at even week numbers, turn off the lamp 
-  Rule.eval("@sunrise & wnum()%2 == 0 & wday('mon') => lamp:off")
+  Rule.eval("@sunrise & wnum%2 == 0 & wday('mon') => lamp:off")
  -- Every day at sunrise on weekdays when fibaro global 'Presence' equals 'Home', turn off the lamp 
   Rule.eval("@sunrise & $Presence=='Home' & wday('mon-fri') => lamp:off")
 -- Every day at sunrise on weekdays when fibaro global 'Presence' equals 'Home' or fibaro global 'Simulate' equals 'true', turn off the lamp 
@@ -632,6 +633,16 @@ if tTimes then
   Rule.eval("lamps:isOn => log(8)")
 end
 
+if tTriggerTuturial then
+  
+  
+  
+  -- Smallest presence simulator?
+  Rule.eval("$Presence='away'")
+  Rule.eval("lamps={22,33,44,55,66,77,88}")
+  Rule.eval("@@rnd(00:30,00:10) & $Presence=='away' & sunset..sunrise => lamps[rnd(1,length(lamps))]:toggle")
+
+end
 
 Event.event({type='error'},function(env) local e = env.event -- catch errors and print them out
     Log(LOG.ERROR,"Runtime error %s for '%s' receiving event %s",e.err,e.rule,e.event) 

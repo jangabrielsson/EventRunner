@@ -17,7 +17,7 @@ _version = "1.1"
 --]]
 
 _sceneName   = "Demo"        -- Set to scene/script name
-_debugFlags = { post=false,invoke=true,triggers=false,dailys=false,timers=false,rule=true,fibaro=true,fibaroGet=false }
+_debugFlags = { post=false,invoke=false,triggers=false,dailys=false,timers=false,rule=false,fibaro=true,fibaroGet=false }
 _deviceTable = "deviceTable" -- Name of json struct with configuration data (i.e. "HomeTable")
 
 Event = {}
@@ -30,6 +30,7 @@ function main()
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
   -- lets start
+
   dofile("example_rules.lua") -- some example rules to try out...
 end -- main()
 
@@ -343,7 +344,7 @@ function newEventEngine()
   end
   function self.lastManual(id)
     local e = lastID[id]
-    if not e or e[1]=='m' then return math.huge 
+    if not e or e[1]=='m' then return -1 
     else return osTime()-e[3] end
   end
   function self.trackManual(id,value)
@@ -554,6 +555,10 @@ function newScriptEngine()
   getIdFun['trigger']=function(s,i) return true end
   getIdFun['lux']=function(s,i) return getIdFuns(s,i,'value') end
   getIdFun['temp']=getIdFun['lux']
+  getIdFun['manual']=function(s,i) 
+    local t = s.pop()
+    t = Event.lastManual(t)
+    return t end
   getIdFun['start']=function(s,i) doit(Util.mapF,function(id) fibaro:startScene(ID(id,i)) end,s.pop()) return true end
   getIdFun['stop']=function(s,i) doit(Util.mapF,function(id) fibaro:killScenes(ID(id,i)) end,s.pop()) return true end  
   getIdFun['toggle']=function(s,i)
@@ -684,7 +689,6 @@ function newScriptEngine()
   instr['always'] = function(s,n,e,i) s.pop(n) s.push(true) end 
   instr['post'] = function(s,n) local e,t=s.pop(),nil; if n==2 then t=e; e=s.pop() end s.push(Event.post(e,t)) end
   instr['cancel'] = function(s,n) Event.cancel(s.pop()) s.push(nil) end
-  instr['manual'] = function(s,n) s.push(Event.lastManual(s.pop())) end
   instr['add'] = function(s,n) local v,t=s.pop(),s.pop() table.insert(t,v) s.push(t) end
   instr['betw'] = function(s,n) local t2,t1,now=s.pop(),s.pop(),osTime()-midnight()
     if t1<=t2 then s.push(t1 <= now and now <= t2) else s.push(now >= t1 or now <= t2) end 
@@ -946,7 +950,7 @@ function newScriptCompiler()
     {"^({)",'lbrack'},{"^(})",'rbrack'},{"^(,)",'token'},
     {"^(%[)",'lsquare'},{"^(%])",'rsquare'},
     {"^%$([_0-9a-zA-Z\\$]+)",'gvar'},
-    {"^([tn]/[sunriet]+)",'time'},
+    {"^([tn]/[sunriset]+)",'time'},
     {"^([tn%+]/%d%d:%d%d:?%d*)",'time'},{"^([%d/]+/%d%d:%d%d:?%d*)",'time'},{"^(%d%d:%d%d:?%d*)",'time'},    
     {"^:(%A+%d*)",'addr'},
     {"^(fn%()",'fun'}, 
@@ -970,14 +974,12 @@ function newScriptCompiler()
       cp = cp+(#s1-#s)
       s = s:gsub(_tokens[ i ][ 1 ],
         function(m) local r,to = "",_tokens[i]
-          if to[2]=='num' and m:match("%.$") then m=m:sub(1,-2); r ='.' end -- hack for e.g. '7.'
-          if m == '(' and #tkns>0 and tkns[#tkns ].t ~= 'fun' and tkns[#tkns ].v:match("^[%]%)%da-zA-Z]") then 
+          if to[2]=='num' and m:match("%.$") then m=m:sub(1,-2); r ='.' -- hack for e.g. '7.'
+          elseif m == '(' and #tkns>0 and tkns[#tkns ].t ~= 'fun' and tkns[#tkns ].v:match("^[%]%)%da-zA-Z]") then 
             m='call' to={1,'call'} 
-          end
-          if m == '-' and (#tkns==0 or tkns[#tkns ].t=='call' or tkns[#tkns ].t=='efun' or tkns[#tkns ].v:match("^[+%-*/({.><=&|;,]")) then 
+          elseif m == '-' and (#tkns==0 or tkns[#tkns ].t=='call' or tkns[#tkns ].v:match("^[+%-*/({.><=&|;,]")) then 
             m='neg' to={1,'op'} 
           end
-          if to[2]=='efun' then tkns[#tkns+1] = {t='rpar', v=')', cp=cp} end
           tkns[#tkns+1 ] = {t=to[2], v=m, cp=cp} i = 1 return r
         end
       )
