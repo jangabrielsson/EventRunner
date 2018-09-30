@@ -421,7 +421,7 @@ function Util.dateTest(dateStr)
     dateSeq[2][t.hour] and   -- hour    0-23
     dateSeq[3][t.day] and    -- day     1-31
     dateSeq[4][t.month] and  -- month   1-12
-    dateSeq[5][t.wday]       -- weekday 1-7, 1=sun, 7=sat
+    dateSeq[5][t.wday] or false      -- weekday 1-7, 1=sun, 7=sat
   end
 end
 
@@ -543,16 +543,14 @@ function newScriptEngine()
   getIdFun['isAnyOff']=function(s,i) return doit(Util.mapOr,function(id) return fibaro:getValue(ID(id,i),'value') == '0' end,s.pop()) end
   getIdFun['on']=function(s,i) doit(Util.mapF,function(id) fibaro:call(ID(id,i),'turnOn') end,s.pop()) return true end
   getIdFun['off']=function(s,i) doit(Util.mapF,function(id) fibaro:call(ID(id,i),'turnOff') end,s.pop()) return true end
-  getIdFun['last']=function(s,i) return osTime()-select(2,fibaro:get(ID(s.pop(),i),'value')) end  
-  getIdFun['scene']=function(s,i) return fibaro:getValue(ID(s.pop(),i),'sceneActivation') end
+  getIdFun['last']=function(s,i) local t = osTime()
+    return doit(Util.map,function(id) return t-select(2,fibaro:get(ID(id,i),'value')) end, s.pop()) end
+  getIdFun['scene']=function(s,i) return getIdFuns(s,i,'sceneActivation') end
   getIdFun['safe']=getIdFun['isOff'] getIdFun['breached']=getIdFun['isOn']
-  getIdFun['trigger']=function(s,i) return true end
+  getIdFun['trigger']=function(s,i) return true end -- Nop, only for triggering rules
   getIdFun['lux']=function(s,i) return getIdFuns(s,i,'value') end
   getIdFun['temp']=getIdFun['lux']
-  getIdFun['manual']=function(s,i) 
-    local t = s.pop()
-    t = Event.lastManual(t)
-    return t end
+  getIdFun['manual']=function(s,i) return doit(Util.map,function(id) return Event.lastManual(id) end,s.pop()) end
   getIdFun['start']=function(s,i) doit(Util.mapF,function(id) fibaro:startScene(ID(id,i)) end,s.pop()) return true end
   getIdFun['stop']=function(s,i) doit(Util.mapF,function(id) fibaro:killScenes(ID(id,i)) end,s.pop()) return true end  
   getIdFun['toggle']=function(s,i)
