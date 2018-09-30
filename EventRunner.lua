@@ -6,6 +6,7 @@
 %% events
 %% globals
 counter
+%% autostart
 --]]
 
 _version = "1.1"  
@@ -1198,7 +1199,7 @@ function newRuleCompiler()
         local res = ScriptCompiler.parse(expr)
         res = ScriptCompiler.compile(res)
         res = ScriptEngine.eval(res,{src=expro})
-        if log then Log(LOG.LOG,"%s",tojson(res)) end
+        if log then Log(LOG.LOG,"%s = %s",expro,tojson(res)) end
         return res
       end)
     if not status then errThrow(_format("Error evaluating '%s'",expro),res)

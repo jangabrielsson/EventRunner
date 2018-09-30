@@ -35,86 +35,86 @@ function main(sourceTrigger)
   local event = sourceTrigger
 
 -- Example code triggering on Fibaro remote keys 1-2-3 within 2x3seconds
-    if event.type == 'event' then
-      local keyPressed = event.event.data.keyId
-      if keyPressed == 1 then 
-        previousKey=1
-        time=osTime()
-        printf("key 1 pressed at %s",osDate("%X"))
-      elseif keyPressed == 2 and previousKey == 1 and osTime()-time <= 3 then
-        previousKey = 2
-        time=osTime()
-        printf("key 2 pressed at %s",osDate("%X"))
-      elseif keyPressed == 3 and previousKey == 2 and osTime()-time <= 3 then
-        printf("Key 3 pressed at %s, Keys 1-2-3 pressed within 2x3sec",osDate("%X"))
-      end
+  if event.type == 'event' then
+    local keyPressed = event.event.data.keyId
+    if keyPressed == 1 then 
+      previousKey=1
+      time=osTime()
+      printf("key 1 pressed at %s",osDate("%X"))
+    elseif keyPressed == 2 and previousKey == 1 and osTime()-time <= 3 then
+      previousKey = 2
+      time=osTime()
+      printf("key 2 pressed at %s",osDate("%X"))
+    elseif keyPressed == 3 and previousKey == 2 and osTime()-time <= 3 then
+      printf("Key 3 pressed at %s, Keys 1-2-3 pressed within 2x3sec",osDate("%X"))
     end
+  end
 
-    -- Test logic by posting key events in 3,5, and 7 seconds
-    if event.type=='autostart' or event.type=='other' then
-      post({type='event',event={data={keyId=1}}},3)
-      post({type='event',event={data={keyId=2}}},5)
-      post({type='event',event={data={keyId=3}}},7)
-    end
---[[
-    -- Example code triggering on Fibaro remote key 4 not pressed within 10 seconds
-    if event.type == 'event' and event.event.data.keyId == 4 then
-      cancel(ref1) -- Key pressed, cancel post/timer
-      ref1 = post({type='Timeout'},10) -- and wait another 10s
-      printf("Key 4 pressed, resetting timer")
-    end
-    if event.type == 'Timeout' then -- Post/timer timed out
-      keyRep = keyRep+1
-      printf("Key 4 not pressed within %s seconds!",keyRep*10)
-      if keyRep < 5 then
-        ref1 = post({type='Timeout'},10) -- wait another 10s
-      end
-    end
-    if event.type=='autostart' or event.type=='other' then -- Start watching key 4 when starting scene
-      ref1 = post({type='Timeout'},10)
-    end
+  -- Test logic by posting key events in 3,5, and 7 seconds
+  if event.type=='autostart' or event.type=='other' then
+    post({type='event',event={data={keyId=1}}},3)
+    post({type='event',event={data={keyId=2}}},5)
+    post({type='event',event={data={keyId=3}}},7)
+  end
 
-    -- Example code watching if lamps are turned on more than specified time, and then turn them off
-    if event.type == 'property' and lamps[event.deviceID] then
-      local id = event.deviceID
-      local val = fibaro:getValue(id,'value') 
-      if val>"0" then 
-        cancel(lamps[id].ref) 
-        printf("Watching lamp %s for %s seconds",id,lamps[id].time)
-        lamps[id].ref = post({type='turnOff',deviceID=id},lamps[id].time)
-      elseif val < "1" then
-        printf("Stop watching lamp %s",id) -- Could easily add check for sensor too...
-        lamps[id].ref = cancel(lamps[id].ref)
-      end 
+  -- Example code triggering on Fibaro remote key 4 not pressed within 10 seconds
+  if event.type == 'event' and event.event.data.keyId == 4 then
+    cancel(ref1) -- Key pressed, cancel post/timer
+    ref1 = post({type='Timeout'},10) -- and wait another 10s
+    printf("Key 4 pressed, resetting timer")
+  end
+  if event.type == 'Timeout' then -- Post/timer timed out
+    keyRep = keyRep+1
+    printf("Key 4 not pressed within %s seconds!",keyRep*10)
+    if keyRep < 5 then
+      ref1 = post({type='Timeout'},10) -- wait another 10s
     end
-    if event.type == 'turnOff' then
-      local id = event.deviceID
-      lamps[id].ref = nil
-      fibaro:call(id,'turnOff')
-    end
-    if event.type=='autostart' or event.type=='other' then
-      -- Start watching lamps at startup
-      for id,_ in pairs(lamps) do post({type='property',deviceID=id},0) end 
+  end
+  if event.type=='autostart' or event.type=='other' then -- Start watching key 4 when starting scene
+    ref1 = post({type='Timeout'},10)
+  end
 
-      -- Test logic of lamps
-      post({type='call', f=function() fibaro:call(55,'turnOn') end},60) -- turn on lamp 55 in 60 seconds
-      post({type='call', f=function() fibaro:call(66,'turnOn') end},70) -- turn on lamp 66 in 70 seconds
-      post({type='call', f=function() fibaro:call(77,'turnOn') end},80) -- turn on lamp 77 in 80 seconds
-    end
+  -- Example code watching if lamps are turned on more than specified time, and then turn them off
+  if event.type == 'property' and lamps[event.deviceID] then
+    local id = event.deviceID
+    local val = fibaro:getValue(id,'value') 
+    if val>"0" then 
+      cancel(lamps[id].ref) 
+      printf("Watching lamp %s for %s seconds",id,lamps[id].time)
+      lamps[id].ref = post({type='turnOff',deviceID=id},lamps[id].time)
+    elseif val < "1" then
+      printf("Stop watching lamp %s",id) -- Could easily add check for sensor too...
+      lamps[id].ref = cancel(lamps[id].ref)
+    end 
+  end
+  if event.type == 'turnOff' then
+    local id = event.deviceID
+    lamps[id].ref = nil
+    fibaro:call(id,'turnOff')
+  end
+  if event.type=='autostart' or event.type=='other' then
+    -- Start watching lamps at startup
+    for id,_ in pairs(lamps) do post({type='property',deviceID=id},0) end 
 
-    -- Turn on light 99 when sensor 88 is breached, and turn off 99 if sensor not breached again within 2 minutes
-    if event.deviceID == 88 then
-      if fibaro:getValue(88,'value') > '0' then
-        if fibaro:getValue(99,'value') < '1' then fibaro:call(99,'turnOn') end
-        ref2 = cancel(ref2) -- cancel timer
-      else
-        ref2 = post({type='call',f=function() printf("No movement for 2 minutes!") fibaro:call(99,'turnOff'); ref2=nil end},2*60)
-      end
+    -- Test logic of lamps
+    post({type='call', f=function() fibaro:call(55,'turnOn') end},60) -- turn on lamp 55 in 60 seconds
+    post({type='call', f=function() fibaro:call(66,'turnOn') end},70) -- turn on lamp 66 in 70 seconds
+    post({type='call', f=function() fibaro:call(77,'turnOn') end},80) -- turn on lamp 77 in 80 seconds
+  end
+
+  -- Turn on light 99 when sensor 88 is breached, and turn off 99 if sensor not breached again within 2 minutes
+  if event.deviceID == 88 then
+    if fibaro:getValue(88,'value') > '0' then
+      if fibaro:getValue(99,'value') < '1' then fibaro:call(99,'turnOn') end
+      ref2 = cancel(ref2) -- cancel timer
+    else
+      ref2 = post({type='call',f=function() printf("No movement for 2 minutes!") fibaro:call(99,'turnOff'); ref2=nil end},2*60)
     end
-    if event.type=='autostart' or event.type=='other' and not _OFFLINE then -- only works offline
-      post({type='call',f=function() fibaro:call(88,'setValue','1') end},5*60)
-      post({type='call',f=function() fibaro:call(88,'setValue','0') end},5*60+30)
-    end
+  end
+  if event.type=='autostart' or event.type=='other' and not _OFFLINE then -- only works offline
+    post({type='call',f=function() fibaro:call(88,'setValue','1') end},5*60)
+    post({type='call',f=function() fibaro:call(88,'setValue','0') end},5*60+30)
+  end
 
 
   if event.deviceID and sensors[event.deviceID] then
@@ -157,56 +157,38 @@ function main(sourceTrigger)
     post({type='call', f=function() fibaro:call(99,'setValue',"1") end},60*60)
   end
 
-  if nil then
-    local times = {
-      {"09:30",function() fibaro:debug("Good morning!") end},
-      {"13:10",function() fibaro:debug("Lunch!") end},
-      {"17:00",function() fibaro:debug("Evening!") end}}
+  local times = {
+    {"09:30",function() fibaro:debug("Good morning!") end},
+    {"13:10",function() fibaro:debug("Lunch!") end},
+    {"17:00",function() fibaro:debug("Evening!") end}}
 
 
-    if event.type == 'time' then
-      fibaro:debug("It's time "..osDate("%X ")..event.time)
-      -- carry out whatever actions...
-      event.action()
-      post(event,24*60*60) -- Re-post the event next day at the same time.
-    end
+  if event.type == 'time' then
+    fibaro:debug("It's time "..osDate("%X ")..event.time)
+    -- carry out whatever actions...
+    event.action()
+    post(event,24*60*60) -- Re-post the event next day at the same time.
+  end
 
-    -- setUp initial posts of daily events
-    if event.type == 'autostart' or event.type == 'other' then 
-      local now = os.time()
-      local t = osDate("*t")
-      t.hour,t.min,t.sec = 0,0,0
-      local midnight = osTime(t) 
-      for _,ts in ipairs(times) do
-        local h,m = ts[1]:match("(%d%d):(%d%d)")
-        local tn = midnight+h*60*60+m*60
-        if tn >= now then 
-          post({type='time',time=ts[1], action=ts[2]},tn-now) -- Later today
-        else
-          post({type='time',time=ts[1], action=ts[2]},tn-now+24*60*60) -- Next day
-        end
+  -- setUp initial posts of daily events
+  if event.type == 'autostart' or event.type == 'other' then 
+    local now = os.time()
+    local t = osDate("*t")
+    t.hour,t.min,t.sec = 0,0,0
+    local midnight = osTime(t) 
+    for _,ts in ipairs(times) do
+      local h,m = ts[1]:match("(%d%d):(%d%d)")
+      local tn = midnight+h*60*60+m*60
+      if tn >= now then 
+        post({type='time',time=ts[1], action=ts[2]},tn-now) -- Later today
+      else
+        post({type='time',time=ts[1], action=ts[2]},tn-now+24*60*60) -- Next day
       end
     end
+  end
 
-    local times = {
-      {"n/09:30",function() fibaro:debug("Good morning!") end},
-      {"n/13:10",function() fibaro:debug("Lunch!") end},
-      {"n/sunset-10",function() fibaro:debug("Evening!") end}}
-    function printf(...) fibaro:debug(string.format(...)) end
 
-    if event.type == 'time' then
-      printf("It's time %s",osDate("%X"),event.time:sub(3))
-      -- carry out whatever actions...
-      event.action()
-      post(event,24*60*60) -- Re-post the event next day at the same time.
-    end
-
-    -- setUp initial posts of daily events
-    if event.type == 'autostart' or event.type == 'other' then 
-      for _,ts in ipairs(times) do post({type='time',time=ts[1], action=ts[2]},ts[1]) end
-    end
-  --]]
-    if event.type == 'call' then event.f() end -- Generic event for posting function calls
+  if event.type == 'call' then event.f() end -- Generic event for posting function calls
 
 end -- main()
 
