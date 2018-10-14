@@ -76,6 +76,7 @@ _format = string.format
 if not _getIdProp then
   _getIdProp = function(id,prop) return fibaro:get(id,prop) end; _getGlobal = function(id) return fibaro:getGlobal(id) end
 end
+Util = Util or {}
 
 if not _OFFLINE then -- if running on the HC2
   function _Msg(color,message,...)
@@ -116,13 +117,7 @@ function _equal(e1,e2)
   return true
 end
 
-function midnight() 
-  local t = osDate("*t")
-  t.hour,t.min,t.sec = 0,0,0
-  local tt = osTime(t) 
-  return tt
-end
-function today(s) return midnight()+s end
+function midnight() local t = osDate("*t"); t.hour,t.min,t.sec = 0,0,0; return osTime(t) end
 
 function hm2sec(hmstr)
   local offs,sun
@@ -136,7 +131,7 @@ function hm2sec(hmstr)
 end
 
 function between(t11,t22)
-  local t1,t2,tn = today(hm2sec(t11)),today(hm2sec(t22)),osTime()
+  local t1,t2,tn = midnight()+hm2sec(t11),midnight()+hm2sec(t22),osTime()
   if t1 <= t2 then return t1 <= tn and tn <= t2 else return tn <= t1 or tn >= t2 end 
 end
 
@@ -156,11 +151,10 @@ function toTime(time)
   local p = time:sub(1,2)
   if p == '+/' then return hm2sec(time:sub(3))+osTime()
   elseif p == 'n/' then
-    local t1,t2 = today(hm2sec(time:sub(3))),osTime()
+    local t1,t2 = midnight()+hm2sec(time:sub(3)),osTime()
     return t1 > t2 and t1 or t1+24*60*60
   elseif p == 't/' then return  hm2sec(time:sub(3))+midnight()
-  else return hm2sec(time)
-  end
+  else return hm2sec(time) end
 end
 ---------------------- Event/rules handler ----------------------
 function newEventEngine()
@@ -261,10 +255,23 @@ function newEventEngine()
   end
   _getProp['global'] = function(e,v2) local v,t = _getGlobal(e.name,true) e.value = v2 or v return t end
 
+  local function _mkCombEvent(e,doc,action,rl)
+    local rm = {[self.RULE]=e, action=action, src=doc, subs=rl}
+    rm.enable = function() Util.mapF(function(e) e.enable() end,rl) return rm end
+    rm.disable = function() Util.mapF(function(e) e.disable() end,rl) return rm end
+    return rm
+  end
+
   -- {type='property' deviceID=x, ...}
   function self.event(e,action,doc) -- define rules - event template + action
-    doc = doc or tojson(e)
+    if e[1] then -- events is list of event patterns {{type='x', ..},{type='y', ...}, ...}
+      return _mkCombEvent(e,action,doc,Util.map(function(es) return self.event(es,action,doc) end,e))
+    end
     _assert(isEvent(e), "bad event format '%s'",tojson(e))
+    if e.deviceID and type(e.deviceID) == 'table' then  -- multiple IDs in deviceID {type='property', deviceID={x,y,..}}
+      return _mkCombEvent(e,action,doc,Util.map(function(id) local el=_copy(e) el.deviceID=id return self.event(el,action,doc) end,e.deviceID))
+    end
+    doc = doc or tojson(e)
     action = self._compileAction(action)
     _compilePattern(e)
     _handlers[e.type] = _handlers[e.type] or {}
@@ -356,8 +363,6 @@ end
 Event = newEventEngine()
 
 ------ Util ----------
-Util = Util or {}
-
 function Util.dateTest(dateStr)
   local self = {}
   local days = {sun=1,mon=2,tue=3,wed=4,thu=5,fri=6,sat=7}
@@ -544,9 +549,9 @@ function newScriptEngine()
   getIdFun['isAnyOff']=function(s,i) return doit(Util.mapOr,function(id) return fibaro:getValue(ID(id,i),'value') == '0' end,s.pop()) end
   getIdFun['on']=function(s,i) doit(Util.mapF,function(id) fibaro:call(ID(id,i),'turnOn') end,s.pop()) return true end
   getIdFun['off']=function(s,i) doit(Util.mapF,function(id) fibaro:call(ID(id,i),'turnOff') end,s.pop()) return true end
-  getIdFun['last']=function(s,i) local t = osTime()
-    return doit(Util.map,function(id) return t-select(2,fibaro:get(ID(id,i),'value')) end, s.pop()) end
+  getIdFun['last']=function(s,i) local t = osTime() return doit(Util.map,function(id) return t-select(2,fibaro:get(ID(id,i),'value')) end, s.pop()) end
   getIdFun['scene']=function(s,i) return getIdFuns(s,i,'sceneActivation') end
+  getIdFun['battery']=function(s,i) return getIdFuns(s,i,'batteryLevel') end
   getIdFun['safe']=getIdFun['isOff'] getIdFun['breached']=getIdFun['isOn']
   getIdFun['trigger']=function(s,i) return true end -- Nop, only for triggering rules
   getIdFun['lux']=function(s,i) return getIdFuns(s,i,'value') end
@@ -566,7 +571,10 @@ function newScriptEngine()
   end
   setIdFun['msg'] = function(s,i,id,v) local m = v doit(Util.mapF,function(id) fibaro:call(ID(id,i),'sendPush',m) end,id) return m end
   setIdFun['btn'] = function(s,i,id,v) local k = v doit(Util.mapF,function(id) fibaro:call(ID(id,i),'pressButton',k) end,id) return k end
-  setIdFun['start'] = function(s,i,id,v) local k = v doit(Util.mapF,function(id) fibaro:startScene(ID(id,i),k) end,id) return k end
+  setIdFun['start'] = function(s,i,id,v) 
+    if isEvent(v) then doit(Util.mapF,function(id) Event.postRemote(ID(id,i),v) end,id) return v
+    else doit(Util.mapF,function(id) fibaro:startScene(ID(id,i),v) end,id) return v end 
+  end
 
   local WEEKNMUMSTR = os.getenv and os.getenv('OS') and os.getenv('OS'):lower():match("windows") and "%W" or "%V"
   local timeFs ={["*"]=function(t) return t end,
@@ -945,7 +953,7 @@ function newScriptCompiler()
     {"^%$([_0-9a-zA-Z\\$]+)",'gvar'},
     {"^([tn]/[sunriset]+)",'time'},
     {"^([tn%+]/%d%d:%d%d:?%d*)",'time'},{"^([%d/]+/%d%d:%d%d:?%d*)",'time'},{"^(%d%d:%d%d:?%d*)",'time'},    
-    {"^:(%A+%d*)",'addr'},
+    {"^:(%u+%d*)",'addr'},
     {"^(fn%()",'fun'}, 
     {"^(%()",'lpar'},{"^(%))",'rpar'},
     {"^([;,])",'token'},{"^(end)",'token'},
