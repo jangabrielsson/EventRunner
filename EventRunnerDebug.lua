@@ -11,7 +11,7 @@
       _PORTLISTENER=true starts a listener on a socket for receieving sourcetriggers/events from HC2 scene
 --]] 
 
-if _version ~= "1.1" then error("Bad version of EventRunnerDebug") end 
+if _version ~= "1.2" then error("Bad version of EventRunnerDebug") end 
 _SPEEDTIME         = 48*4   -- nil run the local clock in normal speed, set to an int <x> will speed the clock through <x> hours
 _REMOTE            = false  -- If true use FibaroSceneAPI to call functions on HC2, else emulate them locally...
 _GUI               = false -- Needs wxwidgets support (e.g. require "wx"). Works in ZeroBrane under Lua 5.1.
@@ -53,7 +53,6 @@ ltn12 = require("ltn12")
 json = require("json")
 socket = require("socket")
 http = require("socket.http")
-bit32=require("bit")
 fibaro = {}
 
 if _REMOTE then
@@ -88,6 +87,8 @@ end
 _timeAdjust = nil
 
 osDate,osTime = os.date,os.time
+
+function exceededTime() return false end
 
 function _setUpSpeedTime() -- Special version of time functions
   local _startTime = os.time()
@@ -265,6 +266,8 @@ if not _REMOTE then
   function fibaro:debug(str) print(_format("%s:%s",osDate("%X"),str)) end
   function fibaro:countScenes() return 1 end
   function fibaro:abort() os.exit() end
+  function fibaro:getName(id) return _format("DEVICE:%s",id) end
+  function fibaro:getRoomNameByDeviceID(id) return _format("ROOMFORDEVICE:%s",id) end
 
   if not Util then
     Util = { reverseVar = function(id) return id end, prettyEncode = function(j) return json.encode(j) end  }
@@ -274,7 +277,7 @@ if not _REMOTE then
   _simFuns['property'] = function(e) 
     fibaro._fibaroCalls[e.deviceID..(e.propertyName or 'value')] = {tostring(e.value),osTime()} 
   end
-  _simFuns['global'] = function(e) fibaro._globals[e.name] = {e.value, osTime()} end
+  _simFuns['global'] = function(e) fibaro._globals[e.name] = {tostring(e.value), osTime()} end
 
   function _getIdProp(id,prop)
     local keyid = id..prop
@@ -283,79 +286,51 @@ if not _REMOTE then
     return table.unpack(v)
   end
 
-  function fibaro:get(id,prop)
-    Debug(_debugFlags.fibaroGet,"fibaro:get('%s','%s')",Util.reverseVar(id),prop)
-    return _getIdProp(id,prop)
+  function fibaro:get(id,prop) return _getIdProp(id,prop) end
+  function fibaro:getValue(id,prop) return (_getIdProp(id,prop)) end
+
+  function _getGlobal(name)
+    fibaro._globals[name] = fibaro._globals[name] or {"",osTime()}
+    return table.unpack(fibaro._globals[name])
   end
 
-  function fibaro:getValue(id,prop) return (fibaro:get(id,prop)) end
+  function fibaro:getGlobal(name) return _getGlobal(name) end
+  function fibaro:getGlobalValue(name) return (_getGlobal(name)) end
+  function fibaro:getGlobalModificationTime(name) return select(2,_getGlobal(name)) end
+  function fibaro:setGlobal(name,value) _setGlobal(name,value) end
 
-  function _getGlobal(id)
-    fibaro._globals[id] = fibaro._globals[id] or {"",osTime()}
-    return table.unpack(fibaro._globals[id])
-  end
-
-  function fibaro:getGlobal(id) 
-    Debug(_debugFlags.fibaroGet,"fibaro:getGlobal('%s')",id) 
-    return _getGlobal(id)
-  end
-  function fibaro:getGlobalValue(id) return (fibaro:getGlobal(id)) end
-  function fibaro:getGlobalModificationTime(id) return select(2,fibaro:getGlobal(id)) end
-
-  function fibaro:setGlobal(v,x) 
-    Debug(_debugFlags.fibaro,"fibaro:setGlobal('%s','%s')",v,x)
-    _setGlobal(v,x)
-  end
-  
-  function _setGlobal(v,x) 
-    if fibaro._globals[v] == nil or fibaro._globals[v][1] ~= x then
-      local ev = {type='global', name=v, value=x, _sh=true}
+  function _setGlobal(name,value)
+    value = tostring(value)
+    if fibaro._globals[name] == nil or fibaro._globals[name][1] ~= value then
+      local ev = {type='global', name=name, value=x, _sh=true} -- If global changes value, fibaro send back event to scene
       if Event then if Event.post then Event.post(ev) end else setTimeout(function() main(ev) end,0) end
     end
-    fibaro._globals[v] = {x,osTime and osTime() or os.time()}
+    fibaro._globals[name] = {value,osTime and osTime() or os.time()}
   end
 
   fibaro._getDevicesId =  {133, 136, 139, 263, 304, 309, 333, 341} -- Should be more advanced...
   function fibaro:getDevicesId(s) return fibaro._getDevicesId end
 
-  function fibaro:startScene(id,args) 
-    if args then Debug(_debugFlags.fibaro,"fibaro:startScene(%s,%s)",Util.reverseVar(id),Util.prettyEncode(args)) 
-    else Debug(_debugFlags.fibaro,"fibaro:startScene(%s)",Util.reverseVar(id)) end
-  end
-  function fibaro:killScenes(id) Debug(_debugFlags.fibaro,"fibaro:stopScene(%s)",Util.reverseVar(id)) end
-
-  local _callFormat = {
-    ["turnOn"] = "fibaro:call(%s,'%s')",
-    ["turnOff"] = "fibaro:call(%s,'%s')",
-    ["on"] = "fibaro:call(%s,'%s')",
-    ["off"] = "fibaro:call(%s,'%s')",
-    ["setR"] = "fibaro:call(%s,'%s', '%s')",
-    ["setG"] = "fibaro:call(%s,'%s', '%s')",
-    ["setB"] = "fibaro:call(%s,'%s', '%s')",
-    ["setW"] = "fibaro:call(%s,'%s', '%s')",
-    ["setArmed"] = "fibaro:call(%s,'%s', '%s')",
-    ["setColor"] = "fibaro:call(%s,'%s', '%s')",
-    ["setTime"] = "fibaro:call(%s,'%s', '%s')",
-    ["setValue"] = "fibaro:call(%s,'%s', '%s', '%s')",
-    ["setProperty"] = "fibaro:call(%s,'%s', '%s', '%s')",
-    ["setSlider"] = "fibaro:call(%s,'%s', '%s')",
-    ["sendPush"] = "fibaro:call(%s,'%s', '%s')",
-    ["pressButton"] = "fibaro:call(%s,'%s', '%s')"
-  }
-  function fibaro:call(id,prop,val1,val2)
-    val1 = tostring(val1 or "")
-    val2 = tostring(val2 or "")
-    local dstr = _callFormat[prop] or "UNKNOWN"
-    dstr = _format(dstr,Util.reverseVar(id),prop,val1,val2)
-    Debug(_debugFlags.fibaro,dstr) 
-    local idkey = tostring(id)
-    local v = ({turnOff="0",turnOn="99",on="99",off="0"})[prop] or (prop=='setValue' and val1)
-    if v then prop='value' val1=v end
-    if prop == 'value' and (not fibaro._fibaroCalls[idkey..prop] or fibaro._fibaroCalls[idkey..prop][1]~=val1) then
-      local ev = {type='property', deviceID=id, propertyName=prop, value=val1, _sh=true}
+  function fibaro:startScene(id,args) end
+  function fibaro:killScenes(id) end
+  
+  _specCalls={}
+  _specCalls['setProperty'] = function(id,prop,...) fibaro._fibaroCalls[id..prop] = {({...})[1],osTime()} end
+  _specCalls['setColor'] = function(id,R,G,B) fibaro._fibaroCalls[id..'color'] = {{R,G,B},osTime()} end
+  _specCalls['setArmed'] = function(id,val) fibaro._fibaroCalls[id..'armed'] = {val,osTime()} end
+  _specCalls['sendPush'] = function(id,msg) end -- log to console?
+  _specCalls['pressButton'] = function(id,msg) end -- simulate VD?
+  
+  function fibaro:call(id,prop,...)
+    if _specCalls[prop] then _specCalls[prop](id,...) return end 
+    local value = ({turnOff="0",turnOn="99",on="99",off="0"})[prop] or (prop=='setValue' and tostring(({...})[1]))
+    if not value then error(_format("fibaro:call(..,'%s',..) is not supported, fix it!",prop)) end
+    local idKey = id..'value'
+    if not fibaro._fibaroCalls[idKey] or fibaro._fibaroCalls[idKey][1] ~= value then
+      local ev = {type='property', deviceID=id, propertyName=prop=='setValue' and 'value' or prop, value=value, _sh=true}
       if Event then Event.post(ev) else setTimeout(function() main(ev) end,0) end
-    elseif prop == 'setProperty' then prop,val1=val1,val2 end
-    fibaro._fibaroCalls[idkey..prop] = {val1,osTime()}
+    end
+    fibaro._fibaroCalls[idKey] = {value,osTime()}
   end
 
   if _deviceTable then -- If you have a pre-made "HomeTable" structure, set it up here

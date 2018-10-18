@@ -9,7 +9,7 @@ counter
 %% autostart
 --]]
 
-_version = "1.1"  
+_version = "1.2"  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -82,8 +82,9 @@ if not _OFFLINE then -- if running on the HC2
   function _Msg(color,message,...)
     local args = type(... or 42) == 'function' and {(...)()} or {...}
     local tadj = _timeAdjust > 0 and osDate("(%X) ") or ""
-    local m = _format('<span style="color:%s;">%s%s</span><br>', color, tadj, _format(message,table.unpack(args)))
-    fibaro:debug(m) return m
+    message = _format(message,table.unpack(args))
+    fibaro:debug(_format('<span style="color:%s;">%s%s</span><br>', color, tadj, message))
+    return message
   end
   if not _timeAdjust then _timeAdjust = 0 end -- support for adjusting for hw time drift on HC2
   osTime = function(arg) return arg and os.time(arg) or os.time()+_timeAdjust end
@@ -342,11 +343,12 @@ function newEventEngine()
     end
   end
 
-  local fibCall = fibaro.call -- We intercept all fibaro:calls so we can detect manual invocations of switches
+  -- We intercept all fibaro:call so we can detect manual invocations of switches
+  fibaro._call = fibaro.call 
   local lastID = {}
-  fibaro.call = function(obj,id,a1,a2,a3)
+  fibaro.call = function(obj,id,a1,...)
     if ({turnOff=true,turnOn=true,on=true,off=true,setValue=true})[a1] then lastID[id]={script=true,time=osTime()} end
-    fibCall(obj,id,a1,a2,a3)
+    fibaro._call(obj,id,a1,...)
   end
   function self.lastManual(id)
     lastID[id] = lastID[id] or {time=0}
@@ -357,6 +359,47 @@ function newEventEngine()
     lastID[id] = lastID[id] or {time=0}
     if lastID[id].script==nil or osTime()-lastID[id].time>1 then lastID[id]={time=osTime()} end -- Update last manual
   end
+
+  -- Logging of fibaro:* calls -------------
+  if nil then
+    function interceptFib(name,flag,tweak)
+      local fun = fibaro[name]
+      fibaro[name] = function(obj,id,...)
+        local id2,args = type(id) == 'number' and Util.reverseVar(id) or id,{...}
+        args = tweak and _debugFlags[flag] and tweak(args) or args
+        Debug(_debugFlags[flag],"fibaro:%s(%s%s%s)",name,id2,(#args>0 and "," or ""),table.concat(args,','))
+        return fun(obj,id,...)
+      end
+    end
+  else
+    function interceptFib(name,flag,spec,mf)
+      local fun,fstr = fibaro[name],name:match("^get") and "fibaro:%s(%s%s%s) = %s" or "fibaro:%s(%s%s%s)"
+      if spec then 
+        fibaro[name] = function(obj,...) if _debugFlags[flag] then return spec(obj,fun,...) else return fun(obj,...) end end 
+      else 
+        fibaro[name] = function(obj,id,...)
+          local id2,args = type(id) == 'number' and Util.reverseVar(id) or '"'..id..'"',{...}
+          local status,res,r2 = pcall(function() return fun(obj,id,table.unpack(args)) end)
+          if status and _debugFlags[flag] then
+            fibaro:debug(string.format(fstr,name,id2,(#args>0 and "," or ""),json.encode(args):sub(2,-2),json.encode(res)))
+          elseif not status then
+            error(string.format("Err:fibaro:%s(%s%s%s), %s",name,id2,(#args>0 and "," or ""),json.encode(args):sub(2,-2),res),3)
+          end
+          if mf then return res,r2 else return res end
+        end
+      end
+    end
+  end
+  interceptFib("call","fibaro")
+  interceptFib("setGlobal","fibaro")
+  interceptFib("getGlobal","fibaroGet",nil,true)
+  interceptFib("getGlobalValue","fibaroGet")
+  interceptFib("get","fibaroGet",nil,true)
+  interceptFib("getValue","fibaroGet")
+  interceptFib("startScene","fibaro")
+  -- function(args) return #args>0 and {Util.prettyEncode(args[1])} or args end)
+  interceptFib("killScenes","fibaro")
+
   return self
 end
 
@@ -549,9 +592,13 @@ function newScriptEngine()
   getIdFun['isAnyOff']=function(s,i) return doit(Util.mapOr,function(id) return fibaro:getValue(ID(id,i),'value') == '0' end,s.pop()) end
   getIdFun['on']=function(s,i) doit(Util.mapF,function(id) fibaro:call(ID(id,i),'turnOn') end,s.pop()) return true end
   getIdFun['off']=function(s,i) doit(Util.mapF,function(id) fibaro:call(ID(id,i),'turnOff') end,s.pop()) return true end
-  getIdFun['last']=function(s,i) local t = osTime() return doit(Util.map,function(id) return t-select(2,fibaro:get(ID(id,i),'value')) end, s.pop()) end
+  getIdFun['last']=function(s,i) local t = osTime()
+    return doit(Util.map,function(id) return t-select(2,fibaro:get(ID(id,i),'value')) end, s.pop()) 
+  end
   getIdFun['scene']=function(s,i) return getIdFuns(s,i,'sceneActivation') end
   getIdFun['battery']=function(s,i) return getIdFuns(s,i,'batteryLevel') end
+  getIdFun['name']=function(s,i) return doit(Util.map,function(id) return fibaro:getName(ID(id,i)) end,s.pop()) end 
+  getIdFun['roomName']=function(s,i) return doit(Util.map,function(id) return fibaro:getRoomNameByDeviceID(ID(id,i)) end,s.pop()) end 
   getIdFun['safe']=getIdFun['isOff'] getIdFun['breached']=getIdFun['isOn']
   getIdFun['trigger']=function(s,i) return true end -- Nop, only for triggering rules
   getIdFun['lux']=function(s,i) return getIdFuns(s,i,'value') end
@@ -563,12 +610,13 @@ function newScriptEngine()
     return doit(Util.mapF,function(id) local t = fibaro:getValue(ID(id,i),'value') fibaro:call(id,t>'0' and 'turnOff' or 'turnOn') end,s.pop())
   end
   local setIdFun={}
-  local _propMap={R='setR',G='setG',B='setB',color='setColor',armed='setArmed',W='setW',value='setValue',time='setTime'}
+  local _propMap={R='setR',G='setG',B='setB', armed='setArmed',W='setW',value='setValue',time='setTime'}
   local function setIdFuns(s,i,prop,id,v) 
     local p,vp=_propMap[prop],0 _assert(p,"bad setProperty :%s",prop)
     local vf = type(v) == 'table' and function() vp=vp+1 return v[vp] end or function() return v end 
     doit(Util.mapF,function(id) fibaro:call(ID(id,i),p,vf()) end,id) 
   end
+  setIdFun['color'] = function(s,i,id,v) doit(Util.mapF,function(id) fibaro:call(ID(id,i),'setColor',v[1],v[2],v[3]) end,id) return v end
   setIdFun['msg'] = function(s,i,id,v) local m = v doit(Util.mapF,function(id) fibaro:call(ID(id,i),'sendPush',m) end,id) return m end
   setIdFun['btn'] = function(s,i,id,v) local k = v doit(Util.mapF,function(id) fibaro:call(ID(id,i),'pressButton',k) end,id) return k end
   setIdFun['start'] = function(s,i,id,v) 
@@ -618,7 +666,7 @@ function newScriptEngine()
     elseif type(fun)=='table' and type(fun[1]=='table') and fun[1][1]=='fn' then
       local context = {__instr={}, __ret={e.cp,e.code}, __next=e.context}
       e.context,e.cp,e.code=context,0,fun 
-    else _assert(false,"undefined fun '%s'",f) end
+    else _assert(false,"undefined fun '%s'",i[3]) end
   end
   instr['return'] = function(s,n,e) local cnxt=e.context
     if cnxt.__ret then e.cp,e.code=cnxt.__ret[1 ],cnxt.__ret[2 ] e.context=cnxt.__next 
@@ -634,9 +682,7 @@ function newScriptEngine()
   instr['setLabel'] = function(s,n,e,i) local id,v,lbl = s.pop(),s.pop(),i[3]
     fibaro:call(ID(id,i),"setProperty",_format("ui.%s.value",lbl),tostring(v)) s.push(v) 
   end
-  instr['setSlider'] = function(s,n,e,i) local id,v,lbl = s.pop(),s.pop(),i[3]
-    fibaro:call(ID(id,i),"setSlider",tostring(lbl),tostring(v)) s.push(v) 
-  end
+  instr['setSlider'] = instr['setLabel']
   instr['setRef'] = function(s,n,e,i) local r,v,k = s.pop(),s.pop() 
     if n==3 then r,k=s.pop(),r else k=i[3] end
     _assertf(type(r)=='table',"trying to set non-table value '%s'",function() return json.encode(r) end)
@@ -674,7 +720,10 @@ function newScriptEngine()
   instr['rnd'] = function(s,n) local ma,mi=s.pop(),n>1 and s.pop() or 1 s.push(math.random(mi,ma)) end
   instr['round'] = function(s,n) local v=s.pop(); s.push(math.floor(v+0.5)) end
   instr['sum'] = function(s,n) local m,res=s.pop(),0 for _,x in ipairs(m) do res=res+x end s.push(res) end 
-  instr['length'] = function(s,n) s.push(#(s.pop())) end
+  instr['size'] = function(s,n) s.push(#(s.pop())) end
+  instr['min'] = function(s,n) s.push(math.min(table.unpack(type(s.peek())=='table' and s.pop() or s.lift(n)))) end
+  instr['max'] = function(s,n) s.push(math.max(table.unpack(type(s.peek())=='table' and s.pop() or s.lift(n)))) end
+  instr['sort'] = function(s,n) local a = type(s.peek())=='table' and s.pop() or s.lift(n); table.sort(a) s.push(a) end
   instr['tjson'] = function(s,n) s.push(tojson(s.pop())) end
   instr['fjson'] = function(s,n) s.push(json.decode(s.pop())) end
   instr['osdate'] = function(s,n) local x,y = s.ref(n-1),(n>1 and s.pop() or nil) s.pop(); s.push(osDate(x,y)) end
@@ -815,7 +864,7 @@ function newScriptCompiler()
   _comp['prop'] = function(e,ops) _assert(isVar(e[3]),"bad property field: '%s'",e[3])
     compT(e[2],ops) ops[#ops+1]={mkOp('prop'),0,e[3][2]} 
   end
-  _comp['apply'] = function(e,ops) for i=1,#e[3] do compT(e[3][i],ops) end compT(e[2],ops) ops[#ops+1] = {mkOp('apply'),#e[3]} end
+  _comp['apply'] = function(e,ops) for i=1,#e[3] do compT(e[3][i],ops) end compT(e[2],ops) ops[#ops+1] = {mkOp('apply'),#e[3],e[2][2]} end
   _comp['%table'] = function(e,ops) local keys = {}
     for key,val in pairs(e[2]) do keys[#keys+1] = key; compT(val,ops) end
     ops[#ops+1]={mkOp('table'),#keys,keys}
@@ -1166,6 +1215,8 @@ function newRuleCompiler()
     return mapkl(function(k,v) return k end,t2)
   end
 
+  local CATCHUP = math.huge
+
   function self.compRule(e,src)
     local h,body,res = e[2],e[3]
     if type(h)=='table' and (h[1]=='%table' or h[1]=='quote' and type(h[2])=='table') then -- event matching rule, Needs check for 'type'!!!!
@@ -1179,10 +1230,15 @@ function newRuleCompiler()
       local action = Event._compileAction({'and',_debugFlags.rule and {'logRule',h,src} or h,body})
       if sched then Event.post(action,nil,src)
       elseif #dailys>0 then -- 'daily' rule, ignore other triggers
-        local m,ot=midnight(),osTime()
+        local m,ot,catchup1,catchup2=midnight(),osTime()
         _dailys[#_dailys+1]={dailys=dailys,action=action,src=src}
         times = compTimes(dailys)
-        for _,t in ipairs(times) do _assert(tonumber(t),"@time not a number:%q",t) if t+m >= ot then Event.post(action,t+m,src) end end
+        for _,t in ipairs(times) do _assert(tonumber(t),"@time not a number:%q",t)
+          if t ~= CATCHUP then
+            if t+m >= ot then Event.post(action,t+m,src) else catchup1=true end
+          else catchup2 = true end
+        end
+        if catchup2 and catchup1 then Event.post(function() Log(LOG.LOG,"Cathing up:%s",src); action() end) end
       elseif #ids>0 then -- id/glob trigger rule
         for _,id in ipairs(ids) do Event.event(id,action).src=src end
         if #betw>0 then
@@ -1240,9 +1296,11 @@ function newRuleCompiler()
       --Log(LOG.LOG,"Scheduling")
       for _,d in ipairs(_dailys) do
         local times = compTimes(d.dailys)
-        for _,t in ipairs(times) do 
-          Debug(_debugFlags.dailys,"Scheduling at %s",osDate("%X",midnight+t))
-          Event.post(d.action,midnight+t,d.src) 
+        for _,t in ipairs(times) do
+          if t ~= CATCHUP then
+            Debug(_debugFlags.dailys,"Scheduling at %s",osDate("%X",midnight+t))
+            Event.post(d.action,midnight+t,d.src) 
+          end
         end
       end
     end)
@@ -1287,6 +1345,7 @@ Rule.addTrigger('weather',
 --- SceneActivation constants
 Util.defvar('S1',Util.S1)
 Util.defvar('S2',Util.S2)
+Util.defvar('catch',math.huge)
 
 ---- Print rule definition -------------
 
