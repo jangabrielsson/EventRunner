@@ -11,7 +11,7 @@
 -- Email: jan@gabrielsson.com
 --]]
 
-_version = "1.1" 
+_version = "1.2" 
 osTime = os.time
 osDate = os.date
 _debugFlags = { post=true,invoke=false,triggers=false,timers=false,fibaro=true,fibaroGet=false }
@@ -202,7 +202,8 @@ if _type == 'other' and fibaro:args() then
   _trigger,_type = fibaro:args()[1],'remote'
 end
 
-function _midnight() t=osDate("*t"); t.min,t.hour,t.sec=0,0,0; return osTime(t) end
+function _midnight() local t=osDate("*t"); t.min,t.hour,t.sec=0,0,0; return osTime(t) end
+function _now() local t=osDate("*t"); return 60*(t.min+60*t.hour)+t.sec end
 
 function hm2sec(hmstr)
   local sun,offs = hmstr:match("^(%a+)([+-]?%d*)")
@@ -216,18 +217,18 @@ end
 function toTime(time)
   if type(time) == 'number' then return time end
   local p = time:sub(1,2)
-  if p == '+/' then return hm2sec(time:sub(3))+osTime() -- Plus now
+  if p == '+/' then return hm2sec(time:sub(3)) -- Plus now
   elseif p == 'n/' then
-    local t1 = _midnight()+hm2sec(time:sub(3))      -- Next
-    return t1 > osTime() and t1 or t1+24*60*60
-  elseif p == 't/' then return  _midnight()+hm2sec(time:sub(3))  -- Today
+    local t1 = hm2sec(time:sub(3))      -- Next
+    return t1 > _now() and t1 or t1+24*60*60
+  elseif p == 't/' then return  hm2sec(time:sub(3))-_now()  -- Today
   else return hm2sec(time) end
 end
 
 if not Debug then function Debug(flag,message,...) if flag then fibaro:debug(string.format(message,...)) end end end
 
 function post(event, time) 
-  if type(time)=='string' then time=toTime(time)-osTime() else time = time or 0 end
+  if type(time)=='string' then time=toTime(time) else time = time or 0 end
   if _debugFlags.post then Debug(true,"Posting {type=%s,...} for %s",event.type,osDate("%X",time+osTime())) end
   return setTimeout(function() 
       if _OFFLINE and not _REMOTE then if _simFuns[event.type] then _simFuns[event.type](event)  end end
