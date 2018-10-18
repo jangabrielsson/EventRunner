@@ -18,7 +18,7 @@ _version = "1.2"
 --]]
 
 _sceneName   = "Demo"        -- Set to scene/script name
-_debugFlags = { post=false,invoke=false,triggers=false,dailys=false,timers=false,rule=false,fibaro=true,fibaroGet=false }
+_debugFlags = { post=false,invoke=false,triggers=false,dailys=false,timers=false,rule=false,fibaro=true,fibaroGet=false, fibaroSet=false }
 _deviceTable = "deviceTable" -- Name of json struct with configuration data (i.e. "HomeTable")
 
 Event = {}
@@ -391,7 +391,7 @@ function newEventEngine()
     end
   end
   interceptFib("call","fibaro")
-  interceptFib("setGlobal","fibaro")
+  interceptFib("setGlobal","fibaroSet")
   interceptFib("getGlobal","fibaroGet",nil,true)
   interceptFib("getGlobalValue","fibaroGet")
   interceptFib("get","fibaroGet",nil,true)

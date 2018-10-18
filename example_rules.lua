@@ -6,12 +6,12 @@
   
 --]]
 local tExpr = false
-local tRules = false
+local tRules = true
 local tShell = false
 local tGEA = false
 local tEarth = false
 local tTest1 = false
-local tTest2 = true
+local tTest2 = false
 local tPresence = false
 local tHouse = false
 local tScheduler = false
@@ -182,7 +182,7 @@ if tScheduler then
 
   -- if average lux value is less than 100 one hour from sunset, trigger sunset event...
   -- Because we later set all sensors to 99 this would trigger 3 times, and thus we wrap it in 'once'
-  Rule.eval([[once(sum(downstairs_lux:lux)/length(downstairs_lux) < 100 & sunset-01:00..sunset) => 
+  Rule.eval([[once(sum(downstairs_lux:lux)/size(downstairs_lux) < 100 & sunset-01:00..sunset) => 
                post(#Sunset); log('Too dark at %s, posting sunset',osdate('%X'))]])
 
   -- Simulate and test scene by triggering events...
@@ -383,7 +383,7 @@ if tHouse then
 
   -- test daily light rules
   fibaro:call(dev.kitchen.lamp_stove, 'turnOn') -- turn on light
-  Event.post({type='property', deviceID=dev.kitchen.movement, value=0}, "n09:00") -- and turn off sensor
+  Event.post({type='property', deviceID=dev.kitchen.movement, value=0}, "n/09:00") -- and turn off sensor
 
 -- Bathroom
   Rule.eval("for(00:10,td.movement:safe & td.door:value) => not(inBathroom)&td.lamp_roof:off")
@@ -640,7 +640,7 @@ if tTriggerTuturial then
   -- Smallest presence simulator?
   Rule.eval("$Presence='away'")
   Rule.eval("lamps={22,33,44,55,66,77,88}")
-  Rule.eval("@@rnd(00:30,00:10) & $Presence=='away' & sunset..sunrise => lamps[rnd(1,length(lamps))]:toggle")
+  Rule.eval("@@rnd(00:30,00:10) & $Presence=='away' & sunset..sunrise => lamps[rnd(1,size(lamps))]:toggle")
 
 end
 
