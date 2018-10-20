@@ -31,9 +31,7 @@ function main()
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
   -- lets start
-  --Rule.eval("a:on")
-  --Rule.eval("label(a,'FOO')")
-  --dofile("unit.lua")
+  
   dofile("example_rules.lua") -- some example rules to try out...
 end -- main()
 
