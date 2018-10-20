@@ -5,7 +5,7 @@
   (to initoialize the HomeTable)
   
 --]]
-local tExpr = false
+local tExpr = true
 local tRules = true
 local tShell = false
 local tGEA = false

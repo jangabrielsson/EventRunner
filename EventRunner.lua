@@ -31,6 +31,9 @@ function main()
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
   -- lets start
+  --Rule.eval("a:on")
+  --Rule.eval("label(a,'FOO')")
+  --dofile("unit.lua")
   dofile("example_rules.lua") -- some example rules to try out...
 end -- main()
 
@@ -579,7 +582,7 @@ _traceInstrs=false
 function newScriptEngine()
   local self={}
 
-  function ID(id,i) _assert(tonumber(id),"bad deviceID '%s' for '%s'",id,i[1]) return id end
+  function ID(id,i) _assert(tonumber(id),"bad deviceID '%s' for '%s' '%s'",id,i[1],i[3] or "") return id end
   local function doit(m,f,s) if type(s) == 'table' then return m(f,s) else return f(s) end end
 
   local function getIdFuns(s,i,prop) local id = s.pop() 
@@ -949,7 +952,7 @@ function newScriptCompiler()
 --  preC['>>'] = function(k,e) return self.precompile({'and',e[2],{'always',e[3]}}) end -- test >> expr |||| test >> expr ||| t >> expr
   preC['||'] = function(k,e) local c = {'and',e[2],{'always',e[3]}} return self.precompile(#e==3 and c or {'or',c,e[4]}) end
   preC['=>'] = function(k,e) return {'rule',{'quote',e[2]},{'quote',e[3]},{'quote',e[4]}} end
-  preC['.'] = function(k,e) return {'aref',e[2],isVar(e[3]) and e[3][2] or e[3]} end
+  preC['.'] = function(k,e) return {'aref',e[2],e[3]} end
   preC['neg'] = function(k,e) return isNum(e[2]) and -e[2] or e end
   preC['+='] = function(k,e) return {'inc',e[2],e[3],'+'} end
   preC['-='] = function(k,e) return {'inc',e[2],e[3],'-'} end
@@ -1010,7 +1013,7 @@ function newScriptCompiler()
     {"^(%.%.)",'op'},{"^(->)",'op'},    
     {"^(%d+%.?%d*)",'num'},
     {"^(%|%|)",'token'},{"^(>>)",'token'},{"^(=>)",'token'},{"^(@@)",'op'},
-    {"^([%%%*%+%-/&%.:~=><%|!@]+)",'op'},
+    {"^([%%%*%+/&%.:~=><%|!@]+)",'op'},{"^(-)",'op'},{"^(=-)",'op'},
   }
 
   local _specT={bracks={['{']='lbrack',['}']='rbrack',[',']='token',['[']='lsquare',[']']='rsquare'},
@@ -1037,7 +1040,7 @@ function newScriptCompiler()
       cp = cp+(#s1-#s)
     until s:match("^[%s%c]*$")
     return { peek = function() return tkns[tp] or EOF end, nxt = function() tp=tp+1 return tkns[tp-1] or EOF end, 
-      prev = function() return tkns[tp-1] end, push=function() tp=tp-1 end, str=org}
+      prev = function() return tkns[tp-2] end, push=function() tp=tp-1 end, str=org}
   end
 
   local function tmatch(str,t) _passert(t.peek().v==str,t.peek().cp,"expected '%s'",str) t.nxt() end
@@ -1072,7 +1075,9 @@ function newScriptCompiler()
   end
   pExpr['num']=function(t,tokens) return tonumber(t.v) end
   pExpr['string']=function(t,tokens) return t.v:sub(2,-2) end
-  pExpr['symbol']=function(t,tokens) if symbol[t.v] then return symbol[t.v][1] else return {'var',t.v} end end
+  pExpr['symbol']=function(t,tokens) local p = tokens.prev(); 
+    if symbol[t.v] then return symbol[t.v][1] elseif p and p.v=='.' and p.t=='op' then return t.v else return {'var',t.v} end 
+  end
   pExpr['gvar'] = function(t,tokens) return {'glob',t.v} end
   pExpr['addr'] = function(t,tokens) return {'%addr',t.v} end
   pExpr['time'] = function(t,tokens) return {'time',t.v} end
