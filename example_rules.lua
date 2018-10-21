@@ -5,7 +5,7 @@
   (to initoialize the HomeTable)
   
 --]]
-local tExpr = true
+local tExpr = false
 local tRules = true
 local tShell = false
 local tGEA = false
@@ -14,7 +14,7 @@ local tTest1 = false
 local tTest2 = false
 local tPresence = false
 local tHouse = false
-local tScheduler = false
+local tScheduler = true
 local tRemoteAsync = false
 local tTimes = false
 local tTriggerTuturial = false
@@ -188,8 +188,8 @@ if tScheduler then
   -- Simulate and test scene by triggering events...
 
   -- Test open door warning logic
-  Rule.eval("wait(t/09:30); hall.door:value=1") -- open door
-  Rule.eval("wait(t/10:00); hall.door:value=0") -- close door
+  Rule.eval("wait(t/08:30); hall.door:value=1") -- open door
+  Rule.eval("wait(t/09:55); hall.door:value=0") -- close door
 
   -- Test auto-off spots logic
   Rule.eval("downstairs_move:value=0") -- all sensor safe

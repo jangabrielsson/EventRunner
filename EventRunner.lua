@@ -18,7 +18,7 @@ _version = "1.2"
 --]]
 
 _sceneName   = "Demo"        -- Set to scene/script name
-_debugFlags = { post=false,invoke=false,triggers=false,dailys=false,timers=false,rule=false,fibaro=true,fibaroGet=false, fibaroSet=false }
+_debugFlags = { post=false,invoke=true,triggers=false,dailys=false,timers=false,rule=false,fibaro=true,fibaroGet=false, fibaroSet=false }
 _deviceTable = "deviceTable" -- Name of json struct with configuration data (i.e. "HomeTable")
 
 Event = {}
@@ -30,8 +30,7 @@ function main()
   --local devs = json.decode(fibaro:getGlobalValue(_deviceTable))
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
-  -- lets start
-  
+  -- lets start  
   dofile("example_rules.lua") -- some example rules to try out...
 end -- main()
 
@@ -577,7 +576,7 @@ end
 --------- ScriptEngine ------------------------------------------
 _traceInstrs=false
 
-function newScriptEngine()
+function newScriptEngine() 
   local self={}
 
   function ID(id,i) _assert(tonumber(id),"bad deviceID '%s' for '%s' '%s'",id,i[1],i[3] or "") return id end
@@ -597,7 +596,7 @@ function newScriptEngine()
     return doit(Util.map,function(id) return t-select(2,fibaro:get(ID(id,i),'value')) end, s.pop()) 
   end
   getIdFun['scene']=function(s,i) return getIdFuns(s,i,'sceneActivation') end
-  getIdFun['battery']=function(s,i) return getIdFuns(s,i,'batteryLevel') end
+  getIdFun['bat']=function(s,i) return getIdFuns(s,i,'batteryLevel') end
   getIdFun['name']=function(s,i) return doit(Util.map,function(id) return fibaro:getName(ID(id,i)) end,s.pop()) end 
   getIdFun['roomName']=function(s,i) return doit(Util.map,function(id) return fibaro:getRoomNameByDeviceID(ID(id,i)) end,s.pop()) end 
   getIdFun['safe']=getIdFun['isOff'] getIdFun['breached']=getIdFun['isOn']
@@ -660,7 +659,7 @@ function newScriptEngine()
   end
   instr['fn'] = function(s,n,e,i) local vars,cnxt = i[3],e.context or {__instr={}} for i=1,n do cnxt[vars[i]]={s.pop()} end end
   instr['rule'] = function(s,n,e,i) local r,b,h=s.pop(),s.pop(),s.pop() s.push(Rule.compRule({'=>',h,b},r)) end
-  instr['prop'] = function(s,n,e,i) local prop=i[3] if getIdFun[prop] then s.push(getIdFun[prop](s,i)) else s.push(getIdFuns(s,i,prop)) end end
+  instr['prop'] = function(s,n,e,i)local prop=i[3] if getIdFun[prop] then s.push(getIdFun[prop](s,i)) else s.push(getIdFuns(s,i,prop)) end end
   instr['apply'] = function(s,n,e,i) local f = s.pop()
     local fun = type(f) == 'string' and getVar(f,e) or f
     if type(fun)=='function' then s.push(fun(table.unpack(s.lift(n)))) 
@@ -729,7 +728,7 @@ function newScriptEngine()
   instr['fjson'] = function(s,n) s.push(json.decode(s.pop())) end
   instr['osdate'] = function(s,n) local x,y = s.ref(n-1),(n>1 and s.pop() or nil) s.pop(); s.push(osDate(x,y)) end
   instr['daily'] = function(s,n,e) s.pop() s.push(true) end
-  instr['schedule'] = function(s,n,e) local t,code = s.pop(),e.code 
+  instr['schedule'] = function(s,n,e) local t,code = s.pop(),e.code -- Fix this to normal rule format!!!!
     Event.post(function() self.eval(code) end,osTime()+t,e.src) s.push(true)
   end
   instr['ostime'] = function(s,n) s.push(osTime()) end
@@ -862,8 +861,9 @@ function newScriptCompiler()
   _comp['quote'] = function(e,ops) ops[#ops+1] = {mkOp('push'),0,e[2]} end
   _comp['glob'] = function(e,ops) ops[#ops+1] = {mkOp('glob'),0,e[2]} end
   _comp['var'] = function(e,ops) ops[#ops+1] = {mkOp('var'),0,e[2]} end
-  _comp['prop'] = function(e,ops) _assert(isVar(e[3]),"bad property field: '%s'",e[3])
-    compT(e[2],ops) ops[#ops+1]={mkOp('prop'),0,e[3][2]} 
+  _comp['prop'] = function(e,ops) 
+    _assert(isString(e[3]),"bad property field: '%s'",e[3])
+    compT(e[2],ops) ops[#ops+1]={mkOp('prop'),0,e[3]} 
   end
   _comp['apply'] = function(e,ops) for i=1,#e[3] do compT(e[3][i],ops) end compT(e[2],ops) ops[#ops+1] = {mkOp('apply'),#e[3],e[2][2]} end
   _comp['%table'] = function(e,ops) local keys = {}
@@ -1011,7 +1011,7 @@ function newScriptCompiler()
     {"^(%.%.)",'op'},{"^(->)",'op'},    
     {"^(%d+%.?%d*)",'num'},
     {"^(%|%|)",'token'},{"^(>>)",'token'},{"^(=>)",'token'},{"^(@@)",'op'},
-    {"^([%%%*%+/&%.:~=><%|!@]+)",'op'},{"^(-)",'op'},{"^(=-)",'op'},
+    {"^([%%%*%+/&%.:~=><%|!@]+)",'op'},{"^(-)",'op'},{"^(%=%-)",'op'},
   }
 
   local _specT={bracks={['{']='lbrack',['}']='rbrack',[',']='token',['[']='lsquare',[']']='rsquare'},
@@ -1021,7 +1021,7 @@ function newScriptCompiler()
   local function tokenize(s) 
     local i,tkns,cp,s1,tp,EOF,org = 1,{},1,'',1,{t='EOF',v='<eol>',cp=#s},s
     repeat
-      s1,s = s,s:match("^[%s%c]*(.*)")
+      s1,s = s,s:match("^[^%w%p]*(.*)") --"^[%s%c]*(.*)")
       cp = cp+(#s1-#s)
       s = s:gsub(_tokens[ i ][ 1 ],
         function(m) local r,to = "",_tokens[i]
@@ -1074,7 +1074,10 @@ function newScriptCompiler()
   pExpr['num']=function(t,tokens) return tonumber(t.v) end
   pExpr['string']=function(t,tokens) return t.v:sub(2,-2) end
   pExpr['symbol']=function(t,tokens) local p = tokens.prev(); 
-    if symbol[t.v] then return symbol[t.v][1] elseif p and p.v=='.' and p.t=='op' then return t.v else return {'var',t.v} end 
+    if symbol[t.v] then return symbol[t.v][1] 
+    elseif p and (p.v=='.' or p.v == ':') and p.t=='op' then 
+      return t.v 
+    else return {'var',t.v} end 
   end
   pExpr['gvar'] = function(t,tokens) return {'glob',t.v} end
   pExpr['addr'] = function(t,tokens) return {'%addr',t.v} end
@@ -1180,9 +1183,12 @@ function newRuleCompiler()
   local self = {}
   local map,mapkl,traverse=Util.map,Util.mapkl,Util.traverse
   local _macros,_dailys,rCounter= {},{},0
-  local tFun={isOn=1,prop=4,isOff=1,power=2,bat=4,lux=4,safe=4,breached=4,sense=4,manual=4,value=1,temp=1,scene=5,trigger=4,label=3}
-  local tFunN={[1]='value',[2]='power',[3]='ui',[4]=nil,[5]='sceneActivation'}
-  local triggFuns = {}
+  local tProps ={value=1,isOn=1,isOff=1,isAnyOff=1,isAllOn=1,last=1,safe=1,breached=1,scene=2,power=3,bat=4,trigger=1,toggle=1,lux=1,temp=1,manual=1}
+  local tPropsV = {[1]='value',[2]='sceneActivation',[3]='power',[4]='batteryLevel'}
+  local lblF=function(id,e) return {type='property', deviceID=id, propertyName=_format("ui.%s.value",e[3])} end
+  local triggFuns={
+    label=lblF,slider=lblF
+  }
 
   local function getTriggers(e)
     local ids,dailys,betw,sched={},{},{},false
@@ -1193,14 +1199,14 @@ function newRuleCompiler()
         betw[#betw+1 ]=ScriptCompiler.compile(e[2])
         betw[#betw+1 ]=ScriptCompiler.compile({'+',1,e[3]})
       elseif k=='glob' then ids[e[2] ] = {type='global', name=e[2]}
-      elseif tFun[k] then 
+      elseif k=='prop' and tProps[e[3]] then
+        local cv = ScriptCompiler.compile(e[2])
+        local v,pn = ScriptEngine.eval(cv),tPropsV[tProps[e[3]]]
+        map(function(id) ids[id]={type='property', deviceID=id, propertyName=pn} end,type(v)=='table' and v or {v})
+      elseif triggFuns[k] then 
         local cv = ScriptCompiler.compile(e[2])
         local v = ScriptEngine.eval(cv)
-        local pn = tFunN[tFun[k]]
-        if pn == 'ui' then pn = _format("ui.%s.value",e[3]) end
-        map(function(id) ids[id]={type='property', deviceID=id, propertyName=pn} end,type(v)=='table' and v or {v})
-      elseif triggFuns[k] then local v = ScriptEngine.eval(ScriptCompiler.compile(e[2]))
-        map(function(id) ids[id]=triggFuns[k](id) end,type(v)=='table' and v or {v})
+        map(function(id) ids[id]=triggFuns[k](id,e) end,type(v)=='table' and v or {v})
       end
       return e
     end
@@ -1253,7 +1259,7 @@ function newRuleCompiler()
       else
         error(_format("no triggers found in rule '%s'",tojson(e)))
       end
-      res = {[Event.RULE]={time=times,betw=betw,device=ids}, action=action, src=src}
+      res = {[Event.RULE]={daily=dailys,betw=betw,device=ids}, action=action, src=src}
     end
     rCounter=rCounter+1
     Log(LOG.SYSTEM,"Rule:%s:%.40s",rCounter,src:match("([^%c]*)"))

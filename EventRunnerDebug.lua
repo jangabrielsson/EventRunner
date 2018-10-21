@@ -327,7 +327,7 @@ if not _REMOTE then
     if not value then error(_format("fibaro:call(..,'%s',..) is not supported, fix it!",prop)) end
     local idKey = id..'value'
     if not fibaro._fibaroCalls[idKey] or fibaro._fibaroCalls[idKey][1] ~= value then
-      local ev = {type='property', deviceID=id, propertyName=prop=='setValue' and 'value' or prop, value=value, _sh=true}
+      local ev = {type='property', deviceID=id, propertyName='value', value=value, _sh=true}
       if Event then Event.post(ev) else setTimeout(function() main(ev) end,0) end
     end
     fibaro._fibaroCalls[idKey] = {value,osTime()}
