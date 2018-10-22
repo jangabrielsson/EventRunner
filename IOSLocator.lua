@@ -24,11 +24,11 @@ local homeLatitude,homeLongitude  -- set to first place in HomeTable.places list
 
 HomeTable = [[
 {"scenes":{
-    "iOSLocator":{"id":__fibaroSceneId,"send":["iOSClient"]},
+    "iOSLocator":{"id":11,"send":["iOSClient"]},
     "iOSClient":{"id":9,"send":{}},
   },
 "places":[
-    {"longitude":17.9876023512517,"dist":0.6,"latitude":60.787947773698,"name":"Home"},
+    {"longitude":17.9876023512,"dist":0.6,"latitude":60.7879477,"name":"Home"},
     {"longitude":17.955049,"dist":0.8,"latitude":59.405818,"name":"Ericsson"},
     {"longitude":18.080638,"dist":0.8,"latitude":59.52869,"name":"Vallentuna"},
     {"longitude":17.648488,"dist":0.8,"latitude":59.840704,"name":"Polacksbacken"},
@@ -105,11 +105,15 @@ function main(sourceTrigger)
   local event = sourceTrigger
 
   if event.type=='global' and event.name == _deviceTable then
-    conf = json.decode(_test and HomeTable or fibaro:getGlobalValue(_deviceTable))
+ --   conf = json.decode(_test and HomeTable or fibaro:getGlobalValue(_deviceTable))
+    conf = json.decode(HomeTable)
     homeLatitude=conf.places[1].latitude
     homeLongitude=conf.places[1].longitude
     iUsers = {}
     for _,v in pairs(conf.users) do if v.icloud then v.icloud.name = v.name iUsers[#iUsers+1] = v.icloud end end
+    Debug(true,"Configuration data:")
+    for u,p in pairs(iUsers) do Debug(true,"User:%s",p.name) end
+    for _,p in ipairs(conf.places) do Debug(true,"Place:%s",p.name) end
   end
 
   if event.type=='location' then 
@@ -211,7 +215,7 @@ function main(sourceTrigger)
     local index = event.index
     local user = iUsers[(index % #iUsers)+1]
     post({type='getIOSdevices', user=user.user, pwd=user.pwd, name=user.name})
-    post({type='poll',index=index+1},"+/00:01")
+    post({type='poll',index=index+1},"+/00:01") -- check every minute
   end
 
   if event.type == 'error' then 
@@ -223,6 +227,37 @@ function main(sourceTrigger)
     post({type='poll',index=1})
   end
 
+  if nil then
+    -- example of client receiving location events
+    locations = {}
+    numberOfPeople = 4
+    homeFlag = false
+
+    Rule.eval("#presence{state='home',who='$who'} => phonesToNotify:msg=log('%s at home',who)")
+    Rule.eval("#presence{state='allaway'} => phonesToNotify:msg=log('House empty')")
+
+    function checkLocation()
+      local home = false
+      local who = {}
+      for w,p in ipairs(locations) do
+        if p == 'Home' then home=true; who[#who+1]=w end
+      end
+      if home and homeFlag ~= true then 
+        homeFlag = true
+        Event.post({type='presence', state='home', who=table.concat(who,',')})
+      elseif #locations == numberOfPeople then
+        if homeFlag ~= false then
+          homeFlag = false
+          Event.post({type='presence', state='allaway'})
+        end
+      end
+    end
+
+    Rule.eval([[#location{user='$user', place='$place'} => 
+      locations[user]=place;
+      phoneToNotify:msg=log('%s at %s',user,place);
+      checkLocations()]])
+  end
 end -- main()
 
 ------------------------ Framework, do not change ---------------------------  
