@@ -431,24 +431,24 @@ function Util.dateTest(dateStr)
       else res= type(id) == 'number' and id or days[id] or months[id] or tonumber(id) end
       _assert(res,"Bad date specifier '%s'",id) return res
     end
-    local w,m = w1[1],w1[2];
+    local w,m,step= w1[1],w1[2],1
     local start,stop = w:match("(%w+)%p(%w+)")
     if (start == nil) then return resolve(w) end
     start,stop = resolve(start), resolve(stop)
-    local res = {}
-    if (string.find(w,"/")) then -- 10/2
-      while(start < m.max) do
-        res[#res+1] = start
-        start = start+stop
-      end
-    else 
-      _assert(start>=m.min and start<=m.max and stop>=m.min and stop<=m.max,"illegal date intervall")
-      while (start ~= stop) do -- 10-2
-        res[#res+1] = start
-        start = start+1; if start>m.max then start=m.min end  
-      end
-      res[#res+1] = stop
+    local res,res2 = {},{}
+    if w:find("/") then
+      if not w:find("-") then -- 10/2
+        step=stop; stop = m.max
+      else step=w:match("/(%d+)") end
     end
+    step = tonumber(step)
+    _assert(start>=m.min and start<=m.max and stop>=m.min and stop<=m.max,"illegal date intervall")
+    while (start ~= stop) do -- 10-2
+      res[#res+1] = start
+      start = start+1; if start>m.max then start=m.min end  
+    end
+    res[#res+1] = stop
+    if step > 1 then for i=1,#res,step do res2[#res2+1]=res[i] end; res=res2 end
     return res
   end
 
@@ -731,8 +731,12 @@ function newScriptEngine()
   instr['fjson'] = function(s,n) s.push(json.decode(s.pop())) end
   instr['osdate'] = function(s,n) local x,y = s.ref(n-1),(n>1 and s.pop() or nil) s.pop(); s.push(osDate(x,y)) end
   instr['daily'] = function(s,n,e) s.pop() s.push(true) end
-  instr['schedule'] = function(s,n,e) local t,code = s.pop(),e.code -- Fix this to normal rule format!!!!
-    Event.post(function() self.eval(code) end,osTime()+t,e.src) s.push(true)
+  instr['schedule'] = function(s,n,e,i) local t,code = s.pop(),e.code -- Fix this to normal rule format!!!!
+    local told,tinc,tnew = i[3],i[4],osTime()
+    if t ~= tinc then told=nil; tinc=t end
+    t = told and t+told or tnew+t
+    i[3],i[4]=t,tinc
+    Event.post(function() self.eval(code) end,t,e.src) s.push(true)
   end
   instr['ostime'] = function(s,n) s.push(osTime()) end
   instr['frm'] = function(s,n) s.push(string.format(table.unpack(s.lift(n)))) end
