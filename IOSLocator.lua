@@ -105,11 +105,15 @@ function main(sourceTrigger)
   local event = sourceTrigger
 
   if event.type=='global' and event.name == _deviceTable then
- --   conf = json.decode(_test and HomeTable or fibaro:getGlobalValue(_deviceTable))
-    conf = json.decode(HomeTable)
+    iUsers = {}
+    local gname = _test and HomeTable or fibaro:getGlobalValue(_deviceTable)
+    if gname  == nil or gname == "" then 
+      Debug(true,"Missing configuration data, HomeTable='%s'",_deviceTable or "")
+      fibaro:abort()
+    end
+    conf = json.decode(gname)
     homeLatitude=conf.places[1].latitude
     homeLongitude=conf.places[1].longitude
-    iUsers = {}
     for _,v in pairs(conf.users) do if v.icloud then v.icloud.name = v.name iUsers[#iUsers+1] = v.icloud end end
     Debug(true,"Configuration data:")
     for u,p in pairs(iUsers) do Debug(true,"User:%s",p.name) end
