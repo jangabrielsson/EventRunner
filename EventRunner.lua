@@ -31,10 +31,7 @@ function main()
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
   -- lets start
-  Rule.load("#foo=> log('%s')")
-  Rule.eval("post(#foo)")
-  Event.event({type='foo'},function() Log(LOG.LOG,"%s") end)
-  -- dofile("example_rules.lua") -- some example rules to try out...
+  dofile("example_rules.lua") -- some example rules to try out...
 end -- main()
 
 
@@ -52,6 +49,7 @@ end
 ---------- Producer(s) - Handing over incoming triggers to consumer --------------------
 
 if _supportedEvents[_type] then
+  if fibaro:countScenes() == 1 then fibaro:debug("Aborting: Server not started yet"); fibaro:abort() end
   local event = type(_trigger) ~= 'string' and json.encode(_trigger) or _trigger
   local ticket = string.format('<@>%s%s',tostring(_source),event)
   repeat 
