@@ -30,9 +30,14 @@ function main()
   --local devs = json.decode(fibaro:getGlobalValue(_deviceTable))
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
-  -- lets start  
-  dofile("example_rules.lua") -- some example rules to try out...
+  -- lets start
+  Rule.load("#foo=> log('%s')")
+  Rule.eval("post(#foo)")
+  Event.event({type='foo'},function() Log(LOG.LOG,"%s") end)
+  -- dofile("example_rules.lua") -- some example rules to try out...
 end -- main()
+
+
 
 ------------------- EventModel - Don't change! --------------------  
 local _supportedEvents = {property=true,global=true,event=true,remote=true}
@@ -272,7 +277,7 @@ function newEventEngine()
     if e.deviceID and type(e.deviceID) == 'table' then  -- multiple IDs in deviceID {type='property', deviceID={x,y,..}}
       return _mkCombEvent(e,action,doc,Util.map(function(id) local el=_copy(e) el.deviceID=id return self.event(el,action,doc) end,e.deviceID))
     end
-    doc = doc or tojson(e)
+    doc = doc and "Event.event:"..doc or _format("Event.event(%s,...)",tojson(e))
     action = self._compileAction(action)
     _compilePattern(e)
     _handlers[e.type] = _handlers[e.type] or {}
@@ -321,7 +326,7 @@ function newEventEngine()
     Debug(_debugFlags.invoke and not env.event._sh,"Invoking:%s",env.rule.src)
     local status, res = pcall(function() env.rule.action(env) end) -- call the associated action
     if not status then
-      ruleError(res,env.rule,"rule")
+      ruleError(res,env.rule.src,"rule")
       self.post({type='error',err=res,rule=env.rule.src,event=tojson(env.event),_sh=true})    -- Send error back
       env.rule._disabled = true                            -- disable rule to not generate more errors
     end
@@ -658,7 +663,7 @@ function newScriptEngine()
     error({"jump to bad address:"..addr}) 
   end
   instr['fn'] = function(s,n,e,i) local vars,cnxt = i[3],e.context or {__instr={}} for i=1,n do cnxt[vars[i]]={s.pop()} end end
-  instr['rule'] = function(s,n,e,i) local r,b,h=s.pop(),s.pop(),s.pop() s.push(Rule.compRule({'=>',h,b},r)) end
+  instr['rule'] = function(s,n,e,i) local r,b,h=s.pop(),s.pop(),s.pop() s.push(Rule.compRule({'=>',h,b},e.src or r)) end
   instr['prop'] = function(s,n,e,i)local prop=i[3] if getIdFun[prop] then s.push(getIdFun[prop](s,i)) else s.push(getIdFuns(s,i,prop)) end end
   instr['apply'] = function(s,n,e,i) local f = s.pop()
     local fun = type(f) == 'string' and getVar(f,e) or f
@@ -1266,23 +1271,27 @@ function newRuleCompiler()
     return res
   end
 
-  function self.eval(expro,log)
+  function self.eval(expro,log,level)
+    level = level or 2
+    local line =""
+    if _OFFLINE then line = _format(" @line %s",debug.getinfo(level).currentline) end
     local status, res = pcall(function() 
         local expr = self.macroSubs(expro)
         local res = ScriptCompiler.parse(expr)
         res = ScriptCompiler.compile(res)
-        res = ScriptEngine.eval(res,{src=expro})
+        res = ScriptEngine.eval(res,{src=expro..line})
         if log then Log(LOG.LOG,"%s = %s",expro,tojson(res)) end
         return res
       end)
-    if not status then errThrow(_format("Error evaluating '%s'",expro),res)
+    if not status then errThrow(_format("Error evaluating '%s'",expro..line),res)
     else return res end
   end
 
   function self.load(rules,log)
     local function splitRules(rules)
       local lines,cl,pb,cline = {},math.huge,false,""
-      rules:gsub("([^%c]*)\r?\n",function(p) 
+      if not rules:match("([^%c]*)\r?\n") then return {rules} end
+      rules:gsub("([^%c]*)\r?\n?",function(p) 
           if p:match("^%s*---") then return end
           local s,l = p:match("^(%s*)(.*)")
           if l=="" then cl = math.huge return end
@@ -1293,7 +1302,7 @@ function newRuleCompiler()
       lines[#lines+1]=cline
       return lines
     end
-    map(function(r) self.eval(r,log) end,splitRules(rules))
+    map(function(r) self.eval(r,log,5) end,splitRules(rules))
   end
 
   function self.macro(name,str) _macros['%$'..name..'%$'] = str end
@@ -1355,6 +1364,8 @@ Rule.addTrigger('weather',
 Util.defvar('S1',Util.S1)
 Util.defvar('S2',Util.S2)
 Util.defvar('catch',math.huge)
+Util.defvar("defvars",Util.defvars)
+Util.defvar("mapvars",Util.reverseMapDef)
 
 ---- Print rule definition -------------
 

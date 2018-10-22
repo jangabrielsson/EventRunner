@@ -275,9 +275,9 @@ if not _REMOTE then
 
   _simFuns = {}
   _simFuns['property'] = function(e) 
-    fibaro._fibaroCalls[e.deviceID..(e.propertyName or 'value')] = {tostring(e.value),osTime()} 
+    fibaro._fibaroCalls[e.deviceID..(e.propertyName or 'value')] = {e.value and tostring(e.value) or '0',osTime()} 
   end
-  _simFuns['global'] = function(e) fibaro._globals[e.name] = {tostring(e.value), osTime()} end
+  _simFuns['global'] = function(e) fibaro._globals[e.name] = {e.value and tostring(e.value) or nil, osTime()} end
 
   function _getIdProp(id,prop)
     local keyid = id..prop
@@ -300,7 +300,7 @@ if not _REMOTE then
   function fibaro:setGlobal(name,value) _setGlobal(name,value) end
 
   function _setGlobal(name,value)
-    value = tostring(value)
+    if value ~= nil then value = tostring(value) end
     if fibaro._globals[name] == nil or fibaro._globals[name][1] ~= value then
       local ev = {type='global', name=name, value=x, _sh=true} -- If global changes value, fibaro send back event to scene
       if Event then if Event.post then Event.post(ev) end else setTimeout(function() main(ev) end,0) end
