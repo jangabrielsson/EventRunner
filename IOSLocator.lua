@@ -211,7 +211,7 @@ function main(sourceTrigger)
     local index = event.index
     local user = iUsers[(index % #iUsers)+1]
     post({type='getIOSdevices', user=user.user, pwd=user.pwd, name=user.name})
-    post({type='poll',index=index+1})
+    post({type='poll',index=index+1},"+/00:01")
   end
 
   if event.type == 'error' then 
