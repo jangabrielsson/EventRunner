@@ -269,9 +269,9 @@ end -- main()
 local _trigger = fibaro:getSourceTrigger()
 local _type, _source = _trigger.type, _trigger
 local _MAILBOX = "MAILBOX"..__fibaroSceneId 
-
+function urldecode(str) return str:gsub('%%(%x%x)',function (x) return string.char(tonumber(x,16)) end) end
 if _type == 'other' and fibaro:args() then
-  _trigger,_type = fibaro:args()[1],'remote'
+  _trigger,_type = urldecode(fibaro:args()[1]),'remote'
 end
 
 function _midnight() local t=osDate("*t"); t.min,t.hour,t.sec=0,0,0; return osTime(t) end
@@ -309,7 +309,7 @@ function post(event, time)
     time*1000) 
 end
 function cancel(ref) if ref then clearTimeout(ref) end return nil end
-function postRemote(sceneID,event) event._from=__fibaroSceneId; fibaro:startScene(sceneID,{json.encode(event)}) end
+function postRemote(sceneID,event) event._from=__fibaroSceneId; fibaro:startScene(sceneID,{urlencode(json.encode(event))}) end
 
 ---------- Producer(s) - Handing over incoming triggers to consumer --------------------
 if ({property=true,global=true,event=true,remote=true})[_type] then
