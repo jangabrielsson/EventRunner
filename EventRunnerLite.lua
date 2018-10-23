@@ -197,9 +197,9 @@ end -- main()
 local _trigger = fibaro:getSourceTrigger()
 local _type, _source = _trigger.type, _trigger
 local _MAILBOX = "MAILBOX"..__fibaroSceneId 
-
+function urldecode(str) return str:gsub('%%(%x%x)',function (x) return string.char(tonumber(x,16)) end) end
 if _type == 'other' and fibaro:args() then
-  _trigger,_type = fibaro:args()[1],'remote'
+  _trigger,_type = urldecode(fibaro:args()[1]),'remote'
 end
 
 function _midnight() local t=osDate("*t"); t.min,t.hour,t.sec=0,0,0; return osTime(t) end
@@ -227,6 +227,33 @@ end
 
 if not Debug then function Debug(flag,message,...) if flag then fibaro:debug(string.format(message,...)) end end end
 
+  function interceptFib(name,flag,spec,mf)
+    local fun,fstr = fibaro[name],name:match("^get") and "fibaro:%s(%s%s%s) = %s" or "fibaro:%s(%s%s%s)"
+    if spec then 
+      fibaro[name] = function(obj,...) if _debugFlags[flag] then return spec(obj,fun,...) else return fun(obj,...) end end 
+    else 
+      fibaro[name] = function(obj,id,...)
+        local id2,args = type(id) == 'number' and Util.reverseVar(id) or '"'..id..'"',{...}
+        local status,res,r2 = pcall(function() return fun(obj,id,table.unpack(args)) end)
+        if status and _debugFlags[flag] then
+          fibaro:debug(string.format(fstr,name,id2,(#args>0 and "," or ""),json.encode(args):sub(2,-2),json.encode(res)))
+        elseif not status then
+          error(string.format("Err:fibaro:%s(%s%s%s), %s",name,id2,(#args>0 and "," or ""),json.encode(args):sub(2,-2),res),3)
+        end
+        if mf then return res,r2 else return res end
+      end
+    end
+  end
+  interceptFib("call","fibaro")
+  interceptFib("setGlobal","fibaroSet")
+  interceptFib("getGlobal","fibaroGet",nil,true)
+  interceptFib("getGlobalValue","fibaroGet")
+  interceptFib("get","fibaroGet",nil,true)
+  interceptFib("getValue","fibaroGet")
+  interceptFib("startScene","fibaro")
+  -- function(args) return #args>0 and {Util.prettyEncode(args[1])} or args end)
+  interceptFib("killScenes","fibaro")
+
 function post(event, time) 
   if type(time)=='string' then time=toTime(time) else time = time or 0 end
   if _debugFlags.post then Debug(true,"Posting {type=%s,...} for %s",event.type,osDate("%X",time+osTime())) end
@@ -235,7 +262,7 @@ function post(event, time)
       main(event) end,time*1000) 
   end
   function cancel(ref) if ref then clearTimeout(ref) end return nil end
-  function postRemote(sceneID,event) event._from=__fibaroSceneId; fibaro:startScene(sceneID,{json.encode(event)}) end
+  function postRemote(sceneID,event) event._from=__fibaroSceneId; fibaro:startScene(sceneID,{urlencode(json.encode(event))}) end
 
 ---------- Producer(s) - Handing over incoming triggers to consumer --------------------
   if ({property=true,global=true,event=true,remote=true})[_type] then

@@ -362,32 +362,20 @@ function newEventEngine()
   end
 
   -- Logging of fibaro:* calls -------------
-  if nil then
-    function interceptFib(name,flag,tweak)
-      local fun = fibaro[name]
+  function interceptFib(name,flag,spec,mf)
+    local fun,fstr = fibaro[name],name:match("^get") and "fibaro:%s(%s%s%s) = %s" or "fibaro:%s(%s%s%s)"
+    if spec then 
+      fibaro[name] = function(obj,...) if _debugFlags[flag] then return spec(obj,fun,...) else return fun(obj,...) end end 
+    else 
       fibaro[name] = function(obj,id,...)
-        local id2,args = type(id) == 'number' and Util.reverseVar(id) or id,{...}
-        args = tweak and _debugFlags[flag] and tweak(args) or args
-        Debug(_debugFlags[flag],"fibaro:%s(%s%s%s)",name,id2,(#args>0 and "," or ""),table.concat(args,','))
-        return fun(obj,id,...)
-      end
-    end
-  else
-    function interceptFib(name,flag,spec,mf)
-      local fun,fstr = fibaro[name],name:match("^get") and "fibaro:%s(%s%s%s) = %s" or "fibaro:%s(%s%s%s)"
-      if spec then 
-        fibaro[name] = function(obj,...) if _debugFlags[flag] then return spec(obj,fun,...) else return fun(obj,...) end end 
-      else 
-        fibaro[name] = function(obj,id,...)
-          local id2,args = type(id) == 'number' and Util.reverseVar(id) or '"'..id..'"',{...}
-          local status,res,r2 = pcall(function() return fun(obj,id,table.unpack(args)) end)
-          if status and _debugFlags[flag] then
-            fibaro:debug(string.format(fstr,name,id2,(#args>0 and "," or ""),json.encode(args):sub(2,-2),json.encode(res)))
-          elseif not status then
-            error(string.format("Err:fibaro:%s(%s%s%s), %s",name,id2,(#args>0 and "," or ""),json.encode(args):sub(2,-2),res),3)
-          end
-          if mf then return res,r2 else return res end
+        local id2,args = type(id) == 'number' and Util.reverseVar(id) or '"'..id..'"',{...}
+        local status,res,r2 = pcall(function() return fun(obj,id,table.unpack(args)) end)
+        if status and _debugFlags[flag] then
+          fibaro:debug(string.format(fstr,name,id2,(#args>0 and "," or ""),json.encode(args):sub(2,-2),json.encode(res)))
+        elseif not status then
+          error(string.format("Err:fibaro:%s(%s%s%s), %s",name,id2,(#args>0 and "," or ""),json.encode(args):sub(2,-2),res),3)
         end
+        if mf then return res,r2 else return res end
       end
     end
   end
@@ -398,7 +386,6 @@ function newEventEngine()
   interceptFib("get","fibaroGet",nil,true)
   interceptFib("getValue","fibaroGet")
   interceptFib("startScene","fibaro")
-  -- function(args) return #args>0 and {Util.prettyEncode(args[1])} or args end)
   interceptFib("killScenes","fibaro")
 
   return self
