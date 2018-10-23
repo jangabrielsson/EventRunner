@@ -34,16 +34,14 @@ function main()
   dofile("example_rules.lua") -- some example rules to try out...
 end -- main()
 
-
-
 ------------------- EventModel - Don't change! --------------------  
 local _supportedEvents = {property=true,global=true,event=true,remote=true}
 local _trigger = fibaro:getSourceTrigger()
 local _type, _source = _trigger.type, _trigger
 local _MAILBOX = "MAILBOX"..__fibaroSceneId 
-
+function urldecode(str) return str:gsub('%%(%x%x)',function (x) return string.char(tonumber(x,16)) end) end
 if _type == 'other' and fibaro:args() then
-  _trigger,_type = fibaro:args()[1],'remote'
+  _trigger,_type = urldecode(fibaro:args()[1]),'remote'
 end
 
 ---------- Producer(s) - Handing over incoming triggers to consumer --------------------
@@ -245,7 +243,7 @@ function newEventEngine()
   function self.postRemote(sceneID, e) -- Post event to other scenes
     _assert(isEvent(e), "Bad event format")
     e._from = __fibaroSceneId
-    fibaro:startScene(sceneID,{json.encode(e)})
+    fibaro:startScene(sceneID,{urlencode(json.encode(e))})
   end
 
   local _getProp = {}
