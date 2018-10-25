@@ -230,6 +230,8 @@ function main(sourceTrigger)
     post({type='global', name=_deviceTable})
     post({type='poll',index=1})
   end
+  
+  if event.type == '%%PING%%' then postRemote(event._from,{type='%%PONG%%'}) end
 
   if nil then
     -- example of client receiving location events
