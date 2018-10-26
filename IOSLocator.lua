@@ -231,7 +231,7 @@ function main(sourceTrigger)
     post({type='poll',index=1})
   end
   
-  if event.type == '%%PING%%' then postRemote(event._from,{type='%%PONG%%'}) end
+  if event.type == '%%PING%%' then event.type='%%PONG%%' postRemote(event._from,event) end
 
   if nil then
     -- example of client receiving location events
