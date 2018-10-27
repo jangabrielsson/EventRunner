@@ -31,7 +31,7 @@ function main()
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
   -- lets start
-
+  
   dofile("example_rules.lua") -- some example rules to try out...
 end -- main()
 
@@ -219,7 +219,7 @@ function newEventEngine()
     local status,res = pcall(e) 
     if not status then ruleError(res,src,"timer fun") end
   end
-  
+
   function self.post(e,time,src) -- time in 'toTime' format, see below.
     _assert(isEvent(e) or type(e) == 'function', "Bad2 event format %s",tojson(e))
     time = toTime(time or osTime())
@@ -388,7 +388,7 @@ function newEventEngine()
   interceptFib("getValue","fibaroGet")
   interceptFib("killScenes","fibaro")
   interceptFib("startScene","fibaro",
-     function(obj,fun,id,args) 
+    function(obj,fun,id,args) 
       local a = args and #args==1 and type(args[1])=='string' and (json.encode({(urldecode(args[1]))})) or ""
       fibaro:debug(string.format("fibaro:start(%s,%s)",id,a))
       fun(obj,id, args) 
@@ -724,11 +724,12 @@ function newScriptEngine()
   instr['osdate'] = function(s,n) local x,y = s.ref(n-1),(n>1 and s.pop() or nil) s.pop(); s.push(osDate(x,y)) end
   instr['daily'] = function(s,n,e) s.pop() s.push(true) end
   instr['schedule'] = function(s,n,e,i) local t,code = s.pop(),e.code -- Fix this to normal rule format!!!!
-    local told,tinc,tnew = i[3],i[4],osTime()
+    local told,tinc,tnew,res = i[3],i[4],osTime(),true
+    if t < 0 then t=-t if i[5]==nil then res = false; i[5]=true end end
     if t ~= tinc then told=nil; tinc=t end
     t = told and t+told or tnew+t
     i[3],i[4]=t,tinc
-    Event.post(function() self.eval(code) end,t,e.src) s.push(true)
+    Event.post(function() self.eval(code) end,t,e.src) s.push(res)
   end
   instr['ostime'] = function(s,n) s.push(osTime()) end
   instr['frm'] = function(s,n) s.push(string.format(table.unpack(s.lift(n)))) end
@@ -1027,7 +1028,7 @@ function newScriptCompiler()
           if to[2]=='num' and m:match("%.$") then m=m:sub(1,-2); r ='.' -- hack for e.g. '7.'
           elseif m == '(' and #tkns>0 and tkns[#tkns ].t ~= 'fun' and tkns[#tkns ].v:match("^[%]%)%da-zA-Z]") then 
             m='call' to={1,'call'} 
-          elseif m == '-' and (#tkns==0 or tkns[#tkns ].t=='call' or tkns[#tkns ].v:match("^[+%-*/({.><=&|;,]")) then 
+          elseif m == '-' and (#tkns==0 or tkns[#tkns ].t=='call' or tkns[#tkns ].v:match("^[+%-*/({.><=&|;,@]")) then 
             m='neg' to={1,'op'} 
           end
           tkns[#tkns+1 ] = {t=to[2], v=m, cp=cp} i = 1 return r
