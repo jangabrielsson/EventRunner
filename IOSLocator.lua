@@ -230,7 +230,7 @@ function main(sourceTrigger)
     post({type='global', name=_deviceTable})
     post({type='poll',index=1})
   end
-  
+
   if event.type == '%%PING%%' then event.type='%%PONG%%' postRemote(event._from,event) end
 
   if nil then
@@ -336,6 +336,38 @@ local function _poll()
   end
   setTimeout(_poll,250) -- check every 250ms
 end
+
+-- Logging of fibaro:* calls -------------
+function interceptFib(name,flag,spec,mf)
+  local fun,fstr = fibaro[name],name:match("^get") and "fibaro:%s(%s%s%s) = %s" or "fibaro:%s(%s%s%s)"
+  if spec then 
+    fibaro[name] = function(obj,...) if _debugFlags[flag] then return spec(obj,fun,...) else return fun(obj,...) end end 
+  else 
+    fibaro[name] = function(obj,id,...)
+      local id2,args = type(id) == 'number' and Util.reverseVar(id) or '"'..id..'"',{...}
+      local status,res,r2 = pcall(function() return fun(obj,id,table.unpack(args)) end)
+      if status and _debugFlags[flag] then
+        fibaro:debug(string.format(fstr,name,id2,(#args>0 and "," or ""),json.encode(args):sub(2,-2),json.encode(res)))
+      elseif not status then
+        error(string.format("Err:fibaro:%s(%s%s%s), %s",name,id2,(#args>0 and "," or ""),json.encode(args):sub(2,-2),res),3)
+      end
+      if mf then return res,r2 else return res end
+    end
+  end
+end
+interceptFib("call","fibaro")
+interceptFib("setGlobal","fibaroSet")
+interceptFib("getGlobal","fibaroGet",nil,true)
+interceptFib("getGlobalValue","fibaroGet")
+interceptFib("get","fibaroGet",nil,true)
+interceptFib("getValue","fibaroGet")
+interceptFib("killScenes","fibaro")
+interceptFib("startScene","fibaro",
+  function(obj,fun,id,args) 
+    local a = args and #args==1 and type(args[1])=='string' and (json.encode({(urldecode(args[1]))})) or ""
+    fibaro:debug(string.format("fibaro:start(%s,%s)",id,a))
+    fun(obj,id, args) 
+  end)
 
 ---------- Startup --------------------
 if _type == 'autostart' or _type == 'other' then

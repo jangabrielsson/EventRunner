@@ -31,6 +31,7 @@ function main()
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
   -- lets start
+
   dofile("example_rules.lua") -- some example rules to try out...
 end -- main()
 
@@ -214,18 +215,18 @@ function newEventEngine()
     Log(LOG.ERROR,"Error in '%s': %s",src,res)
   end
 
+  function self._callTimerFun(e,src)
+    local status,res = pcall(e) 
+    if not status then ruleError(res,src,"timer fun") end
+  end
+  
   function self.post(e,time,src) -- time in 'toTime' format, see below.
     _assert(isEvent(e) or type(e) == 'function', "Bad2 event format %s",tojson(e))
     time = toTime(time or osTime())
     if time < osTime() then return nil end
     if type(e) == 'function' then 
       Debug(_debugFlags.post,"Posting %s for %s",src or tostring(e),osDate("%a %b %d %X",time))
-      return {[self.TIMER]=setTimeout(function() 
-            local status,res = pcall(e) 
-            if not status then 
-              ruleError(res,src,"timer") 
-            end
-          end,1000*(time-osTime()))}
+      return {[self.TIMER]=setTimeout(function() self._callTimerFun(e,src) end, 1000*(time-osTime()))}
     end
     Debug(_debugFlags.post and not e._sh,"Posting %s for %s",function() return tojson(e),osDate("%a %b %d %X",time) end)
     return {[self.TIMER]=setTimeout(function() self._handleEvent(e) end,1000*(time-osTime()))}
@@ -385,8 +386,13 @@ function newEventEngine()
   interceptFib("getGlobalValue","fibaroGet")
   interceptFib("get","fibaroGet",nil,true)
   interceptFib("getValue","fibaroGet")
-  interceptFib("startScene","fibaro")
   interceptFib("killScenes","fibaro")
+  interceptFib("startScene","fibaro",
+     function(obj,fun,id,args) 
+      local a = args and #args==1 and type(args[1])=='string' and (json.encode({(urldecode(args[1]))})) or ""
+      fibaro:debug(string.format("fibaro:start(%s,%s)",id,a))
+      fun(obj,id, args) 
+    end)
 
   return self
 end
@@ -708,6 +714,7 @@ function newScriptEngine()
   instr['rnd'] = function(s,n) local ma,mi=s.pop(),n>1 and s.pop() or 1 s.push(math.random(mi,ma)) end
   instr['round'] = function(s,n) local v=s.pop(); s.push(math.floor(v+0.5)) end
   instr['sum'] = function(s,n) local m,res=s.pop(),0 for _,x in ipairs(m) do res=res+x end s.push(res) end 
+  instr['average'] = function(s,n) local m,res=s.pop(),0 for _,x in ipairs(m) do res=res+x end s.push(res/#m) end 
   instr['size'] = function(s,n) s.push(#(s.pop())) end
   instr['min'] = function(s,n) s.push(math.min(table.unpack(type(s.peek())=='table' and s.pop() or s.lift(n)))) end
   instr['max'] = function(s,n) s.push(math.max(table.unpack(type(s.peek())=='table' and s.pop() or s.lift(n)))) end
@@ -1239,7 +1246,8 @@ function newRuleCompiler()
             if t+m >= ot then Event.post(action,t+m,src) else catchup1=true end
           else catchup2 = true end
         end
-        if catchup2 and catchup1 then Event.post(function() Log(LOG.LOG,"Cathing up:%s",src); action() end) end
+        --if catchup2 and catchup1 then Event.post(function() Log(LOG.LOG,"Cathing up:%s",src); action() end) end
+        if catchup2 and catchup1 then Log(LOG.LOG,"Cathing up:%s",src); Event._callTimerFun(action,src) end
       elseif #ids>0 then -- id/glob trigger rule
         for _,id in ipairs(ids) do Event.event(id,action).src=src end
         if #betw>0 then
@@ -1304,7 +1312,7 @@ function newRuleCompiler()
         for _,t in ipairs(times) do
           if t ~= CATCHUP then
             Debug(_debugFlags.dailys,"Scheduling at %s",osDate("%X",midnight+t))
-            Event.post(d.action,midnight+t,d.src) 
+            if t==0 then Event._callTimerFun(d.action,d.src) else Event.post(d.action,midnight+t,d.src) end
           end
         end
       end
