@@ -27,12 +27,11 @@ if dofile then dofile("EventRunnerDebug.lua") end
 
 ---------------- Callbacks to user code --------------------
 function main()
+  fibaro:sleep(60*1000)
   --local devs = json.decode(fibaro:getGlobalValue(_deviceTable))
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
   -- lets start
-  Rule.eval("#property{deviceID={66,77}} => log('device is %s',env.event.deviceID)")
-  Rule.eval("wait(00:10); 66:isOn; 77:isOn")
   dofile("example_rules.lua") -- some example rules to try out...
 end -- main()
 
@@ -294,7 +293,7 @@ function newEventEngine()
     local test, start = opt and opt.cond, opt and (opt.start or false)
     local name = opt and opt.name or tostring(action)
     local loop,tp = {type='_scheduler:'..name, _sh=true}
-    local test2,action2 = self._compileAction(test),self._compileAction(action)
+    local test2,action2 = test and self._compileAction(test),self._compileAction(action)
     local re = self.event(loop,function(env)
         local fl = test == nil or test2()
         if fl == self.BREAK then return
@@ -310,11 +309,9 @@ function newEventEngine()
     return res
   end
 
-  _compileHook = { reverseMap={} }
   function self._compileAction(a)
     if type(a) == 'function' then return a end
     if isEvent(a) then return function(e) return self.post(a) end end  -- Event -> post(event)
-    if _compileHook.comp then return _compileHook.comp(a) end
     error("Unable to compile action:"..json.encode(a))
   end
 
@@ -1169,15 +1166,6 @@ function newScriptCompiler()
 end
 ScriptCompiler = newScriptCompiler()
 
-function _compileHook.comp(a)
-  local function assoc(a,f) _compileHook.reverseMap[f] = a; return f end
-  if type(a) == 'string' then  -- Assume 'string' expression...
-    a = assoc(a,ScriptCompiler.parse(a)) -- ...compile Expr to script 
-  end
-  a = assoc(a,ScriptCompiler.compile(a))
-  return assoc(a,function(e) return ScriptEngine.eval(a,e) end)
-end
-
 --------- RuleCompiler ------------------------------------------
 local rCounter=0
 function newRuleCompiler()
@@ -1231,13 +1219,13 @@ function newRuleCompiler()
     local h,body,res = e[2],e[3]
     if type(h)=='table' and (h[1]=='%table' or h[1]=='quote' and type(h[2])=='table') then -- event matching rule, Needs check for 'type'!!!!
       local ep = ScriptCompiler.compile(h)
-      res = Event.event((ScriptEngine.eval(ep)),body) res.src=src
-      local ll = res.action
-      while _compileHook.reverseMap[ll] do ll = _compileHook.reverseMap[ll] end
-      _compileHook.reverseMap[ll] = src
+      local body = ScriptCompiler.compile(body)
+      local code = function(e) return ScriptEngine.eval(body,e) end
+      res = Event.event((ScriptEngine.eval(ep)),code) res.src=src
     else
       local ids,dailys,betw,sched,times = getTriggers(h)
-      local action = Event._compileAction({'and',_debugFlags.rule and {'logRule',h,src} or h,body})
+      local code = ScriptCompiler.compile({'and',_debugFlags.rule and {'logRule',h,src} or h,body})
+      local action = function(e) return ScriptEngine.eval(code,e) end
       if sched then Event.post(action,nil,src)
       elseif #dailys>0 then -- 'daily' rule, ignore other triggers
         local m,ot,catchup1,catchup2=midnight(),osTime()
@@ -1251,7 +1239,8 @@ function newRuleCompiler()
         --if catchup2 and catchup1 then Event.post(function() Log(LOG.LOG,"Cathing up:%s",src); action() end) end
         if catchup2 and catchup1 then Log(LOG.LOG,"Cathing up:%s",src); Event._callTimerFun(action,src) end
       elseif #ids>0 then -- id/glob trigger rule
-        for _,id in ipairs(ids) do Event.event(id,action).src=src end
+        res = {}
+        for _,id in ipairs(ids) do res[#res+1]=Event.event(id,action); res[#res].src=src end
         if #betw>0 then
           local m,ot=midnight(),osTime()
           _dailys[#_dailys+1]={dailys=betw,action=action,src=src}
@@ -1363,20 +1352,6 @@ Util.defvar('S2',Util.S2)
 Util.defvar('catch',math.huge)
 Util.defvar("defvars",Util.defvars)
 Util.defvar("mapvars",Util.reverseMapDef)
-
----- Print rule definition -------------
-
-function printRule(e)
-  print(_format("Event:%s",tojson(e[Event.RULE])))
-  local code = _compileHook.reverseMap[e.action]
-  local scr = _compileHook.reverseMap[code]
-  local expr = _compileHook.reverseMap[scr]
-
-  if expr then Log(LOG.LOG,"Expr:%s",expr) end
-  if scr then Log(LOG.LOG,"Script:%s",tojson(scr)) end
-  if code then Log(LOG.LOG,"Code:") ScriptCompiler.dump(code) end
-  Log(LOG.LOG,"Addr:%s",tostring(e.action))
-end
 
 ---------------------- Startup -----------------------------    
 if _type == 'autostart' or _type == 'other' then
