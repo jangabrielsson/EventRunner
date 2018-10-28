@@ -602,7 +602,7 @@ function newScriptEngine()
     return doit(Util.mapF,function(id) local t = fibaro:getValue(ID(id,i),'value') fibaro:call(id,t>'0' and 'turnOff' or 'turnOn') end,s.pop())
   end
   local setIdFun={}
-  local _propMap={R='setR',G='setG',B='setB', armed='setArmed',W='setW',value='setValue',time='setTime'}
+  local _propMap={R='setR',G='setG',B='setB', armed='setArmed',W='setW',value='setValue',time='setTime',power='setPower'}
   local function setIdFuns(s,i,prop,id,v) 
     local p,vp=_propMap[prop],0 _assert(p,"bad setProperty :%s",prop)
     local vf = type(v) == 'table' and function() vp=vp+1 return v[vp] end or function() return v end 

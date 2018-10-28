@@ -320,6 +320,14 @@ if not _REMOTE then
   _specCalls['setArmed'] = function(id,val) fibaro._fibaroCalls[id..'armed'] = {val,osTime()} end
   _specCalls['sendPush'] = function(id,msg) end -- log to console?
   _specCalls['pressButton'] = function(id,msg) end -- simulate VD?
+  _specCalls['setPower'] = function(id,value) 
+    local idKey = id..'value'
+    if not fibaro._fibaroCalls[idKey] or fibaro._fibaroCalls[idKey][1] ~= value then
+      local ev = {type='property', deviceID=id, propertyName='power', value=value, _sh=true}
+      if Event then Event.post(ev) else setTimeout(function() main(ev) end,0) end
+    end
+    fibaro._fibaroCalls[idKey] = {value,osTime()}
+  end -- simulate VD?
   
   function fibaro:call(id,prop,...)
     if _specCalls[prop] then _specCalls[prop](id,...) return end 
