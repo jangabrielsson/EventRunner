@@ -31,7 +31,8 @@ function main()
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
   -- lets start
-  
+  Rule.eval("#property{deviceID={66,77}} => log('device is %s',env.event.deviceID)")
+  Rule.eval("wait(00:10); 66:isOn; 77:isOn")
   dofile("example_rules.lua") -- some example rules to try out...
 end -- main()
 
