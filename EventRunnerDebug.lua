@@ -313,32 +313,29 @@ if not _REMOTE then
 
   function fibaro:startScene(id,args) end
   function fibaro:killScenes(id) end
+
+  function setAndPropagate(id,key,value)
+    local idKey = id..key
+    if not fibaro._fibaroCalls[idKey] or fibaro._fibaroCalls[idKey][1] ~= value then
+      local ev = {type='property', deviceID=id, propertyName=key, value=value, _sh=true}
+      if Event then Event.post(ev) else setTimeout(function() main(ev) end,0) end
+    end
+    fibaro._fibaroCalls[idKey] = {value,osTime()}
+  end
   
   _specCalls={}
-  _specCalls['setProperty'] = function(id,prop,...) fibaro._fibaroCalls[id..prop] = {({...})[1],osTime()} end
+  _specCalls['setProperty'] = function(id,prop,...) setAndPropagate(id,prop,({...})[1]) end 
   _specCalls['setColor'] = function(id,R,G,B) fibaro._fibaroCalls[id..'color'] = {{R,G,B},osTime()} end
   _specCalls['setArmed'] = function(id,val) fibaro._fibaroCalls[id..'armed'] = {val,osTime()} end
   _specCalls['sendPush'] = function(id,msg) end -- log to console?
   _specCalls['pressButton'] = function(id,msg) end -- simulate VD?
-  _specCalls['setPower'] = function(id,value) 
-    local idKey = id..'value'
-    if not fibaro._fibaroCalls[idKey] or fibaro._fibaroCalls[idKey][1] ~= value then
-      local ev = {type='property', deviceID=id, propertyName='power', value=value, _sh=true}
-      if Event then Event.post(ev) else setTimeout(function() main(ev) end,0) end
-    end
-    fibaro._fibaroCalls[idKey] = {value,osTime()}
-  end -- simulate VD?
+  _specCalls['setPower'] = function(id,value) setAndPropagate(id,"power",value) end
   
   function fibaro:call(id,prop,...)
     if _specCalls[prop] then _specCalls[prop](id,...) return end 
     local value = ({turnOff="0",turnOn="99",on="99",off="0"})[prop] or (prop=='setValue' and tostring(({...})[1]))
     if not value then error(_format("fibaro:call(..,'%s',..) is not supported, fix it!",prop)) end
-    local idKey = id..'value'
-    if not fibaro._fibaroCalls[idKey] or fibaro._fibaroCalls[idKey][1] ~= value then
-      local ev = {type='property', deviceID=id, propertyName='value', value=value, _sh=true}
-      if Event then Event.post(ev) else setTimeout(function() main(ev) end,0) end
-    end
-    fibaro._fibaroCalls[idKey] = {value,osTime()}
+    setAndPropagate(id,'value',value)
   end
 
   if _deviceTable then -- If you have a pre-made "HomeTable" structure, set it up here
