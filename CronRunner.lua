@@ -39,8 +39,11 @@ function main()
         end
       end
       Log(LOG.LOG,"Registering %s from %s",env.p.time,env.event._from)
-      local e = {id=id,scene=env.event._from,test=Util.dateTest(env.p.time),time=env.p.time,callback=env.p.call}
-      callbacks[#callbacks+1]=e
+      local status,res = pcall(function()
+          local e = {id=id,scene=env.event._from,test=Util.dateTest(env.p.time),time=env.p.time,callback=env.p.call}
+          callbacks[#callbacks+1]=e
+        end)
+      if not status then env.event.type='error'; Event.postRemote(env.event._from,env.event) end
     end)
 
   Event.event({type='loop',last='$last'},
