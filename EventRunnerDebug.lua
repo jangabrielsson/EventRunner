@@ -93,14 +93,17 @@ function exceededTime() return false end
 function _setUpSpeedTime() -- Special version of time functions
   local _startTime = os.time()
   local _maxTime = _startTime + _SPEEDTIME*60*60
-  local _sleep = 0
+  local _sleep = _startTime
+--  local _sleep = 0
   function exceededTime()
-    return _startTime+_sleep+(os.time()-_startTime) > _maxTime
+--    return _startTime+_sleep+(os.time()-_startTime) > _maxTime
+    return _sleep > _maxTime
   end
   function osDate(p,t) return t and os.date(p,t) or osDate(p,osTime()) end
   function osTime(arg1)
     if arg1 then return os.time(arg1) end
-    local t = _startTime+_sleep+(os.time()-_startTime)
+--    local t = _startTime+_sleep+(os.time()-_startTime)
+    local t = _sleep
     return t+(_timeAdjust or 0)
   end
   function fibaro:sleep(n) 
