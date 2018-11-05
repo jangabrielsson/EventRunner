@@ -310,6 +310,19 @@ function newEventEngine()
     return res
   end
 
+  _negOper={['==']='~=',['~=']='==',['>']='<=',['<=']='>',['<']='>=',['>=']='<'}
+  negate = {}
+  negate['property'] = function(e) e.value = e.value:gsub("([=><~]+)",function(s) return _negOper[s] end) return e end
+  negate['global'] = negate['property']
+
+  function self.trueFor(time,event,action)
+    local nevent,ref
+    if negate[event.type] then nevent=negate[event.type](_copy(event))
+    else error("trueFor needs '$' constraint") end
+    Event.event(event,function(env) ref = Event.post(function() ref=nil; action() end,time) end)
+    Event.event(nevent,function(env) if ref then ref = Event.cancel(ref) end end)
+  end
+
   function self._compileAction(a)
     if type(a) == 'function' then return a end
     if isEvent(a) then return function(e) return self.post(a) end end  -- Event -> post(event)
@@ -688,7 +701,8 @@ function newScriptEngine()
   end
   instr['setSlider'] = instr['setLabel']
   instr['setRef'] = function(s,n,e,i) local r,v,k = s.pop(),s.pop() 
-    if n==3 then r,k=s.pop(),r else k=i[3] end
+--    if n==3 then r,k=s.pop(),r else k=i[3] end
+    if n==3 then r,k,v=v,r,s.pop() else k=i[3] end
     _assertf(type(r)=='table',"trying to set non-table value '%s'",function() return json.encode(r) end)
     r[k]= v; s.push(v) 
   end  
