@@ -1219,7 +1219,7 @@ function newRuleCompiler()
       elseif k=='glob' then ids[e[2] ] = {type='global', name=e[2]}
       elseif k=='var' then 
         ids[e[2] ] = {type='variable', name=e[2]}
-      elseif (k=='set' or k=='inc') and isTriggerVar(e[2]) or isGlob(e[2]) then
+      elseif (k=='set' or k=='inc') and (isTriggerVar(e[2]) or isGlob(e[2])) then
         error("Can't assign variable in rule header")
       elseif k=='prop' and tProps[e[3]] then
         local cv = ScriptCompiler.compile(e[2])
@@ -1362,7 +1362,7 @@ ScriptEngine.addInstr("month",makeDateInstr(function(s) return "* * * "..s end))
 ScriptEngine.addInstr("wday",makeDateInstr(function(s) return "* * * * "..s end)) -- wday('fri-sat'), wday('mon,tue,wed')
 
 -- Support for CentralSceneEvent & WeatherChangedEvent
-_lastCSEvent = {}
+_lastCSEvent,_lastACEvent = {},{}
 _lastWeatherEvent = {}
 Event.event({type='event'}, function(env) env.event.event._sh=true 
     env.event.event.type = env.event.event.type or 'CentralSceneEvent' -- default to centralSceneEvent
@@ -1370,6 +1370,8 @@ Event.event({type='event'}, function(env) env.event.event._sh=true
   end)
 Event.event({type='CentralSceneEvent'}, 
   function(env) _lastCSEvent[env.event.data.deviceId] = env.event.data end)
+Event.event({type='AccessControlEvent'}, 
+  function(env) _lastACEvent[env.event.data.id] = env.event.data end)
 Event.event({type='WeatherChangedEvent'}, 
   function(env) _lastWeatherEvent[env.event.data.change] = env.event.data; _lastWeatherEvent['*'] = env.event.data end)
 
