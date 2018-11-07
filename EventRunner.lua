@@ -32,11 +32,6 @@ function main()
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
   -- lets start
-  --a={b=77}
-  --Rule.eval("a.b:central.deviceId => log('FOO %s',77:central.keyId)")
-  --Rule.eval("post(#event{event={type='CentralSceneEvent',data={deviceId=77,keyId='2'}}})")
-  --Rule.eval("a.b:access.id => log('FOO %s',77:access.keyId)")
-  --Rule.eval("post(#event{event={type='AccessControlEvent',data={id=77,keyId='2'}}})")
   dofile("example_rules.lua") -- some example rules to try out...
 end -- main()
 
@@ -1374,12 +1369,12 @@ _getEID={
   CentralSceneEvent=function(e) return e.event.data.deviceId end,
   AccessControlEvent=function(e) return e.event.data.id end
 }
-Event.event({type='event'}, function(env)                 
-    if _getEID[env.event.event.type] then
-      local t = env.event.event.type
+Event.event({type='event', event={type='$t', data='$data'}}, function(env)                 
+    if _getEID[env.p.t] then
+      local t = env.p.t
       local id = _getEID[t](env.event)
-      _lastEID[t][id]=env.event.event.data
-      Event.post({type='property',deviceID=_getEID[t](env.event),propertyName=t, data=env.event.event.data})
+      _lastEID[t][id]=env.p.data
+      Event.post({type='property',deviceID=_getEID[t](env.event),propertyName=t, data=env.p.data})
     end
   end)
 
