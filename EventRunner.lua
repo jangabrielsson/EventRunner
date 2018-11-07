@@ -18,7 +18,7 @@ _version = "1.2"
 --]]
 
 _sceneName   = "Demo"        -- Set to scene/script name
-_debugFlags = { post=false,invoke=true,triggers=false,dailys=false,timers=false,rule=false,fibaro=true,fibaroGet=false, fibaroSet=false }
+_debugFlags = { post=false,invoke=false,triggers=false,dailys=false,timers=false,rule=true,fibaro=true,fibaroGet=false, fibaroSet=false }
 _deviceTable = "deviceTable" -- Name of json struct with configuration data (i.e. "HomeTable")
 ruleLogLength = 80
 
@@ -119,7 +119,7 @@ function _equal(e1,e2)
   for k2,v2 in pairs(e2) do if e1[k2] == nil or not _equal(e1[k2],v2) then return false end end
   return true
 end
-
+function time2str(t) return string.format("%02d:%02d:%02d",math.floor(t/3600),math.floor((t%3600)/60),t%60) end
 function midnight() local t = osDate("*t"); t.hour,t.min,t.sec = 0,0,0; return osTime(t) end
 
 function hm2sec(hmstr)
@@ -249,6 +249,7 @@ function newEventEngine()
 
   local _getProp = {}
   _getProp['property'] = function(e,v2)
+    if e.propertyName=="CentralSceneEvent" or e.propertyName=="AccessControlEvent" then return end
     e.propertyName = e.propertyName or 'value'
     local id = e.deviceID
     local v,t = _getIdProp(id,e.propertyName,true)
@@ -262,6 +263,7 @@ function newEventEngine()
     local rm = {[self.RULE]=e, action=action, src=doc, subs=rl}
     rm.enable = function() Util.mapF(function(e) e.enable() end,rl) return rm end
     rm.disable = function() Util.mapF(function(e) e.disable() end,rl) return rm end
+    rm.print = function(l) l=l or ""; Log(LOG.LOG,"%sComb(%s) => ..",l,tojson(e)); Util.map(function(e) e.print(l.." ") end,rl) end
     return rm
   end
 
@@ -286,6 +288,7 @@ function newEventEngine()
     if fn then rules[#rules+1] = {rule} end
     rule.enable = function() rule._disabled = nil return rule end
     rule.disable = function() rule._disabled = true return rule end
+    rule.print = function(l) l=l or ""; Log(LOG.LOG,"%sEvent(%s) => ..",l,tojson(e)) end
     return rule
   end
 
@@ -488,6 +491,13 @@ function Util.dateTest(dateStr)
     dateSeq[4][t.month] and  -- month   1-12
     dateSeq[5][t.wday] or false      -- weekday 1-7, 1=sun, 7=sat
   end
+end
+
+function Util.printRule(rule)
+  Log(LOG.LOG,"-----------------------------------")
+  Log(LOG.LOG,"Source:%s",rule.src)
+  rule.print()
+  Log(LOG.LOG,"-----------------------------------")
 end
 
 function Util.mapAnd(f,l,s) s = s or 1; local e=false for i=s,#l do e = f(l[i]) if not e then return false end end return e end 
@@ -693,7 +703,7 @@ function newScriptEngine()
     else error("return out of context") end
   end
   instr['table'] = function(s,n,e,i) local k,t = i[3],{} for j=n,1,-1 do t[k[j]] = s.pop() end s.push(t) end
-  instr['logRule'] = function(s,n,e,i) local src,res = s.pop(),s.pop() Debug(_debugFlags.rule,"=>[%s]%s",res,src) s.push(res) end
+  instr['logRule'] = function(s,n,e,i) local src,res = s.pop(),s.pop() Debug(_debugFlags.rule,"[%s]>>'%s'",tojson(res),src) s.push(res) end
   instr['var'] = function(s,n,e,i) s.push(getVar(i[3],e)) end
   instr['glob'] = function(s,n,e,i) s.push(fibaro:getGlobal(i[3])) end
   instr['setVar'] =  function(s,n,e,i) local var,val = i[3],i[4] or s.pop() s.push(setVar(var,val,e)) end
@@ -1266,6 +1276,7 @@ function newRuleCompiler()
       elseif #dailys>0 then -- 'daily' rule, ignore other triggers
         local m,ot,catchup1,catchup2=midnight(),osTime()
         _dailys[#_dailys+1]={dailys=dailys,action=action,src=src}
+        betw={}
         times = compTimes(dailys)
         for _,t in ipairs(times) do _assert(tonumber(t),"@time not a number:%q",t)
           if t ~= CATCHUP then
@@ -1279,14 +1290,22 @@ function newRuleCompiler()
         for _,id in ipairs(ids) do res[#res+1]=Event.event(id,action); res[#res].src=src end
         if #betw>0 then
           local m,ot=midnight(),osTime()
-          _dailys[#_dailys+1]={dailys=betw,action=action,src=src}
+          _dailys[#_dailys+1]={dailys=betw,action=action,src=src};
           times = compTimes(betw)
+          betw,dailys=nil,betw
           for _,t in ipairs(times) do if t+m >= ot then Event.post(action,t+m,src) end end
         end
       else
         error(_format("no triggers found in rule '%s'",tojson(e)))
       end
       res = {[Event.RULE]={daily=dailys,betw=betw,device=ids}, action=action, src=src}
+      res.print = function(l) l=l or "";
+        if dailys and #dailys>0 then 
+          Util.map(function(d) Log(LOG.LOG,"%sDaily(%s) =>...",l,d==CATCHUP and "catchup" or time2str(d)) end,compTimes(dailys)) 
+        end
+        if betw and #betw>0 then error("UPPS") end
+        if ids and #ids>0 then Util.map(function(id) Log(LOG.LOG,"%sTrigger(%s) =>...",l,tojson(id)) end,ids) end
+      end
     end
     rCounter=rCounter+1
     Log(LOG.SYSTEM,RULEFORMAT,rCounter,src:match("([^%c]*)"))
