@@ -5,7 +5,7 @@
   (to initoialize the HomeTable)
   
 --]]
-local tExpr = false
+local tExpr = true
 local tRules = true
 local tShell = false
 local tGEA = false
@@ -14,7 +14,7 @@ local tTest1 = false
 local tTest2 = false
 local tPresence = false
 local tHouse = false
-local tScheduler = true
+local tScheduler = false
 local tRemoteAsync = false
 local tTimes = false
 local tTriggerTuturial = false
@@ -207,6 +207,7 @@ if tScheduler then
   Rule.eval("wait(t/16:05); bathroom.door:value=0") -- close door
 
   -- Test darkness -> Sunset logic
+  Rule.eval("downstairs_lux:value=400")
   Rule.eval("wait(t/17:30); downstairs_lux:value=99")
 
 end
@@ -500,8 +501,8 @@ if tTest1 then
   Rule.eval("post(#property{deviceID=kitchen.switch,propertyName='sceneActivation',value=S1.click},n/09:10)")
 
   -- 2-ways to catch a cs event...
-  Rule.eval("csEvent(56).keyId==4 => log('HELLO1 key=4')")
-  Rule.eval("#CentralSceneEvent{data={deviceId=56,keyId='$k',keyAttribute='Pressed'}} => log('HELLO2 key=%s',k)")
+  Rule.eval("56:central.keyId==4 => log('HELLO1 key=4')")
+  Rule.eval("#event{event=#CentralSceneEvent{data={deviceId=56,keyId='$k',keyAttribute='Pressed'}}} => log('HELLO2 key=%s',k)")
 
   Rule.eval("weather('*') => log('HELLO %s',weather().newValue)")
 

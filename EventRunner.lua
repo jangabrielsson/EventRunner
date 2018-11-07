@@ -28,11 +28,15 @@ if dofile then dofile("EventRunnerDebug.lua") end
 
 ---------------- Callbacks to user code --------------------
 function main()
-  --fibaro:sleep(60*1000)
   --local devs = json.decode(fibaro:getGlobalValue(_deviceTable))
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
   -- lets start
+  --a={b=77}
+  --Rule.eval("a.b:central.deviceId => log('FOO %s',77:central.keyId)")
+  --Rule.eval("post(#event{event={type='CentralSceneEvent',data={deviceId=77,keyId='2'}}})")
+  --Rule.eval("a.b:access.id => log('FOO %s',77:access.keyId)")
+  --Rule.eval("post(#event{event={type='AccessControlEvent',data={id=77,keyId='2'}}})")
   dofile("example_rules.lua") -- some example rules to try out...
 end -- main()
 
@@ -618,6 +622,8 @@ function newScriptEngine()
   getIdFun['roomName']=function(s,i) return doit(Util.map,function(id) return fibaro:getRoomNameByDeviceID(ID(id,i)) end,s.pop()) end 
   getIdFun['safe']=getIdFun['isOff'] getIdFun['breached']=getIdFun['isOn']
   getIdFun['trigger']=function(s,i) return true end -- Nop, only for triggering rules
+  getIdFun['access']=function(s,i) return doit(Util.map,function(id) return _lastEID['AccessControlEvent'][id] end,s.pop()) end
+  getIdFun['central']=function(s,i) return doit(Util.map,function(id) return _lastEID['CentralSceneEvent'][id] end,s.pop()) end
   getIdFun['lux']=function(s,i) return getIdFuns(s,i,'value') end
   getIdFun['temp']=getIdFun['lux']
   getIdFun['manual']=function(s,i) return doit(Util.map,function(id) return Event.lastManual(id) end,s.pop()) end
@@ -1015,7 +1021,7 @@ function newScriptCompiler()
   local function _binop(s,res) res.push({mapOp(s.pop().v),table.unpack(res.lift(2))}) end
   local function _unnop(s,res) res.push({mapOp(s.pop().v),res.pop()}) end
   local _prec = {
-    ['*'] = 10, ['/'] = 10, ['%'] = 10, ['.'] = 12.5, ['+'] = 9, ['-'] = 9, [':'] = 12, ['..'] = 8.5, ['=>'] = -2, ['neg'] = 13, ['!'] = 6.5, ['@']=8.5, ['@@']=8.5,
+    ['*'] = 10, ['/'] = 10, ['%'] = 10, ['.'] = 12.5, ['+'] = 9, ['-'] = 9, [':'] = 12.6, ['..'] = 8.5, ['=>'] = -2, ['neg'] = 13, ['!'] = 6.5, ['@']=8.5, ['@@']=8.5,
     ['>']=7, ['<']=7, ['>=']=7, ['<=']=7, ['==']=7, ['~=']=7, ['&']=6, ['|']=5, ['=']=4, ['+=']=4, ['-=']=4, ['*=']=4, [';']=3.6, ['('] = 1, }
 
   for i,j in pairs(_prec) do _prec[i]={j,_binop} end 
@@ -1130,6 +1136,7 @@ function newScriptCompiler()
         else
           while (not s.isEmpty()) do
             local p1,p2 = _prec[t.v][1], _prec[s.peek().v][1] p1 = t.v=='=' and 11 or p1
+            if s.peek().v=='.' then p2=p2+.2 end
             if p2 >= p1 then _prec[s.peek().v][2](s,res) else break end
           end
           s.push(t)
@@ -1201,8 +1208,8 @@ function newRuleCompiler()
   local self = {}
   local map,mapkl,traverse=Util.map,Util.mapkl,Util.traverse
   local _macros,_dailys,rCounter= {},{},0
-  local tProps ={value=1,isOn=1,isOff=1,isAnyOff=1,isAllOn=1,last=1,safe=1,breached=1,scene=2,power=3,bat=4,trigger=1,toggle=1,lux=1,temp=1,manual=1}
-  local tPropsV = {[1]='value',[2]='sceneActivation',[3]='power',[4]='batteryLevel'}
+  local tProps ={value=1,isOn=1,isOff=1,isAnyOff=1,isAllOn=1,last=1,safe=1,breached=1,scene=2,power=3,bat=4,trigger=1,toggle=1,lux=1,temp=1,manual=1,central=5,access=6}
+  local tPropsV = {[1]='value',[2]='sceneActivation',[3]='power',[4]='batteryLevel',[5]='CentralSceneEvent',[6]='AccessControlEvent'}
   local lblF=function(id,e) return {type='property', deviceID=id, propertyName=_format("ui.%s.value",e[3])} end
   local triggFuns={
     label=lblF,slider=lblF
@@ -1362,22 +1369,23 @@ ScriptEngine.addInstr("month",makeDateInstr(function(s) return "* * * "..s end))
 ScriptEngine.addInstr("wday",makeDateInstr(function(s) return "* * * * "..s end)) -- wday('fri-sat'), wday('mon,tue,wed')
 
 -- Support for CentralSceneEvent & WeatherChangedEvent
-_lastCSEvent,_lastACEvent = {},{}
-_lastWeatherEvent = {}
-Event.event({type='event'}, function(env) env.event.event._sh=true 
-    env.event.event.type = env.event.event.type or 'CentralSceneEvent' -- default to centralSceneEvent
-    Event.post(env.event.event) 
+_lastEID = {CentralSceneEvent={}, AccessControlEvent={}}
+_getEID={
+  CentralSceneEvent=function(e) return e.event.data.deviceId end,
+  AccessControlEvent=function(e) return e.event.data.id end
+}
+Event.event({type='event'}, function(env)                 
+    if _getEID[env.event.event.type] then
+      local t = env.event.event.type
+      local id = _getEID[t](env.event)
+      _lastEID[t][id]=env.event.event.data
+      Event.post({type='property',deviceID=_getEID[t](env.event),propertyName=t, data=env.event.event.data})
+    end
   end)
-Event.event({type='CentralSceneEvent'}, 
-  function(env) _lastCSEvent[env.event.data.deviceId] = env.event.data end)
-Event.event({type='AccessControlEvent'}, 
-  function(env) _lastACEvent[env.event.data.id] = env.event.data end)
+
+_lastWeatherEvent = {}
 Event.event({type='WeatherChangedEvent'}, 
   function(env) _lastWeatherEvent[env.event.data.change] = env.event.data; _lastWeatherEvent['*'] = env.event.data end)
-
-Rule.addTrigger('csEvent',
-  function(s,n,e,i) return s.push(_lastCSEvent[s.pop()]) end,
-  function(id) return {type='CentralSceneEvent',data={deviceId=id}} end)
 Rule.addTrigger('weather',
   function(s,n,e,i) local k = n>0 and s.pop() or '*'; return s.push(_lastWeatherEvent[k]) end,
   function(id) return {type='WeatherChangedEvent',data={changed=id}} end)
