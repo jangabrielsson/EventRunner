@@ -1374,7 +1374,7 @@ Event.event({type='event', event={type='$t', data='$data'}}, function(env)
       local t = env.p.t
       local id = _getEID[t](env.event)
       _lastEID[t][id]=env.p.data
-      Event.post({type='property',deviceID=_getEID[t](env.event),propertyName=t, data=env.p.data})
+      Event.post({type='property',deviceID=id,propertyName=t, data=env.p.data, _sh=true})
     end
   end)
 
