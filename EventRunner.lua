@@ -1219,7 +1219,7 @@ function newRuleCompiler()
       elseif k=='glob' then ids[e[2] ] = {type='global', name=e[2]}
       elseif k=='var' then 
         ids[e[2] ] = {type='variable', name=e[2]}
-      elseif k=='set' and isTriggerVar(e[2]) or isGlob(e[2]) then
+      elseif (k=='set' or k=='inc') and isTriggerVar(e[2]) or isGlob(e[2]) then
         error("Can't assign variable in rule header")
       elseif k=='prop' and tProps[e[3]] then
         local cv = ScriptCompiler.compile(e[2])
