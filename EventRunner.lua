@@ -860,6 +860,8 @@ function newScriptCompiler()
   local function mkOp(o) return o end
   local POP = {mkOp('pop'),0}
   local function isVar(e) return type(e)=='table' and e[1]=='var' end
+  function isGlob(e) return type(e)=='table' and e[1]=='glob' end
+  function isTriggerVar(e) return isVar(e) and e[2]:sub(1,1)=='_' end
   local function isNum(e) return type(e)=='number' end
   local function isBuiltin(fun) return ScriptEngine.isInstr(fun) or preC[fun] end
   local function isString(e) return type(e)=='string' end
@@ -1217,6 +1219,8 @@ function newRuleCompiler()
       elseif k=='glob' then ids[e[2] ] = {type='global', name=e[2]}
       elseif k=='var' then 
         ids[e[2] ] = {type='variable', name=e[2]}
+      elseif k=='set' and isTriggerVar(e[2]) or isGlob(e[2]) then
+        error("Can't assign variable in rule header")
       elseif k=='prop' and tProps[e[3]] then
         local cv = ScriptCompiler.compile(e[2])
         local v,pn = ScriptEngine.eval(cv),tPropsV[tProps[e[3]]]
