@@ -32,9 +32,8 @@ function main()
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
   -- lets start
-  Rule.eval("8:value==0 => log('HUPP')")
 
-  --dofile("example_rules.lua") -- some example rules to try out...
+  dofile("example_rules.lua") -- some example rules to try out...
 end -- main()
 
 ------------------- EventModel - Don't change! --------------------  
