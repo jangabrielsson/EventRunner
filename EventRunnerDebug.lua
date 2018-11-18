@@ -293,7 +293,7 @@ if not _REMOTE then
   function fibaro:getValue(id,prop) return (_getIdProp(id,prop)) end
   
   function _getGlobal(name)
-    if _OFFLINE and name==_deviceTable and fibaro._globals[name] == nil then
+    if _OFFLINE and _deviceTable and name==_deviceTable and fibaro._globals[name] == nil then
       local devmap = io.open(name..".data", "r") -- local file with json structure
       if devmap then fibaro._globals[name] = {devmap:read("*all"),osTime()} end
     end
