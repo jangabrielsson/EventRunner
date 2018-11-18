@@ -11,8 +11,8 @@
       _PORTLISTENER=true starts a listener on a socket for receieving sourcetriggers/events from HC2 scene
 --]] 
 
-if _version ~= "1.2" then error("Bad version of EventRunnerDebug") end 
-_SPEEDTIME         = 48*4   -- nil run the local clock in normal speed, set to an int <x> will speed the clock through <x> hours
+if _version ~= "1.3" then error("Bad version of EventRunnerDebug") end 
+_SPEEDTIME         = 24*30   -- nil run the local clock in normal speed, set to an int <x> will speed the clock through <x> hours
 _REMOTE            = false  -- If true use FibaroSceneAPI to call functions on HC2, else emulate them locally...
 _GUI               = false -- Needs wxwidgets support (e.g. require "wx"). Works in ZeroBrane under Lua 5.1.
 
@@ -291,8 +291,12 @@ if not _REMOTE then
 
   function fibaro:get(id,prop) return _getIdProp(id,prop) end
   function fibaro:getValue(id,prop) return (_getIdProp(id,prop)) end
-
+  
   function _getGlobal(name)
+    if _OFFLINE and name==_deviceTable and fibaro._globals[name] == nil then
+      local devmap = io.open(name..".data", "r") -- local file with json structure
+      if devmap then fibaro._globals[name] = {devmap:read("*all"),osTime()} end
+    end
     fibaro._globals[name] = fibaro._globals[name] or {"",osTime()}
     return table.unpack(fibaro._globals[name])
   end
@@ -340,16 +344,7 @@ if not _REMOTE then
     if not value then error(_format("fibaro:call(..,'%s',..) is not supported, fix it!",prop)) end
     setAndPropagate(id,'value',value)
   end
-
-  if _deviceTable then -- If you have a pre-made "HomeTable" structure, set it up here
-    local devmap = io.open("devicemap.data", "r") -- local file with json structure
-    if devmap then
-      _setGlobal(_deviceTable,devmap:read("*all"))
-      local t = _getGlobal(_deviceTable)
-      t = json.decode(t)
-      devmap:close()
-    end
-  end
+  
 end
 ------
 

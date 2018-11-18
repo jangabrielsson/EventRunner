@@ -9,7 +9,7 @@ counter
 %% autostart
 --]]
 
-_version = "1.2"  
+_version = "1.3"  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -18,8 +18,8 @@ _version = "1.2"
 --]]
 
 _sceneName   = "Demo"        -- Set to scene/script name
-_debugFlags = { post=false,invoke=false,triggers=false,dailys=false,timers=false,rule=true,fibaro=true,fibaroGet=false, fibaroSet=false }
-_deviceTable = "deviceTable" -- Name of json struct with configuration data (i.e. "HomeTable")
+_debugFlags = { post=false,invoke=false,triggers=false,dailys=false,timers=false,rule=false,ruleTrue=false,fibaro=true,fibaroGet=false, fibaroSet=false }
+_deviceTable = "devicemap" -- Name of json struct with configuration data (i.e. "HomeTable")
 ruleLogLength = 80
 
 Event = {}
@@ -32,7 +32,9 @@ function main()
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
   -- lets start
-  dofile("example_rules.lua") -- some example rules to try out...
+  Rule.eval("8:value==0 => log('HUPP')")
+
+  --dofile("example_rules.lua") -- some example rules to try out...
 end -- main()
 
 ------------------- EventModel - Don't change! --------------------  
@@ -163,6 +165,7 @@ end
 function newEventEngine()
   local self,_handlers = {},{}
   self.BREAK, self.TIMER, self.RULE ='%%BREAK%%', '%%TIMER%%', '%%RULE%%'
+  self.PING, self.PONG ='%%PING%%', '%%PONG%%'
 
   local function _coerce(x,y)
     local x1 = tonumber(x) if x1 then return x1,tonumber(y) else return x,y end
@@ -267,7 +270,12 @@ function newEventEngine()
     return rm
   end
 
-  -- {type='property' deviceID=x, ...}
+  local toHash,fromHash={},{}
+  fromHash['property'] = function(e) return {e.type..e.deviceID,e.type} end
+  fromHash['global'] = function(e) return {e.type..e.name,e.type} end
+  toHash['property'] = function(e) return e.deviceID and 'property'..e.deviceID or 'property' end
+  toHash['global'] = function(e) return e.name and 'global'..e.name or 'global' end
+
   function self.event(e,action,doc) -- define rules - event template + action
     if e[1] then -- events is list of event patterns {{type='x', ..},{type='y', ...}, ...}
       return _mkCombEvent(e,action,doc,Util.map(function(es) return self.event(es,action,doc) end,e))
@@ -279,8 +287,9 @@ function newEventEngine()
     doc = doc and "Event.event:"..doc or _format("Event.event(%s,...)",tojson(e))
     action = self._compileAction(action)
     _compilePattern(e)
-    _handlers[e.type] = _handlers[e.type] or {}
-    local rules = _handlers[e.type]
+    local hashKey = toHash[e.type] and toHash[e.type](e) or e.type
+    _handlers[hashKey] = _handlers[hashKey] or {}
+    local rules = _handlers[hashKey]
     local rule,fn = {[self.RULE]=e, action=action, src=doc}, true
     for _,rs in ipairs(rules) do -- Collect handlers with identical patterns. {{e1,e2,e3},{e1,e2,e3}}
       if _equal(e,rs[1][self.RULE]) then rs[#rs+1] = rule fn = false break end
@@ -348,12 +357,15 @@ function newEventEngine()
     if _getProp[e.type] then _getProp[e.type](e,e.value) end  -- patch events
     if _OFFLINE and not _REMOTE then if _simFuns[e.type] then _simFuns[e.type](e)  end end
     local env = {event = e, p={}}
-    for _,rules in ipairs(_handlers[e.type] or {}) do -- Check all rules of 'type'
-      local match = _match(rules[1][self.RULE],e)
-      if match then
-        if next(match) then for k,v in pairs(match) do env.p[k]=v match[k]={v} end env.context = match end
-        for _,rule in ipairs(rules) do 
-          if not rule._disabled then env.rule = rule _invokeRule(env) end
+    local hasKeys = fromHash[e.type] and fromHash[e.type](e) or {e.type}
+    for _,hashKey in ipairs(hasKeys) do
+      for _,rules in ipairs(_handlers[hashKey] or {}) do -- Check all rules of 'type'
+        local match = _match(rules[1][self.RULE],e)
+        if match then
+          if next(match) then for k,v in pairs(match) do env.p[k]=v match[k]={v} end env.context = match end
+          for _,rule in ipairs(rules) do 
+            if not rule._disabled then env.rule = rule _invokeRule(env) end
+          end
         end
       end
     end
@@ -703,7 +715,9 @@ function newScriptEngine()
     else error("return out of context") end
   end
   instr['table'] = function(s,n,e,i) local k,t = i[3],{} for j=n,1,-1 do t[k[j]] = s.pop() end s.push(t) end
-  instr['logRule'] = function(s,n,e,i) local src,res = s.pop(),s.pop() Debug(_debugFlags.rule,"[%s]>>'%s'",tojson(res),src) s.push(res) end
+  instr['logRule'] = function(s,n,e,i) local src,res = s.pop(),s.pop() 
+    Debug(_debugFlags.rule or (_debugFlags.ruleTrue and res),"[%s]>>'%s'",tojson(res),src) s.push(res) 
+  end
   instr['var'] = function(s,n,e,i) s.push(getVar(i[3],e)) end
   instr['glob'] = function(s,n,e,i) s.push(fibaro:getGlobal(i[3])) end
   instr['setVar'] =  function(s,n,e,i) local var,val = i[3],i[4] or s.pop() s.push(setVar(var,val,e)) end
@@ -1270,7 +1284,7 @@ function newRuleCompiler()
       res = Event.event((ScriptEngine.eval(ep)),code) res.src=src
     else
       local ids,dailys,betw,sched,times = getTriggers(h)
-      local code = ScriptCompiler.compile({'and',_debugFlags.rule and {'logRule',h,src} or h,body})
+      local code = ScriptCompiler.compile({'and',(_debugFlags.rule or _debugFlags.ruleTrue) and {'logRule',h,src} or h,body})
       local action = function(e) return ScriptEngine.eval(code,e) end
       if sched then Event.post(action,nil,src)
       elseif #dailys>0 then -- 'daily' rule, ignore other triggers
@@ -1295,6 +1309,7 @@ function newRuleCompiler()
           betw,dailys=nil,betw
           for _,t in ipairs(times) do if t+m >= ot then Event.post(action,t+m,src) end end
         end
+        Event.post(action,nil,src)
       else
         error(_format("no triggers found in rule '%s'",tojson(e)))
       end
@@ -1403,6 +1418,8 @@ Event.event({type='WeatherChangedEvent'},
 Rule.addTrigger('weather',
   function(s,n,e,i) local k = n>0 and s.pop() or '*'; return s.push(_lastWeatherEvent[k]) end,
   function(id) return {type='WeatherChangedEvent',data={changed=id}} end)
+
+Event.event({type=Event.PING},function(env) Event.postRemote(env.event._from,Event.PONG) end)
 
 --- SceneActivation constants
 Util.defvar('S1',Util.S1)
