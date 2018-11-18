@@ -1,15 +1,16 @@
-v1.3, Nov 18, 2018
+-Fixed error in central/access property introduced by "definition time trigger" below.
+-(Fixed errors where trigger rules were not run at definition time.) REVERTED for now.
+ E.g. Rule.eval("5:isOff => log('x')") would not trigger if 5 was already off when rule defined and only trigger the first time that 5 changed value. This was also true for the 'for' construct.
 -More effective lookup of 'property' and 'global' triggers
 -Built-in support for 'ping'
  {type=Event.PING} => Event.postRemote(sender,{type=Event.PONG})
  Event.PING == '%%PING%%'
  Event.PONG == '%%PONG%%'
 -Better handling of HomeTable struct when running offline
- If _deviceTable then fibaro:getGlobal(_deviceTable) results in _deviceTable..".data" is read in from a file in the working directory.
+ If _deviceTable is defined then fibaro:getGlobal(_deviceTable) results in _deviceTable..".data" is read in from a file in the working directory.
  This means that it is possible to have many device data files
 -Support for Event.trueFor(time,event,action)
  Only works with with 'property' and 'global' events and require the 'value' field to have a constraint.
  Ex. Event.trueFor("+/00:10",{type='property',deviceID=8, value='$>0},
                     function(env) Log(LOG.LOG,"Device 8 have been on for 10min") end)
   This works because we can create a "negative" event pattern for these kind of events. 
-                    
