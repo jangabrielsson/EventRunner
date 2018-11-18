@@ -32,7 +32,7 @@ function main()
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
   -- lets start
-
+  
   dofile("example_rules.lua") -- some example rules to try out...
 end -- main()
 
@@ -250,13 +250,10 @@ function newEventEngine()
   end
 
   local _getProp = {}
-  _getProp['property'] = function(e,v2)
-    if e.propertyName=="CentralSceneEvent" or e.propertyName=="AccessControlEvent" then return end
+  _getProp['property'] = function(e,v)
     e.propertyName = e.propertyName or 'value'
-    local id = e.deviceID
-    local v,t = _getIdProp(id,e.propertyName,true)
-    e.value = v2 or v
-    self.trackManual(id,e.value)
+    e.value = v or (_getIdProp(e.deviceID,e.propertyName,true))
+    self.trackManual(e.deviceID,e.value)
     return t
   end
   _getProp['global'] = function(e,v2) local v,t = _getGlobal(e.name,true) e.value = v2 or v return t end
@@ -638,8 +635,8 @@ function newScriptEngine()
   getIdFun['roomName']=function(s,i) return doit(Util.map,function(id) return fibaro:getRoomNameByDeviceID(ID(id,i)) end,s.pop()) end 
   getIdFun['safe']=getIdFun['isOff'] getIdFun['breached']=getIdFun['isOn']
   getIdFun['trigger']=function(s,i) return true end -- Nop, only for triggering rules
-  getIdFun['access']=function(s,i) return doit(Util.map,function(id) return _lastEID['AccessControlEvent'][id] end,s.pop()) end
-  getIdFun['central']=function(s,i) return doit(Util.map,function(id) return _lastEID['CentralSceneEvent'][id] end,s.pop()) end
+  getIdFun['access']=function(s,i) return doit(Util.map,function(id) return _lastEID['AccessControlEvent'][id] or {} end,s.pop()) end
+  getIdFun['central']=function(s,i) return doit(Util.map,function(id) return _lastEID['CentralSceneEvent'][id] or {} end,s.pop()) end
   getIdFun['lux']=function(s,i) return getIdFuns(s,i,'value') end
   getIdFun['temp']=getIdFun['lux']
   getIdFun['manual']=function(s,i) return doit(Util.map,function(id) return Event.lastManual(id) end,s.pop()) end
@@ -1398,16 +1395,18 @@ ScriptEngine.addInstr("wday",makeDateInstr(function(s) return "* * * * "..s end)
 
 -- Support for CentralSceneEvent & WeatherChangedEvent
 _lastEID = {CentralSceneEvent={}, AccessControlEvent={}}
+--_lastTemp = {CentralSceneEvent={keyId=}, AccessControlEvent={}}
 _getEID={
   CentralSceneEvent=function(e) return e.event.data.deviceId end,
   AccessControlEvent=function(e) return e.event.data.id end
 }
+--function _getLastEID(t,id) return _lastEID[t][id] or _lastTemp[t] end
 Event.event({type='event', event={type='$t', data='$data'}}, function(env)                 
     if _getEID[env.p.t] then
       local t = env.p.t
       local id = _getEID[t](env.event)
       _lastEID[t][id]=env.p.data
-      Event.post({type='property',deviceID=id,propertyName=t, data=env.p.data, _sh=true})
+      Event.post({type='property',deviceID=id,propertyName=t, value=env.p.data, _sh=true})
     end
   end)
 
