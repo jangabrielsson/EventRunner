@@ -80,6 +80,7 @@ if not _getIdProp then
   _getIdProp = function(id,prop) return fibaro:get(id,prop) end; _getGlobal = function(id) return fibaro:getGlobal(id) end
 end
 Util = Util or {}
+gEventRunnerKey="6w8562395ue734r437fg3"
 
 if not _OFFLINE then -- if running on the HC2
   function _Msg(color,message,...)
@@ -1305,7 +1306,7 @@ function newRuleCompiler()
           betw,dailys=nil,betw
           for _,t in ipairs(times) do if t+m >= ot then Event.post(action,t+m,src) end end
         end
-        Event.post(action,nil,src)
+        --Event.post(action,nil,src)
       else
         error(_format("no triggers found in rule '%s'",tojson(e)))
       end
