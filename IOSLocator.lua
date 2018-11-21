@@ -180,7 +180,7 @@ function main(sourceTrigger)
         end,
         success = function(status)
           if (status.status==330) then
-            local nextStage=status.headers["x-apple-mme-host"]
+            local nextStage="fmipmobile.icloud.com" --status.headers["x-apple-mme-host"]
             Debug(2,"NextStage")
             getIOSDeviceNextStage(nextStage,event.user,headers,pollingextra)
           elseif (status.status==200) then
