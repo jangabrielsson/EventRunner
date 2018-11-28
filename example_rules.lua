@@ -273,15 +273,15 @@ if tGEA then
   Util.defvar('earthHourDate',function() return ("25/03/2017,31/03/2018,30/03/2019,28/03/2020"):match(os.date("%d/%m/%Y"))~=nil end)
 -- Earth Hour - Datum fram till 2020.
 -- Notis via push och Sonos om att Earth Hour Börjar om 30 min. 25/03/2017,31/03/2018,30/03/2019,28/03/2020
-  Rule.eval("@20:00 & $Status='Hemma' & earthHourDate() => phones:msg='Förbered levande ljus ifall ni vill se något i mörkret :)'")
+  Rule.eval("@20:00 & $Status=='Hemma' & earthHourDate() => phones:msg='Förbered levande ljus ifall ni vill se något i mörkret :)'")
 -- Sätter den globala variabeln till aktivt läge, 1.
-  Rule.eval("@20:30 & $Status='Hemma' & earthHourDate() => $EarthHour=1")
+  Rule.eval("@20:30 & $Status=='Hemma' & earthHourDate() => $EarthHour=1")
 -- Påbörjar Earth Hour. Släcker alla lampor, pushar ut notis pá mobiler och Sonos.
-  Rule.eval("$EarthHour==1 & $Status='Hemma' & earthHourDate() & hour(20:30) =>  phones:msg='Earth Hour påbörjad, Avslutas 21:30.' ; VD.AllmanBelysning:btn=2")
+  Rule.eval("$EarthHour==1 & $Status=='Hemma' & earthHourDate() & hour(20:30) =>  phones:msg='Earth Hour påbörjad, Avslutas 21:30.' ; VD.AllmanBelysning:btn=2")
 -- Sätter den globala variabeln till inaktivt läge, 0.
-  Rule.eval("@21:30 & $Status='Hemma' & earthHourDate() => $EarthHour=0")
+  Rule.eval("@21:30 & $Status=='Hemma' & earthHourDate() => $EarthHour=0")
 -- Avslutar Earth Hour. Tänder lamporna igen, pushar ut notis to mobilize och Sonos.
-  Rule.eval("$EarthHour==0 & $Status='Hemma' & earthHourDate() & hour(21:30) =>  phones:msg='Earth Hour avslutad Lamporna tnds.' ; VD.AllmanBelysning:btn=1")
+  Rule.eval("$EarthHour==0 & $Status=='Hemma' & earthHourDate() & hour(21:30) =>  phones:msg='Earth Hour avslutad Lamporna tnds.' ; VD.AllmanBelysning:btn=1")
 
   --Test rules by simulating state changes
   Rule.eval("$Sun=0.7")
@@ -322,6 +322,7 @@ if tPresence then
   rule("#sim => || sim >> lamp=lamps[rnd(1,4)]; lamp:toggle; post(#sim,ostime()+rnd(00:05,00:30))")
   
   -- Test Presence logic
+  --rule("99:off")
   rule("wait(t/13:00); door:on") -- Door open
   rule("wait(t/13:01); door:off") -- Door close, simulation starts in 30min
   rule("wait(t/18:00); door:on")  -- Home again, simulation stopped
@@ -342,7 +343,7 @@ if tHouse then
   Rule.load([[
 -- Kitchen
       for(00:10,kt.movement:safe&$LIGHTTIME$) => kt.lamp_table:off
-
+      log("A:%s",{kt.movement,lr.movement,ha.movement}:safe)
       for(00:10,{kt.movement,lr.movement,ha.movement}:safe & $LIGHTTIME$) =>
         {kt.lamp_stove,kt.lamp_sink,ha.lamp_hall}:isOn &
         {kt.lamp_stove,kt.lamp_sink,ha.lamp_hall}:off &
@@ -460,10 +461,10 @@ if tTest1 then
       || 08:00..12:00 >> log('alarm on1')
       || 12:00..15:00 >> log('alarm off2')
       || 18:00..20:00 >> log('alarm on2')]])
-
   Rule.eval("$Presence=true")
 
-  Rule.eval("{b=2,c={d=3}}.c.d",true)
+
+  Rule.eval("{b=2,c={d=3}}.c.d",{log=true})
 
   --y=Rule.eval("dolist(v,{2,4,6,8,10},SP(); log('V:%s',$v))")
   --printRule(y)
@@ -535,11 +536,11 @@ if tTest2 then
   _setClock("t/08:00")
   _setMaxTime(300)
 
-  Rule.eval("{2,3,4}[2]=5",true) -- {2,5,4}
-  Rule.eval("foo={}",true)  
-  Rule.eval("foo['bar']=42",true) -- {bar=42}
-  Rule.eval("$foo=5",true) -- fibaro:setGlobal('foo',5)
-  Rule.eval("label(42,'foo')='bar'",true) -- fibaro:call(42,'setProperty', 'ui.foo.value', 'bar')
+  Rule.eval("{2,3,4}[2]=5",{log=true}) -- {2,5,4}
+  Rule.eval("foo={}",{log=true})  
+  Rule.eval("foo['bar']=42",{log=true}) -- {bar=42}
+  Rule.eval("$foo=5",{log=true}) -- fibaro:setGlobal('foo',5)
+  Rule.eval("label(42,'foo')='bar'",{log=true}) -- fibaro:call(42,'setProperty', 'ui.foo.value', 'bar')
 
   y=Rule.eval("#test{i='$i<=10'} => wait(00:10); log('i=%d',i); post(#test{i=i+1})") -- Print i every 10min
   Rule.eval("post(#test{i=1})")
@@ -626,7 +627,7 @@ if tTimes then
  -- Every day at sunrise on weekdays when fibaro global 'Presence' equals 'Home', turn off the lamp 
   Rule.eval("@sunrise & $Presence=='Home' & wday('mon-fri') => lamp:off")
 -- Every day at sunrise on weekdays when fibaro global 'Presence' equals 'Home' or fibaro global 'Simulate' equals 'true', turn off the lamp 
-  Rule.eval("@sunrise & ($Presence=='Home' | $Simulate='true') & wday('mon-fri') => lamp:off")
+  Rule.eval("@sunrise & ($Presence=='Home' | $Simulate=='true') & wday('mon-fri') => lamp:off")
 
 -- Define a set of lamps
   Rule.eval("lamps={55,66,77}")
@@ -641,7 +642,7 @@ if tTriggerTuturial then
   -- Smallest presence simulator?
   Rule.eval("$Presence='away'")
   Rule.eval("lamps={22,33,44,55,66,77,88}")
-  Rule.eval("@@rnd(00:30,00:10) & $Presence=='away' & sunset..sunrise => lamps[rnd(1,size(lamps))]:toggle")
+  Rule.eval("@@rnd(00:10,00:30) & $Presence=='away' & sunset..sunrise => lamps[rnd(1,size(lamps))]:toggle")
 
 end
 

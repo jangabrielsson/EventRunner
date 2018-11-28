@@ -1,17 +1,18 @@
 --[[
 
-      EventRunnerDebug. EventRunner support
-      GNU GENERAL PUBLIC LICENSE. Version 3, 29 June 2007
-      Author Jan Gabrielson, Email: jan@gabrielsson.com
+  EventRunnerDebug. EventRunner support
+  GNU GENERAL PUBLIC LICENSE. Version 3, 29 June 2007
+  Author Jan Gabrielson, Email: jan@gabrielsson.com
 
-      Offline support for HC2 functions
-      Can use FibaroSceneAPI/Lualibs for HC2 remote invocation (_REMOTE=true)
-      (See tutorial at https://forum.fibaro.com/index.php?/topic/24319-tutorial-zerobrane-usage-lua-coding/)
-      ...or some simpler local emulation of Fibaro functions (_REMOTE=false) that logs to the console
-      _PORTLISTENER=true starts a listener on a socket for receieving sourcetriggers/events from HC2 scene
+  Offline support for HC2 functions
+  Can use FibaroSceneAPI/Lualibs for HC2 remote invocation (_REMOTE=true)
+  (See tutorial at https://forum.fibaro.com/index.php?/topic/24319-tutorial-zerobrane-usage-lua-coding/)
+  ...or some simpler local emulation of Fibaro functions (_REMOTE=false) that logs to the console
+  _PORTLISTENER=true starts a listener on a socket for receieving sourcetriggers/events from HC2 scene
+  
 --]] 
 
-if _version ~= "1.3" then error("Bad version of EventRunnerDebug") end 
+if _version ~= "1.4" then error("Bad version of EventRunnerDebug") end 
 _SPEEDTIME         = 24*30   -- nil run the local clock in normal speed, set to an int <x> will speed the clock through <x> hours
 _REMOTE            = false  -- If true use FibaroSceneAPI to call functions on HC2, else emulate them locally...
 _GUI               = false -- Needs wxwidgets support (e.g. require "wx"). Works in ZeroBrane under Lua 5.1.
@@ -37,13 +38,16 @@ _debugFlags = {
   post=true,       -- Log all posts
   invoke=true,     -- Log all handlers being invoked (triggers, rules etc)
   rule=false,      -- Log result from invoked script rule
+  ruleTrue=false,  -- Log result from invoked script rule on if result is true
   triggers=false,  -- Log all externally incoming triggers (devices, globals etc)
   dailys=false,    -- Log all dailys being scheduled at midnight
-  timers=false,    -- Log att timers (setTimeout) being scheduled)
+  postFuns=false,  -- Log post of functions (many internal functions use this)
+  sysTimers=false, -- Log all timers (setTimeout) being scheduled)
   fibaro=true,     -- Log all fibaro calls except get/set
   fibaroGet=false  -- Log fibaro get/set
 }
 --]]
+_debugFlags = { post=true,invoke=false,triggers=false,dailys=false,postFuns=false,rule=false,ruleTrue=false,fibaro=true,fibaroGet=false,fibaroSet=false,sysTimers=false }
 
 _OFFLINE           = true          -- Always true if we include this file (e.g. not running on the HC2)
 _HC2               = not _OFFLINE  -- Always false if we include this file               = 
@@ -61,8 +65,8 @@ end
 
 _ENV = _ENV or _G or {}
 LOG = {WELCOME = "orange",DEBUG = "white", SYSTEM = "Cyan", LOG = "green", ERROR = "Tomato"}
-
-function fibaro:getSourceTrigger() return {type = "autostart"} end
+_SOURCETRIGGER={type = "autostart"}
+function fibaro:getSourceTrigger() return _SOURCETRIGGER end
 
 _format = string.format
 
@@ -75,6 +79,17 @@ function _Msg(color,message,...)
 end
 function Debug(flag,message,...) if flag then _Msg(LOG.DEBUG,message,...) end end
 function Log(color,message,...) return _Msg(color,message,...) end
+
+function _LINEFORMAT(line) return line and " at line "..line or "" end
+function _LINE() 
+  if _OFFLINE then 
+    for i=1,5 do 
+      local l = debug.getinfo(i); 
+      if l and l.currentline < _STARTLINE then return l.currentline end 
+    end
+    return nil
+  end
+end
 
 function split(s, sep)
   local fields = {}
@@ -101,7 +116,9 @@ function _setUpSpeedTime() -- Special version of time functions
   end
   function osDate(p,t) return t and os.date(p,t) or osDate(p,osTime()) end
   function osTime(arg1)
-    if arg1 then return os.time(arg1) end
+    if arg1 then 
+      return os.time(arg1) 
+    end
 --    local t = _startTime+_sleep+(os.time()-_startTime)
     local t = _sleep
     return t+(_timeAdjust or 0)
@@ -110,7 +127,7 @@ function _setUpSpeedTime() -- Special version of time functions
     _sleep = _sleep + n/1000 --math.floor(n/1000) 
   end
   function _setClock(t) _timeAdjust = _timeAdjust or toTime(t)-osTime() end -- 
-  function _setMaxTime(t) _maxTime = _startTime + t*60*60 end -- hours
+  function _setMaxTime(t) _maxTime = _startTime + t*60*60; _SPEEDTIME=t end -- hours
 end
 
 osTime = function(arg) return arg and os.time(arg) or os.time()+(_timeAdjust or 0) end
@@ -177,7 +194,9 @@ function _System.runTimers()
       os.exit() 
     end
     local l = _timers.time-osTime()
-    Debug(_debugFlags.timers,"Next timer %s at %s sleeping %ss",_timers.doc and _timers.doc or tostring(_timers):sub(8),osDate("%X",_timers.time),l)
+    if _debugFlags.systimers then
+      Debug(true,"Next timer %s at %s sleeping %ss",_timers.doc and _timers.doc or tostring(_timers):sub(8),osDate("%X",_timers.time),l)
+    end
     if l > 0 then
       fibaro:sleep(1000*l) 
     end
@@ -291,13 +310,13 @@ if not _REMOTE then
 
   function fibaro:get(id,prop) return _getIdProp(id,prop) end
   function fibaro:getValue(id,prop) return (_getIdProp(id,prop)) end
-  
+
   function _getGlobal(name)
     if _OFFLINE and _deviceTable and name==_deviceTable and fibaro._globals[name] == nil then
       local devmap = io.open(name..".data", "r") -- local file with json structure
       if devmap then fibaro._globals[name] = {devmap:read("*all"),osTime()} end
     end
-    fibaro._globals[name] = fibaro._globals[name] or {"",osTime()}
+    fibaro._globals[name] = fibaro._globals[name] or {nil,osTime()}
     return table.unpack(fibaro._globals[name])
   end
 
@@ -329,7 +348,7 @@ if not _REMOTE then
     end
     fibaro._fibaroCalls[idKey] = {value,osTime()}
   end
-  
+
   _specCalls={}
   _specCalls['setProperty'] = function(id,prop,...) setAndPropagate(id,prop,({...})[1]) end 
   _specCalls['setColor'] = function(id,R,G,B) fibaro._fibaroCalls[id..'color'] = {{R,G,B},osTime()} end
@@ -337,14 +356,14 @@ if not _REMOTE then
   _specCalls['sendPush'] = function(id,msg) end -- log to console?
   _specCalls['pressButton'] = function(id,msg) end -- simulate VD?
   _specCalls['setPower'] = function(id,value) setAndPropagate(id,"power",value) end
-  
+
   function fibaro:call(id,prop,...)
     if _specCalls[prop] then _specCalls[prop](id,...) return end 
     local value = ({turnOff="0",turnOn="99",on="99",off="0"})[prop] or (prop=='setValue' and tostring(({...})[1]))
     if not value then error(_format("fibaro:call(..,'%s',..) is not supported, fix it!",prop)) end
     setAndPropagate(id,'value',value)
   end
-  
+
 end
 ------
 
