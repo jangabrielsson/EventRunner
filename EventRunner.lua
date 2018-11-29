@@ -10,7 +10,7 @@ counter
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
 
-_version = "1.4"  
+_version = "1.4"  -- fix1,Nov29,2018
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -18,7 +18,7 @@ _version = "1.4"
 -- Email: jan@gabrielsson.com
 --]]
 
-_sceneName   = "Demo"        -- Set to scene/script name
+_sceneName   = "Demo"      -- Set to scene/script name
 _deviceTable = "devicemap" -- Name of json struct with configuration data (i.e. "HomeTable")
 ruleLogLength = 80
 _debugFlags = { post=true,invoke=false,triggers=false,dailys=false,timers=false,rule=false,ruleTrue=false,fibaro=true,fibaroGet=false,fibaroSet=false,sysTimers=false }
@@ -33,7 +33,6 @@ function main()
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
   -- lets start
-  
   dofile("example_rules.lua") -- some example rules to try out...
 end -- main()
 
@@ -109,6 +108,7 @@ function _assertf(test,msg,fun) if not test then msg = _format(msg,fun and fun()
 function isTimer(t) return type(t) == 'table' and t[Event.TIMER] end
 function isRule(r) return type(r) == 'table' and r[Event.RULE] end
 function isEvent(e) return type(e) == 'table' and e.type end
+function isTEvent(e) return type(e)=='table' and (e[1]=='%table' or e[1]=='quote') and type(e[2])=='table' and e[2].type end
 function _transform(obj,tf)
   if type(obj) == 'table' then
     local res = {} for l,v in pairs(obj) do res[l] = _transform(v,tf) end 
@@ -513,8 +513,6 @@ function Util.printRule(rule)
   rule.print()
   Log(LOG.LOG,"-----------------------------------")
 end
-
-function isTEvent(e) return type(e)=='table' and (e[1]=='%table' or e[1]=='quote') and type(e[2])=='table' and e[2].type end
 
 function Util.mapAnd(f,l,s) s = s or 1; local e=false for i=s,#l do e = f(l[i]) if not e then return false end end return e end 
 function Util.mapOr(f,l,s) s = s or 1; for i=s,#l do local e = f(l[i]) if e then return e end end return false end
@@ -1263,13 +1261,15 @@ function newRuleCompiler()
     end,
   }
 
+  local function nestOr(t,p) if t[p+1]==nil then return t[p] else return {'or',t[p],nestOr(t,p+1)} end end
+
   local function getTriggers(e)
     local s={triggs={},dailys={},scheds={},dailyFlag=false,eventFlag=false}
     local function traverse(e)
-      if isTEvent(e) then 
-        local ep = ScriptCompiler.compile(e)
-        ep = ScriptEngine.eval(ep)
-        s.triggs[tojson(ep)] = ep
+      if type(e)=='table' and e[1]== '%eventmatch' then -- {'%eventmatch',{'quote', ce1,cep,id}} 
+        local ep,ce,id = e[2][3],e[2][2],e[2][4]
+        if id then s.triggs[id]=ce 
+        else s.triggs[tojson(ce)] = ce end 
         s.eventFlag=true
       elseif type(e) =='table' then
         Util.mapkk(traverse,e)
@@ -1298,12 +1298,24 @@ function newRuleCompiler()
   local CATCHUP = math.huge
   local RULEFORMAT = "Rule:%s:%."..(ruleLogLength or 40).."s"
 
+  -- #property{deviceID={6,7} & 6:isOn => .. generates 2 triggers for 6????
   function _remapEvents(obj)
     if isTEvent(obj) then 
       local ce = ScriptEngine.eval(ScriptCompiler.compile(obj))
+      if ce.type == 'property' and type(ce.deviceID)=='table' then
+        if #ce.deviceID> 0 then
+          local ss =Util.map(function(id) 
+              local ce1,cep = _copy(ce); ce1.deviceID=id
+              cep = _copy(ce1); Event._compilePattern(cep)
+              return {'%eventmatch',{'quote', ce1,cep,id}} 
+            end,ce.deviceID)
+          ss = nestOr(ss,1)
+          return ss
+        end
+      end
       local cep = _copy(ce)
       Event._compilePattern(cep)
-      return {'%eventmatch',{'quote', ce,cep}}
+      return {'%eventmatch',{'quote',ce,cep}}
     elseif type(obj) == 'table' then
       local res = {} for l,v in pairs(obj) do res[l] = _remapEvents(v,tf) end 
       return res
@@ -1312,11 +1324,11 @@ function newRuleCompiler()
 
   function self.compRule(e,env)
     local h,body,events,res,ctx,times = e[2],e[3],{},{},{src=env.src,line=env.line}
+    h = _remapEvents(h)  -- fix #events in header
     local triggs,dailys,scheds,dailyFlag,eventFlag = getTriggers(h)
     if #triggs==0 and #dailys==0 and #scheds==0 then 
       error(_format("no triggers found in rule '%s'%s",ctx.src,_LINEFORMAT(ctx.line)))
     end
-    if eventFlag then h = _remapEvents(h) end -- fix #events in header
     local code = ScriptCompiler.compile({'and',(_debugFlags.rule or _debugFlags.ruleTrue) and {'logRule',h,opts} or h,body})
     local action = function(env) return ScriptEngine.eval(code,env) end
     if #scheds>0 then Event.post(action,nil,ctx)
