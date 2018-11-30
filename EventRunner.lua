@@ -10,7 +10,7 @@ counter
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
 
-_version = "1.4"  -- fix1,Nov29,2018
+_version = "1.4"  -- fix2,Nov30,2018
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -634,7 +634,7 @@ function newScriptEngine()
   getIdFun['roomName']=function(s,i) return doit(Util.map,function(id) return fibaro:getRoomNameByDeviceID(ID(id,i)) end,s.pop()) end 
   getIdFun['safe']=getIdFun['isOff'] getIdFun['breached']=getIdFun['isOn']
   getIdFun['trigger']=function(s,i) return true end -- Nop, only for triggering rules
-  function esort(t) table.sort(t,function(a,b) return (a.timestamp or math.huge) <= (b.timestamp or math.huge) end) return t end
+  function esort(t) table.sort(t,function(a,b) return (a.timestamp or math.huge) < (b.timestamp or math.huge) end) return t end
   getIdFun['access']=function(s,i) return esort(doit(Util.map,function(id) return _lastEID['AccessControlEvent'][id] or {} end,s.pop())) end
   getIdFun['central']=function(s,i) return esort(doit(Util.map,function(id) return _lastEID['CentralSceneEvent'][id] or {} end,s.pop())) end
   getIdFun['lux']=function(s,i) return getIdFuns(s,i,'value') end
