@@ -10,7 +10,7 @@ counter
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
 
-_version = "1.4"  -- fix2,Nov30,2018
+_version = "1.4"  -- fix3,Dec9,2018
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -1329,7 +1329,7 @@ function newRuleCompiler()
     if #triggs==0 and #dailys==0 and #scheds==0 then 
       error(_format("no triggers found in rule '%s'%s",ctx.src,_LINEFORMAT(ctx.line)))
     end
-    local code = ScriptCompiler.compile({'and',(_debugFlags.rule or _debugFlags.ruleTrue) and {'logRule',h,opts} or h,body})
+    local code = ScriptCompiler.compile({'and',(_debugFlags.rule or _debugFlags.ruleTrue) and {'logRule',h,ctx.src} or h,body})
     local action = function(env) return ScriptEngine.eval(code,env) end
     if #scheds>0 then Event.post(action,nil,ctx)
     else
