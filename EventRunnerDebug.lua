@@ -15,7 +15,7 @@
 if _version ~= "1.4" then error("Bad version of EventRunnerDebug") end 
 _SPEEDTIME         = 24*30   -- nil run the local clock in normal speed, set to an int <x> will speed the clock through <x> hours
 _REMOTE            = false  -- If true use FibaroSceneAPI to call functions on HC2, else emulate them locally...
-_GUI               = false -- Needs wxwidgets support (e.g. require "wx"). Works in ZeroBrane under Lua 5.1.
+_GUI               = _GUI~=nil or false -- Needs wxwidgets support (e.g. require "wx"). Works in ZeroBrane under Lua 5.1.
 
 -- Server parameters
 _PORTLISTENER      = false
@@ -48,7 +48,7 @@ _debugFlags = {
 }
 --]]
 _debugFlags = { post=true,invoke=false,triggers=false,dailys=false,postFuns=false,rule=false,ruleTrue=false,fibaro=true,fibaroGet=false,fibaroSet=false,sysTimers=false }
-
+if _GUI then _SPEEDTIME=false end
 _OFFLINE           = true          -- Always true if we include this file (e.g. not running on the HC2)
 _HC2               = not _OFFLINE  -- Always false if we include this file               = 
 mime = require('mime')
@@ -169,6 +169,28 @@ function clearTimeout(ref)
 end
 
 if not _System then _System = {} end
+
+if true then
+  _System.headers = {}
+  local short_src = debug.getinfo(3).short_src
+  local f = io.open(short_src) 
+  local src = f:read("*all")
+  local c = src:match("--%[%[.-%-%-%]%]")
+  local curr = nil
+  if c and c~="" then
+    c=c:gsub("([\r\n]+)","\n")
+    c = split(c,'\n')
+    for i=2,#c-1 do
+      if c[i]:match("%%%%") then curr=c[i]:match("%a+")
+      elseif curr then 
+        local h = _System.headers[curr] or {}
+        h[#h+1] = c[i]
+        _System.headers[curr]=h
+      end
+    end
+  end
+  a = 9
+end
 
 function _System.dumpTimers()
   local t = _timers
@@ -320,6 +342,12 @@ if not _REMOTE then
     return table.unpack(fibaro._globals[name])
   end
 
+  function Util.getComment(str) 
+    local f = io.open(debug.getinfo(2).short_src) 
+    local src = f:read("*all")
+    return src:match("--%[%[[%s%c]*"..str.."(.*)"..str.."%-%-%]%]")
+  end
+
   function fibaro:getGlobal(name) return _getGlobal(name) end
   function fibaro:getGlobalValue(name) return (_getGlobal(name)) end
   function fibaro:getGlobalModificationTime(name) return select(2,_getGlobal(name)) end
@@ -368,101 +396,156 @@ end
 ------
 
 if _GUI then
+
+  local function _sortE(a,b)
+    if a:match("^{type:'autostart") then a = '<'..a end
+    if a:match("^{type:'other") then a = '>'..a end
+    if b:match("^{type:'autostart") then b = '<'..b end
+    if b:match("^{type:'other") then b = '>'..b end
+    return a < b
+  end
+
+  function buildChoices()
+    local choices = {}
+    for i=1,_System.headers['properties'] and #_System.headers['properties'] or 0 do
+      local id = _System.headers['properties'][i]:match("(%d+)%s+value")
+      if id and id ~="" then 
+        choices[#choices+1] = _format("{type:'property',deviceID:%s,value:'1'}",id)
+      end
+    end
+    for i=1,_System.headers['globals'] and #_System.headers['globals'] or 0 do
+      local name = _System.headers['globals'][i]:match("(%a+)")
+      if name and name ~="" then 
+        choices[#choices+1] = _format("{type:'global',name:'%s',value:''}",name)
+      end
+    end
+    for i=1,_System.headers['events'] and #_System.headers['events'] or 0 do
+      local id,t = _System.headers['events'][i]:match("(%d+)%s+(%a+)")
+      if t and t=='sceneActivation' then
+        choices[#choices+1]=_format("{type:'property',deviceID=%s,propertyName:'sceneActivation'}",id)
+      elseif t and t=='CentralSceneEvent' then
+        choices[#choices+1]=_format("{type:'event',event:{type:'CentralSceneEvent',data:{deviceId:%s,keyId:'1',keyAttribute:'Pressed'}}}",id)
+      elseif t and t=='AccessControlEvent' then
+        choices[#choices+1]=_format("{type:'event',event:{type:'AccessControlEvent',data:{id:%s,name:'Smith',slotId:'99',status:'Lock'}}}",id)
+      end
+    end
+    choices[#choices+1]="{type:'autostart'}"
+    choices[#choices+1]="{type:'other'}"
+    json.decode("{type:'autostart'}")
+    table.sort(choices,_sortE)
+    return choices
+  end
+
   require("wx")
-
   UI = {}
-
--- create MyFrame1
-  UI.MyFrame1 = wx.wxFrame (wx.NULL, wx.wxID_ANY, "EventRunner", wx.wxDefaultPosition, wx.wxSize( 535,241 ), wx.wxDEFAULT_FRAME_STYLE+wx.wxTAB_TRAVERSAL )
-  UI.MyFrame1:SetSizeHints( wx.wxDefaultSize, wx.wxDefaultSize )
+  UI.MyFrame2 = wx.wxFrame (wx.NULL, wx.wxID_ANY, "Triggers", wx.wxDefaultPosition, wx.wxSize( 483,489 ), wx.wxDEFAULT_FRAME_STYLE+wx.wxTAB_TRAVERSAL )
+  UI.MyFrame2:SetSizeHints( wx.wxDefaultSize, wx.wxDefaultSize )
 
   UI.bSizer1 = wx.wxBoxSizer( wx.wxVERTICAL )
 
+  local choices=buildChoices()
+
+  UI.m_listBox1Choices = choices
+  UI.m_listBox1 = wx.wxListBox( UI.MyFrame2, wx.wxID_ANY, wx.wxDefaultPosition, wx.wxDefaultSize, UI.m_listBox1Choices, 0 )
+  UI.bSizer1:Add( UI.m_listBox1, 100, wx.wxALL + wx.wxEXPAND, 5 )
+
   UI.bSizer2 = wx.wxBoxSizer( wx.wxHORIZONTAL )
 
-  UI.m_button_run = wx.wxButton( UI.MyFrame1, wx.wxID_ANY, "Run", wx.wxDefaultPosition, wx.wxDefaultSize, 0 )
-  UI.bSizer2:Add( UI.m_button_run, 0, wx.wxALL, 10 )
+  UI.m_staticText2 = wx.wxStaticText( UI.MyFrame2, wx.wxID_ANY, "Value:", wx.wxDefaultPosition, wx.wxDefaultSize, 0 )
+  UI.m_staticText2:Wrap( -1 )
 
-  UI.m_radioBox_timeChoices = { "Real time", "Speed time" }
-  UI.m_radioBox_time = wx.wxRadioBox( UI.MyFrame1, wx.wxID_ANY, "", wx.wxDefaultPosition, wx.wxDefaultSize, UI.m_radioBox_timeChoices, 1, wx.wxRA_SPECIFY_ROWS )
-  UI.m_radioBox_time:SetSelection( 0 )
-  UI.bSizer2:Add( UI.m_radioBox_time, 0, wx.wxALL, 5 )
+  UI.bSizer2:Add( UI.m_staticText2, 0, wx.wxALIGN_CENTER, 5 )
 
-  UI.m_staticText1 = wx.wxStaticText( UI.MyFrame1, wx.wxID_ANY, "Hours:", wx.wxPoint( -1,-1 ), wx.wxDefaultSize, 0 )
-  UI.m_staticText1:Wrap( -1 )
-  UI.bSizer2:Add( UI.m_staticText1, 0, wx.wxALL, 10 )
-
-  UI.m_textCtrl_time = wx.wxTextCtrl( UI.MyFrame1, wx.wxID_ANY, "", wx.wxDefaultPosition, wx.wxDefaultSize, 0 )
-  UI.bSizer2:Add( UI.m_textCtrl_time, 0, wx.wxALL, 10 )
-  UI.m_textCtrl_time:SetValue(_SPEEDTIME and tostring(_SPEEDTIME) or "")
+  UI.m_textCtrl1 = wx.wxTextCtrl( UI.MyFrame2, wx.wxID_ANY, "", wx.wxDefaultPosition, wx.wxDefaultSize, 0 )
+  UI.bSizer2:Add( UI.m_textCtrl1, 100, wx.wxALIGN_BOTTOM + wx.wxALL, 5 )
 
   UI.bSizer1:Add( UI.bSizer2, 0, wx.wxEXPAND, 5 )
 
-  UI.m_button_stop = wx.wxButton( UI.MyFrame1, wx.wxID_ANY, "Stop", wx.wxDefaultPosition, wx.wxDefaultSize, 0 )
-  UI.bSizer1:Add( UI.m_button_stop, 0, wx.wxALL, 10 )
 
-  UI.m_staticline1 = wx.wxStaticLine( UI.MyFrame1, wx.wxID_ANY, wx.wxDefaultPosition, wx.wxDefaultSize, wx.wxLI_HORIZONTAL )
-  UI.bSizer1:Add( UI.m_staticline1, 0, wx.wxEXPAND  + wx. wxALL, 5 )
+  UI.MyFrame2:SetSizer( UI.bSizer1 )
+  UI.MyFrame2:Layout()
 
-  UI.bSizer3 = wx.wxBoxSizer( wx.wxHORIZONTAL )
-
-  UI.m_staticText3 = wx.wxStaticText( UI.MyFrame1, wx.wxID_ANY, "Event:", wx.wxDefaultPosition, wx.wxDefaultSize, 0 )
-  UI.m_staticText3:Wrap( -1 )
-  UI.bSizer3:Add( UI.m_staticText3, 0, wx.wxALL, 10 )
-
-  UI.m_textCtrl_event = wx.wxTextCtrl( UI.MyFrame1, wx.wxID_ANY, "", wx.wxDefaultPosition, wx.wxDefaultSize, 0 )
-  UI.bSizer3:Add( UI.m_textCtrl_event, 1, wx.wxALL, 10 )
-  UI.m_textCtrl_event:SetValue("{'type':'CentralSceneEvent','event':{'data':{'keyId':'1'}}}")
-
-
-  UI.bSizer1:Add( UI.bSizer3, 0, wx.wxEXPAND, 10 )
-
-  UI.m_button_post = wx.wxButton( UI.MyFrame1, wx.wxID_ANY, "Post", wx.wxDefaultPosition, wx.wxDefaultSize, 0 )
-  UI.bSizer1:Add( UI.m_button_post, 0, wx.wxALL, 10 )
-
-
-  UI.MyFrame1:SetSizer( UI.bSizer1 )
-  UI.MyFrame1:Layout()
-
-  --UI.MyFrame1:Centre( wx.wxBOTH )
+  UI.MyFrame2:Centre( wx.wxBOTH )
 
   -- Connect Events
-  gstimer = nil
-  UI.m_button_run:Connect( wx.wxEVT_COMMAND_BUTTON_CLICKED, function(event)
-      --implements run
-      local realtime = UI.m_radioBox_time:GetSelection()==0
-      local speedhours = UI.m_textCtrl_time:GetValue() or "0"
-      speedhours = tonumber(speedhours ~= "" and speedhours or "0")
-      if not realtime then _SPEEDTIME = speedhours else _SPEEDTIME = nil end
-      --Log(LOG.LOG,"Time1:%s",realtime)
-      --Log(LOG.LOG,"Time2:%s",speedhours)
-      if _SPEEDTIME then _setUpSpeedTime() end
-      _System._setup()
-      gstimer = wx.wxTimer(UI.MyFrame1)
-      _System.runTimers() -- gstimer:Start(1,wx.wxTIMER_ONE_SHOT )
-      event:Skip()
-    end )
+  -- Connect Events
 
-  UI.m_button_stop:Connect( wx.wxEVT_COMMAND_BUTTON_CLICKED, function(event)
-      --implements stop
+  UI.MyFrame2:Connect( wx.wxEVT_CLOSE_WINDOW, function(event)
+      --implements CloseWindow
       if gstimer then gstimer:Stop() end
       wx.wxGetApp():ExitMainLoop()
       --fibaro:abort()
       event:Skip()
+      event:Skip()
     end )
 
-  UI.m_button_post:Connect( wx.wxEVT_COMMAND_BUTTON_CLICKED, function(event)
-      --implements post
-      local ev=json.decode(UI.m_textCtrl_event:GetValue())
-      Log(LOG.LOG,"Posting event '%s'",UI.m_textCtrl_event:GetValue())
-      if Event then
-        Event.post(ev,0)
-      else
-        setTimeout(function() main(ev) end,0)
+  UI.m_listBox1:Connect( wx.wxEVT_LEFT_DCLICK, function(event)
+      --implements PostEvent
+      local i = UI.m_listBox1:GetSelection()
+      if i >= 0 then
+        local str = UI.m_listBox1:GetString(i)
+        local value,ev = pcall(function() return json.decode(str) end)
+        if value and ev.type=='property' and ev._sensor then
+          local ev2 = _copy(ev)
+          ev2.value='0'
+          Event.post(ev2,ev._sensor)
+          ev._sensor=nil
+        end
+        if value and Event then
+          Event.post(ev)
+        elseif value then
+          setTimeout(function() main(ev) end,0)
+        end
+        if not value then Log(LOG.ERROR,"Bad event format: %s",str) end
       end
       event:Skip()
     end )
 
+  UI.m_listBox1:Connect( wx.wxEVT_LEFT_UP, function(event)
+      --implements SelectEvent
+      local i = UI.m_listBox1:GetSelection()
+      if i >= 0 then 
+        str = UI.m_listBox1:GetString(i)
+        UI.m_textCtrl1:SetValue(str)
+      end
+      event:Skip()
+    end )
+
+  local function _removeSelection()
+    local i = UI.m_listBox1:GetSelection()
+    if i >= 0 then
+      local str = UI.m_listBox1:GetString(i)
+      for i=1,#choices do if choices[i]==str then table.remove(choices,i) end end
+      UI.m_listBox1:Delete(i)
+    end
+  end
+
+  UI.m_listBox1:Connect( wx.wxEVT_KEY_UP, function(event)
+      --implements KeyUp
+      local c = event:GetKeyCode()
+      if c == 8 then _removeSelection() end
+      event:Skip()
+    end )
+
+  UI.m_textCtrl1:Connect( wx.wxEVT_CHAR, function(event)
+      --implements charEnter
+      local c = event:GetKeyCode()
+      if c == 13 then
+        local str = UI.m_textCtrl1:GetValue()
+        for _,s in ipairs(choices) do
+          if s==str then event:Skip(); return end
+        end
+        UI.m_listBox1:Clear()
+        choices[#choices+1]=str
+        table.sort(choices,_sortE)
+        UI.m_listBox1:InsertItems(choices,0)
+      elseif c == 8 then
+        _removeSelection()
+      end
+      event:Skip()
+    end )
+
+  gstimer = nil
   function gSleep(ms1,ms2)
     if _SPEEDTIME then
       if exceededTime() then
@@ -491,25 +574,25 @@ if _GUI then
     end
     if _timers then
       local l = _timers.time-osTime()
-      Debug(5,"Timer %s sleeping %ss",_timers.doc,l)
+      --Debug(5,"Timer %s sleeping %ss",_timers.doc,l)
       gSleep(1000*l,1000*l)
     else
       gSleep(10*60*1000,200)
     end
   end
 
-  UI.MyFrame1:Connect(wx.wxEVT_TIMER, _System.runTimers) 
+  UI.MyFrame2:Connect(wx.wxEVT_TIMER, _System.runTimers) 
 
-  UI.MyFrame1:Restore(); -- restore the window if minimized
-  UI.MyFrame1:Iconize(false); -- show the window
-  UI.MyFrame1:SetFocus(); -- show the window
-  UI.MyFrame1:Raise();  -- bring window to front
-  UI.MyFrame1:Show(true);  -- bring window to front
+  UI.MyFrame2:Restore(); -- restore the window if minimized
+  UI.MyFrame2:Iconize(false); -- show the window
+  UI.MyFrame2:SetFocus(); -- show the window
+  UI.MyFrame2:Raise();  -- bring window to front
+  UI.MyFrame2:Show(true);  -- bring window to front
 
   function setTimeout(fun,time,doc)
     assert(type(fun)=='function' and type(time)=='number',"Bad arguments to setTimeout")
     local cp = {time=osTime()+time/1000,fun=fun,doc=doc,next=nil}
-    Debug(5,"Timer %s at %s",cp.doc,osDate("%X",cp.time))
+    --Debug(5,"Timer %s at %s",cp.doc,osDate("%X",cp.time))
     if _timers == nil then _timers = cp
     elseif cp.time < _timers.time then cp.next = _timers; _timers = cp
     else
@@ -539,7 +622,11 @@ end
 function _System.runOffline(setup)
   if _GUI then
     _System._setup = setup
-    Log(LOG.SYSTEM,"Using wxWidgets. Please press 'Run' in GUI to start scene")
+    --implements run
+    if _SPEEDTIME then _setUpSpeedTime() end
+    _System._setup()
+    gstimer = wx.wxTimer(UI.MyFrame2)
+    _System.runTimers() -- gstimer:Start(1,wx.wxTIMER_ONE_SHOT )
     wx.wxGetApp():MainLoop()
   else
     if _SPEEDTIME then _setUpSpeedTime() end

@@ -4,13 +4,16 @@
 66 value
 77 value
 %% events
+88 CentralSceneEvent
+99 sceneActivation
+100 AccessControlEvent
 %% globals
 counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
 
-_version = "1.4"  -- fix3,Dec9,2018
+_version = "1.4"  -- fix4,Dec13,2018
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -22,10 +25,10 @@ _sceneName   = "Demo"      -- Set to scene/script name
 _deviceTable = "devicemap" -- Name of json struct with configuration data (i.e. "HomeTable")
 ruleLogLength = 80
 _debugFlags = { post=true,invoke=false,triggers=false,dailys=false,timers=false,rule=false,ruleTrue=false,fibaro=true,fibaroGet=false,fibaroSet=false,sysTimers=false }
-
+_GUI = true
 Event = {}
 -- If running offline we need our own setTimeout and net.HTTPClient() and other fibaro funs...
-if dofile then dofile("EventRunnerDebug.lua") end
+if dofile then dofile("EventRunnerDebug2.lua") end
 
 ---------------- Callbacks to user code --------------------
 function main()
