@@ -438,7 +438,7 @@ if _GUI then
 
   require("wx")
   UI = {}
-  UI.MyFrame2 = wx.wxFrame (wx.NULL, wx.wxID_ANY, "Triggers", wx.wxDefaultPosition, wx.wxSize( 483,489 ), wx.wxDEFAULT_FRAME_STYLE+wx.wxTAB_TRAVERSAL )
+  UI.MyFrame2 = wx.wxFrame (wx.NULL, wx.wxID_ANY, "Triggers", wx.wxDefaultPosition, wx.wxSize( 483,489 ), wx.wxCAPTION + wx.wxCLOSE_BOX + wx.wxMAXIMIZE_BOX + wx.wxMINIMIZE_BOX + wx.wxRESIZE_BORDER+wx.wxTAB_TRAVERSAL +wx.wxSTAY_ON_TOP)
   UI.MyFrame2:SetSizeHints( wx.wxDefaultSize, wx.wxDefaultSize )
 
   UI.bSizer1 = wx.wxBoxSizer( wx.wxVERTICAL )
@@ -451,7 +451,7 @@ if _GUI then
 
   UI.bSizer2 = wx.wxBoxSizer( wx.wxHORIZONTAL )
 
-  UI.m_staticText2 = wx.wxStaticText( UI.MyFrame2, wx.wxID_ANY, "Value:", wx.wxDefaultPosition, wx.wxDefaultSize, 0 )
+  UI.m_staticText2 = wx.wxStaticText( UI.MyFrame2, wx.wxID_ANY, "Event:", wx.wxDefaultPosition, wx.wxDefaultSize, 0 )
   UI.m_staticText2:Wrap( -1 )
 
   UI.bSizer2:Add( UI.m_staticText2, 0, wx.wxALIGN_CENTER, 5 )
@@ -467,7 +467,8 @@ if _GUI then
 
   UI.MyFrame2:Centre( wx.wxBOTH )
 
-  -- Connect Events
+  UI.MyFrame2:Raise();  -- bring window to front
+  UI.MyFrame2:SetFocus(); -- show the window
   -- Connect Events
 
   UI.MyFrame2:Connect( wx.wxEVT_CLOSE_WINDOW, function(event)

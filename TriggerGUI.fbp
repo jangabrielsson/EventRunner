@@ -46,7 +46,7 @@
             <property name="name">MyFrame2</property>
             <property name="pos"></property>
             <property name="size">483,489</property>
-            <property name="style">wxDEFAULT_FRAME_STYLE</property>
+            <property name="style">wxCAPTION|wxCLOSE_BOX|wxMAXIMIZE_BOX|wxMINIMIZE_BOX|wxRESIZE_BORDER</property>
             <property name="subclass">; ; forward_declare</property>
             <property name="title">Triggers</property>
             <property name="tooltip"></property>
@@ -54,7 +54,7 @@
             <property name="window_name"></property>
             <property name="window_style">wxTAB_TRAVERSAL</property>
             <property name="xrc_skip_sizer">1</property>
-            <event name="OnClose">MyFrame2OnClose</event>
+            <event name="OnClose">CloseWindow</event>
             <object class="wxBoxSizer" expanded="1">
                 <property name="minimum_size"></property>
                 <property name="name">bSizer1</property>
@@ -121,7 +121,9 @@
                         <property name="window_extra_style"></property>
                         <property name="window_name"></property>
                         <property name="window_style"></property>
-                        <event name="OnLeftDClick">m_listBox1OnLeftDClick</event>
+                        <event name="OnKeyUp">KeyUp</event>
+                        <event name="OnLeftDClick">PostEvent</event>
+                        <event name="OnLeftUp">SelectEvent</event>
                     </object>
                 </object>
                 <object class="sizeritem" expanded="1">
@@ -165,7 +167,7 @@
                                 <property name="gripper">0</property>
                                 <property name="hidden">0</property>
                                 <property name="id">wxID_ANY</property>
-                                <property name="label">Value:</property>
+                                <property name="label">Event:</property>
                                 <property name="markup">0</property>
                                 <property name="max_size"></property>
                                 <property name="maximize_button">0</property>
@@ -256,7 +258,7 @@
                                 <property name="window_extra_style"></property>
                                 <property name="window_name"></property>
                                 <property name="window_style"></property>
-                                <event name="OnKeyUp">m_textCtrl1OnKeyUp</event>
+                                <event name="OnChar">charEnter</event>
                             </object>
                         </object>
                     </object>
