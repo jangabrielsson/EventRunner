@@ -13,7 +13,7 @@ counter
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
 
-_version = "1.5"  -- Dec14,2018
+_version = "1.5"  -- fix1, Dec14,2018
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -25,7 +25,7 @@ _sceneName   = "Demo"      -- Set to scene/script name
 _deviceTable = "devicemap" -- Name of json struct with configuration data (i.e. "HomeTable")
 ruleLogLength = 80
 _debugFlags = { post=true,invoke=false,triggers=false,dailys=false,timers=false,rule=false,ruleTrue=false,fibaro=true,fibaroGet=false,fibaroSet=false,sysTimers=false }
---_GUI = true
+_GUI = false
 Event = {}
 -- If running offline we need our own setTimeout and net.HTTPClient() and other fibaro funs...
 if dofile then dofile("EventRunnerDebug.lua") end
@@ -36,7 +36,6 @@ function main()
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
   -- lets start
-
   dofile("example_rules.lua") -- some example rules to try out...
 end -- main()
 
@@ -281,10 +280,23 @@ function newEventEngine()
   toHash['property'] = function(e) return e.deviceID and 'property'..e.deviceID or 'property' end
   toHash['global'] = function(e) return e.name and 'global'..e.name or 'global' end
 
-  function self.enable(rule) if isRule(rule) then rule.enable() else error("Not a rule") end end -- TODO error msg
-  function self.disable(rule) if isRule(rule) then rule.disable() else error("Not a rule") end end
-  function self.disableSection(label) Util.mapF(self.disable,Event._sections[label] or {}) end
-  function self.enableSection(label) Util.mapF(self.enable,Event._sections[label] or {}) end
+  local function handlerEnable(t,handle)
+    if type(handle) == 'string' then Util.mapF(self[t],Event._sections[handle] or {})
+    elseif isRule(handle) then handle[t]()
+    elseif type(handle) == 'table' then Util.mapF(self[t],handle) 
+    else error('Not an event handler') end
+    return true
+  end
+
+  function self.enable(handle,opt)
+    if type(handle)=='string' and opt then 
+      for s,e in pairs(self._sections or {}) do 
+        if s ~= handle then Log(LOG.LOG,'dis:%s',s); handlerEnable('disable',e) end
+      end
+    end
+    return handlerEnable('enable',handle) 
+  end
+  function self.disable(handle) return handlerEnable('disable',handle) end
 
   function self.event(e,action,doc,ctx) -- define rules - event template + action
     doc = doc and " Event.event:"..doc or _format(" Event.event(%s,...)",tojson(e))
@@ -794,99 +806,99 @@ function newScriptEngine()
   instr['always'] = function(s,n,e,i) s.pop(n) s.push(true) end
   local function instrEnable(t,args)
     if type(args) == 'string' then if t=='enable' then Event.enableSection(args) else Event.disableSection(args) end
-    elseif type(args) == 'table' then Util.mapF(Event[t],args)
-    elseif isRule(args) then Event.enable(args) end
-    return true
+  elseif type(args) == 'table' then Util.mapF(Event[t],args)
+  elseif isRule(args) then Event.enable(args) end
+  return true
+end
+instr['enable'] = function(s,n,e,i) s.push(instrEnable('enable',s.pop())) end
+instr['disable'] = function(s,n,e,i) s.push(instrEnable('disable',s.pop())) end
+instr['post'] = function(s,n,ev) local e,t=s.pop(),nil; if n==2 then t=e; e=s.pop() end s.push(Event.post(e,t,ev.rule)) end
+instr['cancel'] = function(s,n) Event.cancel(s.pop()) s.push(nil) end
+instr['add'] = function(s,n) local v,t=s.pop(),s.pop() table.insert(t,v) s.push(t) end
+instr['betw'] = function(s,n) local t2,t1,now=s.pop(),s.pop(),osTime()-midnight()
+  if t1<=t2 then s.push(t1 <= now and now <= t2) else s.push(now >= t1 or now <= t2) end 
+end
+instr['eventmatch'] = function(s,n,e,i) local ev,evp=i[3][2],i[3][3] s.push(e.event and Event._match(evp,e.event) and ev or false) end
+instr['wait'] = function(s,n,e,i) local t,cp=s.pop(),e.cp
+  if i[4] then s.push(false) -- Already 'waiting'
+  elseif i[5] then i[5]=false s.push(true) -- Timer expired, return true
+  else 
+    if t<midnight() then t = osTime()+t end -- Allow both relative and absolute time... e.g '10:00'->midnight+10:00
+    i[4]=Event.post(function() i[4]=nil i[5]=true self.eval(e.code,e,e.stack,cp) end,t,e.rule) s.push(false) error({type='yield'})
+  end 
+end
+instr['repeat'] = function(s,n,e) 
+  local v,c = n>0 and s.pop() or math.huge
+  if not e.forR then s.push(0) 
+  elseif v > e.forR[2] then s.push(e.forR[1]()) else s.push(e.forR[2]) end 
+end
+instr['for'] = function(s,n,e,i) 
+  local val,time, stack, cp = s.pop(),s.pop(), e.stack, e.cp
+  local code = e.code
+  local rep = function() i[6] = true; i[5] = nil; self.eval(code) end
+  e.forR = nil -- Repeat function (see repeat())
+  --Log(LOG.LOG,"FOR")
+  if i[6] then -- true if timer has expired
+    --Log(LOG.LOG,"Timer expired")
+    i[6] = nil; 
+    if val then 
+      i[7] = (i[7] or 0)+1 -- Times we have repeated 
+      --print(string.format("REP:%s, TIME:%s",i[7],time))
+      e.forR={function() Event.post(rep,time+osTime(),e.rule) return i[7] end,i[7]}
+    end
+    s.push(val) 
+    return
+  end 
+  i[7] = 0
+  if i[5] and (not val) then i[5] = Event.cancel(i[5]) --Log(LOG.LOG,"Killing timer")-- Timer already running, and false, stop timer
+  elseif (not i[5]) and val then                        -- Timer not running, and true, start timer
+    i[5]=Event.post(rep,time+osTime(),e.rule) --Log(LOG.LOG,"Starting timer %s",tostring(i[5]))
   end
-  instr['enable'] = function(s,n,e,i) s.push(instrEnable('enable',s.pop())) end
-  instr['disable'] = function(s,n,e,i) s.push(instrEnable('disable',s.pop())) end
-  instr['post'] = function(s,n,ev) local e,t=s.pop(),nil; if n==2 then t=e; e=s.pop() end s.push(Event.post(e,t,ev.rule)) end
-  instr['cancel'] = function(s,n) Event.cancel(s.pop()) s.push(nil) end
-  instr['add'] = function(s,n) local v,t=s.pop(),s.pop() table.insert(t,v) s.push(t) end
-  instr['betw'] = function(s,n) local t2,t1,now=s.pop(),s.pop(),osTime()-midnight()
-    if t1<=t2 then s.push(t1 <= now and now <= t2) else s.push(now >= t1 or now <= t2) end 
+  s.push(false)
+end
+
+function self.addInstr(name,fun) _assert(instr[name] == nil,"Instr already defined: %s",name) instr[name] = fun end
+
+function postTrace(i,args,stack,cp)
+  local f,n = i[1],i[2]
+  if not ({jmp=true,push=true,pop=true,addr=true,fn=true,table=true,})[f] then
+    local p0,p1=3,1; while i[p0] do table.insert(args,p1,i[p0]) p1=p1+1 p0=p0+1 end
+    args = _format("%s(%s)=%s",f,tojson(args):sub(2,-2),tojson(stack.ref(0)))
+    Log(LOG.LOG,"pc:%-3d sp:%-3d %s",cp,stack.size(),args)
+  else
+    Log(LOG.LOG,"pc:%-3d sp:%-3d [%s/%s%s]",cp,stack.size(),i[1],i[2],i[3] and ","..tojson(i[3]) or "")
   end
-  instr['eventmatch'] = function(s,n,e,i) local ev,evp=i[3][2],i[3][3] s.push(e.event and Event._match(evp,e.event) and ev or false) end
-  instr['wait'] = function(s,n,e,i) local t,cp=s.pop(),e.cp
-    if i[4] then s.push(false) -- Already 'waiting'
-    elseif i[5] then i[5]=false s.push(true) -- Timer expired, return true
-    else 
-      if t<midnight() then t = osTime()+t end -- Allow both relative and absolute time... e.g '10:00'->midnight+10:00
-      i[4]=Event.post(function() i[4]=nil i[5]=true self.eval(e.code,e,e.stack,cp) end,t,e.rule) s.push(false) error({type='yield'})
-    end 
-  end
-  instr['repeat'] = function(s,n,e) 
-    local v,c = n>0 and s.pop() or math.huge
-    if not e.forR then s.push(0) 
-    elseif v > e.forR[2] then s.push(e.forR[1]()) else s.push(e.forR[2]) end 
-  end
-  instr['for'] = function(s,n,e,i) 
-    local val,time, stack, cp = s.pop(),s.pop(), e.stack, e.cp
-    local code = e.code
-    local rep = function() i[6] = true; i[5] = nil; self.eval(code) end
-    e.forR = nil -- Repeat function (see repeat())
-    --Log(LOG.LOG,"FOR")
-    if i[6] then -- true if timer has expired
-      --Log(LOG.LOG,"Timer expired")
-      i[6] = nil; 
-      if val then 
-        i[7] = (i[7] or 0)+1 -- Times we have repeated 
-        --print(string.format("REP:%s, TIME:%s",i[7],time))
-        e.forR={function() Event.post(rep,time+osTime(),e.rule) return i[7] end,i[7]}
+end
+
+function self.eval(code,env,stack,cp) 
+  stack = stack or Util.mkStack()
+  env = env or {}
+  env.context = env.context or {__instr={}}
+  env.cp,env.code,env.stack = cp or 1,code,stack
+  local i,args
+  local status, res = pcall(function()  
+      while env.cp <= #env.code do
+        i = env.code[env.cp]
+        if _traceInstrs then 
+          args = _copy(stack.liftc(i[2]))
+          instr[i[1]](stack,i[2],env,i)
+          postTrace(i,args,stack,env.cp) 
+        else instr[i[1]](stack,i[2],env,i) end
+        env.cp = env.cp+1
       end
-      s.push(val) 
-      return
-    end 
-    i[7] = 0
-    if i[5] and (not val) then i[5] = Event.cancel(i[5]) --Log(LOG.LOG,"Killing timer")-- Timer already running, and false, stop timer
-    elseif (not i[5]) and val then                        -- Timer not running, and true, start timer
-      i[5]=Event.post(rep,time+osTime(),e.rule) --Log(LOG.LOG,"Starting timer %s",tostring(i[5]))
+      return stack.pop(),env,stack,1 
+    end)
+  if status then return res
+  else
+    if not instr[i[1]] then errThrow("eval",_format("undefined instruction '%s'",i[1])) end
+    if type(res) == 'table' and res.type == 'yield' then
+      if res.fun then res.fun(env,stack,env.cp+1,res) end
+      return "%YIELD%",env,stack,env.cp+1
     end
-    s.push(false)
+    error(res)
   end
-
-  function self.addInstr(name,fun) _assert(instr[name] == nil,"Instr already defined: %s",name) instr[name] = fun end
-
-  function postTrace(i,args,stack,cp)
-    local f,n = i[1],i[2]
-    if not ({jmp=true,push=true,pop=true,addr=true,fn=true,table=true,})[f] then
-      local p0,p1=3,1; while i[p0] do table.insert(args,p1,i[p0]) p1=p1+1 p0=p0+1 end
-      args = _format("%s(%s)=%s",f,tojson(args):sub(2,-2),tojson(stack.ref(0)))
-      Log(LOG.LOG,"pc:%-3d sp:%-3d %s",cp,stack.size(),args)
-    else
-      Log(LOG.LOG,"pc:%-3d sp:%-3d [%s/%s%s]",cp,stack.size(),i[1],i[2],i[3] and ","..tojson(i[3]) or "")
-    end
-  end
-
-  function self.eval(code,env,stack,cp) 
-    stack = stack or Util.mkStack()
-    env = env or {}
-    env.context = env.context or {__instr={}}
-    env.cp,env.code,env.stack = cp or 1,code,stack
-    local i,args
-    local status, res = pcall(function()  
-        while env.cp <= #env.code do
-          i = env.code[env.cp]
-          if _traceInstrs then 
-            args = _copy(stack.liftc(i[2]))
-            instr[i[1]](stack,i[2],env,i)
-            postTrace(i,args,stack,env.cp) 
-          else instr[i[1]](stack,i[2],env,i) end
-          env.cp = env.cp+1
-        end
-        return stack.pop(),env,stack,1 
-      end)
-    if status then return res
-    else
-      if not instr[i[1]] then errThrow("eval",_format("undefined instruction '%s'",i[1])) end
-      if type(res) == 'table' and res.type == 'yield' then
-        if res.fun then res.fun(env,stack,env.cp+1,res) end
-        return "%YIELD%",env,stack,env.cp+1
-      end
-      error(res)
-    end
-  end
-  return self
+end
+return self
 end
 ScriptEngine = newScriptEngine()
 
