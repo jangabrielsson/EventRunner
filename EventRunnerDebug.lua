@@ -12,7 +12,7 @@
   
 --]] 
 
-if _version ~= "1.4" then error("Bad version of EventRunnerDebug") end 
+if _version ~= "1.5" then error("Bad version of EventRunnerDebug") end 
 _SPEEDTIME         = 24*30   -- nil run the local clock in normal speed, set to an int <x> will speed the clock through <x> hours
 _REMOTE            = false  -- If true use FibaroSceneAPI to call functions on HC2, else emulate them locally...
 _GUI               = (_GUI~=nil and _GUI) or false -- Needs wxwidgets support (e.g. require "wx"). Works in ZeroBrane under Lua 5.1.

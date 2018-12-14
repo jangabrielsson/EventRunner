@@ -13,7 +13,7 @@ counter
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
 
-_version = "1.4"  -- fix4,Dec13,2018
+_version = "1.5"  -- Dec14,2018
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -25,10 +25,10 @@ _sceneName   = "Demo"      -- Set to scene/script name
 _deviceTable = "devicemap" -- Name of json struct with configuration data (i.e. "HomeTable")
 ruleLogLength = 80
 _debugFlags = { post=true,invoke=false,triggers=false,dailys=false,timers=false,rule=false,ruleTrue=false,fibaro=true,fibaroGet=false,fibaroSet=false,sysTimers=false }
-_GUI = true
+--_GUI = true
 Event = {}
 -- If running offline we need our own setTimeout and net.HTTPClient() and other fibaro funs...
-if dofile then dofile("EventRunnerDebug2.lua") end
+if dofile then dofile("EventRunnerDebug.lua") end
 
 ---------------- Callbacks to user code --------------------
 function main()
@@ -36,6 +36,7 @@ function main()
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
   -- lets start
+
   dofile("example_rules.lua") -- some example rules to try out...
 end -- main()
 
@@ -136,7 +137,7 @@ function hm2sec(hmstr)
   if sun and (sun == 'sunset' or sun == 'sunrise') then
     hmstr,offs = fibaro:getValue(1,sun.."Hour"), tonumber(offs) or 0
   end
-  local sg,h,m,s = hmstr:match("(%-?)(%d+):(%d+):?(%d*)")
+  local sg,h,m,s = hmstr:match("^(%-?)(%d+):(%d+):?(%d*)")
   _assert(h and m,"Bad hm2sec string %s",hmstr)
   return (sg == '-' and -1 or 1)*(h*3600+m*60+(tonumber(s) or 0)+(offs or 0)*60)
 end
@@ -172,6 +173,8 @@ function newEventEngine()
   local self,_handlers = {},{}
   self.BREAK, self.TIMER, self.RULE ='%%BREAK%%', '%%TIMER%%', '%%RULE%%'
   self.PING, self.PONG ='%%PING%%', '%%PONG%%'
+  self._sections = {}
+  self.SECTION = nil
 
   local function _coerce(x,y)
     local x1 = tonumber(x) if x1 then return x1,tonumber(y) else return x,y end
@@ -278,6 +281,11 @@ function newEventEngine()
   toHash['property'] = function(e) return e.deviceID and 'property'..e.deviceID or 'property' end
   toHash['global'] = function(e) return e.name and 'global'..e.name or 'global' end
 
+  function self.enable(rule) if isRule(rule) then rule.enable() else error("Not a rule") end end -- TODO error msg
+  function self.disable(rule) if isRule(rule) then rule.disable() else error("Not a rule") end end
+  function self.disableSection(label) Util.mapF(self.disable,Event._sections[label] or {}) end
+  function self.enableSection(label) Util.mapF(self.enable,Event._sections[label] or {}) end
+
   function self.event(e,action,doc,ctx) -- define rules - event template + action
     doc = doc and " Event.event:"..doc or _format(" Event.event(%s,...)",tojson(e))
     ctx = ctx or {}; ctx.src,ctx.line=ctx.src or doc,ctx.line or _LINE()
@@ -301,6 +309,11 @@ function newEventEngine()
     rule.enable = function() rule._disabled = nil return rule end
     rule.disable = function() rule._disabled = true return rule end
     rule.print = function() Log(LOG.LOG,"Event(%s) => ..",tojson(e)) end
+    if self.SECTION then
+      local s = self._sections[self.SECTION] or {}
+      s[#s+1] = rule
+      self._sections[self.SECTION] = s
+    end
     return rule
   end
 
@@ -772,20 +785,21 @@ function newScriptEngine()
   instr['fjson'] = function(s,n) s.push(json.decode(s.pop())) end
   instr['osdate'] = function(s,n) local x,y = s.ref(n-1),(n>1 and s.pop() or nil) s.pop(); s.push(osDate(x,y)) end
   instr['daily'] = function(s,n,e) s.pop() s.push(true) end
-  instr['schedule'] = function(s,n,e,i) local t,code = s.pop(),e.code -- Fix this to normal rule format!!!!
-    local told,tinc,tnew,res = i[3],i[4],osTime(),true
-    if t < 0 then t=-t if i[5]==nil then res = false; i[5]=true end end
-    if t ~= tinc then told=nil; tinc=t end
-    t = told and t+told or tnew+t
-    i[3],i[4]=t,tinc
-    Event.post(function() self.eval(code,e) end,t,e) s.push(res)
-  end
+  instr['schedule'] = function(s,n,e,i) local t,code = s.pop(),e.code; s.push(true) end
   instr['ostime'] = function(s,n) s.push(osTime()) end
   instr['frm'] = function(s,n) s.push(string.format(table.unpack(s.lift(n)))) end
   instr['label'] = function(s,n,e,i) local nm,id = s.pop(),s.pop() s.push(fibaro:get(ID(id,i),_format("ui.%s.value",nm))) end
   instr['slider'] = instr['label']
   instr['once'] = function(s,n,e,i) local f; i[4],f = s.pop(),i[4]; s.push(not f and i[4]) end
-  instr['always'] = function(s,n,e,i) s.pop(n) s.push(true) end 
+  instr['always'] = function(s,n,e,i) s.pop(n) s.push(true) end
+  local function instrEnable(t,args)
+    if type(args) == 'string' then if t=='enable' then Event.enableSection(args) else Event.disableSection(args) end
+    elseif type(args) == 'table' then Util.mapF(Event[t],args)
+    elseif isRule(args) then Event.enable(args) end
+    return true
+  end
+  instr['enable'] = function(s,n,e,i) s.push(instrEnable('enable',s.pop())) end
+  instr['disable'] = function(s,n,e,i) s.push(instrEnable('disable',s.pop())) end
   instr['post'] = function(s,n,ev) local e,t=s.pop(),nil; if n==2 then t=e; e=s.pop() end s.push(Event.post(e,t,ev.rule)) end
   instr['cancel'] = function(s,n) Event.cancel(s.pop()) s.push(nil) end
   instr['add'] = function(s,n) local v,t=s.pop(),s.pop() table.insert(t,v) s.push(t) end
@@ -1332,20 +1346,33 @@ function newRuleCompiler()
     if #triggs==0 and #dailys==0 and #scheds==0 then 
       error(_format("no triggers found in rule '%s'%s",ctx.src,_LINEFORMAT(ctx.line)))
     end
-    local code = ScriptCompiler.compile({'and',(_debugFlags.rule or _debugFlags.ruleTrue) and {'logRule',h,ctx.src} or h,body})
-    local action = function(env) return ScriptEngine.eval(code,env) end
-    if #scheds>0 then Event.post(action,nil,ctx)
+    local code,action = ScriptCompiler.compile({'and',(_debugFlags.rule or _debugFlags.ruleTrue) and {'logRule',h,ctx.src} or h,body})
+    action = function(env) return ScriptEngine.eval(code,env) end
+    if #scheds>0 then
+      local sevent={type=Util.gensym("INTERV")}
+      events[#events+1] = Event.event(sevent,action,nil,ctx); events[#events].ctx=ctx
+      sevent._sh=true
+      local timeVal = osTime()
+      local function interval()
+        Event.post(sevent)
+        timeVal = timeVal+ScriptEngine.eval(scheds[1])
+        setTimeout(interval,1000*(timeVal-osTime()))
+      end
+      interval()
     else
       local m,ot,catchup1,catchup2=midnight(),osTime()
       if #dailys > 0 then
-        _dailys[#_dailys+1]={dailys=dailys,action=action,ctx=ctx}
+        local devent={type=Util.gensym("DAILY")}
+        _dailys[#_dailys+1]={dailys=dailys,event=devent}
+        events[#events+1]=Event.event(devent,action,nil,ctx); events[#events].ctx=ctx
+        devent._sh=true
         times = compTimes(dailys)
         for _,t in ipairs(times) do _assert(tonumber(t),"@time not a number:%s",t)
           if t ~= CATCHUP then
-            if t+m >= ot then Event.post(action,t+m,ctx) else catchup1=true end
+            if t+m >= ot then Event.post(devent,t+m) else catchup1=true end
           else catchup2 = true end
         end
-        if catchup2 and catchup1 then Log(LOG.LOG,"Cathing up:%s",ctx.src); Event._callTimerFun(action,ctx) end
+        if catchup2 and catchup1 then Log(LOG.LOG,"Cathing up:%s",ctx.src); Event.post(devent) end
       end
       if not dailyFlag and #triggs > 0 then -- id/glob trigger or events
         for _,tr in ipairs(triggs) do events[#events+1]=Event.event(tr,action,nil,ctx); events[#events].ctx=ctx end
@@ -1403,13 +1430,12 @@ function newRuleCompiler()
   Event.schedule("n/00:00",function(env)  -- Scheduler that every night posts 'daily' rules
       _DSTadjust = os.date("*t").isdst and -60*60 or 0
       local midnight = midnight()
-      --Log(LOG.LOG,"Scheduling")
       for _,d in ipairs(_dailys) do
         local times = compTimes(d.dailys)
         for _,t in ipairs(times) do
           if t ~= CATCHUP then
             if _debugFlags.dailys then Debug(true,"Scheduling at %s",osDate("%X",midnight+t)) end
-            if t==0 then Event._callTimerFun(d.action,d.ctx) else Event.post(d.action,midnight+t,d.ctx) end
+            if t==0 then Event.post(d.event) else Event.post(d.event,midnight+t) end
           end
         end
       end
