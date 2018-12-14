@@ -1505,6 +1505,8 @@ if _type == 'autostart' or _type == 'other' then
 
   GC = 0
   function setUp()
+    if _OFFLINE and _GLOBALS then Util.defineGlobals(_GLOBALS) end
+
     Log(LOG.SYSTEM,"Loading rules")
     local status, res = pcall(function() main() end)
     if not status then 
