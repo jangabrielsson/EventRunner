@@ -342,6 +342,8 @@ if not _REMOTE then
     return table.unpack(fibaro._globals[name])
   end
 
+  function Util.defineGlobals(args) for var,val in pairs(args) do fibaro._globals[var] = {tostring(val),osTime()} end end
+  
   function Util.getComment(str) 
     local f = io.open(debug.getinfo(2).short_src) 
     local src = f:read("*all")
