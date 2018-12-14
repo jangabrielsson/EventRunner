@@ -1,3 +1,28 @@
+v1.5, Dec 14, 2018
+
+- Support to enable/disable rules & event handlers.
+  a = Rule.eval("88:isOn => log('Hupp')")
+  Rule.eval("wait(t/12:00); disable(a)") -- disable rule at 12:00
+  
+- Possible to group rules & event handlers in sections
+  
+  Event.SECTION='Winter'
+  
+  Event.rule("@sunset => xmasTree:on")
+  
+  Event.SECTION='Summer'
+  
+  Event.rule("@sunset => lamp:on")
+  
+  Event.SECTION=nil
+  Event.rule([[@00:00 =>
+      || month('dec-jan') >> enable('Winter')
+      || true             >> enable('Summer')
+      ]])
+      
+- Trigger window to post triggers parsed from the scene header (see post)
+- bug fixes
+  
 v1.4, Nov 28, 2018
 
 -Trigger logic for EventScript rewritten (much cleaner!)
