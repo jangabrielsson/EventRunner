@@ -13,7 +13,7 @@ counter
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
 --require('mobdebug').coro() 
-_version = "1.6"  -- Dec17,2018
+_version = "1.6"  -- Dec17, fix1,2018
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -38,7 +38,6 @@ function main()
   --Util.reverseMapDef(devs)
   --local rule = Rule.eval
   -- lets start
-
   dofile("example_rules.lua") -- some example rules to try out...
 end -- main()
 
@@ -1365,13 +1364,14 @@ function newRuleCompiler()
       local sevent={type=Util.gensym("INTERV")}
       events[#events+1] = Event.event(sevent,action,nil,ctx); events[#events].ctx=ctx
       sevent._sh=true
-      local timeVal = osTime()
+      local timeVal,skip = osTime(),ScriptEngine.eval(scheds[1])
+      if timeVal<0 then timeVal=-timeVal; skip = timeVal end
       local function interval()
         Event.post(sevent)
-        timeVal = timeVal+ScriptEngine.eval(scheds[1])
+        timeVal = timeVal+math.abs(ScriptEngine.eval(scheds[1]))
         setTimeout(interval,1000*(timeVal-osTime()))
       end
-      interval()
+      setTimeout(interval,1000*(skip < 0 and -skip or 0))
     else
       local m,ot,catchup1,catchup2=midnight(),osTime()
       if #dailys > 0 then
@@ -1515,10 +1515,10 @@ if _type == 'autostart' or _type == 'other' then
       api.post("/globalVariables/",{name=_MAILBOX}) 
     end
   end 
-  
+
   if _GUI and _OFFLINE then Debug(true,"GUI enabled") end
   if _OFFLINE and not _ANNOUNCEDTIME then Debug(true,"Starting:%s, Ending:%s %s",osDate("%x %X",osTime()),osDate("%x %X",osETime()),_SPEEDTIME and "(speeding)" or "") end
-  
+
   GC = 0
   function setUp()
     if _OFFLINE and _GLOBALS then Util.defineGlobals(_GLOBALS) end
