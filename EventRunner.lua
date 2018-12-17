@@ -12,8 +12,8 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-
-_version = "1.5"  -- fix1, Dec14,2018
+--require('mobdebug').coro() 
+_version = "1.6"  -- Dec17,2018
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -26,20 +26,24 @@ _deviceTable = "devicemap" -- Name of json struct with configuration data (i.e. 
 ruleLogLength = 80
 _debugFlags = { post=true,invoke=false,triggers=false,dailys=false,timers=false,rule=false,ruleTrue=false,fibaro=true,fibaroGet=false,fibaroSet=false,sysTimers=false }
 _GUI = false
-Event = {}
+_SPEEDTIME = 24*36
+
 -- If running offline we need our own setTimeout and net.HTTPClient() and other fibaro funs...
 if dofile then dofile("EventRunnerDebug.lua") end
 
----------------- Callbacks to user code --------------------
+---------------- Here you place rules and user code, called once --------------------
 function main()
   --local devs = json.decode(fibaro:getGlobalValue(_deviceTable))
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
+  --local rule = Rule.eval
   -- lets start
+
   dofile("example_rules.lua") -- some example rules to try out...
 end -- main()
 
 ------------------- EventModel - Don't change! --------------------  
+Event,_System = Event or {}, _System or {}
 _STARTLINE = _OFFLINE and debug.getinfo(1).currentline or nil
 local _supportedEvents = {property=true,global=true,event=true,remote=true}
 local _trigger = fibaro:getSourceTrigger()
@@ -96,8 +100,7 @@ if not _OFFLINE then -- if running on the HC2
   end
   if not _timeAdjust then _timeAdjust = 0 end -- support for adjusting for hw time drift on HC2
   osTime = function(arg) return arg and os.time(arg) or os.time()+_timeAdjust end
-  function _setClock(_) end
-  function _setMaxTime(_) end
+  function _System.setTime(_) end
   function Debug(flag,message,...) if flag then _Msg(LOG.DEBUG,message,...) end end
   function Log(color,message,...) return _Msg(color,message,...) end
   function _LINEFORMAT(line) return "" end
@@ -542,7 +545,7 @@ function Util.printRule(rule)
   Log(LOG.LOG,"-----------------------------------")
 end
 
-function Util.mapAnd(f,l,s) s = s or 1; local e=false for i=s,#l do e = f(l[i]) if not e then return false end end return e end 
+function Util.mapAnd(f,l,s) s = s or 1; local e=true for i=s,#l do e = f(l[i]) if not e then return false end end return e end 
 function Util.mapOr(f,l,s) s = s or 1; for i=s,#l do local e = f(l[i]) if e then return e end end return false end
 function Util.mapF(f,l,s) s = s or 1; local e=true for i=s,#l do e = f(l[i]) end return e end
 function Util.map(f,l,s) s = s or 1; local r={} for i=s,#l do r[#r+1] = f(l[i]) end return r end
@@ -847,7 +850,8 @@ function newScriptEngine()
       return
     end 
     i[7] = 0
-    if i[5] and (not val) then i[5] = Event.cancel(i[5]) --Log(LOG.LOG,"Killing timer")-- Timer already running, and false, stop timer
+    if i[5] and (not val) then i[5] = 
+      Event.cancel(i[5]) --Log(LOG.LOG,"Killing timer")-- Timer already running, and false, stop timer
     elseif (not i[5]) and val then                        -- Timer not running, and true, start timer
       i[5]=Event.post(rep,time+osTime(),e.rule) --Log(LOG.LOG,"Starting timer %s",tostring(i[5]))
     end
@@ -1511,7 +1515,10 @@ if _type == 'autostart' or _type == 'other' then
       api.post("/globalVariables/",{name=_MAILBOX}) 
     end
   end 
-
+  
+  if _GUI and _OFFLINE then Debug(true,"GUI enabled") end
+  if _OFFLINE and not _ANNOUNCEDTIME then Debug(true,"Starting:%s, Ending:%s %s",osDate("%x %X",osTime()),osDate("%x %X",osETime()),_SPEEDTIME and "(speeding)" or "") end
+  
   GC = 0
   function setUp()
     if _OFFLINE and _GLOBALS then Util.defineGlobals(_GLOBALS) end
