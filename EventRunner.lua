@@ -36,7 +36,7 @@ function main()
   --local devs = json.decode(fibaro:getGlobalValue(_deviceTable))
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
-  --local rule = Rule.eval
+  local rule = Rule.eval
   -- lets start
   dofile("example_rules.lua") -- some example rules to try out...
 end -- main()
