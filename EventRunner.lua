@@ -44,6 +44,7 @@ end -- main()
 ------------------- EventModel - Don't change! --------------------  
 Event,_System = Event or {}, _System or {}
 _STARTLINE = _OFFLINE and debug.getinfo(1).currentline or nil
+if _OFFLINE then MAINTHREAD=coroutine.running() end
 local _supportedEvents = {property=true,global=true,event=true,remote=true}
 local _trigger = fibaro:getSourceTrigger()
 local _type, _source = _trigger.type, _trigger

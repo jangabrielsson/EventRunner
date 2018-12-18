@@ -268,7 +268,11 @@ function api.post(call, data) return apiCall("POST",call,json.encode(data),"appl
 function fibaro:sleep(n)
   local c = coroutine.running()
   --print("THREAD:"..tostring(c))
-  return coroutine.yield(c,n/1000)
+  if c == MAINTHREAD then
+    socket.sleep(math.floor(0.5+n/1000))
+  else
+    return coroutine.yield(c,n/1000)
+  end
 end
 
 local _gTimers = nil
@@ -397,7 +401,11 @@ if not _REMOTE then
   function fibaro:countScenes() return _SCENECOUNT end
   function fibaro:abort()
     local c = coroutine.running()
-    return coroutine.yield(c,'%%ABORT%%')
+    if c == MAINTHREAD then
+      os.exit(1)
+    else
+      return coroutine.yield(c,'%%ABORT%%')
+    end
   end
   function fibaro:getName(id) return _format("DEVICE:%s",id) end
   function fibaro:getRoomNameByDeviceID(id) return _format("ROOMFORDEVICE:%s",id) end
