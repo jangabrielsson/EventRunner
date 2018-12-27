@@ -1544,7 +1544,7 @@ function mainAux()
           for p,v in pairs(s.success) do 
             local tp,id,mt,prop = p:match("/(%a+)/(%d+)/(%a+)/(.*)")
             if id then _setState(_DT[tp][ tonumber(id) ],prop,v)
-            else Log(LOG.LOG,"Unknown state %s %s",p,v) end
+            else Log(LOG.LOG,"Unknown Hue state %s %s",p,v) end
           end --for 
         end -- if
       end --for
@@ -1632,7 +1632,7 @@ function mainAux()
         elseif val=='values' then return dev.state
         else res =  dev.state[val] and tostring(dev.state[val]) or nil end
         time=dev.state.lastupdate or 0
-        Log(LOG.LOG,"Get ID:%s %s -> %s",id,val,res)
+        Debug(:debugFlags.hue,"Get ID:%s %s -> %s",id,val,res)
         return res and res,time
       end)
     mapFib('getValue',function(obj,id,...) return (fibaro.get(obj,id,...)) end)
