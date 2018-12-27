@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.6"  -- Dec27, fix4,2018 
+_version = "1.6"  -- Dec27, fix5,2018 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -25,9 +25,9 @@ _deviceTable = "devicemap" -- Name of json struct with configuration data (i.e. 
 ruleLogLength = 80
 _debugFlags = { post=true,invoke=false,triggers=false,dailys=false,timers=false,rule=false,ruleTrue=false,fibaro=true,fibaroGet=false,fibaroSet=false,sysTimers=false }
 _GUI = false
-_SPEEDTIME = 24*36
+_SPEEDTIME = false --24*36
 HueIP = "192.168.1.153" -- set to Hue bridge
-HueUserName=nil -- set to Hue user name
+HueUserName="q6eLpWdYiMGq0kdQWFZB1NZHSlLvKL0GsNPJeEa-" -- set to Hue user name
 
 -- If running offline we need our own setTimeout and net.HTTPClient() and other fibaro funs...
 if dofile then dofile("EventRunnerDebug.lua") require('mobdebug').coro() end
@@ -1513,11 +1513,12 @@ Util.defvar("mapvars",Util.reverseMapDef)
 function mainAux()
 
   function newHue(ip,username)
-    local self,lights,groups,scenes,devMap,hueNames = {},{},{},{},{},{}
+    local self,lights,groups,scenes,sensors,devMap,hueNames = {},{},{},{},{},{},{}
     local baseURL="http://"..ip..":80/api/"..username.."/"
     local HTTP = net.HTTPClient()
     local lightURL = baseURL.."lights/%s/state"
     local groupURL = baseURL.."groups/%s/action"
+    local sensorURL = baseURL.."sensors/%s"
     function self.isHue(id) return devMap[id] and devMap[id].hue or nil end
     function self.name(n) return hueNames[v] end
     local function request(url,cont,op,payload)
@@ -1559,6 +1560,7 @@ function mainAux()
     function match(t1,t2) if #t1~=#t2 then return false end; for i=1,#t1 do if t1[i]~=t2[i] then return false end end return true end
     function self.getFullState(e)
       request(baseURL,function(data)
+          for id,d in pairs(data.sensors) do setFullState(sensors,id,d,'state',sensorURL) end
           for id,d in pairs(data.lights) do setFullState(lights,id,d,'state',lightURL) end
           for id,d in pairs(data.groups) do table.sort(d.lights) setFullState(groups,id,d,'action',groupURL) end
           for id,d in pairs(data.scenes) do if d.version>1 then 
@@ -1568,13 +1570,24 @@ function mainAux()
           if e and Event then Event.post(e) end
         end)
     end
+    local function updateSensor(state) _setState(sensors[state.name],state.state) end
+    Event.event({type='HUEPOLL'},function(env)
+        request(env.event.url,updateSensor)
+        Event.post(env.event,osTime()+env.event.time)
+      end)
+    function self.sensor(name,interval)
+      local id = sensors[name].id
+      Event.post({type='HUEPOLL',url=_format(sensorURL,id),time=interval,_sh=true})
+    end
     function self.dump()
       Log(LOG.LOG,"------------- Hue Lights ---------------------")
-      for k,v in pairs(lights) do if not tonumber(k) then Log(LOG.LOG,"Lights '%s' id=%s",k,json.encode(v.id)) end end
+      for k,v in pairs(lights) do if not tonumber(k) then Log(LOG.LOG,"Light '%s' id=%s",k,json.encode(v.id)) end end
       Log(LOG.LOG,"------------- Hue Groups ---------------------")
-      for k,v in pairs(groups) do if not tonumber(k) then Log(LOG.LOG,"Groups '%s' id=%s",k,json.encode(v.id)) end end
+      for k,v in pairs(groups) do if not tonumber(k) then Log(LOG.LOG,"Group '%s' id=%s",k,json.encode(v.id)) end end
       Log(LOG.LOG,"------------- Hue Scenes ---------------------")
-      for k,v in pairs(scenes) do Log(LOG.LOG,"Scenes '%s' id=%s",k,v) end
+      for k,v in pairs(scenes) do Log(LOG.LOG,"Scene '%s' id=%s",k,v) end
+      Log(LOG.LOG,"------------- Hue Sensors ---------------------")
+      for k,v in pairs(sensors) do if not tonumber(k) then Log(LOG.LOG,"Sensor '%s' id=%s",k,json.encode(v.id)) end end
     end
     function self.rgb2xy(r,g,b)
       r,g,b = r/254,g/254,b/254
@@ -1592,8 +1605,9 @@ function mainAux()
       local id = mapIndex; mapIndex=mapIndex+1; hueNames[name]=id
       if lights[name] then devMap[id]={type='light',hue=lights[name]}     
       elseif groups[name] then devMap[id]={type='group',hue=groups[name]}
+      elseif sensors[name] then devMap[id]={type='sensor',hue=sensors[name]}
       else error("No Hue name:"..name) end
-      if Util then Util.defvar(var,id) end
+      if Util and var then Util.defvar(var,id) end
       return id
     end
     function self.turnOn(id) local d=devMap[id].hue; request(_format(d.url,d.id),updateState,"PUT",{on=true}) _setState(d,'on',true) end
@@ -1636,7 +1650,7 @@ function mainAux()
         elseif val=='values' then return dev.state
         else res =  dev.state[val] and tostring(dev.state[val]) or nil end
         time=dev.state.lastupdate or 0
-        Debug(debugFlags.hue,"Get ID:%s %s -> %s",id,val,res)
+        Debug(_debugFlags.hue,"Get ID:%s %s -> %s",id,val,res)
         return res and res,time
       end)
     mapFib('getValue',function(obj,id,...) return (fibaro.get(obj,id,...)) end)
