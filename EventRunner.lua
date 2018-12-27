@@ -26,7 +26,7 @@ ruleLogLength = 80
 _debugFlags = { post=true,invoke=false,triggers=false,dailys=false,timers=false,rule=false,ruleTrue=false,fibaro=true,fibaroGet=false,fibaroSet=false,sysTimers=false }
 _GUI = false
 _SPEEDTIME = 24*36
-HueIP = "192.168.1.X" -- set to Hue bridge
+HueIP = "192.168.1.153" -- set to Hue bridge
 HueUserName=nil -- set to Hue user name
 
 -- If running offline we need our own setTimeout and net.HTTPClient() and other fibaro funs...
@@ -422,14 +422,16 @@ function newEventEngine()
   end
 
 -- Logging of fibaro:* calls -------------
+  fibaro._orgf={}
   function interceptFib(name,flag,spec,mf)
     local fun,fstr = fibaro[name],name:match("^get") and "fibaro:%s(%s%s%s) = %s" or "fibaro:%s(%s%s%s)"
+    fibaro._orgf[name]=fun
     if spec then 
-      fibaro[name] = function(obj,...) if _debugFlags[flag] then return spec(obj,fun,...) else return fun(obj,...) end end 
+      fibaro[name] = function(obj,...) if _debugFlags[flag] then return spec(obj,fibaro._orgf[name],...) else return fibaro._orgf[name](obj,...) end end 
     else 
       fibaro[name] = function(obj,id,...)
         local id2,args = type(id) == 'number' and Util.reverseVar(id) or '"'..id..'"',{...}
-        local status,res,r2 = pcall(function() return fun(obj,id,table.unpack(args)) end)
+        local status,res,r2 = pcall(function() return fibaro._orgf[name](obj,id,table.unpack(args)) end)
         if status and _debugFlags[flag] then
           Debug(true,fstr,name,id2,(#args>0 and "," or ""),json.encode(args):sub(2,-2),json.encode(res))
         elseif not status then
@@ -1616,8 +1618,9 @@ function mainAux()
     Hue=newHue(HueIP,HueUserName)
 
     local function mapFib(f,fun)
-      local ofc = fibaro[f]
-      fibaro[f] = function(obj,id,...)
+      local fm = fibaro._orgf or fibaro
+      local ofc = fm[f]
+      fm[f] = function(obj,id,...)
         if not Hue.isHue(id) then return ofc(obj,id,...) else return fun(obj,id,...) end 
       end
     end
@@ -1632,7 +1635,7 @@ function mainAux()
         elseif val=='values' then return dev.state
         else res =  dev.state[val] and tostring(dev.state[val]) or nil end
         time=dev.state.lastupdate or 0
-        Debug(:debugFlags.hue,"Get ID:%s %s -> %s",id,val,res)
+        Debug(debugFlags.hue,"Get ID:%s %s -> %s",id,val,res)
         return res and res,time
       end)
     mapFib('getValue',function(obj,id,...) return (fibaro.get(obj,id,...)) end)
