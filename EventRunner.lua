@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.6"  -- Dec27, fix7,2018 
+_version = "1.6"  -- Dec27, fix8,2018 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -1286,11 +1286,10 @@ function newRuleCompiler()
     ['var'] = function(e,s) if e[2]:sub(1,1)=="_" then s.triggs[e[2] ] = {type='variable', name=e[2]} end end,
     ['set'] = function(e,s) if isTriggerVar(e[2]) or isGlob(e[2]) then error("Can't assign variable in rule header") end end,
     ['prop'] = function(e,s) 
-      if tProps[e[3]] then 
-        local cv = ScriptCompiler.compile(e[2])
-        local v,pn = ScriptEngine.eval(cv),tPropsV[tProps[e[3]]]
-        map(function(id) s.triggs[id]={type='property', deviceID=id, propertyName=pn} end,type(v)=='table' and v or {v})
-      end
+      local pn = tProps[e[3]] and tPropsV[tProps[e[3]]] or e[3]
+      local cv = ScriptCompiler.compile(e[2])
+      local v = ScriptEngine.eval(cv)
+      map(function(id) s.triggs[id]={type='property', deviceID=id, propertyName=pn} end,type(v)=='table' and v or {v})
     end,
   }
 
@@ -1530,17 +1529,27 @@ function mainAux()
           success = function(status) if cont then cont(json.decode(status.data)) end end
         })
     end
+    Event.event({type='property',propertyName='on',_hue=true},function(env) -- transform on events
+        local e=env.event
+        Event.post({type='property',deviceID=e.deviceID,propertyName='value',value=fibaro:getValue(e.deviceID,'value'),_sh=true})
+      end)
     local function _setState(hue,prop,val)
-      --Log(LOG.LOG,"Name:%s, PROP:%s, VAL:%s",hue.name,tojson(prop),tojson(val))
       if type(prop)=='table' then 
-        for k,v in pairs(prop) do hue.state[ k ]=v end 
-      else hue.state[prop]=val end
-      hue.state['lastupdate']=osTime()
-      if hue.lights then 
+        for k,v in pairs(prop) do _setState(hue,k,v) end
+        return
+      end
+      local change,id = hue.state[prop]~=nil and hue.state[prop] ~= val, hueNames[hue.name]
+      hue.state[prop],hue.state['lastupdate']=val,osTime()
+      local filter = id and devMap[id].hue._filter
+      if change and id and filter[prop] then 
+        Event.post({type='property',deviceID=id,propertyName=prop,value=val,_hue=true,_sh=true}) 
+      end
+      --Log(LOG.LOG,"Name:%s, PROP:%s, VAL:%s",hue.name,tojson(prop),tojson(val))
+      if hue.lights then -- for groups
         for _,id in ipairs(hue.lights) do _setState(lights[tonumber(id)],prop,val) end 
       end
     end
-    local _DT={groups=groups,lights=lights}
+    local _DT={groups=groups,lights=lights,sensors=sensors}
     local function updateState(state)
       for _,s in ipairs(state[1] and state or {}) do
         if s.success then 
@@ -1570,13 +1579,20 @@ function mainAux()
           if e and Event then Event.post(e) end
         end)
     end
-    function self.sensor(name,interval)
-      local sensor = sensors[name] or devMap[name].hue
-      local url=_format(sensor.url,sensor.id)
+    local _defFilter={buttonevent=true, on=true,_trans={on='value'}}
+    function self.sensor(name,interval,filter)
+      local id = hueNames[name] or name
+      local sensor = devMap[id].hue
+      local url = sensor.url:sub(#baseURL+1)
+      url=baseURL.._format(url:match("(.-/)").."%s",sensor.id)
+      sensor._filter = filter or sensor._filter or _defFilter
       if sensor._timer then clearTimeout(sensor._timer) sensor._timer=nil end
       if interval>0 then 
         local function poll()
-          request(url,function(state) _setState(sensors[state.name],state.state) setTimeout(poll,interval) end)
+          request(url,function(state) 
+              _setState(sensor,state.state) 
+              setTimeout(poll,interval) 
+            end)
         end
         poll()
       end
@@ -1590,6 +1606,7 @@ function mainAux()
       for k,v in pairs(scenes) do Log(LOG.LOG,"Scene '%s' id=%s",k,v) end
       Log(LOG.LOG,"------------- Hue Sensors ---------------------")
       for k,v in pairs(sensors) do if not tonumber(k) then Log(LOG.LOG,"Sensor '%s' id=%s",k,json.encode(v.id)) end end
+      Log(LOG.LOG,"----------------------------------------------")
     end
     function self.rgb2xy(r,g,b)
       r,g,b = r/254,g/254,b/254
@@ -1631,7 +1648,7 @@ function mainAux()
     return self
   end
   if HueIP and HueUserName then
-    Event.event({type='HueInited'},function() Log(LOG.SYSTEM,"Hue system inited") main() end)
+    Event.event({type='HueInited'},function() Log(LOG.SYSTEM,"Hue system inited (experimental)") main() end)
     Hue=newHue(HueIP,HueUserName)
 
     local function mapFib(f,fun)
@@ -1648,7 +1665,9 @@ function mainAux()
     mapFib('get',function(obj,id,...)
         local val,res,dev,time=({...})[1],nil,Hue.isHue(id)
         if val=='value' then 
-          if dev.state.on and dev.state.reachable then res = dev.state.bri and tostring((dev.state.bri/254)*100) or '99' else res = '0' end 
+          if dev.state.on and dev.state.reachable then 
+            res = dev.state.bri and tostring(math.floor((dev.state.bri/254)*99+0.5)) or '99' 
+          else res = '0' end 
         elseif val=='values' then return dev.state
         else res =  dev.state[val] and tostring(dev.state[val]) or nil end
         time=dev.state.lastupdate or 0
