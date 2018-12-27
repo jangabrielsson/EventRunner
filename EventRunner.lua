@@ -27,7 +27,7 @@ _debugFlags = { post=true,invoke=false,triggers=false,dailys=false,timers=false,
 _GUI = false
 _SPEEDTIME = false --24*36
 HueIP = "192.168.1.153" -- set to Hue bridge
-HueUserName=nil -- set to Hue user name
+HueUserName="q6eLpWdYiMGq0kdQWFZB1NZHSlLvKL0GsNPJeEa-" -- set to Hue user name
 
 -- If running offline we need our own setTimeout and net.HTTPClient() and other fibaro funs...
 if dofile then dofile("EventRunnerDebug.lua") require('mobdebug').coro() end
@@ -1580,7 +1580,7 @@ function mainAux()
         end)
     end
     local _defFilter={buttonevent=true, on=true,_trans={on='value'}}
-    function self.sensor(name,interval,filter)
+    function self.monitor(name,interval,filter)
       local id = hueNames[name] or name
       local sensor = devMap[id].hue
       local url = sensor.url:sub(#baseURL+1)
