@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.6"  -- Dec27, fix5,2018 
+_version = "1.6"  -- Dec27, fix6,2018 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -683,7 +683,7 @@ function newScriptEngine()
   local _propMap={R='setR',G='setG',B='setB', armed='setArmed',W='setW',value='setValue',time='setTime',power='setPower'}
   local function setIdFuns(s,i,prop,id,v) 
     local p,vp=_propMap[prop],0 _assert(p,"bad setProperty :%s",prop)
-    local vf = type(v) == 'table' and function() vp=vp+1 return v[vp] end or function() return v end 
+    local vf = type(v) == 'table' and type(id)=='table' and v[1] and function() vp=vp+1 return v[vp] end or function() return v end 
     doit(Util.mapF,function(id) fibaro:call(ID(id,i),p,vf()) end,id) 
   end
   setIdFun['color'] = function(s,i,id,v) doit(Util.mapF,function(id) fibaro:call(ID(id,i),'setColor',v[1],v[2],v[3]) end,id) return v end
@@ -1570,14 +1570,16 @@ function mainAux()
           if e and Event then Event.post(e) end
         end)
     end
-    local function updateSensor(state) _setState(sensors[state.name],state.state) end
-    Event.event({type='HUEPOLL'},function(env)
-        request(env.event.url,updateSensor)
-        Event.post(env.event,osTime()+env.event.time)
-      end)
     function self.sensor(name,interval)
-      local id = sensors[name].id
-      Event.post({type='HUEPOLL',url=_format(sensorURL,id),time=interval,_sh=true})
+      local sensor = sensors[name] or devMap[name].hue
+      local url=_format(sensor.url,sensor.id)
+      if sensor._timer then clearTimeout(sensor._timer) sensor._timer=nil end
+      if interval>0 then 
+        local function poll()
+          request(url,function(state) _setState(sensors[state.name],state.state) setTimeout(poll,interval) end)
+        end
+        poll()
+      end
     end
     function self.dump()
       Log(LOG.LOG,"------------- Hue Lights ---------------------")
@@ -1625,7 +1627,7 @@ function mainAux()
       else  error(_format("Hue setValue id:%s value:%s",id,val)) end
     end
     self.getFullState({type='HueInited',_sh=true})
-    fibaro:sleep(1000)
+    --fibaro:sleep(1000)
     return self
   end
   if HueIP and HueUserName then
