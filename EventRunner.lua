@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.6"  -- Dec27, fix2,2018 
+_version = "1.6"  -- Dec27, fix4,2018 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -1509,17 +1509,17 @@ Util.defvar('catch',math.huge)
 Util.defvar("defvars",Util.defvars)
 Util.defvar("mapvars",Util.reverseMapDef)
 
----------------------- Hue support -------------------------
+---------------------- Hue support, can be removed if not needed -------------------------
 function mainAux()
 
   function newHue(ip,username)
-    local self,lights,groups,scenes,devMap,hueVars = {},{},{},{},{},{}
+    local self,lights,groups,scenes,devMap,hueNames = {},{},{},{},{},{}
     local baseURL="http://"..ip..":80/api/"..username.."/"
     local HTTP = net.HTTPClient()
     local lightURL = baseURL.."lights/%s/state"
     local groupURL = baseURL.."groups/%s/action"
     function self.isHue(id) return devMap[id] and devMap[id].hue or nil end
-    function self.var(v) return hueVars[v] end
+    function self.name(n) return hueNames[v] end
     local function request(url,cont,op,payload)
       op,payload = op or "GET", payload and json.encode(payload) or ""
       Debug(_debugFlags.hue,"Hue req:%s Payload:%s",url,payload)
@@ -1588,12 +1588,13 @@ function mainAux()
     end
     local mapIndex=10000
     --devMap: deviceID -> HueID, Type, URL
-    function self.defvar(name,var)
-      local id = mapIndex; mapIndex=mapIndex+1; hueVars[var]=id
+    function self.define(name,var) -- optional var
+      local id = mapIndex; mapIndex=mapIndex+1; hueNames[name]=id
       if lights[name] then devMap[id]={type='light',hue=lights[name]}     
       elseif groups[name] then devMap[id]={type='group',hue=groups[name]}
-      else error("No Hue ID:"..name) end
-      if Util and var then Util.defvar(var,id) end
+      else error("No Hue name:"..name) end
+      if Util then Util.defvar(var,id) end
+      return id
     end
     function self.turnOn(id) local d=devMap[id].hue; request(_format(d.url,d.id),updateState,"PUT",{on=true}) _setState(d,'on',true) end
     function self.turnOff(id) local d=devMap[id].hue; request(_format(d.url,d.id),updateState,"PUT",{on=false}) _setState(d,'on',false) end
@@ -1641,44 +1642,44 @@ function mainAux()
     mapFib('getValue',function(obj,id,...) return (fibaro.get(obj,id,...)) end)
   else 
     main() end
-end
+  end
 ---------------------- Startup -----------------------------    
-if _type == 'autostart' or _type == 'other' then
-  Log(LOG.WELCOME,_format("%sEventRunner v%s",_sceneName and (_sceneName.." - " or ""),_version))
+  if _type == 'autostart' or _type == 'other' then
+    Log(LOG.WELCOME,_format("%sEventRunner v%s",_sceneName and (_sceneName.." - " or ""),_version))
 
-  if not _OFFLINE then
-    Log(LOG.LOG,"Fibaro software version: %s",(api.get("/settings/info/")).currentVersion.version)
-    if not string.find(json.encode((api.get("/globalVariables/"))),"\"".._MAILBOX.."\"") then
-      api.post("/globalVariables/",{name=_MAILBOX}) 
+    if not _OFFLINE then
+      Log(LOG.LOG,"Fibaro software version: %s",(api.get("/settings/info/")).currentVersion.version)
+      if not string.find(json.encode((api.get("/globalVariables/"))),"\"".._MAILBOX.."\"") then
+        api.post("/globalVariables/",{name=_MAILBOX}) 
+      end
+    end 
+
+    if _GUI and _OFFLINE then Debug(true,"GUI enabled") end
+    if _OFFLINE and not _ANNOUNCEDTIME then Debug(true,"Starting:%s, Ending:%s %s",osDate("%x %X",osTime()),osDate("%x %X",osETime()),_SPEEDTIME and "(speeding)" or "") end
+
+    GC = 0
+    function setUp()
+      if _OFFLINE and _GLOBALS then Util.defineGlobals(_GLOBALS) end
+
+      Log(LOG.SYSTEM,"Loading rules")
+      local status, res = pcall(function() return mainAux and (mainAux() or true) or main() end)
+      if not status then 
+        Log(LOG.ERROR,"Error loading rules:%s",type(res)=='table' and table.concat(res,' ') or res) fibaro:abort() 
+      end
+
+      _trigger._sh = true
+      Event.post(_trigger)
+
+      Log(LOG.SYSTEM,"Scene running")
+      Log(LOG.SYSTEM,"Sunrise %s, Sunset %s",fibaro:getValue(1,'sunriseHour'),fibaro:getValue(1,'sunsetHour'))
+      collectgarbage("collect") GC=collectgarbage("count")
     end
-  end 
 
-  if _GUI and _OFFLINE then Debug(true,"GUI enabled") end
-  if _OFFLINE and not _ANNOUNCEDTIME then Debug(true,"Starting:%s, Ending:%s %s",osDate("%x %X",osTime()),osDate("%x %X",osETime()),_SPEEDTIME and "(speeding)" or "") end
-
-  GC = 0
-  function setUp()
-    if _OFFLINE and _GLOBALS then Util.defineGlobals(_GLOBALS) end
-
-    Log(LOG.SYSTEM,"Loading rules")
-    local status, res = pcall(function() return mainAux and (mainAux() or true) or main() end)
-    if not status then 
-      Log(LOG.ERROR,"Error loading rules:%s",type(res)=='table' and table.concat(res,' ') or res) fibaro:abort() 
+    if not _OFFLINE then 
+      fibaro:setGlobal(_MAILBOX,"") 
+      _poll()  -- start polling mailbox
+      setUp()
+    else 
+      _System.runOffline(setUp) 
     end
-
-    _trigger._sh = true
-    Event.post(_trigger)
-
-    Log(LOG.SYSTEM,"Scene running")
-    Log(LOG.SYSTEM,"Sunrise %s, Sunset %s",fibaro:getValue(1,'sunriseHour'),fibaro:getValue(1,'sunsetHour'))
-    collectgarbage("collect") GC=collectgarbage("count")
   end
-
-  if not _OFFLINE then 
-    fibaro:setGlobal(_MAILBOX,"") 
-    _poll()  -- start polling mailbox
-    setUp()
-  else 
-    _System.runOffline(setUp) 
-  end
-end
