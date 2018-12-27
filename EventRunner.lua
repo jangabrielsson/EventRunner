@@ -12,8 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
---require('mobdebug').coro() 
-_version = "1.6"  -- Dec17, fix1,2018
+_version = "1.6"  -- Dec27, fix2,2018
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -27,9 +26,11 @@ ruleLogLength = 80
 _debugFlags = { post=true,invoke=false,triggers=false,dailys=false,timers=false,rule=false,ruleTrue=false,fibaro=true,fibaroGet=false,fibaroSet=false,sysTimers=false }
 _GUI = false
 _SPEEDTIME = 24*36
+HueIP = "192.168.1.X" -- set to Hue bridge
+HueUserName=nil -- set to Hue user name
 
 -- If running offline we need our own setTimeout and net.HTTPClient() and other fibaro funs...
-if dofile then dofile("EventRunnerDebug.lua") end
+if dofile then dofile("EventRunnerDebug.lua") require('mobdebug').coro() end
 
 ---------------- Here you place rules and user code, called once --------------------
 function main()
@@ -1506,6 +1507,138 @@ Util.defvar('catch',math.huge)
 Util.defvar("defvars",Util.defvars)
 Util.defvar("mapvars",Util.reverseMapDef)
 
+---------------------- Hue support -------------------------
+function mainAux()
+
+  function newHue(ip,username)
+    local self,lights,groups,scenes,devMap,hueVars = {},{},{},{},{},{}
+    local baseURL="http://"..ip..":80/api/"..username.."/"
+    local HTTP = net.HTTPClient()
+    local lightURL = baseURL.."lights/%s/state"
+    local groupURL = baseURL.."groups/%s/action"
+    function self.isHue(id) return devMap[id] and devMap[id].hue or nil end
+    function self.var(v) return hueVars[v] end
+    local function request(url,cont,op,payload)
+      op,payload = op or "GET", payload and json.encode(payload) or ""
+      Debug(_debugFlags.hue,"Hue req:%s Payload:%s",url,payload)
+      HTTP:request(url,{
+          options = {headers={['Accept']='application/json',['Content-Type']='application/json'},data = payload, method = op},
+          error = function(status) error(tojson(status)) end,
+          success = function(status) if cont then cont(json.decode(status.data)) end end
+        })
+    end
+    local function _setState(hue,prop,val)
+      --Log(LOG.LOG,"Name:%s, PROP:%s, VAL:%s",hue.name,tojson(prop),tojson(val))
+      if type(prop)=='table' then 
+        for k,v in pairs(prop) do hue.state[ k ]=v end 
+      else hue.state[prop]=val end
+      hue.state['lastupdate']=osTime()
+      if hue.lights then 
+        for _,id in ipairs(hue.lights) do _setState(lights[tonumber(id)],prop,val) end 
+      end
+    end
+    local _DT={groups=groups,lights=lights}
+    local function updateState(state)
+      for _,s in ipairs(state[1] and state or {}) do
+        if s.success then 
+          for p,v in pairs(s.success) do 
+            local tp,id,mt,prop = p:match("/(%a+)/(%d+)/(%a+)/(.*)")
+            if id then _setState(_DT[tp][ tonumber(id) ],prop,v)
+            else Log(LOG.LOG,"Unknown state %s %s",p,v) end
+          end --for 
+        end -- if
+      end --for
+    end --fun
+    local function setFullState(devices,id,d,state,url)
+      local dd = devices[d.name] or {name=d.name,id=tonumber(id), state={}, url=url,lights=d.lights, scenes={}}
+      devices[d.name],devices[tonumber(id)]=dd,dd
+      _setState(dd,d[state])
+    end
+    function match(t1,t2) if #t1~=#t2 then return false end; for i=1,#t1 do if t1[i]~=t2[i] then return false end end return true end
+    function self.getFullState(e)
+      request(baseURL,function(data)
+          for id,d in pairs(data.lights) do setFullState(lights,id,d,'state',lightURL) end
+          for id,d in pairs(data.groups) do table.sort(d.lights) setFullState(groups,id,d,'action',groupURL) end
+          for id,d in pairs(data.scenes) do if d.version>1 then 
+            scenes[d.name] = id; table.sort(d.lights)
+            for _,g in pairs(groups) do if match(g.lights,d.lights) then g.scenes[d.name]=id end end
+          end end
+          if e and Event then Event.post(e) end
+        end)
+    end
+    function self.dump()
+      Log(LOG.LOG,"------------- Hue Lights ---------------------")
+      for k,v in pairs(lights) do if not tonumber(k) then Log(LOG.LOG,"Lights '%s' id=%s",k,json.encode(v.id)) end end
+      Log(LOG.LOG,"------------- Hue Groups ---------------------")
+      for k,v in pairs(groups) do if not tonumber(k) then Log(LOG.LOG,"Groups '%s' id=%s",k,json.encode(v.id)) end end
+      Log(LOG.LOG,"------------- Hue Scenes ---------------------")
+      for k,v in pairs(scenes) do Log(LOG.LOG,"Scenes '%s' id=%s",k,v) end
+    end
+    function self.rgb2xy(r,g,b)
+      r,g,b = r/254,g/254,b/254
+      r = (r > 0.04045) and ((r + 0.055) / (1.0 + 0.055)) ^ 2.4 or (r / 12.92)
+      g = (g > 0.04045) and ((g + 0.055) / (1.0 + 0.055)) ^ 2.4 or (g / 12.92)
+      b = (b > 0.04045) and ((b + 0.055) / (1.0 + 0.055)) ^ 2.4 or (b / 12.92)
+      local X = r*0.649926+g*0.103455+b*0.197109
+      local Y = r*0.234327+g*0.743075+b*0.022598
+      local Z = r*0.0000000+g*0.053077+b*1.035763
+      return X/(X+Y+Z), Y/(X+Y+Z)
+    end
+    local mapIndex=10000
+    --devMap: deviceID -> HueID, Type, URL
+    function self.defvar(name,var)
+      local id = mapIndex; mapIndex=mapIndex+1; hueVars[var]=id
+      if lights[name] then devMap[id]={type='light',hue=lights[name]}     
+      elseif groups[name] then devMap[id]={type='group',hue=groups[name]}
+      else error("No Hue ID:"..name) end
+      if Util and var then Util.defvar(var,id) end
+    end
+    function self.turnOn(id) local d=devMap[id].hue; request(_format(d.url,d.id),updateState,"PUT",{on=true}) _setState(d,'on',true) end
+    function self.turnOff(id) local d=devMap[id].hue; request(_format(d.url,d.id),updateState,"PUT",{on=false}) _setState(d,'on',false) end
+    function self.setColor(id,r,g,b,w) local d,x,y=devMap[id].hue,self.rgb2xy(r,g,b); pl={xy={x,y},bri=w and w/99*254}
+      request(_format(d.url,d.id),updateState,"PUT",pl) _setState(d,pl) 
+    end
+    function self.setValue(id,val) 
+      local d,payload=devMap[id].hue;
+      if type(val)=='string' and d.scenes[val] then payload={scene=d.scenes[val]}
+      elseif tonumber(val)==0 then payload={on=false} 
+      elseif tonumber(val) then payload={on=true,bri=math.floor((val/99)*254)}
+      elseif type(val)=='table' then payload=val end
+      if payload then request(_format(d.url,d.id),updateState,"PUT",payload) _setState(d,payload)
+      else  error(_format("Hue setValue id:%s value:%s",id,val)) end
+    end
+    self.getFullState({type='HueInited',_sh=true})
+    fibaro:sleep(1000)
+    return self
+  end
+  if HueIP and HueUserName then
+    Event.event({type='HueInited'},function() Log(LOG.SYSTEM,"Hue system inited") main() end)
+    Hue=newHue(HueIP,HueUserName)
+
+    local function mapFib(f,fun)
+      local ofc = fibaro[f]
+      fibaro[f] = function(obj,id,...)
+        if not Hue.isHue(id) then return ofc(obj,id,...) else return fun(obj,id,...) end 
+      end
+    end
+    mapFib('call',function(obj,id,...)
+        local val,params=({...})[1],{select(2,...)}
+        if Hue[val] then Hue[val](id,table.unpack(params)) end
+      end)
+    mapFib('get',function(obj,id,...)
+        local val,res,dev,time=({...})[1],nil,Hue.isHue(id)
+        if val=='value' then 
+          if dev.state.on and dev.state.reachable then res = dev.state.bri and tostring((dev.state.bri/254)*100) or '99' else res = '0' end 
+        elseif val=='values' then return dev.state
+        else res =  dev.state[val] and tostring(dev.state[val]) or nil end
+        time=dev.state.lastupdate or 0
+        Log(LOG.LOG,"Get ID:%s %s -> %s",id,val,res)
+        return res and res,time
+      end)
+    mapFib('getValue',function(obj,id,...) return (fibaro.get(obj,id,...)) end)
+  else 
+    main() end
+end
 ---------------------- Startup -----------------------------    
 if _type == 'autostart' or _type == 'other' then
   Log(LOG.WELCOME,_format("%sEventRunner v%s",_sceneName and (_sceneName.." - " or ""),_version))
@@ -1525,7 +1658,7 @@ if _type == 'autostart' or _type == 'other' then
     if _OFFLINE and _GLOBALS then Util.defineGlobals(_GLOBALS) end
 
     Log(LOG.SYSTEM,"Loading rules")
-    local status, res = pcall(function() main() end)
+    local status, res = pcall(function() return mainAux and (mainAux() or true) or main() end)
     if not status then 
       Log(LOG.ERROR,"Error loading rules:%s",type(res)=='table' and table.concat(res,' ') or res) fibaro:abort() 
     end
