@@ -27,7 +27,7 @@ _debugFlags = { post=true,invoke=false,triggers=false,dailys=false,timers=false,
 _GUI = false
 _SPEEDTIME = false --24*36
 HueIP = "192.168.1.153" -- set to Hue bridge
-HueUserName="q6eLpWdYiMGq0kdQWFZB1NZHSlLvKL0GsNPJeEa-" -- set to Hue user name
+HueUserName=nil -- set to Hue user name
 
 -- If running offline we need our own setTimeout and net.HTTPClient() and other fibaro funs...
 if dofile then dofile("EventRunnerDebug.lua") require('mobdebug').coro() end
