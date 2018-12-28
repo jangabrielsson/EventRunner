@@ -39,10 +39,13 @@ _POLLINTERVAL = 500
 _PORT         = 6872
 _MEM          = false  -- log memory usage
 
+_LATITIDE = "59.316947"
+_LONGITIDE = "18.064006"
+
 -- HC2 credentials and parameters
 hc2_user           = "xxx" -- used for api.x/FibaroSceneAPI calls
 hc2_pwd            = "xxx" 
-hc2_ip             = "192.168.1.85" -- IP of HC2
+hc2_ip             = "192.168.1.84" -- IP of HC2
 local creds = loadfile("credentials.lua") -- To not accidently commit credentials to Github...
 if creds then creds() end
 
@@ -359,7 +362,7 @@ function _System.runTimers()
     _gTimers=_gTimers.next
     local stat,thread,time=coroutine.resume(co.co)
     if not stat then
-      Log(LOG.ERROR,"Error in timer:%s %s %s",co.name or tostring(co.co),stat,thread)
+      Log(LOG.ERROR,"Error in timer:%s %s",co.name or tostring(co.co),tojson(thread))
     end
     if time~='%%ABORT%%' and coroutine.status(co.co)=='suspended' then
       co.time,co.next=osTimeFrac()+time,nil
@@ -764,6 +767,145 @@ if _GUI then
 
   function _System.exitMain() gstimer:Stop() wx.wxGetApp():ExitMainLoop() end
 end
+
+------------------- Sunset/Sunrise ---------------
+-- \fibaro\usr\share\lua\5.2\common\lustrous.lua ﻿based on the United States Naval Observatory
+function sunturn_time(date, rising, latitude, longitude, zenith, local_offset)
+    local rad,deg,floor = math.rad,math.deg,math.floor
+    local frac = function(n) return n - floor(n) end
+    local cos = function(d) return math.cos(rad(d)) end
+    local acos = function(d) return deg(math.acos(d)) end
+    local sin = function(d) return math.sin(rad(d)) end
+    local asin = function(d) return deg(math.asin(d)) end
+    local tan = function(d) return math.tan(rad(d)) end
+    local atan = function(d) return deg(math.atan(d)) end
+    
+    local function day_of_year(date)
+        local n1 = floor(275 * date.month / 9)
+        local n2 = floor((date.month + 9) / 12)
+        local n3 = (1 + floor((date.year - 4 * floor(date.year / 4) + 2) / 3))
+        return n1 - (n2 * n3) + date.day - 30
+     end
+     
+     local function fit_into_range(val, min, max)
+       local range = max - min
+        local count
+        if val < min then
+           count = floor((min - val) / range) + 1
+           return val + count * range
+        elseif val >= max then
+           count = floor((val - max) / range) + 1
+           return val - count * range
+        else
+           return val
+        end
+     end
+     
+    local n = day_of_year(date)
+
+    -- Convert the longitude to hour value and calculate an approximate time
+    local lng_hour = longitude / 15
+
+    local t
+    if rising then -- Rising time is desired
+        t = n + ((6 - lng_hour) / 24)
+    else -- Setting time is desired
+        t = n + ((18 - lng_hour) / 24)
+    end
+
+    -- Calculate the Sun^s mean anomaly
+    local M = (0.9856 * t) - 3.289
+
+    -- Calculate the Sun^s true longitude
+    local L = fit_into_range(M + (1.916 * sin(M)) + (0.020 * sin(2 * M)) + 282.634, 0, 360)
+
+    -- Calculate the Sun^s right ascension
+    local RA = fit_into_range(atan(0.91764 * tan(L)), 0, 360)
+
+    -- Right ascension value needs to be in the same quadrant as L
+    local Lquadrant = floor(L / 90) * 90
+    local RAquadrant = floor(RA / 90) * 90
+    RA = RA + Lquadrant - RAquadrant
+
+    -- Right ascension value needs to be converted into hours
+    RA = RA / 15
+
+    -- Calculate the Sun^s declination
+    local sinDec = 0.39782 * sin(L)
+    local cosDec = cos(asin(sinDec))
+
+    -- Calculate the Sun^s local hour angle
+    local cosH = (cos(zenith) - (sinDec * sin(latitude))) / (cosDec * cos(latitude))
+
+    if rising and cosH > 1 then
+        return "N/R" -- The sun never rises on this location on the specified date
+    elseif cosH < -1 then
+        return "N/S" -- The sun never sets on this location on the specified date
+    end
+
+    -- Finish calculating H and convert into hours
+    local H
+    if rising then
+        H = 360 - acos(cosH)
+    else
+        H = acos(cosH)
+    end
+    H = H / 15
+
+    -- Calculate local mean time of rising/setting
+    local T = H + RA - (0.06571 * t) - 6.622
+
+    -- Adjust back to UTC
+    local UT = fit_into_range(T - lng_hour, 0, 24)
+
+    -- Convert UT value to local time zone of latitude/longitude
+    local LT = UT + local_offset
+
+    return osTime(
+        {
+            day = date.day,
+            month = date.month,
+            year = date.year,
+            hour = floor(LT),
+            min = math.modf(frac(LT) * 60)
+        }
+    )
+end
+
+local function get_timezone()
+    local now = osTime()
+    return os.difftime(now, osTime(osDate("!*t", now)))
+end
+
+function sunCalc()
+    local lat = fibaro:getValue(2, "Latitude") or _LATITUDE
+    local lon = fibaro:getValue(2, "Longitude") or _LONGITUDE
+    local utc = get_timezone() / 3600
+
+    local zenith = 90.83 -- sunset/sunrise 90°50′
+    local zenith_twilight = 96.0 -- civil twilight 96°0′
+
+    local date = osDate("*t")
+    if date.isdst then
+        utc = utc + 1
+    end
+
+    local rise_time = osDate("*t", sunturn_time(date, true, lat, lon, zenith, utc))
+    local set_time = osDate("*t", sunturn_time(date, false, lat, lon, zenith, utc))
+
+    local rise_time_t = osDate("*t", sunturn_time(date, true, lat, lon, zenith_twilight, utc))
+    local set_time_t = osDate("*t", sunturn_time(date, false, lat, lon, zenith_twilight, utc))
+
+    local sunrise = string.format("%.2d:%.2d", rise_time.hour, rise_time.min)
+    local sunset = string.format("%.2d:%.2d", set_time.hour, set_time.min)
+
+    local sunrise_t = string.format("%.2d:%.2d", rise_time_t.hour, rise_time_t.min)
+    local sunset_t = string.format("%.2d:%.2d", set_time_t.hour, set_time_t.min)
+
+    return sunrise, sunset, sunrise_t, sunset_t
+end
+
+------------------------------------------------------
 
 function _System.runOffline(setup)
   if _SPEEDTIME then

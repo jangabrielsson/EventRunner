@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.6"  -- Dec27, fix8,2018 
+_version = "1.6"  -- Dec28, fix9,2018 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -1510,7 +1510,6 @@ Util.defvar("mapvars",Util.reverseMapDef)
 
 ---------------------- Hue support, can be removed if not needed -------------------------
 function mainAux()
-
   function newHue(ip,username)
     local self,lights,groups,scenes,sensors,devMap,hueNames = {},{},{},{},{},{},{}
     local baseURL="http://"..ip..":80/api/"..username.."/"
@@ -1541,7 +1540,7 @@ function mainAux()
       local change,id = hue.state[prop]~=nil and hue.state[prop] ~= val, hueNames[hue.name]
       hue.state[prop],hue.state['lastupdate']=val,osTime()
       local filter = id and devMap[id].hue._filter
-      if change and id and filter[prop] then 
+      if change and id and filter and filter[prop] then 
         Event.post({type='property',deviceID=id,propertyName=prop,value=val,_hue=true,_sh=true}) 
       end
       --Log(LOG.LOG,"Name:%s, PROP:%s, VAL:%s",hue.name,tojson(prop),tojson(val))
@@ -1566,8 +1565,9 @@ function mainAux()
       devices[d.name],devices[tonumber(id)]=dd,dd
       _setState(dd,d[state])
     end
+    local function nextMain() Log(LOG.SYSTEM,"Hue system inited (experimental)") main() end
     function match(t1,t2) if #t1~=#t2 then return false end; for i=1,#t1 do if t1[i]~=t2[i] then return false end end return true end
-    function self.getFullState(e)
+    function self.getFullState(f)
       request(baseURL,function(data)
           for id,d in pairs(data.sensors) do setFullState(sensors,id,d,'state',sensorURL) end
           for id,d in pairs(data.lights) do setFullState(lights,id,d,'state',lightURL) end
@@ -1576,7 +1576,7 @@ function mainAux()
             scenes[d.name] = id; table.sort(d.lights)
             for _,g in pairs(groups) do if match(g.lights,d.lights) then g.scenes[d.name]=id end end
           end end
-          if e and Event then Event.post(e) end
+          if f then setTimeout(f,0) end
         end)
     end
     local _defFilter={buttonevent=true, on=true,_trans={on='value'}}
@@ -1588,11 +1588,8 @@ function mainAux()
       sensor._filter = filter or sensor._filter or _defFilter
       if sensor._timer then clearTimeout(sensor._timer) sensor._timer=nil end
       if interval>0 then 
-        local function poll()
-          request(url,function(state) 
-              _setState(sensor,state.state) 
-              setTimeout(poll,interval) 
-            end)
+        local function poll() 
+          request(url,function(state) _setState(sensor,state.state) setTimeout(poll,interval) end)
         end
         poll()
       end
@@ -1620,8 +1617,8 @@ function mainAux()
     end
     local mapIndex=10000
     --devMap: deviceID -> HueID, Type, URL
-    function self.define(name,var) -- optional var
-      local id = mapIndex; mapIndex=mapIndex+1; hueNames[name]=id
+    function self.define(name,var,idx) -- optional var
+      local id = idx or mapIndex; mapIndex=mapIndex+1; hueNames[name]=id
       if lights[name] then devMap[id]={type='light',hue=lights[name]}     
       elseif groups[name] then devMap[id]={type='group',hue=groups[name]}
       elseif sensors[name] then devMap[id]={type='sensor',hue=sensors[name]}
@@ -1643,12 +1640,11 @@ function mainAux()
       if payload then request(_format(d.url,d.id),updateState,"PUT",payload) _setState(d,payload)
       else  error(_format("Hue setValue id:%s value:%s",id,val)) end
     end
-    self.getFullState({type='HueInited',_sh=true})
+    self.getFullState(nextMain)
     --fibaro:sleep(1000)
     return self
   end
   if HueIP and HueUserName then
-    Event.event({type='HueInited'},function() Log(LOG.SYSTEM,"Hue system inited (experimental)") main() end)
     Hue=newHue(HueIP,HueUserName)
 
     local function mapFib(f,fun)
