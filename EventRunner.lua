@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.6"  -- Dec28, fix9,2018 
+_version = "1.7"  -- Dec29, 2018 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -549,9 +549,13 @@ function Util.printRule(rule)
 end
 
 function Util.mapAnd(f,l,s) s = s or 1; local e=true for i=s,#l do e = f(l[i]) if not e then return false end end return e end 
+function Util.mapAnd2(f,l) local e=true for _,v in pairs(l) do e = type(v)=='table' and true or f(v) if not e then return false end end return e end 
 function Util.mapOr(f,l,s) s = s or 1; for i=s,#l do local e = f(l[i]) if e then return e end end return false end
+function Util.mapOr2(f,l) for _,v in pairs(l) do local e = type(v) ~= 'table' and f(v) if e then return e end end return false end
 function Util.mapF(f,l,s) s = s or 1; local e=true for i=s,#l do e = f(l[i]) end return e end
+function Util.mapF2(f,l) local e=true for _,v in pairs(l) do if type(v) ~= 'table' then e = f(v) end end return e end
 function Util.map(f,l,s) s = s or 1; local r={} for i=s,#l do r[#r+1] = f(l[i]) end return r end
+function Util.map2(f,l) local r={} for _,v in pairs(l) do if type(v)~='table' then r[#r+1] = f(v) end end return r end
 function Util.mapo(f,l,o) for _,j in ipairs(l) do f(o,j) end end
 function Util.mapkl(f,l) local r={} for i,j in pairs(l) do r[#r+1]=f(i,j) end return r end
 function Util.mapkk(f,l) local r={} for i,j in pairs(l) do r[i]=f(j) end return r end
@@ -653,14 +657,14 @@ function newScriptEngine()
     if type(id)=='table' then return Util.map(function(id) return fibaro:get(ID(id,i),prop) end,id) else return fibaro:get(ID(id,i),prop) end 
   end
   local getIdFun={}
-  getIdFun['isOn']=function(s,i) return doit(Util.mapOr,function(id) return fibaro:get(ID(id,i),'value') > '0' end,s.pop()) end
-  getIdFun['isOff']=function(s,i) return doit(Util.mapAnd,function(id) return fibaro:getValue(ID(id,i),'value') == '0' end,s.pop()) end
-  getIdFun['isAllOn']=function(s,i) return doit(Util.mapAnd,function(id) return fibaro:get(ID(id,i),'value') > '0' end,s.pop()) end
-  getIdFun['isAnyOff']=function(s,i) return doit(Util.mapOr,function(id) return fibaro:getValue(ID(id,i),'value') == '0' end,s.pop()) end
-  getIdFun['on']=function(s,i) doit(Util.mapF,function(id) fibaro:call(ID(id,i),'turnOn') end,s.pop()) return true end
-  getIdFun['off']=function(s,i) doit(Util.mapF,function(id) fibaro:call(ID(id,i),'turnOff') end,s.pop()) return true end
+  getIdFun['isOn']=function(s,i) return doit(Util.mapOr2,function(id) return fibaro:get(ID(id,i),'value') > '0' end,s.pop()) end
+  getIdFun['isOff']=function(s,i) return doit(Util.mapAnd2,function(id) return fibaro:getValue(ID(id,i),'value') == '0' end,s.pop()) end
+  getIdFun['isAllOn']=function(s,i) return doit(Util.mapAnd2,function(id) return fibaro:get(ID(id,i),'value') > '0' end,s.pop()) end
+  getIdFun['isAnyOff']=function(s,i) return doit(Util.mapOr2,function(id) return fibaro:getValue(ID(id,i),'value') == '0' end,s.pop()) end
+  getIdFun['on']=function(s,i) doit(Util.mapF2,function(id) fibaro:call(ID(id,i),'turnOn') end,s.pop()) return true end
+  getIdFun['off']=function(s,i) doit(Util.mapF2,function(id) fibaro:call(ID(id,i),'turnOff') end,s.pop()) return true end
   getIdFun['last']=function(s,i) local t = osTime()
-    return doit(Util.map,function(id) return t-select(2,fibaro:get(ID(id,i),'value')) end, s.pop()) 
+    return doit(Util.map2,function(id) return t-select(2,fibaro:get(ID(id,i),'value')) end, s.pop()) 
   end
   getIdFun['scene']=function(s,i) return getIdFuns(s,i,'sceneActivation') end
   getIdFun['bat']=function(s,i) return getIdFuns(s,i,'batteryLevel') end
@@ -1528,7 +1532,7 @@ function mainAux()
           success = function(status) if cont then cont(json.decode(status.data)) end end
         })
     end
-    Event.event({type='property',propertyName='on',_hue=true},function(env) -- transform on events
+    Event.event({type='property',propertyName='on',_hue=true},function(env) -- transform 'on' events
         local e=env.event
         Event.post({type='property',deviceID=e.deviceID,propertyName='value',value=fibaro:getValue(e.deviceID,'value'),_sh=true})
       end)
@@ -1579,7 +1583,7 @@ function mainAux()
           if f then setTimeout(f,0) end
         end)
     end
-    local _defFilter={buttonevent=true, on=true,_trans={on='value'}}
+    local _defFilter={buttonevent=true, on=true}
     function self.monitor(name,interval,filter)
       local id = hueNames[name] or name
       local sensor = devMap[id].hue
@@ -1617,13 +1621,15 @@ function mainAux()
     end
     local mapIndex=10000
     --devMap: deviceID -> HueID, Type, URL
-    function self.define(name,var,idx) -- optional var
-      local id = idx or mapIndex; mapIndex=mapIndex+1; hueNames[name]=id
+    function self.define(name,var,id) -- optional var
+      id = tonumber(id) or mapIndex; 
+      mapIndex=mapIndex+1; hueNames[name]=id
       if lights[name] then devMap[id]={type='light',hue=lights[name]}     
       elseif groups[name] then devMap[id]={type='group',hue=groups[name]}
       elseif sensors[name] then devMap[id]={type='sensor',hue=sensors[name]}
       else error("No Hue name:"..name) end
       if Util and var then Util.defvar(var,id) end
+      Log(LOG.LOG,"Hue device '%s' assigned deviceID %s",name,id)
       return id
     end
     function self.turnOn(id) local d=devMap[id].hue; request(_format(d.url,d.id),updateState,"PUT",{on=true}) _setState(d,'on',true) end

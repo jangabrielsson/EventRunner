@@ -25,8 +25,8 @@ counter
   _PORTLISTENER=true starts a listener on a socket for receieving sourcetriggers/events from HC2 scene
   
 --]] 
-_version = _version or "1.6"
-if _version ~= "1.6" then error("Bad version of EventRunnerDebug") end 
+_version = _version or "1.7"
+if _version ~= "1.7" then error("Bad version of EventRunnerDebug") end 
 function _DEF(v,d) if v==nil then return d else return v end end
 
 _GUI           = _DEF(_GUI,false)        -- Needs wxwidgets support (e.g. require "wx"). Works in ZeroBrane under Lua 5.1.
