@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.7"  -- fix2,Dec30, 2018 
+_version = "1.7"  -- fix3,Dec30, 2018 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -25,7 +25,7 @@ _deviceTable = "devicemap" -- Name of json struct with configuration data (i.e. 
 ruleLogLength = 80
 _debugFlags = { post=true,invoke=false,triggers=false,dailys=false,timers=false,rule=false,ruleTrue=false,fibaro=true,fibaroGet=false,fibaroSet=false,sysTimers=false }
 _GUI = false
-_SPEEDTIME = false      --24*36
+_SPEEDTIME = 24*36
 HueIP = "192.168.1.153" -- set to Hue bridge
 HueUserName=nil         -- set to Hue user name
 
@@ -565,18 +565,30 @@ function Util.gensym(s) return s..tostring({1,2,3}):match("([abcdef%d]*)$") end
 Util.S1 = {click = "16", double = "14", tripple = "15", hold = "12", release = "13"}
 Util.S2 = {click = "26", double = "24", tripple = "25", hold = "22", release = "23"} 
 
-function Util.deviceTypeFilter(ta,ty)
-  local res,sf={},ta[1] and ipairs or pairs
-  local map = Util._types[ty] or {}
-  for k,v in sf(ta) do if map[v] then res[k]=v end end
+function Util.deviceTypeFilter(expr,ty)
+  _assert(type(expr)=='table' and type(ty)=='string',"Bad filter")
+  local res,sf={},expr[1] and ipairs or pairs
+  local function match(expr)
+    for k,id in sf(expr) do 
+      if type(id)=='table' then match(id)
+      else
+        local map = Util._types[id]
+        if map then for _,s in ipairs(map) do if s:match(ty) then res[#res+1]=id break end end end
+      end
+    end
+  end
+  match(expr)
   return res
 end
 
-Util._vars,Util._types = {},{sensor={},light={},switche={}}
+Util._vars,Util._types = {},{sensor={},light={},switch={}}
 
 function Util.deftype(id,ty)
-  local map = Util._types[ty] or {}; Util._types[ty] = map
-  if type(id)=='table' then Util.mapF(function(id) Util.deftype(id,ty) end, id) else map[id]=true end
+  if type(id)=='table' then Util.mapF(function(id) Util.deftype(id,ty) end, id)
+  else 
+    local map = Util._types[id] or {}; Util._types[id] = map
+    map[#map+1]=ty
+  end
 end
 
 function Util.defvar(var,expr) Util._vars[var]=expr end
