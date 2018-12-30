@@ -574,8 +574,9 @@ end
 
 Util._vars,Util._types = {},{sensor={},light={},switche={}}
 
-function Util.deftype(id,ty) _assert(Util._types[ty],"No such type:"..ty) 
-  if type(id)=='table' then Util.mapF(function(id) Util.deftype(id,ty) end, id) else Util._types[ty][id]=true end
+function Util.deftype(id,ty)
+  local map = Util._types[ty] or {}; Util._types[ty] = map
+  if type(id)=='table' then Util.mapF(function(id) Util.deftype(id,ty) end, id) else map[id]=true end
 end
 
 function Util.defvar(var,expr) Util._vars[var]=expr end
