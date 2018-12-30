@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.7"  -- Dec29, 2018 
+_version = "1.7"  -- fix2,Dec30, 2018 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -565,7 +565,19 @@ function Util.gensym(s) return s..tostring({1,2,3}):match("([abcdef%d]*)$") end
 Util.S1 = {click = "16", double = "14", tripple = "15", hold = "12", release = "13"}
 Util.S2 = {click = "26", double = "24", tripple = "25", hold = "22", release = "23"} 
 
-Util._vars = {} 
+function Util.deviceTypeFilter(ta,ty)
+  local res,sf={},ta[1] and ipairs or pairs
+  local map = Util._types[ty] or {}
+  for k,v in sf(ta) do if map[v] then res[k]=v end end
+  return res
+end
+
+Util._vars,Util._types = {},{sensor={},light={},switche={}}
+
+function Util.deftype(id,ty) _assert(Util._types[ty],"No such type:"..ty) 
+  if type(id)=='table' then Util.mapF(function(id) Util.deftype(id,ty) end, id) else Util._types[ty][id]=true end
+end
+
 function Util.defvar(var,expr) Util._vars[var]=expr end
 function Util.defvars(tab) 
   for var,val in pairs(tab) do Util.defvar(var,val) end
@@ -783,7 +795,9 @@ function newScriptEngine()
   instr['+'] = function(s,n) s.push(s.pop()+s.pop()) end
   instr['-'] = function(s,n) s.push(-s.pop()+s.pop()) end
   instr['*'] = function(s,n) s.push(s.pop()*s.pop()) end
-  instr['/'] = function(s,n) s.push(1.0/(s.pop()/s.pop())) end
+  instr['/'] = function(s,n) local y,x=s.pop(),s.pop()
+    if type(x)=='table' and type(y)=='string' then s.push(Util.deviceTypeFilter(x,y)) else s.push(x,y) end
+  end
   instr['%'] = function(s,n) local a,b=s.pop(),s.pop(); s.push(b % a) end
   instr['inc+'] = function(s,n,e,i) local var,val=i[3],i[4] or s.pop() s.push(setVar(var,getVar(var,e)+val,e)) end
   instr['inc-'] = function(s,n,e,i) local var,val=i[3],i[4] or s.pop() s.push(setVar(var,getVar(var,e)-val,e)) end
@@ -1670,7 +1684,7 @@ function mainAux()
           if dev.state.on and dev.state.reachable then 
             res = dev.state.bri and tostring(math.floor((dev.state.bri/254)*99+0.5)) or '99' 
           else res = '0' end 
-        elseif val=='values' then return dev.state
+        elseif val=='values' then res = dev.state
         else res =  dev.state[val] and tostring(dev.state[val]) or nil end
         time=dev.state.lastupdate or 0
         Debug(_debugFlags.hue,"Get ID:%s %s -> %s",id,val,res)
