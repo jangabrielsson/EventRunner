@@ -950,7 +950,6 @@ function _System.startServer(port)
         repeat
           local l, e, j = c:receive()
           if j and j~="" then
-            print("UCK")
             --c:close()
             j = urldecode(j)
             j=json.decode(j)
