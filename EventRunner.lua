@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.7"  -- fix5,Jan 3, 2019 
+_version = "1.7"  -- fix6,Jan 3, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -23,11 +23,12 @@ _version = "1.7"  -- fix5,Jan 3, 2019
 _sceneName   = "Demo"      -- Set to scene/script name
 _deviceTable = "devicemap" -- Name of json struct with configuration data (i.e. "HomeTable")
 ruleLogLength = 80
-_debugFlags = { post=true,invoke=false,triggers=false,dailys=false,timers=false,rule=false,ruleTrue=false,fibaro=true,fibaroGet=false,fibaroSet=false,sysTimers=false }
+_debugFlags = { post=true,invoke=false,node_red=true,triggers=false,dailys=false,timers=false,rule=false,ruleTrue=false,fibaro=true,fibaroGet=false,fibaroSet=false,sysTimers=false }
 _GUI = false
 _SPEEDTIME = 24*36
 HueIP = "192.168.1.153" -- set to Hue bridge
 HueUserName=nil         -- set to Hue user name
+NodeRed=true            -- true, will start listener from node-red server(s)
 
 -- If running offline we need our own setTimeout and net.HTTPClient() and other fibaro funs...
 if dofile then dofile("EventRunnerDebug.lua") require('mobdebug').coro() end

@@ -34,7 +34,7 @@ _SPEEDTIME     = _DEF(_SPEEDTIME,24*35)  -- nil or run faster than realtime for 
 _REMOTE        = _DEF(_REMOTE,false)     -- If true use FibaroSceneAPI to call functions on HC2, else emulate them locally...
 
 -- Server parameters
-_PORTLISTENER = true
+_PORTLISTENER = NodeRed
 _POLLINTERVAL = 100 
 _PORT         = 6872
 _MEM          = false  -- log memory usage
@@ -952,7 +952,8 @@ function _System.startServer(port)
           if j and j~="" then
             --c:close()
             j = urldecode(j)
-            j=json.decode(j)
+            if _debugFlags.node_red then Debug(true,"Node_red:%s",j) end
+            j=json.decode(j) j._sh=true
             Event.post(j)
           end
           coroutine.yield(true)
