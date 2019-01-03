@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.7"  -- fix4,Jan 3, 2019 
+_version = "1.7"  -- fix5,Jan 3, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -39,10 +39,7 @@ function main()
   --Util.reverseMapDef(devs)
   local rule = Rule.eval
   -- lets start
-
-  Event.postRemote("http://192.168.1.50:1880/eventrunner",{type='speek',data="Hej,  Jan"})
-
-  --dofile("example_rules.lua") -- some example rules to try out...
+  dofile("example_rules.lua") -- some example rules to try out...
 end -- main()
 
 ------------------- EventModel - Don't change! --------------------  
@@ -269,7 +266,7 @@ function newEventEngine()
 
   function self.postRemote(sceneIDorURL, e) -- Post event to other scenes or node-red
     _assert(isEvent(e), "Bad event format")
-    e._from = __fibaroSceneId
+    e._from = _OFFLINE and -1 or __fibaroSceneId
     local payload = urlencode(json.encode(e))
     if type(sceneIDorURL)=='string' and sceneIDorURL:sub(1,4)=='http' then
       post2NodeRed(sceneIDorURL, payload, e)
@@ -862,6 +859,7 @@ function newScriptEngine()
   end
   instr['disable'] = function(s,n,e,i) s.push(Event.disable(s.pop())) end
   instr['post'] = function(s,n,ev) local e,t=s.pop(),nil; if n==2 then t=e; e=s.pop() end s.push(Event.post(e,t,ev.rule)) end
+  instr['remote'] = function(s,n,ev) local e,u=s.pop(),s.pop(); Event.postRemote(u,e) s.push(true) end
   instr['cancel'] = function(s,n) Event.cancel(s.pop()) s.push(nil) end
   instr['add'] = function(s,n) local v,t=s.pop(),s.pop() table.insert(t,v) s.push(t) end
   instr['betw'] = function(s,n) local t2,t1,now=s.pop(),s.pop(),osTime()-midnight()

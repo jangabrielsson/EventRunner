@@ -35,7 +35,7 @@ _REMOTE        = _DEF(_REMOTE,false)     -- If true use FibaroSceneAPI to call f
 
 -- Server parameters
 _PORTLISTENER = false
-_POLLINTERVAL = 500 
+_POLLINTERVAL = 100 
 _PORT         = 6872
 _MEM          = false  -- log memory usage
 
@@ -771,138 +771,138 @@ end
 ------------------- Sunset/Sunrise ---------------
 -- \fibaro\usr\share\lua\5.2\common\lustrous.lua ﻿based on the United States Naval Observatory
 function sunturn_time(date, rising, latitude, longitude, zenith, local_offset)
-    local rad,deg,floor = math.rad,math.deg,math.floor
-    local frac = function(n) return n - floor(n) end
-    local cos = function(d) return math.cos(rad(d)) end
-    local acos = function(d) return deg(math.acos(d)) end
-    local sin = function(d) return math.sin(rad(d)) end
-    local asin = function(d) return deg(math.asin(d)) end
-    local tan = function(d) return math.tan(rad(d)) end
-    local atan = function(d) return deg(math.atan(d)) end
-    
-    local function day_of_year(date)
-        local n1 = floor(275 * date.month / 9)
-        local n2 = floor((date.month + 9) / 12)
-        local n3 = (1 + floor((date.year - 4 * floor(date.year / 4) + 2) / 3))
-        return n1 - (n2 * n3) + date.day - 30
-     end
-     
-     local function fit_into_range(val, min, max)
-       local range = max - min
-        local count
-        if val < min then
-           count = floor((min - val) / range) + 1
-           return val + count * range
-        elseif val >= max then
-           count = floor((val - max) / range) + 1
-           return val - count * range
-        else
-           return val
-        end
-     end
-     
-    local n = day_of_year(date)
+  local rad,deg,floor = math.rad,math.deg,math.floor
+  local frac = function(n) return n - floor(n) end
+  local cos = function(d) return math.cos(rad(d)) end
+  local acos = function(d) return deg(math.acos(d)) end
+  local sin = function(d) return math.sin(rad(d)) end
+  local asin = function(d) return deg(math.asin(d)) end
+  local tan = function(d) return math.tan(rad(d)) end
+  local atan = function(d) return deg(math.atan(d)) end
 
-    -- Convert the longitude to hour value and calculate an approximate time
-    local lng_hour = longitude / 15
+  local function day_of_year(date)
+    local n1 = floor(275 * date.month / 9)
+    local n2 = floor((date.month + 9) / 12)
+    local n3 = (1 + floor((date.year - 4 * floor(date.year / 4) + 2) / 3))
+    return n1 - (n2 * n3) + date.day - 30
+  end
 
-    local t
-    if rising then -- Rising time is desired
-        t = n + ((6 - lng_hour) / 24)
-    else -- Setting time is desired
-        t = n + ((18 - lng_hour) / 24)
-    end
-
-    -- Calculate the Sun^s mean anomaly
-    local M = (0.9856 * t) - 3.289
-
-    -- Calculate the Sun^s true longitude
-    local L = fit_into_range(M + (1.916 * sin(M)) + (0.020 * sin(2 * M)) + 282.634, 0, 360)
-
-    -- Calculate the Sun^s right ascension
-    local RA = fit_into_range(atan(0.91764 * tan(L)), 0, 360)
-
-    -- Right ascension value needs to be in the same quadrant as L
-    local Lquadrant = floor(L / 90) * 90
-    local RAquadrant = floor(RA / 90) * 90
-    RA = RA + Lquadrant - RAquadrant
-
-    -- Right ascension value needs to be converted into hours
-    RA = RA / 15
-
-    -- Calculate the Sun^s declination
-    local sinDec = 0.39782 * sin(L)
-    local cosDec = cos(asin(sinDec))
-
-    -- Calculate the Sun^s local hour angle
-    local cosH = (cos(zenith) - (sinDec * sin(latitude))) / (cosDec * cos(latitude))
-
-    if rising and cosH > 1 then
-        return "N/R" -- The sun never rises on this location on the specified date
-    elseif cosH < -1 then
-        return "N/S" -- The sun never sets on this location on the specified date
-    end
-
-    -- Finish calculating H and convert into hours
-    local H
-    if rising then
-        H = 360 - acos(cosH)
+  local function fit_into_range(val, min, max)
+    local range = max - min
+    local count
+    if val < min then
+      count = floor((min - val) / range) + 1
+      return val + count * range
+    elseif val >= max then
+      count = floor((val - max) / range) + 1
+      return val - count * range
     else
-        H = acos(cosH)
+      return val
     end
-    H = H / 15
+  end
 
-    -- Calculate local mean time of rising/setting
-    local T = H + RA - (0.06571 * t) - 6.622
+  local n = day_of_year(date)
 
-    -- Adjust back to UTC
-    local UT = fit_into_range(T - lng_hour, 0, 24)
+  -- Convert the longitude to hour value and calculate an approximate time
+  local lng_hour = longitude / 15
 
-    -- Convert UT value to local time zone of latitude/longitude
-    local LT = UT + local_offset
+  local t
+  if rising then -- Rising time is desired
+    t = n + ((6 - lng_hour) / 24)
+  else -- Setting time is desired
+    t = n + ((18 - lng_hour) / 24)
+  end
 
-    return osTime(
-        {
-            day = date.day,
-            month = date.month,
-            year = date.year,
-            hour = floor(LT),
-            min = math.modf(frac(LT) * 60)
-        }
-    )
+  -- Calculate the Sun^s mean anomaly
+  local M = (0.9856 * t) - 3.289
+
+  -- Calculate the Sun^s true longitude
+  local L = fit_into_range(M + (1.916 * sin(M)) + (0.020 * sin(2 * M)) + 282.634, 0, 360)
+
+  -- Calculate the Sun^s right ascension
+  local RA = fit_into_range(atan(0.91764 * tan(L)), 0, 360)
+
+  -- Right ascension value needs to be in the same quadrant as L
+  local Lquadrant = floor(L / 90) * 90
+  local RAquadrant = floor(RA / 90) * 90
+  RA = RA + Lquadrant - RAquadrant
+
+  -- Right ascension value needs to be converted into hours
+  RA = RA / 15
+
+  -- Calculate the Sun^s declination
+  local sinDec = 0.39782 * sin(L)
+  local cosDec = cos(asin(sinDec))
+
+  -- Calculate the Sun^s local hour angle
+  local cosH = (cos(zenith) - (sinDec * sin(latitude))) / (cosDec * cos(latitude))
+
+  if rising and cosH > 1 then
+    return "N/R" -- The sun never rises on this location on the specified date
+  elseif cosH < -1 then
+    return "N/S" -- The sun never sets on this location on the specified date
+  end
+
+  -- Finish calculating H and convert into hours
+  local H
+  if rising then
+    H = 360 - acos(cosH)
+  else
+    H = acos(cosH)
+  end
+  H = H / 15
+
+  -- Calculate local mean time of rising/setting
+  local T = H + RA - (0.06571 * t) - 6.622
+
+  -- Adjust back to UTC
+  local UT = fit_into_range(T - lng_hour, 0, 24)
+
+  -- Convert UT value to local time zone of latitude/longitude
+  local LT = UT + local_offset
+
+  return osTime(
+    {
+      day = date.day,
+      month = date.month,
+      year = date.year,
+      hour = floor(LT),
+      min = math.modf(frac(LT) * 60)
+    }
+  )
 end
 
 local function get_timezone()
-    local now = osTime()
-    return os.difftime(now, osTime(osDate("!*t", now)))
+  local now = osTime()
+  return os.difftime(now, osTime(osDate("!*t", now)))
 end
 
 function sunCalc()
-    local lat = fibaro:getValue(2, "Latitude") or _LATITUDE
-    local lon = fibaro:getValue(2, "Longitude") or _LONGITUDE
-    local utc = get_timezone() / 3600
+  local lat = fibaro:getValue(2, "Latitude") or _LATITUDE
+  local lon = fibaro:getValue(2, "Longitude") or _LONGITUDE
+  local utc = get_timezone() / 3600
 
-    local zenith = 90.83 -- sunset/sunrise 90°50′
-    local zenith_twilight = 96.0 -- civil twilight 96°0′
+  local zenith = 90.83 -- sunset/sunrise 90°50′
+  local zenith_twilight = 96.0 -- civil twilight 96°0′
 
-    local date = osDate("*t")
-    if date.isdst then
-        utc = utc + 1
-    end
+  local date = osDate("*t")
+  if date.isdst then
+    utc = utc + 1
+  end
 
-    local rise_time = osDate("*t", sunturn_time(date, true, lat, lon, zenith, utc))
-    local set_time = osDate("*t", sunturn_time(date, false, lat, lon, zenith, utc))
+  local rise_time = osDate("*t", sunturn_time(date, true, lat, lon, zenith, utc))
+  local set_time = osDate("*t", sunturn_time(date, false, lat, lon, zenith, utc))
 
-    local rise_time_t = osDate("*t", sunturn_time(date, true, lat, lon, zenith_twilight, utc))
-    local set_time_t = osDate("*t", sunturn_time(date, false, lat, lon, zenith_twilight, utc))
+  local rise_time_t = osDate("*t", sunturn_time(date, true, lat, lon, zenith_twilight, utc))
+  local set_time_t = osDate("*t", sunturn_time(date, false, lat, lon, zenith_twilight, utc))
 
-    local sunrise = string.format("%.2d:%.2d", rise_time.hour, rise_time.min)
-    local sunset = string.format("%.2d:%.2d", set_time.hour, set_time.min)
+  local sunrise = string.format("%.2d:%.2d", rise_time.hour, rise_time.min)
+  local sunset = string.format("%.2d:%.2d", set_time.hour, set_time.min)
 
-    local sunrise_t = string.format("%.2d:%.2d", rise_time_t.hour, rise_time_t.min)
-    local sunset_t = string.format("%.2d:%.2d", set_time_t.hour, set_time_t.min)
+  local sunrise_t = string.format("%.2d:%.2d", rise_time_t.hour, rise_time_t.min)
+  local sunset_t = string.format("%.2d:%.2d", set_time_t.hour, set_time_t.min)
 
-    return sunrise, sunset, sunrise_t, sunset_t
+  return sunrise, sunset, sunrise_t, sunset_t
 end
 
 ------------------------------------------------------
@@ -927,7 +927,7 @@ end
 
 ---- Remote server support ------------------
 
-function _SystemstartServer(port)
+function _System.startServer(port)
   local someRandomIP = "192.168.1.122" --This address you make up
   local someRandomPort = "3102" --This port you make up  
   local mySocket = socket.udp() --Create a UDP socket like normal
@@ -949,12 +949,12 @@ function _SystemstartServer(port)
         c:settimeout(0)
         repeat
           local l, e, j = c:receive()
-          if l then
-            j = l:match("(%b{})")
-            if j then 
-              Log(LOG.LOG,"<%s>%s:",c:getpeername(),j)
-              Event.post(json.decode(j))
-            end
+          if j and j~="" then
+            print("UCK")
+            --c:close()
+            j = urldecode(j)
+            j=json.decode(j)
+            Event.post(j)
           end
           coroutine.yield(true)
         until j or e == 'closed'
@@ -967,6 +967,7 @@ if _PORTLISTENER then
   setTimeout(function()
       _sock = _System.startServer(_PORT)
       function _listener()
+       -- print("Stat:"..coroutine.status(_sock))
         coroutine.resume(_sock)
         setTimeout(_listener,_POLLINTERVAL)
       end
