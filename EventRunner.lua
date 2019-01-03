@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.7"  -- fix3,Dec30, 2018 
+_version = "1.7"  -- fix4,Jan 3, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -39,7 +39,10 @@ function main()
   --Util.reverseMapDef(devs)
   local rule = Rule.eval
   -- lets start
-  dofile("example_rules.lua") -- some example rules to try out...
+
+  Event.postRemote("http://192.168.1.50:1880/eventrunner",{type='speek',data="Hej,  Jan"})
+
+  --dofile("example_rules.lua") -- some example rules to try out...
 end -- main()
 
 ------------------- EventModel - Don't change! --------------------  
@@ -255,10 +258,22 @@ function newEventEngine()
     return nil 
   end
 
-  function self.postRemote(sceneID, e) -- Post event to other scenes
+  local function post2NodeRed(url,payload, e)
+    local HTTP = net.HTTPClient()
+    payload=json.encode({args={payload}})
+    HTTP:request(url,{options = {headers = {['Accept']='application/json',['Content-Type']='application/json'},data = payload,method = 'POST'},
+        error = function(status) self.post({type='%node-red%',status='fail', oe=e, _sh=true}) end,
+        success = function(status) self.post({type='%node-red%',status='success', oe=e, _sh=true}) end,
+      })
+  end
+
+  function self.postRemote(sceneIDorURL, e) -- Post event to other scenes or node-red
     _assert(isEvent(e), "Bad event format")
     e._from = __fibaroSceneId
-    fibaro:startScene(sceneID,{urlencode(json.encode(e))})
+    local payload = urlencode(json.encode(e))
+    if type(sceneIDorURL)=='string' and sceneIDorURL:sub(1,4)=='http' then
+      post2NodeRed(sceneIDorURL, payload, e)
+    else fibaro:startScene(sceneIDorURL,{payload}) end
   end
 
   local _getProp = {}

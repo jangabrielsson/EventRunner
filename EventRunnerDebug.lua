@@ -143,7 +143,7 @@ function urlencode(str)
     str = str:gsub("([^%w %-%_%.%~])", function(c)
         return ("%%%02X"):format(string.byte(c))
       end)
-    str = str:gsub(" ", "+")
+    str = str:gsub(" ", "%%20")
   end
   return str	
 end
