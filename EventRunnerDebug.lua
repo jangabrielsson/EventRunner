@@ -25,17 +25,17 @@ counter
   _PORTLISTENER=true starts a listener on a socket for receieving sourcetriggers/events from HC2 scene
   
 --]] 
-_version = _version or "1.7"
-if _version ~= "1.7" then error("Bad version of EventRunnerDebug") end 
+_version = _version or "1.8"
+if _version ~= "1.8" then error("Bad version of EventRunnerDebug") end 
 function _DEF(v,d) if v==nil then return d else return v end end
 
 _GUI           = _DEF(_GUI,false)        -- Needs wxwidgets support (e.g. require "wx"). Works in ZeroBrane under Lua 5.1.
 _SPEEDTIME     = _DEF(_SPEEDTIME,24*35)  -- nil or run faster than realtime for x hours
 _REMOTE        = _DEF(_REMOTE,false)     -- If true use FibaroSceneAPI to call functions on HC2, else emulate them locally...
-
+_GLOBALS_FILE  = _DEF(GLOBALS_FILE,"globals.data")
 -- Server parameters
 _PORTLISTENER = NodeRed
-_POLLINTERVAL = 100 
+_POLLINTERVAL = 200 
 _PORT         = 6872
 _MEM          = false  -- log memory usage
 
@@ -48,6 +48,7 @@ hc2_pwd            = "xxx"
 hc2_ip             = "192.168.1.84" -- IP of HC2
 local creds = loadfile("credentials.lua") -- To not accidently commit credentials to Github...
 if creds then creds() end
+GLOBALS_FILE       = "globals.data"
 
 __fibaroSceneId    = __fibaroSceneId or 32     -- Set to scene ID. On HC2 this variable is defined
 
@@ -146,6 +147,47 @@ function urlencode(str)
     str = str:gsub(" ", "%%20")
   end
   return str	
+end
+
+------------- Saving restoring globals -----------------
+
+function _System.copyGlobalsFromHC2()
+  file = file or _GLOBALS_FILE
+  Log(LOG.SYSTEM,"Reading globals from H2C...")
+  local vars = api.get("/globalVariables/")
+  for _,v in ipairs(vars) do
+    fibaro._globals[v.name] = {tostring(v.value),osTime()}
+  end
+end
+
+function _System.writeGlobalsToFile(file)
+  file = file or _GLOBALS_FILE
+  Log(LOG.SYSTEM,"Writing globals to '%s'",file)
+  local f = io.open(file,"w+")
+  local fl = false
+  f:write("[\r\n")
+  for name,value in pairs(fibaro._globals) do
+    if not fl then fl=true else f:write(",\r\n\r\n") end
+    f:write(json.encode({[name]=value[1]}))
+   -- f:write("\r\n\r\n")
+  end
+  f:write("\r\n]\r\n")
+  f:close()
+  Log(LOG.SYSTEM,"Globals written - exiting")
+end
+
+function _System.readGlobalsFromFile(file)
+  file = file or _GLOBALS_FILE
+  local f = io.open(file)
+  if f then
+    local vars = f:read("*all")
+    vars = json.decode(vars)
+    for _,v in ipairs(vars) do 
+      local var,val=next(v)
+      fibaro._globals[var] = {tostring(val),osTime()} 
+    end
+    Log(LOG.SYSTEM,"Initiated %s globals from '%s'",#vars,file)
+  else Log(LOG.SYSTEM,"No globals file found (%s)'",file) end
 end
 
 --- Parse scene headers ------------------------
@@ -434,10 +476,6 @@ if not _REMOTE then
   function fibaro:getValue(id,prop) return (_getIdProp(id,prop)) end
 
   function _getGlobal(name)
-    if _OFFLINE and _deviceTable and name==_deviceTable and fibaro._globals[name] == nil then
-      local devmap = io.open(name..".data", "r") -- local file with json structure
-      if devmap then fibaro._globals[name] = {devmap:read("*all"),osTime()} end
-    end
     fibaro._globals[name] = fibaro._globals[name] or {nil,osTime()}
     return table.unpack(fibaro._globals[name])
   end
@@ -934,45 +972,41 @@ function _System.startServer(port)
   mySocket:setpeername(someRandomIP,someRandomPort) 
   local myDevicesIpAddress, somePortChosenByTheOS = mySocket:getsockname()-- returns IP and Port 
   local host = myDevicesIpAddress
-  Log(LOG.SYSTEM,"Remote listener started at %s:%s",host,port)
+  Log(LOG.SYSTEM,"Remote Event listener started at %s:%s",host,port)
   local s,c,err = assert(socket.bind("*", port))
   local i, p = s:getsockname()
   assert(i, p)
-  local co = coroutine.create(
-    function()
-      while true do
-        s:settimeout(0)
-        repeat
-          c, err = s:accept()
-          if err == 'timeout' then coroutine.yield(true) end
-        until err ~= 'timeout'
-        c:settimeout(0)
-        repeat
-          local l, e, j = c:receive()
-          if j and j~="" then
-            --c:close()
-            j = urldecode(j)
-            if _debugFlags.node_red then Debug(true,"Node_red:%s",j) end
-            j=json.decode(j) j._sh=true
-            Event.post(j)
-          end
-          coroutine.yield(true)
-        until (j and j~="") or e == 'closed'
-      end
-    end)
-  return co
+  return function()
+    local co = coroutine.running()
+    while true do
+      s:settimeout(0)
+      repeat
+        c, err = s:accept()
+        if err == 'timeout' then coroutine.yield(co,_POLLINTERVAL/1000) end
+      until err ~= 'timeout'
+      c:settimeout(0)
+      repeat
+        local l, e, j = c:receive()
+        if l and l:sub(1,3)=='GET' then
+          j=l:match("GET[%s%c]*/(.*)HTTP/1%.1$")
+          j = urldecode(j)
+          j=json.decode(j) j._sh=true
+          Event.post(j)
+        elseif j and j~="" then
+          --c:close()
+          j = urldecode(j)
+          if _debugFlags.node_red then Debug(true,"Node_red:%s",j) end
+          j=json.decode(j) j._sh=true
+          Event.post(j)
+        end
+        --coroutine.yield(co,_POLLINTERVAL/1000)
+      until (j and j~="") or e == 'closed'
+    end
+  end
 end
 
 if _PORTLISTENER then
-  setTimeout(function()
-      _sock = _System.startServer(_PORT)
-      function _listener()
-       -- print("Stat:"..coroutine.status(_sock))
-        coroutine.resume(_sock)
-        setTimeout(_listener,_POLLINTERVAL)
-      end
-      _listener()
-    end,0)
+  setTimeout(_System.startServer(_PORT),100)
 end
 
 ------------------ Test ---------------------

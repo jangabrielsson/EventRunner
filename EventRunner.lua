@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.7"  -- fix6,Jan 3, 2019 
+_version = "1.8"  -- Jan 5, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -21,25 +21,28 @@ _version = "1.7"  -- fix6,Jan 3, 2019
 --]]
 
 _sceneName   = "Demo"      -- Set to scene/script name
-_deviceTable = "devicemap" -- Name of json struct with configuration data (i.e. "HomeTable")
+_deviceTable ="devicemap"
 ruleLogLength = 80
 _debugFlags = { post=true,invoke=false,node_red=true,triggers=false,dailys=false,timers=false,rule=false,ruleTrue=false,fibaro=true,fibaroGet=false,fibaroSet=false,sysTimers=false }
 _GUI = false
-_SPEEDTIME = 24*36
+_SPEEDTIME = false --24*36
 HueIP = "192.168.1.153" -- set to Hue bridge
 HueUserName=nil         -- set to Hue user name
-NodeRed=true            -- true, will start listener from node-red server(s)
+NodeRed="http://192.168.1.50:1880/eventrunner"  -- true, will start listener from node-red server(s)
 
 -- If running offline we need our own setTimeout and net.HTTPClient() and other fibaro funs...
 if dofile then dofile("EventRunnerDebug.lua") require('mobdebug').coro() end
 
 ---------------- Here you place rules and user code, called once --------------------
 function main()
+  local rule = Rule.eval
+  --_System.copyGlobalsFromHC2() -- copy globals from HC2 ZBS
+  --_System.writeGlobalsToFile("test.data") -- write globals from ZBS to file 'globals.data'
+  _System.readGlobalsFromFile()  -- read in globals from filr 'globals.data'
   --local devs = json.decode(fibaro:getGlobalValue(_deviceTable))
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
-  local rule = Rule.eval
-  -- lets start
+  
   dofile("example_rules.lua") -- some example rules to try out...
 end -- main()
 
@@ -90,6 +93,7 @@ if not _getIdProp then
   _getIdProp = function(id,prop) return fibaro:get(id,prop) end; _getGlobal = function(id) return fibaro:getGlobal(id) end
 end
 Util = Util or {}
+_System = _System or {copyGlobalsFromHC2=function() end,writeGlobalsToFile=function() end,readGlobalsFromFile=function() end}
 gEventRunnerKey="6w8562395ue734r437fg3"
 
 if not _OFFLINE then -- if running on the HC2
@@ -443,7 +447,7 @@ function newEventEngine()
       fibaro[name] = function(obj,...) if _debugFlags[flag] then return spec(obj,fibaro._orgf[name],...) else return fibaro._orgf[name](obj,...) end end 
     else 
       fibaro[name] = function(obj,id,...)
-        local id2,args = type(id) == 'number' and Util.reverseVar(id) or '"'..id..'"',{...}
+        local id2,args = type(id) == 'number' and Util.reverseVar(id) or '"'..(id or "<ID>")..'"',{...}
         local status,res,r2 = pcall(function() return fibaro._orgf[name](obj,id,table.unpack(args)) end)
         if status and _debugFlags[flag] then
           Debug(true,fstr,name,id2,(#args>0 and "," or ""),json.encode(args):sub(2,-2),json.encode(res))
