@@ -36,13 +36,13 @@ if dofile then dofile("EventRunnerDebug.lua") require('mobdebug').coro() end
 ---------------- Here you place rules and user code, called once --------------------
 function main()
   local rule = Rule.eval
-  --_System.copyGlobalsFromHC2() -- copy globals from HC2 ZBS
-  --_System.writeGlobalsToFile("test.data") -- write globals from ZBS to file 'globals.data'
+  --_System.copyGlobalsFromHC2() -- copy globals from HC2 to ZBS
+  --_System.writeGlobalsToFile() -- write globals from ZBS to file 'globals.data'
   _System.readGlobalsFromFile()  -- read in globals from filr 'globals.data'
   --local devs = json.decode(fibaro:getGlobalValue(_deviceTable))
   --Util.defvars(devs)
   --Util.reverseMapDef(devs)
-  
+
   dofile("example_rules.lua") -- some example rules to try out...
 end -- main()
 

@@ -34,7 +34,7 @@ _SPEEDTIME     = _DEF(_SPEEDTIME,24*35)  -- nil or run faster than realtime for 
 _REMOTE        = _DEF(_REMOTE,false)     -- If true use FibaroSceneAPI to call functions on HC2, else emulate them locally...
 _GLOBALS_FILE  = _DEF(GLOBALS_FILE,"globals.data")
 -- Server parameters
-_PORTLISTENER = NodeRed
+_PORTLISTENER = NodeRed or _PORTLISTENER
 _POLLINTERVAL = 200 
 _PORT         = 6872
 _MEM          = false  -- log memory usage
