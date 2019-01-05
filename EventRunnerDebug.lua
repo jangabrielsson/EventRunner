@@ -26,7 +26,7 @@ counter
   
 --]] 
 _version = _version or "1.8"
-if _version ~= "1.8" then error("Bad version of EventRunnerDebug") end 
+if _version ~= "1.8" then error("Bad version of EventRunnerDebug") end  
 function _DEF(v,d) if v==nil then return d else return v end end
 
 _GUI           = _DEF(_GUI,false)        -- Needs wxwidgets support (e.g. require "wx"). Works in ZeroBrane under Lua 5.1.

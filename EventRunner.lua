@@ -8,7 +8,7 @@
 99 sceneActivation
 100 AccessControlEvent
 %% globals
-counter
+counter 
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
