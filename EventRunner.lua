@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.8"  -- Jan 5, 2019 
+_version = "1.8"  -- fix1,Jan 6, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -47,7 +47,8 @@ function main()
 end -- main()
 
 ------------------- EventModel - Don't change! --------------------  
-Event,_System = Event or {}, _System or {}
+Event = Event or {}
+_System = _System or {copyGlobalsFromHC2=function() end,writeGlobalsToFile=function() end,readGlobalsFromFile=function() end}
 _STARTLINE = _OFFLINE and debug.getinfo(1).currentline or nil
 if _OFFLINE then MAINTHREAD=coroutine.running() end
 local _supportedEvents = {property=true,global=true,event=true,remote=true}
@@ -93,7 +94,6 @@ if not _getIdProp then
   _getIdProp = function(id,prop) return fibaro:get(id,prop) end; _getGlobal = function(id) return fibaro:getGlobal(id) end
 end
 Util = Util or {}
-_System = _System or {copyGlobalsFromHC2=function() end,writeGlobalsToFile=function() end,readGlobalsFromFile=function() end}
 gEventRunnerKey="6w8562395ue734r437fg3"
 
 if not _OFFLINE then -- if running on the HC2
