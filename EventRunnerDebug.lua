@@ -25,22 +25,22 @@ counter
   _PORTLISTENER=true starts a listener on a socket for receieving sourcetriggers/events from HC2 scene
   
 --]] 
-_version = _version or "1.8"
-if _version ~= "1.8" then error("Bad version of EventRunnerDebug") end  
+_version = _version or "1.9"
+if _version ~= "1.9" then error("Bad version of EventRunnerDebug") end  
 function _DEF(v,d) if v==nil then return d else return v end end
 
 _GUI           = _DEF(_GUI,false)        -- Needs wxwidgets support (e.g. require "wx"). Works in ZeroBrane under Lua 5.1.
 _SPEEDTIME     = _DEF(_SPEEDTIME,24*35)  -- nil or run faster than realtime for x hours
 _REMOTE        = _DEF(_REMOTE,false)     -- If true use FibaroSceneAPI to call functions on HC2, else emulate them locally...
-_GLOBALS_FILE  = _DEF(GLOBALS_FILE,"globals.data")
+_GLOBALS_FILE  = _DEF(_GLOBALS_FILE,"globals.data")
 -- Server parameters
-_PORTLISTENER = NodeRed or _PORTLISTENER
+_PORTLISTENER = _EVENTSERVER or _PORTLISTENER
 _POLLINTERVAL = 200 
 _PORT         = 6872
 _MEM          = false  -- log memory usage
 
-_LATITIDE = "59.316947"
-_LONGITIDE = "18.064006"
+_LATITUDE = "59.316947"
+_LONGITUDE = "18.064006"
 
 -- HC2 credentials and parameters
 hc2_user           = "xxx" -- used for api.x/FibaroSceneAPI calls
@@ -48,10 +48,22 @@ hc2_pwd            = "xxx"
 hc2_ip             = "192.168.1.84" -- IP of HC2
 local creds = loadfile("credentials.lua") -- To not accidently commit credentials to Github...
 if creds then creds() end
-GLOBALS_FILE       = "globals.data"
+_GLOBALS_FILE       = "globals.data"
 
 __fibaroSceneId    = __fibaroSceneId or 32     -- Set to scene ID. On HC2 this variable is defined
 
+--[[
+ToDo Jan2019
+Socket server loop - done
+Fibaro func hook
+Hc2 socket events -done
+Compiler vm separation
+Multi hue servers
+Weather sun library example
+General globals init file -done 
+Update doc
+Move doc to GitHub 
+--]]
 -- Don't touch --------------------------------------------------
 --[[
 _debugFlags = { 
@@ -104,6 +116,14 @@ GC=GC or collectgarbage("count")
 LOG = {WELCOME = "orange",DEBUG = "white", SYSTEM = "Cyan", LOG = "green", ERROR = "Tomato"}
 _LOGMAP = {orange="\027[33m",white="\027[34m",Cyan="\027[35m",green="\027[32m",Tomato="\027[31m"} -- ANSI escape code, supported by ZBS
 _LOGEND = "\027[0m"
+--[[Available colors in Zerobrane
+for i = 0,8 do
+  print(("%s \027[%dmXYZ\027[0m normal"):format(30+i, 30+i))
+end
+for i = 0,8 do
+  print(("%s \027[1;%dmXYZ\027[0m bright"):format(38+i, 30+i))
+end
+--]]
 _format = string.format
 function printf(...) print(_format(...)) end
 function fibaro:debug(str) print(_format("%s:%s",osDate("%X"),str)) end
@@ -128,6 +148,12 @@ function _LINE()
     end
     return nil
   end
+end
+
+if _SCENERUNNER then
+  function _assert(test,msg,...) if not test then msg = _format(msg,...) error(msg) end end
+  function _assertf(test,msg,fun) if not test then msg = _format(msg,fun and fun() or "") error(msg) end end
+  _System.headers={}
 end
 
 function split(s, sep)
@@ -169,13 +195,14 @@ function _System.writeGlobalsToFile(file)
   for name,value in pairs(fibaro._globals) do
     if not fl then fl=true else f:write(",\r\n\r\n") end
     f:write(json.encode({[name]=value[1]}))
-   -- f:write("\r\n\r\n")
+    -- f:write("\r\n\r\n")
   end
   f:write("\r\n]\r\n")
   f:close()
   Log(LOG.SYSTEM,"Globals written - exiting")
 end
 
+_System._globalsInited = false
 function _System.readGlobalsFromFile(file)
   file = file or _GLOBALS_FILE
   local f = io.open(file)
@@ -186,16 +213,17 @@ function _System.readGlobalsFromFile(file)
       local var,val=next(v)
       fibaro._globals[var] = {tostring(val),osTime()} 
     end
+    _System._globalsInited = true
     Log(LOG.SYSTEM,"Initiated %s globals from '%s'",#vars,file)
   else Log(LOG.SYSTEM,"No globals file found (%s)'",file) end
 end
 
 --- Parse scene headers ------------------------
-do
-  _System.headers = {}
-  local short_src = _sceneFile or debug.getinfo(3).short_src
-  short_src=short_src:match("[\\/]?([%.%w_%-]+)$")
-  local f = io.open(short_src) 
+function _System.parseHeaders(fileName)
+  local headers = {}
+
+  local f = io.open(fileName)
+  if not f then error("No such file:"..fileName) end
   local src = f:read("*all")
   local c = src:match("--%[%[.-%-%-%]%]")
   local curr = nil
@@ -203,32 +231,31 @@ do
     c=c:gsub("([\r\n]+)","\n")
     c = split(c,'\n')
     for i=2,#c-1 do
-      if c[i]:match("%%%%") then curr=c[i]:match("%a+")
+      if c[i]:match("%%%%") then curr=c[i]:match("%a+"); headers[curr]={}
       elseif curr then 
-        local h = _System.headers[curr] or {}
+        local h = headers[curr] or {}
         h[#h+1] = c[i]
-        _System.headers[curr]=h
+        headers[curr]=h
       end
     end
   end
 
   local filters={}
-  for i=1,_System.headers['properties'] and #_System.headers['properties'] or 0 do
-    local id,name = _System.headers['properties'][i]:match("(%d+)%s+([%a]+)")
+  for i=1,headers['properties'] and #headers['properties'] or 0 do
+    local id,name = headers['properties'][i]:match("(%d+)%s+([%a]+)")
     if id and id ~="" and name and name~="" then filters['property'..id..name]=true end
   end
-  for i=1,_System.headers['globals'] and #_System.headers['globals'] or 0 do
-    local name = _System.headers['globals'][i]:match("([%w]+)")
+  for i=1,headers['globals'] and #headers['globals'] or 0 do
+    local name = headers['globals'][i]:match("([%w]+)")
     if name and name ~="" then filters['global'..name]=true end
   end
-  for i=1,_System.headers['events'] and #_System.headers['events'] or 0 do
-    local id,t = _System.headers['events'][i]:match("(%d+)%s+(%a+)")
+  for i=1,headers['events'] and #headers['events'] or 0 do
+    local id,t = headers['events'][i]:match("(%d+)%s+(%a+)")
     if id and id~="" and t and t~="" then filters['event'..id..t]=true end
   end
-  filters['autostart']=true
-  filters['other']=true
-  _System._filters = filters
-  _System._getFilter = {
+  if headers['autostart'] then filters["autostart"]=true end
+  filters["other"]=true
+  local getFilter = {
     autostart=function(env) return '' end,
     other=function(env) return '' end,
     property=function(env) return (env.deviceID or -1)..(env.propertyName or 'value') end,
@@ -238,15 +265,26 @@ do
       local name,id = env.env.type or "%UNKNOW%","%UNKNOW%"
       if env.env.data == nil then return "%UNKNOW%" end
       if name=='CentralSceneEvent' then id=env.env.data.deviceId
-      elseif name=='CentralSceneEvent' then id=env.env.data.id end
+      elseif name=='AccessControlEvent' then id=env.env.data.id end
       return id..name
     end}
-  function _System.filterEvent(ev)
-    if not _System._getFilter[ev.type] then return false end
-    local p = _System._getFilter[ev.type](ev)
-    p = _System._filters[ev.type..p]
-    return p
-  end
+  return headers,filters,getFilter
+end
+
+if not _SCENERUNNER then -- build scene context for EventRunner scene
+  local short_src = _sceneFile or debug.getinfo(3).short_src
+  short_src=short_src:match("[\\/]?([%.%w_%-]+)$")
+  local headers,filters,getFilter = _System.parseHeaders(short_src)
+  _System.headers = headers
+  _System._filters = filters
+  _System._getFilter = getFilter
+end
+
+function _System.filterEvent(ev)
+  if not _System._getFilter[ev.type] then return false end
+  local p = _System._getFilter[ev.type](ev)
+  p = _System._filters[ev.type..p]
+  return p
 end
 
 ------------------ Net functions ------------------------
@@ -265,12 +303,14 @@ function _HTTP:request(url,options)
     req.headers["Content-Length"] = #req.data
     req.source = ltn12.source.string(req.data)
   end
-  local response, status, headers
+  local response, status, headers, timeout
+  http.TIMEOUT,timeout=req.timeout and math.floor(req.timeout/1000) or http.TIMEOUT, http.TIMEOUT
   if url:lower():match("^https") then
     response, status, headers = https.request(req)
   else 
     response, status, headers = http.request(req)
   end
+  http.TIMEOUT = timeout
   if response == 1 then 
     options.success({status=status, headers=headers, data=table.concat(resp)})
   else
@@ -389,8 +429,8 @@ function _System.setTime(start,stop)
   _gOrgTime = _gTime
   _eTime=_gTime+stop*3600
   _ANNOUNCEDTIME = true
-  Debug(true,"Starting:%s, Ending:%s %s",osDate("%x %X",osTime()),osDate("%x %X",osETime()),_SPEEDTIME and "(speeding)" or "")
-  Log(LOG.SYSTEM,"Starting time:%s, Ending time:%s",osOrgDate("%x %X",_gTime),osOrgDate("%x %X",_eTime))
+  Log(LOG.SYSTEM,"setTime, Starting:%s, Ending:%s %s",osDate("%x %X",osTime()),osDate("%x %X",osETime()),_SPEEDTIME and "(speeding)" or "")
+  -- Log(LOG.SYSTEM,"Starting time:%s, Ending time:%s",osOrgDate("%x %X",_gTime),osOrgDate("%x %X",_eTime))
 end
 
 function _System.runTimers()
@@ -435,14 +475,129 @@ function _System.checkMaxTime()
   setTimeout(_System.checkMaxTime,1000*3600,"Check")
 end
 
+------------------- Sunset/Sunrise ---------------
+-- \fibaro\usr\share\lua\5.2\common\lustrous.lua ﻿based on the United States Naval Observatory
+
+_Sunturn={}
+function _Sunturn.sunturnTime(date, rising, latitude, longitude, zenith, local_offset)
+  local rad,deg,floor = math.rad,math.deg,math.floor
+  local frac = function(n) return n - floor(n) end
+  local cos = function(d) return math.cos(rad(d)) end
+  local acos = function(d) return deg(math.acos(d)) end
+  local sin = function(d) return math.sin(rad(d)) end
+  local asin = function(d) return deg(math.asin(d)) end
+  local tan = function(d) return math.tan(rad(d)) end
+  local atan = function(d) return deg(math.atan(d)) end
+
+  local function day_of_year(date)
+    local n1 = floor(275 * date.month / 9)
+    local n2 = floor((date.month + 9) / 12)
+    local n3 = (1 + floor((date.year - 4 * floor(date.year / 4) + 2) / 3))
+    return n1 - (n2 * n3) + date.day - 30
+  end
+
+  local function fit_into_range(val, min, max)
+    local range,count = max - min
+    if val < min then count = floor((min - val) / range) + 1; return val + count * range
+    elseif val >= max then count = floor((val - max) / range) + 1; return val - count * range
+    else return val end
+  end
+
+  -- Convert the longitude to hour value and calculate an approximate time
+  local n,lng_hour,t =  day_of_year(date), longitude / 15, nil
+  if rising then t = n + ((6 - lng_hour) / 24) -- Rising time is desired
+  else t = n + ((18 - lng_hour) / 24) end -- Setting time is desired
+  -- Calculate the Sun^s mean anomaly
+  local M = (0.9856 * t) - 3.289
+  -- Calculate the Sun^s true longitude
+  local L = fit_into_range(M + (1.916 * sin(M)) + (0.020 * sin(2 * M)) + 282.634, 0, 360)
+  -- Calculate the Sun^s right ascension
+  local RA = fit_into_range(atan(0.91764 * tan(L)), 0, 360)
+  -- Right ascension value needs to be in the same quadrant as L
+  local Lquadrant = floor(L / 90) * 90
+  local RAquadrant = floor(RA / 90) * 90
+  RA = RA + Lquadrant - RAquadrant
+  -- Right ascension value needs to be converted into hours
+  RA = RA / 15
+  -- Calculate the Sun's declination
+  local sinDec = 0.39782 * sin(L)
+  local cosDec = cos(asin(sinDec))
+  -- Calculate the Sun^s local hour angle
+  local cosH = (cos(zenith) - (sinDec * sin(latitude))) / (cosDec * cos(latitude))
+  if rising and cosH > 1 then
+    return "N/R" -- The sun never rises on this location on the specified date
+  elseif cosH < -1 then
+    return "N/S" -- The sun never sets on this location on the specified date
+  end
+
+  -- Finish calculating H and convert into hours
+  local H
+  if rising then H = 360 - acos(cosH)
+  else H = acos(cosH) end
+  H = H / 15
+  -- Calculate local mean time of rising/setting
+  local T = H + RA - (0.06571 * t) - 6.622
+  -- Adjust back to UTC
+  local UT = fit_into_range(T - lng_hour, 0, 24)
+  -- Convert UT value to local time zone of latitude/longitude
+  local LT = UT + local_offset
+  return osTime({day = date.day,month = date.month,year = date.year,hour = floor(LT),min = math.modf(frac(LT) * 60)})
+end
+
+function _Sunturn.getTimezone()
+  local now = osTime()
+  return os.difftime(now, osTime(osDate("!*t", now)))
+end
+
+function _Sunturn.sunCalc(time)
+  local lat = fibaro.getValue and fibaro:getValue(2, "Latitude") or _LATITUDE
+  local lon = fibaro.getValue and fibaro:getValue(2, "Longitude") or _LONGITUDE
+  local utc = _Sunturn.getTimezone() / 3600
+  local zenith = 90.83 -- sunset/sunrise 90°50′
+  local zenith_twilight = 96.0 -- civil twilight 96°0′
+
+  local date = osDate("*t",time or osTime())
+  if date.isdst then utc = utc + 1 end
+  local rise_time = osDate("*t", _Sunturn.sunturnTime(date, true, lat, lon, zenith, utc))
+  local set_time = osDate("*t", _Sunturn.sunturnTime(date, false, lat, lon, zenith, utc))
+  local rise_time_t = osDate("*t", _Sunturn.sunturnTime(date, true, lat, lon, zenith_twilight, utc))
+  local set_time_t = osDate("*t", _Sunturn.sunturnTime(date, false, lat, lon, zenith_twilight, utc))
+  local sunrise = string.format("%.2d:%.2d", rise_time.hour, rise_time.min)
+  local sunset = string.format("%.2d:%.2d", set_time.hour, set_time.min)
+  local sunrise_t = string.format("%.2d:%.2d", rise_time_t.hour, rise_time_t.min)
+  local sunset_t = string.format("%.2d:%.2d", set_time_t.hour, set_time_t.min)
+  return sunrise, sunset, sunrise_t, sunset_t
+end
+
 ------------------------ Emulated fibaro calls ----------------------
 if not _REMOTE then
 -- Simple simulation of fibaro functions when offline...
 -- Good enough for simple debugging
   -- caching fibaro:setValue to return right value when calling fibaro:getValue
-  fibaro._fibaroCalls = {['1sunsetHour'] = {"18:00",osOrgTime()}, ['1sunriseHour'] = {"06:00",osOrgTime()}}
-  fibaro._globals = {}
 
+  local sunrise,sunset= _Sunturn.sunCalc()
+  fibaro._fibaroCalls = {
+    ['1sunsetHour'] = {0,0}, 
+    ['1sunriseHour'] = {0,0},
+    ['2Latitude'] = {_LATITUDE,osOrgTime()}, 
+    ['2Longitude'] = {_LONGITUDE,osOrgTime()},
+  }
+
+  local function updateSun(key)
+    local e,t = fibaro._fibaroCalls[key],osTime()
+    if osDate("%x",e[2]) ~= osDate("%x",t) then
+      local sunrise,sunset= _Sunturn.sunCalc()
+      --Log(LOG.LOG,"Updating SUN %s %s",sunrise,sunset)
+      fibaro._fibaroCalls['1sunsetHour']={sunset,t}
+      fibaro._fibaroCalls['1sunriseHour']={sunrise,t}
+    end
+  end
+
+  _specGetIdProp={}
+  _specGetIdProp['1sunsetHour'] = updateSun
+  _specGetIdProp['1sunriseHour'] = updateSun
+
+  fibaro._globals = {}
   function fibaro:countScenes() return _SCENECOUNT end
   function fibaro:abort()
     local c = coroutine.running()
@@ -467,6 +622,7 @@ if not _REMOTE then
 
   function _getIdProp(id,prop)
     local keyid = id..prop
+    if _specGetIdProp[keyid] then _specGetIdProp[keyid](keyid) end
     local v = fibaro._fibaroCalls[keyid] or {'0',osTime()}
     fibaro._fibaroCalls[keyid] = v
     return table.unpack(v)
@@ -476,6 +632,20 @@ if not _REMOTE then
   function fibaro:getValue(id,prop) return (_getIdProp(id,prop)) end
 
   function _getGlobal(name)
+    if fibaro._globals[name] == nil and not _System._globalsInited then
+      _System.readGlobalsFromFile()
+      if not _System._globalsInited then
+        _System._globalsInited = true
+        if _deviceTable and name == _deviceTable then
+          local f = io.open(_deviceTable..".data")
+          if f then 
+            fibaro._globals[name] = {f:read("*all"),osTime()}
+            Log(LOG.SYSTEM,"Read %s",_deviceTable..".data")
+            f:close()
+          end
+        end
+      end
+    end
     fibaro._globals[name] = fibaro._globals[name] or {nil,osTime()}
     return table.unpack(fibaro._globals[name])
   end
@@ -506,7 +676,9 @@ if not _REMOTE then
   function fibaro:getDevicesId(s) return fibaro._getDevicesId end
 
   function fibaro:startScene(id,args)
-    Event.post({type='%INTERNAL%', name='startScene', id=id, val=args, _sh=true})
+    if _SCENERUNNER then
+      Event.post({type='%INTERNAL%', name='startScene', id=id, val=args, _sh=true})
+    end
   end
   function fibaro:killScenes(id) end
 
@@ -548,38 +720,42 @@ if _GUI then
     return a < b
   end
 
-  local function buildChoices()
+  function _buildUIChoices(headers)
     local choices = {}
-    for i=1,_System.headers['properties'] and #_System.headers['properties'] or 0 do
-      local id = _System.headers['properties'][i]:match("(%d+)%s+value")
+    for i=1,headers['properties'] and #headers['properties'] or 0 do
+      local id = headers['properties'][i]:match("(%d+)%s+value")
       if id and id ~="" then 
-        choices[#choices+1] = _format("{type:'property',deviceID:%s,value:'1'}",id)
+        choices[_format("{type:'property',deviceID:%s,value:'1'}",id)] = true
       end
     end
-    for i=1,_System.headers['globals'] and #_System.headers['globals'] or 0 do
-      local name = _System.headers['globals'][i]:match("(%w+)")
+    for i=1,headers['globals'] and #headers['globals'] or 0 do
+      local name = headers['globals'][i]:match("(%w+)")
       if name and name ~="" then 
-        choices[#choices+1] = _format("{type:'global',name:'%s',value:''}",name)
+        choices[_format("{type:'global',name:'%s',value:''}",name)] = true
       end
     end
-    for i=1,_System.headers['events'] and #_System.headers['events'] or 0 do
-      local id,t = _System.headers['events'][i]:match("(%d+)%s+(%a+)")
+    for i=1,headers['events'] and #headers['events'] or 0 do
+      local id,t = headers['events'][i]:match("(%d+)%s+(%a+)")
       if t and t=='sceneActivation' then
-        choices[#choices+1]=_format("{type:'property',deviceID=%s,propertyName:'sceneActivation'}",id)
+        choices[_format("{type:'property',deviceID=%s,propertyName:'sceneActivation'}",id)] = true
       elseif t and t=='CentralSceneEvent' then
-        choices[#choices+1]=_format("{type:'event',event:{type:'CentralSceneEvent',data:{deviceId:%s,keyId:'1',keyAttribute:'Pressed'}}}",id)
+        choices[_format("{type:'event',event:{type:'CentralSceneEvent',data:{deviceId:%s,keyId:'1',keyAttribute:'Pressed'}}}",id)] = true
       elseif t and t=='AccessControlEvent' then
-        choices[#choices+1]=_format("{type:'event',event:{type:'AccessControlEvent',data:{id:%s,name:'Smith',slotId:'99',status:'Lock'}}}",id)
+        choices[_format("{type:'event',event:{type:'AccessControlEvent',data:{id:%s,name:'Smith',slotId:'99',status:'Lock'}}}",id)] = true
       end
     end
-    choices[#choices+1]="{type:'autostart'}"
-    choices[#choices+1]="{type:'other'}"
-    json.decode("{type:'autostart'}")
-    table.sort(choices,_sortE)
-    return choices
+    choices["{type:'autostart'}"] = true
+    choices["{type:'other'}"] = true
+    local res = {}; for k,_ in pairs(choices) do res[#res+1]=k end
+    table.sort(res,_sortE)
+    return res
   end
 
-  require("wx")
+  require("mobdebug").off()
+  print("Loading WX library, please wait (+5s)")
+  require("wx") -- Sometimes this takes a long time , don't know why....
+  print("WX library loaded")
+  require("mobdebug").on()
   UI = {}
   UI.MyFrame2 = wx.wxFrame (wx.NULL, wx.wxID_ANY, "EventRunner", wx.wxDefaultPosition, wx.wxSize( 459,453 ), wx.wxCAPTION + wx.wxCLOSE_BOX + wx.wxMAXIMIZE_BOX + wx.wxMINIMIZE_BOX + wx.wxRESIZE_BORDER+wx.wxTAB_TRAVERSAL +wx.wxSTAY_ON_TOP )
   UI.MyFrame2:SetSizeHints( wx.wxDefaultSize, wx.wxDefaultSize )
@@ -629,7 +805,8 @@ if _GUI then
 
   UI.bSizer3:Add( UI.bSizer5, 1, wx.wxEXPAND, 5 )
 
-  local choices=buildChoices()
+  --local choices=buildChoices(_System.headers)
+  local choices = {}
 
   UI.m_listBox1Choices = choices
   UI.m_listBox1 = wx.wxListBox( UI.MyFrame2, wx.wxID_ANY, wx.wxDefaultPosition, wx.wxDefaultSize, UI.m_listBox1Choices, 0 )
@@ -667,6 +844,7 @@ if _GUI then
       wx.wxGetApp():ExitMainLoop()
       --fibaro:abort()
       event:Skip()
+      os.exit()
     end )
 
   UI.m_textCtrlStart:Connect( wx.wxEVT_COMMAND_TEXT_ENTER, function(event)
@@ -755,6 +933,13 @@ if _GUI then
       event:Skip()
     end )
 
+  function _setUIEventItems(items)
+    choices=items
+    UI.m_listBox1:Clear()
+    table.sort(choices,_sortE)
+    UI.m_listBox1:InsertItems(choices,0)
+  end
+
   UI.m_textCtrl1:Connect( wx.wxEVT_CHAR, function(event)
       --implements charEnter
       local c = event:GetKeyCode()
@@ -797,155 +982,28 @@ if _GUI then
 
   UI.MyFrame2:Connect(wx.wxEVT_TIMER, _System.runTimers) 
 
-  UI.MyFrame2:Restore(); -- restore the window if minimized
-  UI.MyFrame2:Iconize(false); -- show the window
-  UI.MyFrame2:SetFocus(); -- show the window
+  -- UI.MyFrame2:Restore(); -- restore the window if minimized
+  -- UI.MyFrame2:Iconize(false); -- show the window
+  -- UI.MyFrame2:SetFocus(); -- show the window
   UI.MyFrame2:Raise();  -- bring window to front
   UI.MyFrame2:Show(true);  -- bring window to front
 
-  function _System.exitMain() gstimer:Stop() wx.wxGetApp():ExitMainLoop() end
-end
-
-------------------- Sunset/Sunrise ---------------
--- \fibaro\usr\share\lua\5.2\common\lustrous.lua ﻿based on the United States Naval Observatory
-function sunturn_time(date, rising, latitude, longitude, zenith, local_offset)
-  local rad,deg,floor = math.rad,math.deg,math.floor
-  local frac = function(n) return n - floor(n) end
-  local cos = function(d) return math.cos(rad(d)) end
-  local acos = function(d) return deg(math.acos(d)) end
-  local sin = function(d) return math.sin(rad(d)) end
-  local asin = function(d) return deg(math.asin(d)) end
-  local tan = function(d) return math.tan(rad(d)) end
-  local atan = function(d) return deg(math.atan(d)) end
-
-  local function day_of_year(date)
-    local n1 = floor(275 * date.month / 9)
-    local n2 = floor((date.month + 9) / 12)
-    local n3 = (1 + floor((date.year - 4 * floor(date.year / 4) + 2) / 3))
-    return n1 - (n2 * n3) + date.day - 30
+  function _System.exitMain() 
+    gstimer:Stop() wx.wxGetApp():ExitMainLoop()
   end
 
-  local function fit_into_range(val, min, max)
-    local range = max - min
-    local count
-    if val < min then
-      count = floor((min - val) / range) + 1
-      return val + count * range
-    elseif val >= max then
-      count = floor((val - max) / range) + 1
-      return val - count * range
-    else
-      return val
-    end
+  if not _SCENERUNNER then -- SceneRunner sets up its own headers...
+    local choices=_buildUIChoices(_System.headers)
+    _setUIEventItems(choices)
   end
-
-  local n = day_of_year(date)
-
-  -- Convert the longitude to hour value and calculate an approximate time
-  local lng_hour = longitude / 15
-
-  local t
-  if rising then -- Rising time is desired
-    t = n + ((6 - lng_hour) / 24)
-  else -- Setting time is desired
-    t = n + ((18 - lng_hour) / 24)
-  end
-
-  -- Calculate the Sun^s mean anomaly
-  local M = (0.9856 * t) - 3.289
-
-  -- Calculate the Sun^s true longitude
-  local L = fit_into_range(M + (1.916 * sin(M)) + (0.020 * sin(2 * M)) + 282.634, 0, 360)
-
-  -- Calculate the Sun^s right ascension
-  local RA = fit_into_range(atan(0.91764 * tan(L)), 0, 360)
-
-  -- Right ascension value needs to be in the same quadrant as L
-  local Lquadrant = floor(L / 90) * 90
-  local RAquadrant = floor(RA / 90) * 90
-  RA = RA + Lquadrant - RAquadrant
-
-  -- Right ascension value needs to be converted into hours
-  RA = RA / 15
-
-  -- Calculate the Sun^s declination
-  local sinDec = 0.39782 * sin(L)
-  local cosDec = cos(asin(sinDec))
-
-  -- Calculate the Sun^s local hour angle
-  local cosH = (cos(zenith) - (sinDec * sin(latitude))) / (cosDec * cos(latitude))
-
-  if rising and cosH > 1 then
-    return "N/R" -- The sun never rises on this location on the specified date
-  elseif cosH < -1 then
-    return "N/S" -- The sun never sets on this location on the specified date
-  end
-
-  -- Finish calculating H and convert into hours
-  local H
-  if rising then
-    H = 360 - acos(cosH)
-  else
-    H = acos(cosH)
-  end
-  H = H / 15
-
-  -- Calculate local mean time of rising/setting
-  local T = H + RA - (0.06571 * t) - 6.622
-
-  -- Adjust back to UTC
-  local UT = fit_into_range(T - lng_hour, 0, 24)
-
-  -- Convert UT value to local time zone of latitude/longitude
-  local LT = UT + local_offset
-
-  return osTime(
-    {
-      day = date.day,
-      month = date.month,
-      year = date.year,
-      hour = floor(LT),
-      min = math.modf(frac(LT) * 60)
-    }
-  )
-end
-
-local function get_timezone()
-  local now = osTime()
-  return os.difftime(now, osTime(osDate("!*t", now)))
-end
-
-function sunCalc()
-  local lat = fibaro:getValue(2, "Latitude") or _LATITUDE
-  local lon = fibaro:getValue(2, "Longitude") or _LONGITUDE
-  local utc = get_timezone() / 3600
-
-  local zenith = 90.83 -- sunset/sunrise 90°50′
-  local zenith_twilight = 96.0 -- civil twilight 96°0′
-
-  local date = osDate("*t")
-  if date.isdst then
-    utc = utc + 1
-  end
-
-  local rise_time = osDate("*t", sunturn_time(date, true, lat, lon, zenith, utc))
-  local set_time = osDate("*t", sunturn_time(date, false, lat, lon, zenith, utc))
-
-  local rise_time_t = osDate("*t", sunturn_time(date, true, lat, lon, zenith_twilight, utc))
-  local set_time_t = osDate("*t", sunturn_time(date, false, lat, lon, zenith_twilight, utc))
-
-  local sunrise = string.format("%.2d:%.2d", rise_time.hour, rise_time.min)
-  local sunset = string.format("%.2d:%.2d", set_time.hour, set_time.min)
-
-  local sunrise_t = string.format("%.2d:%.2d", rise_time_t.hour, rise_time_t.min)
-  local sunset_t = string.format("%.2d:%.2d", set_time_t.hour, set_time_t.min)
-
-  return sunrise, sunset, sunrise_t, sunset_t
 end
 
 ------------------------------------------------------
 
 function _System.runOffline(setup)
+  if _PORTLISTENER then
+    setTimeout(_System.startServer(_PORT),100)
+  end
   if _SPEEDTIME then
     setTimeout(_System.checkMaxTime,1000*3600,"Check")
   end
@@ -972,9 +1030,10 @@ function _System.startServer(port)
   mySocket:setpeername(someRandomIP,someRandomPort) 
   local myDevicesIpAddress, somePortChosenByTheOS = mySocket:getsockname()-- returns IP and Port 
   local host = myDevicesIpAddress
-  Log(LOG.SYSTEM,"Remote Event listener started at %s:%s",host,port)
+  Log(LOG.LOG,"Remote Event listener started at %s:%s",host,port)
   local s,c,err = assert(socket.bind("*", port))
   local i, p = s:getsockname()
+  local timeoutCounter = 0
   assert(i, p)
   return function()
     local co = coroutine.running()
@@ -982,20 +1041,27 @@ function _System.startServer(port)
       s:settimeout(0)
       repeat
         c, err = s:accept()
-        if err == 'timeout' then coroutine.yield(co,_POLLINTERVAL/1000) end
+        if err == 'timeout' then
+          timeoutCounter = timeoutCounter+1
+          local wt = _POLLINTERVAL
+          if timeoutCounter > 5*60 then wt=wt*100 end
+          coroutine.yield(co,wt/1000) 
+        end
       until err ~= 'timeout'
+      timeoutCounter = 0
       c:settimeout(0)
       repeat
         local l, e, j = c:receive()
         if l and l:sub(1,3)=='GET' then
           j=l:match("GET[%s%c]*/(.*)HTTP/1%.1$")
           j = urldecode(j)
+          if _debugFlags.eventserver then Debug(true,"HC2:%s",j) end
           j=json.decode(j) j._sh=true
           Event.post(j)
         elseif j and j~="" then
           --c:close()
           j = urldecode(j)
-          if _debugFlags.node_red then Debug(true,"Node_red:%s",j) end
+          if _debugFlags.eventserver then Debug(true,"Node_red:%s",j) end
           j=json.decode(j) j._sh=true
           Event.post(j)
         end
@@ -1003,10 +1069,6 @@ function _System.startServer(port)
       until (j and j~="") or e == 'closed'
     end
   end
-end
-
-if _PORTLISTENER then
-  setTimeout(_System.startServer(_PORT),100)
 end
 
 ------------------ Test ---------------------

@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.8"  -- fix1,Jan 6, 2019 
+_version = "1.9"  -- Jan 8, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -20,15 +20,19 @@ _version = "1.8"  -- fix1,Jan 6, 2019
 -- Email: jan@gabrielsson.com
 --]]
 
-_sceneName   = "Demo"      -- Set to scene/script name
-_deviceTable ="devicemap"
-ruleLogLength = 80
-_debugFlags = { post=true,invoke=false,node_red=true,triggers=false,dailys=false,timers=false,rule=false,ruleTrue=false,fibaro=true,fibaroGet=false,fibaroSet=false,sysTimers=false }
-_GUI = false
-_SPEEDTIME = false --24*36
-HueIP = "192.168.1.153" -- set to Hue bridge
-HueUserName=nil         -- set to Hue user name
-NodeRed="http://192.168.1.50:1880/eventrunner"  -- true, will start listener from node-red server(s)
+_sceneName     = "Demo"      -- Set to scene/script name
+_deviceTable   = "devicemap" -- Name of your HomeTable variable
+_ruleLogLength = 80          -- Log message cut-off, defaults to 40
+_HueIP = "192.168.1.153"     -- Set to Hue bridge IP. If set to nil will not start Hue system.
+_HueUserName=nil             -- Set to Hue user name. 
+_GUI = false                 -- Offline only, Open WX GUI for event triggers, Requires Lua 5.1 in ZBS
+_SPEEDTIME = 24*36           -- Offline only, Speed through X hours, set to false will run in real-time
+_EVENTSERVER=true            -- Starts port on 6872 listening for incoming events (Node-red, HC2 etc)
+
+_myNodeRed = "http://192.168.1.50:1880/eventrunner"  -- Ex. used for Event.postRemote(_myNodeRed,{type='test})
+
+-- debug flags for various subsystems...
+_debugFlags = { post=true,invoke=false,eventserver=true,triggers=false,dailys=false,timers=false,rule=false,ruleTrue=false,fibaro=true,fibaroGet=false,fibaroSet=false,sysTimers=false }
 
 -- If running offline we need our own setTimeout and net.HTTPClient() and other fibaro funs...
 if dofile then dofile("EventRunnerDebug.lua") require('mobdebug').coro() end
@@ -36,14 +40,17 @@ if dofile then dofile("EventRunnerDebug.lua") require('mobdebug').coro() end
 ---------------- Here you place rules and user code, called once --------------------
 function main()
   local rule = Rule.eval
-  --_System.copyGlobalsFromHC2() -- copy globals from HC2 to ZBS
-  --_System.writeGlobalsToFile() -- write globals from ZBS to file 'globals.data'
-  _System.readGlobalsFromFile()  -- read in globals from filr 'globals.data'
-  --local devs = json.decode(fibaro:getGlobalValue(_deviceTable))
-  --Util.defvars(devs)
-  --Util.reverseMapDef(devs)
-
-  dofile("example_rules.lua") -- some example rules to try out...
+  --_System.copyGlobalsFromHC2()   -- copy globals from HC2 to ZBS
+  --_System.writeGlobalsToFile()   -- write globals from ZBS to file, default 'globals.data'
+  --_System.readGlobalsFromFile()  -- read in globals from file, default 'globals.data'
+  
+  --local devs = json.decode(fibaro:getGlobalValue(_deviceTable)) -- Read in "HomeTable" global
+  --Util.defvars(devs)                                            -- Make HomeTable defs available in EventScript
+  --Util.reverseMapDef(devs)                                      -- Make HomeTable names available for logger
+  rule("@23:59:59 => log('1Sunrise:%s',osdate('%X',midnight+sunrise))")
+  rule("@00:00 => log('2Sunrise:%s',osdate('%X',midnight+sunrise))")
+  rule("@00:00:01 => log('3Sunrise:%s',osdate('%X',midnight+sunrise))")
+  --dofile("example_rules.lua")      -- some example rules to try out...
 end -- main()
 
 ------------------- EventModel - Don't change! --------------------  
@@ -260,12 +267,14 @@ function newEventEngine()
     return nil 
   end
 
-  local function post2NodeRed(url,payload, e)
+  local function httpPostEvent(url,payload, e)
     local HTTP = net.HTTPClient()
     payload=json.encode({args={payload}})
-    HTTP:request(url,{options = {headers = {['Accept']='application/json',['Content-Type']='application/json'},data = payload,method = 'POST'},
-        error = function(status) self.post({type='%node-red%',status='fail', oe=e, _sh=true}) end,
-        success = function(status) self.post({type='%node-red%',status='success', oe=e, _sh=true}) end,
+    HTTP:request(url,{options = {
+          headers = {['Accept']='application/json',['Content-Type']='application/json'},
+          data = payload, timeout=2000, method = 'POST'},
+        error = function(status) self.post({type='%postEvent%',status='fail', oe=e, _sh=true}) end,
+        success = function(status) self.post({type='%postEvent%',status='success', oe=e, _sh=true}) end,
       })
   end
 
@@ -274,7 +283,7 @@ function newEventEngine()
     e._from = _OFFLINE and -1 or __fibaroSceneId
     local payload = urlencode(json.encode(e))
     if type(sceneIDorURL)=='string' and sceneIDorURL:sub(1,4)=='http' then
-      post2NodeRed(sceneIDorURL, payload, e)
+      httpPostEvent(sceneIDorURL, payload, e)
     else fibaro:startScene(sceneIDorURL,{payload}) end
   end
 
@@ -444,7 +453,8 @@ function newEventEngine()
     local fun,fstr = fibaro[name],name:match("^get") and "fibaro:%s(%s%s%s) = %s" or "fibaro:%s(%s%s%s)"
     fibaro._orgf[name]=fun
     if spec then 
-      fibaro[name] = function(obj,...) if _debugFlags[flag] then return spec(obj,fibaro._orgf[name],...) else return fibaro._orgf[name](obj,...) end end 
+      fibaro[name] = function(obj,...) 
+        if _debugFlags[flag] then return spec(obj,fibaro._orgf[name],...) else return fibaro._orgf[name](obj,...) end end 
     else 
       fibaro[name] = function(obj,id,...)
         local id2,args = type(id) == 'number' and Util.reverseVar(id) or '"'..(id or "<ID>")..'"',{...}
@@ -468,8 +478,8 @@ function newEventEngine()
   interceptFib("killScenes","fibaro")
   interceptFib("startScene","fibaro",
     function(obj,fun,id,args) 
-      local a = args and #args==1 and type(args[1])=='string' and (json.encode({(urldecode(args[1]))})) or ""
-      Debug(true,"fibaro:start(%s,%s)",id,a)
+      local a = args and #args==1 and type(args[1])=='string' and (json.encode({(urldecode(args[1]))})) or args and json.encode(args)
+      Debug(true,"fibaro:start(%s%s)",id,a and ","..a or "")
       fun(obj,id, args) 
     end)
 
@@ -854,6 +864,7 @@ function newScriptEngine()
   instr['schedule'] = function(s,n,e,i) local t,code = s.pop(),e.code; s.push(true) end
   instr['ostime'] = function(s,n) s.push(osTime()) end
   instr['frm'] = function(s,n) s.push(string.format(table.unpack(s.lift(n)))) end
+  instr['idname'] = function(s,n) s.push(Util.reverseVar(s.pop())) end 
   instr['label'] = function(s,n,e,i) local nm,id = s.pop(),s.pop() s.push(fibaro:get(ID(id,i),_format("ui.%s.value",nm))) end
   instr['slider'] = instr['label']
   instr['once'] = function(s,n,e,i) local f; i[4],f = s.pop(),i[4]; s.push(not f and i[4]) end
@@ -1377,7 +1388,7 @@ function newRuleCompiler()
   end
 
   local CATCHUP = math.huge
-  local RULEFORMAT = "Rule:%s:%."..(ruleLogLength or 40).."s"
+  local RULEFORMAT = "Rule:%s:%."..(_ruleLogLength or 40).."s"
 
   -- #property{deviceID={6,7} & 6:isOn => .. generates 2 triggers for 6????
   function _remapEvents(obj)
@@ -1558,7 +1569,7 @@ Util.defvar("defvars",Util.defvars)
 Util.defvar("mapvars",Util.reverseMapDef)
 
 ---------------------- Hue support, can be removed if not needed -------------------------
-function mainAux()
+function mainAux(cont)
   function newHue(ip,username)
     local self,lights,groups,scenes,sensors,devMap,hueNames = {},{},{},{},{},{},{}
     local baseURL="http://"..ip..":80/api/"..username.."/"
@@ -1572,8 +1583,8 @@ function mainAux()
       op,payload = op or "GET", payload and json.encode(payload) or ""
       Debug(_debugFlags.hue,"Hue req:%s Payload:%s",url,payload)
       HTTP:request(url,{
-          options = {headers={['Accept']='application/json',['Content-Type']='application/json'},data = payload, method = op},
-          error = function(status) error(tojson(status)) end,
+          options = {headers={['Accept']='application/json',['Content-Type']='application/json'},data = payload, timeout=2000, method = op},
+          error = function(status) error("Hue connection:"..tojson(status)) end,
           success = function(status) if cont then cont(json.decode(status.data)) end end
         })
     end
@@ -1614,7 +1625,7 @@ function mainAux()
       devices[d.name],devices[tonumber(id)]=dd,dd
       _setState(dd,d[state])
     end
-    local function nextMain() Log(LOG.SYSTEM,"Hue system inited (experimental)") main() end
+    local function nextMain() Log(LOG.LOG,"Hue system inited (experimental)") cont() end
     function match(t1,t2) if #t1~=#t2 then return false end; for i=1,#t1 do if t1[i]~=t2[i] then return false end end return true end
     function self.getFullState(f)
       request(baseURL,function(data)
@@ -1625,7 +1636,7 @@ function mainAux()
             scenes[d.name] = id; table.sort(d.lights)
             for _,g in pairs(groups) do if match(g.lights,d.lights) then g.scenes[d.name]=id end end
           end end
-          if f then setTimeout(f,0) end
+          if f then f() end
         end)
     end
     local _defFilter={buttonevent=true, on=true}
@@ -1695,8 +1706,8 @@ function mainAux()
     --fibaro:sleep(1000)
     return self
   end
-  if HueIP and HueUserName then
-    Hue=newHue(HueIP,HueUserName)
+  if _HueIP and _HueUserName then
+    Hue=newHue(_HueIP,_HueUserName)
 
     local function mapFib(f,fun)
       local fm = fibaro._orgf or fibaro
@@ -1723,7 +1734,7 @@ function mainAux()
       end)
     mapFib('getValue',function(obj,id,...) return (fibaro.get(obj,id,...)) end)
   else 
-    main() end
+    cont() end
   end
 ---------------------- Startup -----------------------------    
   if _type == 'autostart' or _type == 'other' then
@@ -1736,15 +1747,17 @@ function mainAux()
       end
     end 
 
-    if _GUI and _OFFLINE then Debug(true,"GUI enabled") end
-    if _OFFLINE and not _ANNOUNCEDTIME then Debug(true,"Starting:%s, Ending:%s %s",osDate("%x %X",osTime()),osDate("%x %X",osETime()),_SPEEDTIME and "(speeding)" or "") end
+    if _GUI and _OFFLINE then Log(LOG.LOG,"GUI enabled") end
+    Log(LOG.LOG,"Sunrise %s, Sunset %s",fibaro:getValue(1,'sunriseHour'),fibaro:getValue(1,'sunsetHour'))
+    if _OFFLINE and not _ANNOUNCEDTIME then 
+      Log(LOG.LOG,"Starting:%s, Ending:%s %s",osDate("%x %X",osTime()),osDate("%x %X",osETime()),_SPEEDTIME and "(speeding)" or "") 
+    end
 
     GC = 0
     function setUp()
       if _OFFLINE and _GLOBALS then Util.defineGlobals(_GLOBALS) end
-
-      Log(LOG.SYSTEM,"Loading rules")
-      local status, res = pcall(function() return mainAux and (mainAux() or true) or main() end)
+      Log(LOG.SYSTEM,"") Log(LOG.SYSTEM,"Loading rules")
+      local status, res = pcall(function() return main() end)
       if not status then 
         Log(LOG.ERROR,"Error loading rules:%s",type(res)=='table' and table.concat(res,' ') or res) fibaro:abort() 
       end
@@ -1752,16 +1765,17 @@ function mainAux()
       _trigger._sh = true
       Event.post(_trigger)
 
-      Log(LOG.SYSTEM,"Scene running")
-      Log(LOG.SYSTEM,"Sunrise %s, Sunset %s",fibaro:getValue(1,'sunriseHour'),fibaro:getValue(1,'sunsetHour'))
+      Log(LOG.SYSTEM,"") Log(LOG.SYSTEM,"Scene running")
       collectgarbage("collect") GC=collectgarbage("count")
     end
+
+    local function chainStartup()if mainAux then return mainAux(setUp) else return setUp() end end
 
     if not _OFFLINE then 
       fibaro:setGlobal(_MAILBOX,"") 
       _poll()  -- start polling mailbox
-      setUp()
+      chainStartup()
     else 
-      _System.runOffline(setUp) 
+      _System.runOffline(chainStartup) 
     end
   end
