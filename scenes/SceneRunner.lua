@@ -7,7 +7,7 @@
 _GUI = true               -- Offline only, Open WX GUI for event triggers, Requires Lua 5.1 in ZBS
 _SPEEDTIME = 24*36        -- Offline only, Speed through X hours, set to false will run in real-time
 _EVENTSERVER=false        -- Starts port on 6872 listening for incoming events (Node-red, HC2 etc)
-REMOTE=false             -- Use Fibaro remote API
+_REMOTE=false             -- Use Fibaro remote API
 hc2_user = "xxx"          -- used for api.x/FibaroSceneAPI calls
 hc2_pwd  = "xxx" 
 hc2_ip   = "192.168.1.84" -- IP of HC2
@@ -27,25 +27,21 @@ scenes = {
 commands = {"wait(00:10);55:on;wait(00:00:40);55:off"}
 end
 
+--[[
+function _SETUP()
+	-- other setup needed, ex. _System.copyGlobalsFromHC2()
+end
+--]]
+
 -- debug flags for various subsystems...
 _debugFlags = { 
-  post=true,
-  invoke=false,
-  eventserver=true,
-  triggers=false,
-  dailys=false,
-  timers=false,
-  rule=false,
-  ruleTrue=false,
-  fibaro=true,
-  fibaroGet=false,
-  fibaroSet=false,
-  sysTimers=false, 
-  scene=true 
+  post=true,invoke=false,eventserver=true,triggers=false,dailys=false,timers=false,rule=false,
+  ruleTrue=false,fibaro=true,fibaroGet=false,fibaroSet=false,sysTimers=false, scene=true 
 }
 
 ------------- Don't touch -------------------------------
 function _ALTERNATIVEMAIN()
+  if _SETUP then _SETUP() end 
   local choices={}
   for _,scene in ipairs(scenes or {}) do
     local s = _System.loadScene(scene.name,scene.id,scene.file)
