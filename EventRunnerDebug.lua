@@ -22,7 +22,7 @@ counter
   Can use FibaroSceneAPI/Lualibs for HC2 remote invocation (_REMOTE=true)
   (See tutorial at https://forum.fibaro.com/index.php?/topic/24319-tutorial-zerobrane-usage-lua-coding/)
   ...or some simpler local emulation of Fibaro functions (_REMOTE=false) that logs to the console
-  _PORTLISTENER=true starts a listener on a socket for receieving sourcetriggers/events from HC2 scene
+  _EVENTSERVER=true starts a listener on a socket for receieving sourcetriggers/events from HC2 scene
   
 --]] 
 _version = _version or "1.10"
@@ -34,20 +34,20 @@ _SPEEDTIME     = _DEF(_SPEEDTIME,24*35)  -- nil or run faster than realtime for 
 _REMOTE        = _DEF(_REMOTE,false)     -- If true use FibaroSceneAPI to call functions on HC2, else emulate them locally...
 _GLOBALS_FILE  = _DEF(_GLOBALS_FILE,"globals.data")
 -- Server parameters
-_PORTLISTENER = _EVENTSERVER or _PORTLISTENER
+_EVENTSERVER  = _DEF(_EVENTSERVER,true)
 _POLLINTERVAL = 200 
 _PORT         = 6872
-_MEM          = false  -- log memory usage
-_HTMLFILTER   = true -- remove <span>...</span> in fibaro:debug output
-_COLOR        = false
+_MEM          = false  -- Log memory usage
+_HTMLFILTER   = true   -- Remove <span>...</span> in fibaro:debug output
+_COLOR        = true   -- Log messages in color on ZBS Output
 
-_LATITUDE = "59.316947"
-_LONGITUDE = "18.064006"
+_LATITUDE     = "59.316947"  -- Set HC2 place to make sunset/sunrise give correct values
+_LONGITUDE    = "18.064006"
 
 -- HC2 credentials and parameters
-hc2_user           = "xxx" -- used for api.x/FibaroSceneAPI calls
-hc2_pwd            = "xxx" 
-hc2_ip             = "192.168.1.84" -- IP of HC2
+hc2_user = hc2_user or nil                -- used for api.x/FibaroSceneAPI calls
+hc2_pwd  = hc2_pwd  or nil 
+hc2_ip   = hc2_ip   or "192.168.1.84"     -- IP of HC2
 local creds = loadfile("credentials.lua") -- To not accidently commit credentials to Github...
 if creds then creds() end
 _GLOBALS_FILE       = "globals.data"
@@ -96,14 +96,27 @@ ltn12 = require("ltn12")
 json = require("json")
 socket = require("socket")
 http = require("socket.http")
+
 fibaro = {}
 _System = _System  or {}
 Event = Event  or {}
 require('mobdebug').coro()
-if _REMOTE then
-  require ("FibaroSceneAPI") 
-end
 
+_System._msgs={}
+function _System._addMsg(...) _System._msgs[#_System._msgs+1]=string.format(...) end
+function _System._msgFlush() for _,m in ipairs(_System._msgs) do Log(LOG.LOG,m) end end
+
+if _REMOTE then
+  if hc2_user and  hc2_pwd  and hc2_ip then
+    _System._addMsg("Fibaro remote HC2 API enabled (%s)",hc2_ip)
+    require ("FibaroSceneAPI")
+  else 
+    _System._addMsg("Missing HC2 credentials")
+    _REMOTE = false
+  end
+end
+if not _REMOTE then _System._addMsg("Emulating local Fibaro API") end
+  
 _ENV = _ENV or _G or {}
 
 do -- metadata and globals per coroutine
@@ -322,7 +335,7 @@ function _System.filterEvent(ev)
   return p
 end
 
-local function _sortE(a,b)
+function _System._sortE(a,b)
   if a:match("^{type:'autostart") then a = '<'..a end
   if a:match("^{type:'other") then a = '>'..a end
   if b:match("^{type:'autostart") then b = '<'..b end
@@ -357,7 +370,7 @@ function _System.headers2Events(headers,auto)
   if headers['autostart'] then choices["{type:'autostart'}"] = true end
   choices["{type:'other'}"] = true
   local res = {}; for k,_ in pairs(choices) do res[#res+1]=k end
-  table.sort(res,_sortE)
+  table.sort(res,_System._sortE)
   return res
 end
 
@@ -379,6 +392,7 @@ function _System.loadScene(name,id,file)
   scene.code=loadfile(file)
   _assert(scene.code,"Error in scene file %s",file)
   Debug(_debugFlags.scene,"Loaded scene:%s, id:%s, file:'%s'",name,id,file)
+  return scene
 end
 
 function _System.dumpInstances()
@@ -389,7 +403,8 @@ end
 
 function _System.runScene(scene,env,args)
   local instance=scene.instances
-  Debug(_debugFlags.scene,"Running scene:%s, trigger:%s, instance:%s",scene.name,tojson(env.event),instance+1)
+  local event = 
+  Debug(_debugFlags.scene,"Starting scene:%s, trigger:%s, instance:%s",scene.name,tojson(env.event),instance+1)
   setTimeout(function()
       local c = coroutine.running()
       scene.instances = scene.instances+1
@@ -402,8 +417,7 @@ function _System.runScene(scene,env,args)
       -- _System.dumpInstances()
       if os.time ~= osTime then os.time,os.date=osTime,osDate end
       scene.code()
-      scene.instances = scene.instances-1
-    end,0)
+    end,0,scene.name,function() scene.instances = scene.instances-1 end)
 end
 ------------------ Net functions ------------------------
 net = {} -- An emulation of Fibaro's net.HTTPClient
@@ -1037,7 +1051,7 @@ if _GUI then
   function _setUIEventItems(items)
     choices=items
     UI.m_listBox1:Clear()
-    table.sort(choices,_sortE)
+    table.sort(choices,_System._sortE)
     UI.m_listBox1:InsertItems(choices,0)
   end
 
@@ -1051,7 +1065,7 @@ if _GUI then
         end
         UI.m_listBox1:Clear()
         choices[#choices+1]=str
-        table.sort(choices,_sortE)
+        table.sort(choices,_System._sortE)
         UI.m_listBox1:InsertItems(choices,0)
       elseif c == 8 then
         _removeSelection()
@@ -1102,6 +1116,7 @@ end
 ------------------------------------------------------
 
 function _System.runOffline(setup)
+  _System._msgFlush()
   if _PORTLISTENER then
     setTimeout(_System.startServer(_PORT),100)
   end
@@ -1111,7 +1126,7 @@ function _System.runOffline(setup)
   if _GUI then
     if setup then setup() end
     gstimer = wx.wxTimer(UI.MyFrame2)
-    if not _SPEEDTIME then
+    if not _SPEEDTIME or _SCENERUNNER then
       _gsSt=nil
       gstimer:Start(1,wx.wxTIMER_ONE_SHOT )
     end

@@ -12,28 +12,30 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.10"  -- fix2, Jan 13, 2019 
+_version = "1.10"  -- fix4, Jan 13, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
 -- Copyright 2018 Jan Gabrielsson. All Rights Reserved.
 -- Email: jan@gabrielsson.com
 --]]
+if not _SCENERUNNER then 
 
-_sceneName     = "Demo"      -- Set to scene/script name
-_deviceTable   = "devicemap" -- Name of your HomeTable variable
-_ruleLogLength = 80          -- Log message cut-off, defaults to 40
-_HueIP = "192.168.1.153"     -- Set to Hue bridge IP. If set to nil will not start Hue system.
-_HueUserName=nil             -- Set to Hue user name. 
-_GUI = false                 -- Offline only, Open WX GUI for event triggers, Requires Lua 5.1 in ZBS
-_SPEEDTIME = 24*36           -- Offline only, Speed through X hours, set to false will run in real-time
-_EVENTSERVER=true            -- Starts port on 6872 listening for incoming events (Node-red, HC2 etc)
+  _sceneName     = "Demo"      -- Set to scene/script name
+  _deviceTable   = "devicemap" -- Name of your HomeTable variable
+  _ruleLogLength = 80          -- Log message cut-off, defaults to 40
+  _HueIP = "192.168.1.153"     -- Set to Hue bridge IP. If set to nil will not start Hue system.
+  _HueUserName=nil             -- Set to Hue user name. 
+  _GUI = false                 -- Offline only, Open WX GUI for event triggers, Requires Lua 5.1 in ZBS
+  _SPEEDTIME = 24*36           -- Offline only, Speed through X hours, set to false will run in real-time
+  _EVENTSERVER=true            -- Starts port on 6872 listening for incoming events (Node-red, HC2 etc)
 
-_myNodeRed = "http://192.168.1.50:1880/eventrunner"  -- Ex. used for Event.postRemote(_myNodeRed,{type='test})
+  _myNodeRed = "http://192.168.1.50:1880/eventrunner"  -- Ex. used for Event.postRemote(_myNodeRed,{type='test})
 
 -- debug flags for various subsystems...
-_debugFlags = { post=true,invoke=false,eventserver=true,triggers=false,dailys=false,timers=false,rule=false,ruleTrue=false,fibaro=true,fibaroGet=false,fibaroSet=false,sysTimers=false, scene=true }
+  _debugFlags = { post=true,invoke=false,eventserver=true,triggers=false,dailys=false,timers=false,rule=false,ruleTrue=false,fibaro=true,fibaroGet=false,fibaroSet=false,sysTimers=false, scene=true }
 
+end
 -- If running offline we need our own setTimeout and net.HTTPClient() and other fibaro funs...
 if dofile then dofile("EventRunnerDebug.lua") require('mobdebug').coro() end
 
@@ -47,7 +49,6 @@ function main()
   --local devs = json.decode(fibaro:getGlobalValue(_deviceTable)) -- Read in "HomeTable" global
   --Util.defvars(devs)                                            -- Make HomeTable defs available in EventScript
   --Util.reverseMapDef(devs)                                      -- Make HomeTable names available for logger
-  
   --_System.loadScene("GEA",11,"GEA 6.11.lua")
 
   dofile("example_rules.lua")      -- some example rules to try out...

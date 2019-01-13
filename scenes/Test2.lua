@@ -1,11 +1,15 @@
 --[[
 %% properties
 55 value
-66 value
 --]]
 
 sensor = 55
 light = 66
+
+if fibaro:countScenes() > 1 then
+  fibaro:debug("Already started, exit")
+  fibaro:abort()
+end
 
 local trigger = fibaro:getSourceTrigger()
 
