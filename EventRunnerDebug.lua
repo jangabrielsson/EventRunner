@@ -25,8 +25,8 @@ counter
   _PORTLISTENER=true starts a listener on a socket for receieving sourcetriggers/events from HC2 scene
   
 --]] 
-_version = _version or "1.9"
-if _version ~= "1.9" then error("Bad version of EventRunnerDebug") end  
+_version = _version or "1.10"
+if _version ~= "1.10" then error("Bad version of EventRunnerDebug") end  
 function _DEF(v,d) if v==nil then return d else return v end end
 
 _GUI           = _DEF(_GUI,false)        -- Needs wxwidgets support (e.g. require "wx"). Works in ZeroBrane under Lua 5.1.
@@ -38,6 +38,7 @@ _PORTLISTENER = _EVENTSERVER or _PORTLISTENER
 _POLLINTERVAL = 200 
 _PORT         = 6872
 _MEM          = false  -- log memory usage
+_HTMLFILTER   = true -- remove <span>...</span> in fibaro:debug output
 
 _LATITUDE = "59.316947"
 _LONGITUDE = "18.064006"
@@ -50,7 +51,7 @@ local creds = loadfile("credentials.lua") -- To not accidently commit credential
 if creds then creds() end
 _GLOBALS_FILE       = "globals.data"
 
-__fibaroSceneId    = __fibaroSceneId or 32     -- Set to scene ID. On HC2 this variable is defined
+__fibaroSceneIdAux  = 32     -- Set to scene ID. On HC2 this variable is defined
 
 --[[
 ToDo Jan2019
@@ -104,9 +105,34 @@ end
 
 _ENV = _ENV or _G or {}
 
+do -- metadata and globals per coroutine
+  _ProcessMap = {}
+  local mt,__ENV = {},_ENV
+  setmetatable(_ProcessMap,mt)
+  mt.__mode = "k" -- weak keys (keys are coroutines)
+
+  setmetatable(_ENV, {
+      __index = function (t, k)  
+        local md = _ProcessMap[coroutine.running()]
+        if md and md.locals then 
+          return md.locals[k] 
+        elseif k=="__fibaroSceneId" then return __fibaroSceneIdAux
+        else return nil end
+      end,
+      __newindex = function (t,k,v)
+        local md = _ProcessMap[coroutine.running()]
+        if md and md.locals then 
+          md.locals[k] = v
+        else rawset(t, k, v) end
+      end})
+end
+
 _SCENECOUNT=1
 _SOURCETRIGGER={type = "autostart"}
-function fibaro:getSourceTrigger() return _SOURCETRIGGER end
+function fibaro:getSourceTrigger()
+  local md = _ProcessMap[coroutine.running()]
+  if md then local e = _copy(md.trigger); e._sh=nil return e else return _SOURCETRIGGER end
+end
 
 osDate,osTime = os.date,os.time
 osOrgDate,osOrgTime = os.date,os.time
@@ -126,7 +152,15 @@ end
 --]]
 _format = string.format
 function printf(...) print(_format(...)) end
-function fibaro:debug(str) print(_format("%s:%s",osDate("%X"),str)) end
+function fibaro:debug(str)
+  if _HTMLFILTER then
+    local str2 = str:match("^%b<>(.*)</span>")
+    str = str2 or str
+  end
+  local thread = _ProcessMap[coroutine.running()]
+  thread = thread and _format("(%s:%s)",thread.scene.name,thread.instance) or ""
+  print(_format("%s%s:%s",osDate("%X"),thread,str)) 
+end
 
 function _Msg(color,message,...)
   color = _LOGMAP[color] or ""
@@ -287,6 +321,89 @@ function _System.filterEvent(ev)
   return p
 end
 
+local function _sortE(a,b)
+  if a:match("^{type:'autostart") then a = '<'..a end
+  if a:match("^{type:'other") then a = '>'..a end
+  if b:match("^{type:'autostart") then b = '<'..b end
+  if b:match("^{type:'other") then b = '>'..b end
+  return a < b
+end
+
+function _System.headers2Events(headers,auto)
+  local choices = {}
+  for i=1,headers['properties'] and #headers['properties'] or 0 do
+    local id = headers['properties'][i]:match("(%d+)%s+value")
+    if id and id ~="" then 
+      choices[_format("{type:'property',deviceID:%s,value:'1'}",id)] = true
+    end
+  end
+  for i=1,headers['globals'] and #headers['globals'] or 0 do
+    local name = headers['globals'][i]:match("(%w+)")
+    if name and name ~="" then 
+      choices[_format("{type:'global',name:'%s',value:''}",name)] = true
+    end
+  end
+  for i=1,headers['events'] and #headers['events'] or 0 do
+    local id,t = headers['events'][i]:match("(%d+)%s+(%a+)")
+    if t and t=='sceneActivation' then
+      choices[_format("{type:'property',deviceID:%s,propertyName:'sceneActivation'}",id)] = true
+    elseif t and t=='CentralSceneEvent' then
+      choices[_format("{type:'event',event:{type:'CentralSceneEvent',data:{deviceId:%s,keyId:'1',keyAttribute:'Pressed'}}}",id)] = true
+    elseif t and t=='AccessControlEvent' then
+      choices[_format("{type:'event',event:{type:'AccessControlEvent',data:{id:%s,name:'Smith',slotId:'99',status:'Lock'}}}",id)] = true
+    end
+  end
+  if headers['autostart'] then choices["{type:'autostart'}"] = true end
+  choices["{type:'other'}"] = true
+  local res = {}; for k,_ in pairs(choices) do res[#res+1]=k end
+  table.sort(res,_sortE)
+  return res
+end
+
+_System.scenes = {}
+function _System.loadScene(name,id,file)
+  _System.scenes[name] = _System.scenes[name] or {}
+  local scene = _System.scenes[name]
+  scene.name,scene.id,scene.instances = name,id,0
+  scene.headers,scene.filters,scene.getFilter = _System.parseHeaders(file)
+  local triggers = _System.headers2Events(scene.headers)
+  for _,t in ipairs(triggers) do
+    local e = json.decode(t)
+    if e.type=='property' then e.value=nil
+    elseif e.type=='global' then e.value=nil
+    elseif e.type=='event' and e.event.type=='CentralSceneEvent' then local d = e.event.data; d.keyId,d.keyAttribute=nil,nil 
+    elseif e.type=='event' and e.event.type=='AccessControlEvent' then local d = e.event.data; d.name,d.slotId,d.status=nil,nil,nil end
+    Event.event(e,function(env) _System.runScene(scene,env) end)
+  end
+  scene.code=loadfile(file)
+  _assert(scene.code,"Error in scene file %s",file)
+  Debug(_debugFlags.scene,"Loaded scene:%s, id:%s, file:'%s'",name,id,file)
+end
+
+function _System.dumpInstances()
+  for c,md in pairs(_ProcessMap) do
+    Log(LOG.LOG,"Scene:%s instance:%s thread:%s",md.scene.name,md.instance,tostring(c))
+  end
+end
+
+function _System.runScene(scene,env,args)
+  local instance=scene.instances
+  Debug(_debugFlags.scene,"Running scene:%s, trigger:%s, instance:%s",scene.name,tojson(env.event),instance+1)
+  setTimeout(function()
+      local c = coroutine.running()
+      scene.instances = scene.instances+1
+      _ProcessMap[c]={
+        trigger=env and env.event,
+        scene=scene,
+        instance=scene.instances,
+        locals={['__fibaroSceneId']=scene.id},
+        args=args}
+      -- _System.dumpInstances()
+      if os.time ~= osTime then os.time,os.date=osTime,osDate end
+      scene.code()
+      scene.instances = scene.instances-1
+    end,0)
+end
 ------------------ Net functions ------------------------
 net = {} -- An emulation of Fibaro's net.HTTPClient
 -- It is synchronous, but synchronous is a speciell case of asynchronous.. :-)
@@ -376,7 +493,9 @@ end
 
 function setTimeout(fun,time,name,cleanup)
   time = (time or 0)/1000+osTimeFrac()
+  local md = _ProcessMap[coroutine.running()]
   local co = coroutine.create(fun)
+  if md then _ProcessMap[co] = md end -- Inherent parents context (globals etc)
   return insertCoroutine({co=co,time=time,name=name,cleanup=cleanup})
 end
 
@@ -570,6 +689,9 @@ function _Sunturn.sunCalc(time)
 end
 
 ------------------------ Emulated fibaro calls ----------------------
+fibaro = fibaro or {}
+fibaro._globals = {}
+
 if not _REMOTE then
 -- Simple simulation of fibaro functions when offline...
 -- Good enough for simple debugging
@@ -598,7 +720,14 @@ if not _REMOTE then
   _specGetIdProp['1sunriseHour'] = updateSun
 
   fibaro._globals = {}
-  function fibaro:countScenes() return _SCENECOUNT end
+  function fibaro:countScenes()
+    local md = _ProcessMap[coroutine.running()]
+    return md and md.instance or 1
+  end
+  function fibaro:args()
+    local md = _ProcessMap[coroutine.running()]
+    return md and md.args or nil
+  end
   function fibaro:abort()
     local c = coroutine.running()
     if c == MAINTHREAD then
@@ -676,8 +805,17 @@ if not _REMOTE then
   function fibaro:getDevicesId(s) return fibaro._getDevicesId end
 
   function fibaro:startScene(id,args)
-    if _SCENERUNNER then
-      Event.post({type='%INTERNAL%', name='startScene', id=id, val=args, _sh=true})
+    if id==-1 and args and #args==1 then
+      if type(args[1])=='string' then
+        Event.post(json.decode((urldecode(args[1]))))
+      end
+      return
+    end
+    for _,scene in pairs(_System.scenes) do
+      if scene.id==id then
+        _System.runScene(scene,{event={type='other'}},args)
+        break;
+      end
     end
   end
   function fibaro:killScenes(id) end
@@ -711,45 +849,6 @@ end
 --------------------------- GUI -------------------------------
 
 if _GUI then
-
-  local function _sortE(a,b)
-    if a:match("^{type:'autostart") then a = '<'..a end
-    if a:match("^{type:'other") then a = '>'..a end
-    if b:match("^{type:'autostart") then b = '<'..b end
-    if b:match("^{type:'other") then b = '>'..b end
-    return a < b
-  end
-
-  function _buildUIChoices(headers)
-    local choices = {}
-    for i=1,headers['properties'] and #headers['properties'] or 0 do
-      local id = headers['properties'][i]:match("(%d+)%s+value")
-      if id and id ~="" then 
-        choices[_format("{type:'property',deviceID:%s,value:'1'}",id)] = true
-      end
-    end
-    for i=1,headers['globals'] and #headers['globals'] or 0 do
-      local name = headers['globals'][i]:match("(%w+)")
-      if name and name ~="" then 
-        choices[_format("{type:'global',name:'%s',value:''}",name)] = true
-      end
-    end
-    for i=1,headers['events'] and #headers['events'] or 0 do
-      local id,t = headers['events'][i]:match("(%d+)%s+(%a+)")
-      if t and t=='sceneActivation' then
-        choices[_format("{type:'property',deviceID=%s,propertyName:'sceneActivation'}",id)] = true
-      elseif t and t=='CentralSceneEvent' then
-        choices[_format("{type:'event',event:{type:'CentralSceneEvent',data:{deviceId:%s,keyId:'1',keyAttribute:'Pressed'}}}",id)] = true
-      elseif t and t=='AccessControlEvent' then
-        choices[_format("{type:'event',event:{type:'AccessControlEvent',data:{id:%s,name:'Smith',slotId:'99',status:'Lock'}}}",id)] = true
-      end
-    end
-    choices["{type:'autostart'}"] = true
-    choices["{type:'other'}"] = true
-    local res = {}; for k,_ in pairs(choices) do res[#res+1]=k end
-    table.sort(res,_sortE)
-    return res
-  end
 
   require("mobdebug").off()
   print("Loading WX library, please wait (+5s)")
@@ -993,7 +1092,7 @@ if _GUI then
   end
 
   if not _SCENERUNNER then -- SceneRunner sets up its own headers...
-    local choices=_buildUIChoices(_System.headers)
+    local choices=_System.headers2Events(_System.headers,true)
     _setUIEventItems(choices)
   end
 end
