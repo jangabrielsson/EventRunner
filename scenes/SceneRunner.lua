@@ -20,21 +20,19 @@ scenes = {
 }
 end
 
-if nil then -- Example with scenes reacting on sensor turning on/off light
+if true then -- Example with scenes reacting on sensor turning on/off light
 scenes = {
    {name="Test2",id=11,file="scenes/Test2.lua"},
 }
 commands = {"wait(00:10);55:on;wait(00:00:40);55:off"}
 end
 
-if true then -- Example with scenes reacting on sensor turning on/off light
+if nil then -- Example running GEA
 scenes = {
    {name="GEA",id=42,file="GEA 6.11.lua"},
 }
-function _DEBUGHOOK(str)
-  if str:match("%.%.%. check running") then return nil else return str end
-end
---commands = {"wait(00:10);55:on;wait(00:00:40);55:off"}
+function _DEBUGHOOK(str) if str:match("%.%.%. check running") then return nil else return str end end
+commands = {}
 end
 
 --[[
