@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.10"  -- fix4, Jan 13, 2019 
+_version = "1.10"  -- fix5, Jan 13, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -119,9 +119,10 @@ if not _OFFLINE then -- if running on the HC2
   function Log(color,message,...) return _Msg(color,message,...) end
   function _LINEFORMAT(line) return "" end
   function _LINE() return nil end
+  
+  function osDate(f,t) t = t or osTime() return os.date(f,t) end
 end
 
-function osDate(f,t) t = t or osTime() return osOrgDate(f,t) end
 function errThrow(m,err) if type(err) == 'table' then table.insert(err,1,m) else err = {m,err} end error(err) end
 function _assert(test,msg,...) if not test then msg = _format(msg,...) error({msg},3) end end
 function _assertf(test,msg,fun) if not test then msg = _format(msg,fun and fun() or "") error({msg},3) end end
