@@ -172,6 +172,7 @@ function fibaro:debug(str)
     str = str2 or str
   end
   if _DEBUGHOOK then str = _DEBUGHOOK(str) end
+  if str==nil then return end
   local thread = _ProcessMap[coroutine.running()]
   thread = thread and _format("(%s:%s)",thread.scene.name,thread.instance) or ""
   print(_format("%s%s:%s",osDate("%X"),thread,str)) 

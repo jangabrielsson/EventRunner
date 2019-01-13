@@ -20,11 +20,18 @@ scenes = {
 }
 end
 
-if true then -- Example with scenes reacting on sensor turning on/off light
+if nil then -- Example with scenes reacting on sensor turning on/off light
 scenes = {
    {name="Test2",id=11,file="scenes/Test2.lua"},
 }
 commands = {"wait(00:10);55:on;wait(00:00:40);55:off"}
+end
+
+if true then -- Example with scenes reacting on sensor turning on/off light
+scenes = {
+   {name="GEA",id=42,file="GEA 6.11.lua"},
+}
+--commands = {"wait(00:10);55:on;wait(00:00:40);55:off"}
 end
 
 --[[
