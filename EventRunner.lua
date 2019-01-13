@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.9"  -- Jan 12, 2019 
+_version = "1.10"  -- fix2, Jan 13, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -47,17 +47,10 @@ function main()
   --local devs = json.decode(fibaro:getGlobalValue(_deviceTable)) -- Read in "HomeTable" global
   --Util.defvars(devs)                                            -- Make HomeTable defs available in EventScript
   --Util.reverseMapDef(devs)                                      -- Make HomeTable names available for logger
-  Util.defineGlobals{
-    ["HomeTable"]={},
-    ["Darkness"]=0,
-    ["SleepState"]="Awake", 
-    ["TimeOfDay"]="Morning",   
-    ["DemoMode"]="No",
-    ["HolidayTime"]="No", 
-    ["HolidayLights"]="On"}
+  
+  --_System.loadScene("GEA",11,"GEA 6.11.lua")
 
-  _System.loadScene("FTBE",11,"Main scene FTBE v1.3.0.lua")
-  --dofile("example_rules.lua")      -- some example rules to try out...
+  dofile("example_rules.lua")      -- some example rules to try out...
 end -- main()
 
 ------------------- EventModel - Don't change! --------------------  
@@ -1770,6 +1763,7 @@ function mainAux(cont)
     function setUp()
       if _OFFLINE and _GLOBALS then Util.defineGlobals(_GLOBALS) end
       Log(LOG.SYSTEM,"") Log(LOG.SYSTEM,"Loading rules")
+      if _ALTERNATIVEMAIN then main = _ALTERNATIVEMAIN end
       local status, res = pcall(function() return main() end)
       if not status then 
         Log(LOG.ERROR,"Error loading rules:%s",type(res)=='table' and table.concat(res,' ') or res) fibaro:abort() 

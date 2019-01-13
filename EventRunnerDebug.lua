@@ -39,6 +39,7 @@ _POLLINTERVAL = 200
 _PORT         = 6872
 _MEM          = false  -- log memory usage
 _HTMLFILTER   = true -- remove <span>...</span> in fibaro:debug output
+_COLOR        = false
 
 _LATITUDE = "59.316947"
 _LONGITUDE = "18.064006"
@@ -163,11 +164,11 @@ function fibaro:debug(str)
 end
 
 function _Msg(color,message,...)
-  color = _LOGMAP[color] or ""
+  color = _COLOR and _LOGMAP[color] or ""
   local args = type(... or 42) == 'function' and {(...)()} or {...}
   message = string.format(message,table.unpack(args))
   local gc = _MEM and _format("mem:%-6.1f ",collectgarbage("count")) or ""
-  fibaro:debug(string.format("%s%s%s %s%s",color,gc,osOrgDate("%a %b %d:",osTime()),message,_LOGEND)) 
+  fibaro:debug(string.format("%s%s%s %s%s",color,gc,osOrgDate("%a %b %d:",osTime()),message,_COLOR and _LOGEND or "")) 
   return message
 end
 function Debug(flag,message,...) if flag then _Msg(LOG.DEBUG,message,...) end end
@@ -724,6 +725,7 @@ if not _REMOTE then
     local md = _ProcessMap[coroutine.running()]
     return md and md.instance or 1
   end
+  function fibaro:isSceneEnabled() return true end -- ToDo: fix it properly...
   function fibaro:args()
     local md = _ProcessMap[coroutine.running()]
     return md and md.args or nil
