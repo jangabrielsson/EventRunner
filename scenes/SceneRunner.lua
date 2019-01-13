@@ -31,6 +31,9 @@ if true then -- Example with scenes reacting on sensor turning on/off light
 scenes = {
    {name="GEA",id=42,file="GEA 6.11.lua"},
 }
+function _DEBUGHOOK(str)
+  if str:match("%.%.%. check running") then return nil else return str end
+end
 --commands = {"wait(00:10);55:on;wait(00:00:40);55:off"}
 end
 
