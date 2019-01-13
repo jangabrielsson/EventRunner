@@ -171,6 +171,7 @@ function fibaro:debug(str)
     local str2 = str:match("^%b<>(.*)</span>")
     str = str2 or str
   end
+  if _DEBUGHOOK then str = _DEBUGHOOK(str) end
   local thread = _ProcessMap[coroutine.running()]
   thread = thread and _format("(%s:%s)",thread.scene.name,thread.instance) or ""
   print(_format("%s%s:%s",osDate("%X"),thread,str)) 
