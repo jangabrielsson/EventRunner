@@ -1803,7 +1803,7 @@ if _type == 'autostart' or _type == 'other' then
   if not _OFFLINE then
     local info = api.get("/settings/info")
     Log(LOG.LOG,"Fibaro software version: %s",info.currentVersion.version)
-    Log(LOG.LOG,"HC2 up since: %s",os.date("%c",info.serverStatus))
+    Log(LOG.LOG,"HC2 uptime: %s hours",math.floor((os.time()-info.serverStatus)/3600))
     if not string.find(json.encode((api.get("/globalVariables/"))),"\"".._MAILBOX.."\"") then
       api.post("/globalVariables/",{name=_MAILBOX}) 
     end
