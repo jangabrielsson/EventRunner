@@ -13,14 +13,14 @@ hc2_pwd  = "xxx"
 hc2_ip   = "192.168.1.84" -- IP of HC2
 
 ----------- Set up scenes and commands/triggers --------
-if nil then -- Example with scenes starting up eachother
+if nil then -- Example of scenes starting up each other
 scenes = {
    {name="Ping",id=11,file="scenes/Ping.lua"},
    {name="Pong",id=22,file="scenes/Pong.lua"},
 }
 end
 
-if true then -- Example with scenes reacting on sensor turning on/off light
+if true then -- Example of scene reacting on sensor turning on/off light
 scenes = {
    {name="Test2",id=11,file="scenes/Test2.lua"},
 }

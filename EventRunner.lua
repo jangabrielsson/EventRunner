@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.10"  -- fix5, Jan 13, 2019 
+_version = "1.11"  -- Jan 18, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -24,16 +24,18 @@ if not _SCENERUNNER then
   _sceneName     = "Demo"      -- Set to scene/script name
   _deviceTable   = "devicemap" -- Name of your HomeTable variable
   _ruleLogLength = 80          -- Log message cut-off, defaults to 40
-  _HueIP = "192.168.1.153"     -- Set to Hue bridge IP. If set to nil will not start Hue system.
-  _HueUserName=nil             -- Set to Hue user name. 
+  _HueHubs       = {}          -- Hue bridges, Ex. {{name='Hue',user=_HueUserName,ip=_HueIP}}
   _GUI = false                 -- Offline only, Open WX GUI for event triggers, Requires Lua 5.1 in ZBS
   _SPEEDTIME = 24*36           -- Offline only, Speed through X hours, set to false will run in real-time
-  _EVENTSERVER=true            -- Starts port on 6872 listening for incoming events (Node-red, HC2 etc)
+  _EVENTSERVER = true          -- Starts port on 6872 listening for incoming events (Node-red, HC2 etc)
 
   _myNodeRed = "http://192.168.1.50:1880/eventrunner"  -- Ex. used for Event.postRemote(_myNodeRed,{type='test})
 
 -- debug flags for various subsystems...
-  _debugFlags = { post=true,invoke=false,eventserver=true,triggers=false,dailys=false,timers=false,rule=false,ruleTrue=false,fibaro=true,fibaroGet=false,fibaroSet=false,sysTimers=false, scene=true }
+  _debugFlags = { 
+    post=true,invoke=false,eventserver=true,triggers=false,dailys=false,timers=false,rule=false,ruleTrue=false,
+    fibaro=true,fibaroGet=false,fibaroSet=false,sysTimers=false, scene=true
+  }
 
 end
 -- If running offline we need our own setTimeout and net.HTTPClient() and other fibaro funs...
@@ -49,14 +51,16 @@ function main()
   --local devs = json.decode(fibaro:getGlobalValue(_deviceTable)) -- Read in "HomeTable" global
   --Util.defvars(devs)                                            -- Make HomeTable defs available in EventScript
   --Util.reverseMapDef(devs)                                      -- Make HomeTable names available for logger
-  --_System.loadScene("GEA",11,"GEA 6.11.lua")
 
   dofile("example_rules.lua")      -- some example rules to try out...
 end -- main()
 
 ------------------- EventModel - Don't change! --------------------  
 Event = Event or {}
-_System = _System or {copyGlobalsFromHC2=function() end,writeGlobalsToFile=function() end,readGlobalsFromFile=function() end}
+if not _OFFLINE then -- define _System
+  local f = function(...) return true end
+  _System = {copyGlobalsFromHC2=f,writeGlobalsToFile=f,readGlobalsFromFile=f,defineGlobals=f,setTime=f}
+end
 _STARTLINE = _OFFLINE and debug.getinfo(1).currentline or nil
 if _OFFLINE then MAINTHREAD=coroutine.running() end
 local _supportedEvents = {property=true,global=true,event=true,remote=true}
@@ -114,12 +118,10 @@ if not _OFFLINE then -- if running on the HC2
   end
   if not _timeAdjust then _timeAdjust = 0 end -- support for adjusting for hw time drift on HC2
   osTime = function(arg) return arg and os.time(arg) or os.time()+_timeAdjust end
-  function _System.setTime(_) end
   function Debug(flag,message,...) if flag then _Msg(LOG.DEBUG,message,...) end end
   function Log(color,message,...) return _Msg(color,message,...) end
   function _LINEFORMAT(line) return "" end
   function _LINE() return nil end
-  
   function osDate(f,t) t = t or osTime() return os.date(f,t) end
 end
 
@@ -294,7 +296,7 @@ function newEventEngine()
     e.propertyName = e.propertyName or 'value'
     e.value = v or (_getIdProp(e.deviceID,e.propertyName,true))
     self.trackManual(e.deviceID,e.value)
-    return t
+    return nil -- was t
   end
   _getProp['global'] = function(e,v2) local v,t = _getGlobal(e.name,true) e.value = v2 or v return t end
 
@@ -372,7 +374,8 @@ function newEventEngine()
         elseif fl then action2() end
         tp = self.post(loop, time,ctx) 
       end)
-    local res = {
+    local res = nil
+    res = {
       [self.RULE] = {}, src=ctx.src, line=ctx.line, --- res ??????
       enable = function() if not tp then tp = self.post(loop,start and 0 or time,ctx) end return res end, 
       disable= function() tp = self.cancel(tp) return res end, 
@@ -1123,6 +1126,7 @@ function newEventEngine()
         t.year,t.month,t.day,t.hour,t.min,t.sec=year,month,day,h,m,((s~="" and s or 0) or 0)
         return {'%time',tm,osTime(t)}
       else
+        local sg
         sg,h,m,s = ts:match("(%-?)(%d%d):(%d%d):?(%d*)")
         _assert(h and m,"malformed time constant '%s'",e[2])
         return {'%time',tm,(sg == '-' and -1 or 1)*(h*3600+m*60+(s~="" and s or 0))}
@@ -1229,7 +1233,7 @@ function newEventEngine()
           local t = tokens.nxt() _passert(t.v==',' or t.t=='rpar',t.cp,"bad function definition")
         until t.t=='rpar'
       else tokens.nxt() end
-      body = self.statements(tokens) tmatch("end",tokens)
+      local body = self.statements(tokens) tmatch("end",tokens)
       return {'->',args,body}
     end
     pExpr['num']=function(t,tokens) return tonumber(t.v) end
@@ -1577,102 +1581,55 @@ Util.defvar("defvars",Util.defvars)
 Util.defvar("mapvars",Util.reverseMapDef)
 
 ---------------------- Hue support, can be removed if not needed -------------------------
-function mainAux(cont)
-  function newHue(ip,username)
-    local self,lights,groups,scenes,sensors,devMap,hueNames = {},{},{},{},{},{},{}
-    local baseURL="http://"..ip..":80/api/"..username.."/"
+function hueSetup(cont)
+  local _defaultHubName = "Hue"
+  function makeHue()
+    local self, devMap, hueNames = { hubs={} }, {}, {}
     local HTTP = net.HTTPClient()
-    local lightURL = baseURL.."lights/%s/state"
-    local groupURL = baseURL.."groups/%s/action"
-    local sensorURL = baseURL.."sensors/%s"
-    function self.isHue(id) return devMap[id] and devMap[id].hue or nil end
-    function self.name(n) return hueNames[v] end
-    local function request(url,cont,op,payload)
+    function self.isHue(id) return devMap[id] and devMap[id].hue end
+    function self.name(n) return hueNames[n] end   
+    function self.connect(name,user,ip,cont)
+      self.hubs[name]=makeHueHub(name,user,ip,cont)
+    end
+
+    function self.request(url,cont,op,payload)
       op,payload = op or "GET", payload and json.encode(payload) or ""
       Debug(_debugFlags.hue,"Hue req:%s Payload:%s",url,payload)
       HTTP:request(url,{
-          options = {headers={['Accept']='application/json',['Content-Type']='application/json'},data = payload, timeout=2000, method = op},
+          options = {headers={['Accept']='application/json',['Content-Type']='application/json'},
+            data = payload, timeout=2000, method = op},
           error = function(status) error("Hue connection:"..tojson(status)) end,
           success = function(status) if cont then cont(json.decode(status.data)) end end
         })
     end
-    Event.event({type='property',propertyName='on',_hue=true},function(env) -- transform 'on' events
-        local e=env.event
-        Event.post({type='property',deviceID=e.deviceID,propertyName='value',value=fibaro:getValue(e.deviceID,'value'),_sh=true})
-      end)
-    local function _setState(hue,prop,val)
-      if type(prop)=='table' then 
-        for k,v in pairs(prop) do _setState(hue,k,v) end
-        return
-      end
-      local change,id = hue.state[prop]~=nil and hue.state[prop] ~= val, hueNames[hue.name]
-      hue.state[prop],hue.state['lastupdate']=val,osTime()
-      local filter = id and devMap[id].hue._filter
-      if change and id and filter and filter[prop] then 
-        Event.post({type='property',deviceID=id,propertyName=prop,value=val,_hue=true,_sh=true}) 
-      end
-      --Log(LOG.LOG,"Name:%s, PROP:%s, VAL:%s",hue.name,tojson(prop),tojson(val))
-      if hue.lights then -- for groups
-        for _,id in ipairs(hue.lights) do _setState(lights[tonumber(id)],prop,val) end 
-      end
+
+    function self.dump() for _,h in pairs(self.hubs) do h.dump() end end
+    local function find(name) -- find a Hue device in any of the connected Hue hubs we have, name is <hub>:<name>
+      local hname,dname=name:match("(.*):(.*)")
+      local hub = self.hubs[hname]
+      return hub._lights()[dname] or hub._groups()[dname] or hub._sensors()[dname],hname
     end
-    local _DT={groups=groups,lights=lights,sensors=sensors}
-    local function updateState(state)
-      for _,s in ipairs(state[1] and state or {}) do
-        if s.success then 
-          for p,v in pairs(s.success) do 
-            local tp,id,mt,prop = p:match("/(%a+)/(%d+)/(%a+)/(.*)")
-            if id then _setState(_DT[tp][ tonumber(id) ],prop,v)
-            else Log(LOG.LOG,"Unknown Hue state %s %s",p,v) end
-          end --for 
-        end -- if
-      end --for
-    end --fun
-    local function setFullState(devices,id,d,state,url)
-      local dd = devices[d.name] or {name=d.name,id=tonumber(id), state={}, url=url,lights=d.lights, scenes={}}
-      devices[d.name],devices[tonumber(id)]=dd,dd
-      _setState(dd,d[state])
+
+    local mapIndex=10000 -- start mapping at deviceID 10000
+    --devMap[deviceID] -> {hub, type, hue}
+    function self.define(name,var,id) -- optional var
+      if id ==nil then id = mapIndex; mapIndex=mapIndex+1 else id =tonumber(id) end
+      if not name:match(":") then name=_defaultHubName..":"..name end -- default to Hue:<name>
+      hueNames[name]=id
+      local hue,hub = find(name) 
+      if hue then devMap[id] = {type=hue.type,hue=hue,hub=self.hubs[hub]}; hue.fid=id    
+      else error("No Hue name:"..name) end
+      if Util and var then Util.defvar(var,id) end
+      Log(LOG.LOG,"Hue device '%s' assigned deviceID %s",name,id)
+      return id
     end
-    local function nextMain() Log(LOG.LOG,"Hue system inited (experimental)") cont() end
-    function match(t1,t2) if #t1~=#t2 then return false end; for i=1,#t1 do if t1[i]~=t2[i] then return false end end return true end
-    function self.getFullState(f)
-      request(baseURL,function(data)
-          for id,d in pairs(data.sensors) do setFullState(sensors,id,d,'state',sensorURL) end
-          for id,d in pairs(data.lights) do setFullState(lights,id,d,'state',lightURL) end
-          for id,d in pairs(data.groups) do table.sort(d.lights) setFullState(groups,id,d,'action',groupURL) end
-          for id,d in pairs(data.scenes) do if d.version>1 then 
-            scenes[d.name] = id; table.sort(d.lights)
-            for _,g in pairs(groups) do if match(g.lights,d.lights) then g.scenes[d.name]=id end end
-          end end
-          if f then f() end
-        end)
-    end
-    local _defFilter={buttonevent=true, on=true}
+
     function self.monitor(name,interval,filter)
-      local id = hueNames[name] or name
-      local sensor = devMap[id].hue
-      local url = sensor.url:sub(#baseURL+1)
-      url=baseURL.._format(url:match("(.-/)").."%s",sensor.id)
-      sensor._filter = filter or sensor._filter or _defFilter
-      if sensor._timer then clearTimeout(sensor._timer) sensor._timer=nil end
-      if interval>0 then 
-        local function poll() 
-          request(url,function(state) _setState(sensor,state.state) setTimeout(poll,interval) end)
-        end
-        poll()
-      end
+      local id = hueNames[name] or name -- name could be deviceID
+      local sensor = devMap[id]
+      sensor.hub.monitor(sensor.hue,interval,filter)
     end
-    function self.dump()
-      Log(LOG.LOG,"------------- Hue Lights ---------------------")
-      for k,v in pairs(lights) do if not tonumber(k) then Log(LOG.LOG,"Light '%s' id=%s",k,json.encode(v.id)) end end
-      Log(LOG.LOG,"------------- Hue Groups ---------------------")
-      for k,v in pairs(groups) do if not tonumber(k) then Log(LOG.LOG,"Group '%s' id=%s",k,json.encode(v.id)) end end
-      Log(LOG.LOG,"------------- Hue Scenes ---------------------")
-      for k,v in pairs(scenes) do Log(LOG.LOG,"Scene '%s' id=%s",k,v) end
-      Log(LOG.LOG,"------------- Hue Sensors ---------------------")
-      for k,v in pairs(sensors) do if not tonumber(k) then Log(LOG.LOG,"Sensor '%s' id=%s",k,json.encode(v.id)) end end
-      Log(LOG.LOG,"----------------------------------------------")
-    end
+
     function self.rgb2xy(r,g,b)
       r,g,b = r/254,g/254,b/254
       r = (r > 0.04045) and ((r + 0.055) / (1.0 + 0.055)) ^ 2.4 or (r / 12.92)
@@ -1683,108 +1640,204 @@ function mainAux(cont)
       local Z = r*0.0000000+g*0.053077+b*1.035763
       return X/(X+Y+Z), Y/(X+Y+Z)
     end
-    local mapIndex=10000
-    --devMap: deviceID -> HueID, Type, URL
-    function self.define(name,var,id) -- optional var
-      id = tonumber(id) or mapIndex; 
-      mapIndex=mapIndex+1; hueNames[name]=id
-      if lights[name] then devMap[id]={type='light',hue=lights[name]}     
-      elseif groups[name] then devMap[id]={type='group',hue=groups[name]}
-      elseif sensors[name] then devMap[id]={type='sensor',hue=sensors[name]}
-      else error("No Hue name:"..name) end
-      if Util and var then Util.defvar(var,id) end
-      Log(LOG.LOG,"Hue device '%s' assigned deviceID %s",name,id)
-      return id
+
+    function self.turnOn(id) local d,h=devMap[id].hue,devMap[id].hub 
+      self.request(_format(d.url,d.id),h.updateState,"PUT",{on=true}) h._setState(d,'on',true) 
     end
-    function self.turnOn(id) local d=devMap[id].hue; request(_format(d.url,d.id),updateState,"PUT",{on=true}) _setState(d,'on',true) end
-    function self.turnOff(id) local d=devMap[id].hue; request(_format(d.url,d.id),updateState,"PUT",{on=false}) _setState(d,'on',false) end
-    function self.setColor(id,r,g,b,w) local d,x,y=devMap[id].hue,self.rgb2xy(r,g,b); pl={xy={x,y},bri=w and w/99*254}
-      request(_format(d.url,d.id),updateState,"PUT",pl) _setState(d,pl) 
+    function self.turnOff(id) local d,h=devMap[id].hue, devMap[id].hub
+      self.request(_format(d.url,d.id),h.updateState,"PUT",{on=false}) h._setState(d,'on',false) 
     end
-    function self.setValue(id,val) 
-      local d,payload=devMap[id].hue;
+    function self.setColor(id,r,g,b,w) local d,h,x,y=devMap[id].hue,devMap[id].hub,self.rgb2xy(r,g,b); 
+      local pl={xy={x,y},bri=w and w/99*254}
+      self.request(_format(d.url,d.id),h.updateState,"PUT",pl) h._setState(d,pl) 
+    end
+    function self.setValue(id,val) local d,h,payload=devMap[id].hue, devMap[id].hub
       if type(val)=='string' and d.scenes[val] then payload={scene=d.scenes[val]}
       elseif tonumber(val)==0 then payload={on=false} 
       elseif tonumber(val) then payload={on=true,bri=math.floor((val/99)*254)}
       elseif type(val)=='table' then payload=val end
-      if payload then request(_format(d.url,d.id),updateState,"PUT",payload) _setState(d,payload)
+      if payload then self.request(_format(d.url,d.id),h.updateState,"PUT",payload) h._setState(d,payload)
       else  error(_format("Hue setValue id:%s value:%s",id,val)) end
     end
-    self.getFullState(nextMain)
-    --fibaro:sleep(1000)
+
     return self
   end
-  if _HueIP and _HueUserName then
-    Hue=newHue(_HueIP,_HueUserName)
 
-    local function mapFib(f,fun)
-      local fm = fibaro._orgf or fibaro
-      local ofc = fm[f]
-      fm[f] = function(obj,id,...)
-        if not Hue.isHue(id) then return ofc(obj,id,...) else return fun(obj,id,...) end 
-      end
+  Hue=makeHue() -- create global Hue object
+--[[
+  _HueHubs = {{name="Hub1",user="hghgjhT6TUG", ip="192.168.1.50"}}
+  Hue.define("Hub1:my Light","light",890)
+--]]
+  if _HueHubs then
+    local c = cont
+    cont = function() Log(LOG.LOG,"Hue system inited (experimental)") c() end
+    if _HueHubs and #_HueHubs==1 then _defaultHubName=_HueHubs[1].name end
+    for _,hub in ipairs(_HueHubs or {}) do
+      local c,h = cont,hub
+      cont = function() Hue.connect(h.name,h.user,h.ip,c) end
     end
-    mapFib('call',function(obj,id,...)
-        local val,params=({...})[1],{select(2,...)}
-        if Hue[val] then Hue[val](id,table.unpack(params)) end
-      end)
-    mapFib('get',function(obj,id,...)
-        local val,res,dev,time=({...})[1],nil,Hue.isHue(id)
-        if val=='value' then 
-          if dev.state.on and dev.state.reachable then 
-            res = dev.state.bri and tostring(math.floor((dev.state.bri/254)*99+0.5)) or '99' 
-          else res = '0' end 
-        elseif val=='values' then res = dev.state
-        else res =  dev.state[val] and tostring(dev.state[val]) or nil end
-        time=dev.state.lastupdate or 0
-        Debug(_debugFlags.hue,"Get ID:%s %s -> %s",id,val,res)
-        return res and res,time
-      end)
-    mapFib('getValue',function(obj,id,...) return (fibaro.get(obj,id,...)) end)
-  else 
-    cont() end
   end
+
+  Event.event({type='property',propertyName='on',_hue=true},function(env) -- transform 'on' events
+      local e=env.event
+      Event.post({type='property',deviceID=e.deviceID,propertyName='value',value=fibaro:getValue(e.deviceID,'value'),_sh=true})
+    end)
+
+  local function mapFib(f,fun)
+    local fm = fibaro._orgf or fibaro
+    local ofc = fm[f]
+    fm[f] = function(obj,id,...)
+      if not Hue.isHue(id) then return ofc(obj,id,...) else return fun(obj,id,...) end 
+    end
+  end
+  mapFib('call',function(obj,id,...)
+      local val,params=({...})[1],{select(2,...)}
+      if Hue[val] then Hue[val](id,table.unpack(params)) end
+    end)
+  mapFib('get',function(obj,id,...)
+      local val,res,dev,time=({...})[1],nil,Hue.isHue(id)
+      if val=='value' then 
+        if dev.state.on and dev.state.reachable then 
+          res = dev.state.bri and tostring(math.floor((dev.state.bri/254)*99+0.5)) or '99' 
+        else res = '0' end 
+      elseif val=='values' then res = dev.state
+      else res =  dev.state[val] and tostring(dev.state[val]) or nil end
+      time=dev.state.lastupdate or 0
+      Debug(_debugFlags.hue,"Get ID:%s %s -> %s",id,val,res)
+      return res and res,time
+    end)
+  mapFib('getValue',function(obj,id,...) return (fibaro.get(obj,id,...)) end)
+
+  cont()
+end
+
+function makeHueHub(name,username,ip,cont)
+  local self,lights,groups,scenes,sensors = {},{},{},{},{}
+  function self._lights() return lights end
+  function self._groups() return groups end
+  function self._sensors() return sensors end
+  local hubName,baseURL=name,"http://"..ip..":80/api/"..username.."/"
+  local lightURL = baseURL.."lights/%s/state"
+  local groupURL = baseURL.."groups/%s/action"
+  local sensorURL = baseURL.."sensors/%s"
+  function self._setState(hue,prop,val,upd)
+    if type(prop)=='table' then 
+      for k,v in pairs(prop) do self._setState(hue,k,v,upd) end
+      return
+    end
+    local change,id = hue.state[prop]~=nil and hue.state[prop] ~= val, hue.fid
+    hue.state[prop],hue.state['lastupdate']=val,osTime()
+    local filter = id and hue._filter
+    if change and id and filter and filter[prop] then 
+      Event.post({type='property',deviceID=id,propertyName=prop,value=val,_hue=true,_sh=true}) 
+    end
+    --Log(LOG.LOG,"Name:%s, PROP:%s, VAL:%s",hue.name,tojson(prop),tojson(val))
+    if (not upd) and hue.lights then -- for groups
+      for _,id in ipairs(hue.lights) do self._setState(lights[tonumber(id)],prop,val,upd) end 
+    end
+  end
+  local _DT={groups=groups,lights=lights,sensors=sensors}
+  function self.updateState(state)
+    for _,s in ipairs(state[1] and state or {}) do
+      if s.success then 
+        for p,v in pairs(s.success) do 
+          local tp,id,mt,prop = p:match("/(%a+)/(%d+)/(%a+)/(.*)")
+          if id then self._setState(_DT[tp][ tonumber(id) ],prop,v)
+          else Log(LOG.LOG,"Unknown Hue state %s %s",p,v) end
+        end --for 
+      end -- if
+    end --for
+  end --fun
+  local function setFullState(devices,id,d,state,t,url)
+    local dd = devices[d.name] or {name=d.name,id=tonumber(id), state={}, type=t, url=url,lights=d.lights, scenes={}}
+    devices[d.name],devices[tonumber(id)]=dd,dd
+    self._setState(dd,d[state],nil,true)
+  end
+  function match(t1,t2) if #t1~=#t2 then return false end; for i=1,#t1 do if t1[i]~=t2[i] then return false end end return true end
+  function self.getFullState(f)
+    Hue.request(baseURL,function(data)
+        for id,d in pairs(data.sensors) do setFullState(sensors,id,d,'state','sensor',sensorURL) end
+        for id,d in pairs(data.lights) do setFullState(lights,id,d,'state','light',lightURL) end
+        for id,d in pairs(data.groups) do table.sort(d.lights) setFullState(groups,id,d,'action','group',groupURL) end
+        for id,d in pairs(data.scenes) do if d.version>1 then 
+          scenes[d.name] = id; table.sort(d.lights)
+          for _,g in pairs(groups) do if match(g.lights,d.lights) then g.scenes[d.name]=id end end
+        end end
+        if f then f() end
+      end)
+  end
+  local _defFilter={buttonevent=true, on=true}
+  function self.monitor(sensor,interval,filter)
+    local url = sensor.url:sub(#baseURL+1)
+    url=baseURL.._format(url:match("(.-/)").."%s",sensor.id)
+    sensor._filter = filter or sensor._filter or _defFilter
+    if sensor._timer then clearTimeout(sensor._timer) sensor._timer=nil end
+    if interval>0 then 
+      local function poll() 
+        Hue.request(url,function(state) self._setState(sensor,state.state) setTimeout(poll,interval) end)
+      end
+      poll()
+    end
+  end
+  function self.dump()
+    Log(LOG.LOG,"------------- Hue Lights ---------------------")
+    for k,v in pairs(lights) do if not tonumber(k) then Log(LOG.LOG,"Light '%s' id=%s",k,json.encode(v.id)) end end
+    Log(LOG.LOG,"------------- Hue Groups ---------------------")
+    for k,v in pairs(groups) do if not tonumber(k) then Log(LOG.LOG,"Group '%s' id=%s",k,json.encode(v.id)) end end
+    Log(LOG.LOG,"------------- Hue Scenes ---------------------")
+    for k,v in pairs(scenes) do Log(LOG.LOG,"Scene '%s' id=%s",k,v) end
+    Log(LOG.LOG,"------------- Hue Sensors ---------------------")
+    for k,v in pairs(sensors) do if not tonumber(k) then Log(LOG.LOG,"Sensor '%s' id=%s",k,json.encode(v.id)) end end
+    Log(LOG.LOG,"----------------------------------------------")
+  end
+  Hue.hubs[name]=self -- hack
+  self.getFullState(cont)
+  return self
+end
+
 ---------------------- Startup -----------------------------    
-  if _type == 'autostart' or _type == 'other' then
-    Log(LOG.WELCOME,_format("%sEventRunner v%s",_sceneName and (_sceneName.." - " or ""),_version))
+if _type == 'autostart' or _type == 'other' then
+  Log(LOG.WELCOME,_format("%sEventRunner v%s",_sceneName and (_sceneName.." - " or ""),_version))
 
-    if not _OFFLINE then
-      Log(LOG.LOG,"Fibaro software version: %s",(api.get("/settings/info/")).currentVersion.version)
-      if not string.find(json.encode((api.get("/globalVariables/"))),"\"".._MAILBOX.."\"") then
-        api.post("/globalVariables/",{name=_MAILBOX}) 
-      end
-    end 
-
-    if _GUI and _OFFLINE then Log(LOG.LOG,"GUI enabled") end
-    Log(LOG.LOG,"Sunrise %s, Sunset %s",fibaro:getValue(1,'sunriseHour'),fibaro:getValue(1,'sunsetHour'))
-    if _OFFLINE and not _ANNOUNCEDTIME then 
-      Log(LOG.LOG,"Starting:%s, Ending:%s %s",osDate("%x %X",osTime()),osDate("%x %X",osETime()),_SPEEDTIME and "(speeding)" or "") 
+  if not _OFFLINE then
+    local info = api.get("/settings/info")
+    Log(LOG.LOG,"Fibaro software version: %s",info.currentVersion.version)
+    Log(LOG.LOG,"HC2 up since: %s",os.date("%c",info.serverStatus))
+    if not string.find(json.encode((api.get("/globalVariables/"))),"\"".._MAILBOX.."\"") then
+      api.post("/globalVariables/",{name=_MAILBOX}) 
     end
+  end 
 
-    GC = 0
-    function setUp()
-      if _OFFLINE and _GLOBALS then Util.defineGlobals(_GLOBALS) end
-      Log(LOG.SYSTEM,"") Log(LOG.SYSTEM,"Loading rules")
-      if _ALTERNATIVEMAIN then main = _ALTERNATIVEMAIN end
-      local status, res = pcall(function() return main() end)
-      if not status then 
-        Log(LOG.ERROR,"Error loading rules:%s",type(res)=='table' and table.concat(res,' ') or res) fibaro:abort() 
-      end
-
-      _trigger._sh = true
-      Event.post(_trigger)
-
-      Log(LOG.SYSTEM,"") Log(LOG.SYSTEM,"Scene running")
-      collectgarbage("collect") GC=collectgarbage("count")
-    end
-
-    local function chainStartup()if mainAux then return mainAux(setUp) else return setUp() end end
-
-    if not _OFFLINE then 
-      fibaro:setGlobal(_MAILBOX,"") 
-      _poll()  -- start polling mailbox
-      chainStartup()
-    else 
-      _System.runOffline(chainStartup) 
-    end
+  if _GUI and _OFFLINE then Log(LOG.LOG,"GUI enabled") end
+  Log(LOG.LOG,"Sunrise %s, Sunset %s",fibaro:getValue(1,'sunriseHour'),fibaro:getValue(1,'sunsetHour'))
+  if _OFFLINE and not _ANNOUNCEDTIME then 
+    Log(LOG.LOG,"Starting:%s, Ending:%s %s",osDate("%x %X",osTime()),osDate("%x %X",osETime()),_SPEEDTIME and "(speeding)" or "") 
   end
+
+  GC = 0
+  function setUp()
+    if _OFFLINE and _GLOBALS then Util.defineGlobals(_GLOBALS) end
+    Log(LOG.SYSTEM,"") Log(LOG.SYSTEM,"Loading rules")
+    if _ALTERNATIVEMAIN then main = _ALTERNATIVEMAIN end
+    local status, res = pcall(function() return main() end)
+    if not status then 
+      Log(LOG.ERROR,"Error loading rules:%s",type(res)=='table' and table.concat(res,' ') or res) fibaro:abort() 
+    end
+
+    _trigger._sh = true
+    Event.post(_trigger)
+
+    Log(LOG.SYSTEM,"") Log(LOG.SYSTEM,"Scene running")
+    collectgarbage("collect") GC=collectgarbage("count")
+  end
+
+  local function chainStartup()if hueSetup then return hueSetup(setUp) else return setUp() end end
+
+  if not _OFFLINE then 
+    fibaro:setGlobal(_MAILBOX,"") 
+    _poll()  -- start polling mailbox
+    chainStartup()
+  else 
+    _System.runOffline(chainStartup) 
+  end
+end

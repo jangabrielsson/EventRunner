@@ -25,8 +25,8 @@ counter
   _EVENTSERVER=true starts a listener on a socket for receieving sourcetriggers/events from HC2 scene
   
 --]] 
-_version = _version or "1.10"
-if _version ~= "1.10" then error("Bad version of EventRunnerDebug") end  
+_version = _version or "1.11"
+if _version ~= "1.11" then error("Bad version of EventRunnerDebug") end  
 function _DEF(v,d) if v==nil then return d else return v end end
 
 _GUI           = _DEF(_GUI,false)        -- Needs wxwidgets support (e.g. require "wx"). Works in ZeroBrane under Lua 5.1.
@@ -268,6 +268,12 @@ function _System.readGlobalsFromFile(file)
   else Log(LOG.SYSTEM,"No globals file found (%s)'",file) end
 end
 
+function _System.copyHC2ToFile()
+end
+
+function _System.readHC2FromFile()
+end
+
 --- Parse scene headers ------------------------
 function _System.parseHeaders(fileName)
   local headers = {}
@@ -455,7 +461,7 @@ end
 api={} -- Emulation of api.get/put/post
 local function apiCall(method,call,data,cType)
   local resp = {}
-  local req={ method=method,
+  local req={ method=method, timeout=5000,
     url = "http://"..hc2_ip.."/api"..call,sink = ltn12.sink.table(resp),
     user=hc2_user,
     password=hc2_pwd,
@@ -474,7 +480,7 @@ local function apiCall(method,call,data,cType)
   if c>=200 and c<300 then
     return resp[1] and json.decode(table.concat(resp)) or nil
   end
-  Log(LOG.ERROR,"HC2 returned error '%d %s' - URL: '%s'.",c,resp[1],req.url)
+  Log(LOG.ERROR,"HC2 returned error '%d %s' - URL: '%s'.",c,resp[1] or "",req.url)
   os.exit(1)
 end
 
@@ -797,9 +803,9 @@ if not _REMOTE then
     return table.unpack(fibaro._globals[name])
   end
 
-  function Util.defineGlobals(args) for var,val in pairs(args) do fibaro._globals[var] = {tostring(val),osTime()} end end
+  function _System.defineGlobals(args) for var,val in pairs(args) do fibaro._globals[var] = {tostring(val),osTime()} end end
 
-  function Util.getComment(str) 
+  function _System.getComment(str) 
     local f = io.open(debug.getinfo(2).short_src) 
     local src = f:read("*all")
     return src:match("--%[%[[%s%c]*"..str.."(.*)"..str.."%-%-%]%]")
