@@ -1625,6 +1625,7 @@ function hueSetup(cont)
     end
 
     function self.monitor(name,interval,filter)
+      if type(id) == 'string' and not name:match(":") then name = _defaultHubName..":"..name
       local id = hueNames[name] or name -- name could be deviceID
       local sensor = devMap[id]
       sensor.hub.monitor(sensor.hue,interval,filter)
