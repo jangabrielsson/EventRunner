@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.11"  -- Fix1, Jan 18, 2019 
+_version = "1.11"  -- Fix2, Jan 18, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -26,7 +26,7 @@ if not _SCENERUNNER then
   _ruleLogLength = 80          -- Log message cut-off, defaults to 40
   _HueHubs       = {}          -- Hue bridges, Ex. {{name='Hue',user=_HueUserName,ip=_HueIP}}
   _GUI = false                 -- Offline only, Open WX GUI for event triggers, Requires Lua 5.1 in ZBS
-  _SPEEDTIME = 24*36           -- Offline only, Speed through X hours, set to false will run in real-time
+  _SPEEDTIME = false --24*36           -- Offline only, Speed through X hours, set to false will run in real-time
   _EVENTSERVER = true          -- Starts port on 6872 listening for incoming events (Node-red, HC2 etc)
 
   _myNodeRed = "http://192.168.1.50:1880/eventrunner"  -- Ex. used for Event.postRemote(_myNodeRed,{type='test})
@@ -34,7 +34,7 @@ if not _SCENERUNNER then
 -- debug flags for various subsystems...
   _debugFlags = { 
     post=true,invoke=false,eventserver=true,triggers=false,dailys=false,timers=false,rule=false,ruleTrue=false,
-    fibaro=true,fibaroGet=false,fibaroSet=false,sysTimers=false, hue=true,scene=true
+    fibaro=true,fibaroGet=false,fibaroSet=false,sysTimers=false, hue=false,scene=true
   }
 
 end
@@ -51,8 +51,8 @@ function main()
   --local devs = json.decode(fibaro:getGlobalValue(_deviceTable)) -- Read in "HomeTable" global
   --Util.defvars(devs)                                            -- Make HomeTable defs available in EventScript
   --Util.reverseMapDef(devs)                                      -- Make HomeTable names available for logger
-
-  dofile("example_rules.lua")      -- some example rules to try out...
+  
+  --dofile("example_rules.lua")      -- some example rules to try out...
 end -- main()
 
 ------------------- EventModel - Don't change! --------------------  

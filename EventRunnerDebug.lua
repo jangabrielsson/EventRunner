@@ -1144,7 +1144,7 @@ end
 
 function _System.runOffline(setup)
   _System._msgFlush()
-  if _PORTLISTENER then
+  if _EVENTSERVER then
     setTimeout(_System.startServer(_PORT),100)
   end
   if _SPEEDTIME then
