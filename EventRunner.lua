@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.11"  -- Jan 18, 2019 
+_version = "1.11"  -- Fix1, Jan 18, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -34,7 +34,7 @@ if not _SCENERUNNER then
 -- debug flags for various subsystems...
   _debugFlags = { 
     post=true,invoke=false,eventserver=true,triggers=false,dailys=false,timers=false,rule=false,ruleTrue=false,
-    fibaro=true,fibaroGet=false,fibaroSet=false,sysTimers=false, scene=true
+    fibaro=true,fibaroGet=false,fibaroSet=false,sysTimers=false, hue=true,scene=true
   }
 
 end
@@ -1656,7 +1656,18 @@ function hueSetup(cont)
       if type(val)=='string' and d.scenes[val] then payload={scene=d.scenes[val]}
       elseif tonumber(val)==0 then payload={on=false} 
       elseif tonumber(val) then payload={on=true,bri=math.floor((val/99)*254)}
-      elseif type(val)=='table' then payload=val end
+      elseif type(val)=='table' then
+        if val.startup then
+          local lights = d.lights and #d.lights>0 and d.lights or {d.id}
+          for _,id in ipairs(lights) do
+            local d = h._lights()[tonumber(id)]
+            local url = (d.url:match("(.*)/state")).."/config/startup/"
+            payload=val
+            self.request(_format(url,d.id),nil,"PUT",payload)
+          end
+          return
+        else payload=val end
+      end
       if payload then self.request(_format(d.url,d.id),h.updateState,"PUT",payload) h._setState(d,payload)
       else  error(_format("Hue setValue id:%s value:%s",id,val)) end
     end
@@ -1781,13 +1792,13 @@ function makeHueHub(name,username,ip,cont)
     end
   end
   function self.dump()
-    Log(LOG.LOG,"------------- Hue Lights ---------------------")
+    Log(LOG.LOG,"%s------------ Hue Lights ---------------------",name)
     for k,v in pairs(lights) do if not tonumber(k) then Log(LOG.LOG,"Light '%s' id=%s",k,json.encode(v.id)) end end
-    Log(LOG.LOG,"------------- Hue Groups ---------------------")
+    Log(LOG.LOG,"%s------------- Hue Groups ---------------------",name)
     for k,v in pairs(groups) do if not tonumber(k) then Log(LOG.LOG,"Group '%s' id=%s",k,json.encode(v.id)) end end
-    Log(LOG.LOG,"------------- Hue Scenes ---------------------")
+    Log(LOG.LOG,"%s------------- Hue Scenes ---------------------",name)
     for k,v in pairs(scenes) do Log(LOG.LOG,"Scene '%s' id=%s",k,v) end
-    Log(LOG.LOG,"------------- Hue Sensors ---------------------")
+    Log(LOG.LOG,"%s------------- Hue Sensors ---------------------",name)
     for k,v in pairs(sensors) do if not tonumber(k) then Log(LOG.LOG,"Sensor '%s' id=%s",k,json.encode(v.id)) end end
     Log(LOG.LOG,"----------------------------------------------")
   end
@@ -1832,7 +1843,7 @@ if _type == 'autostart' or _type == 'other' then
     collectgarbage("collect") GC=collectgarbage("count")
   end
 
-  local function chainStartup()if hueSetup then return hueSetup(setUp) else return setUp() end end
+  local function chainStartup() if hueSetup then return hueSetup(setUp) else return setUp() end end
 
   if not _OFFLINE then 
     fibaro:setGlobal(_MAILBOX,"") 

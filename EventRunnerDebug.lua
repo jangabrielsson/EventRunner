@@ -269,9 +269,28 @@ function _System.readGlobalsFromFile(file)
 end
 
 function _System.copyHC2ToFile()
+  local devMap,roomMap,sectionMap={},{},{}
+  local s = api.get("/sections")
+  for _,v in ipairs(s) do sectionMap[v.id]={id=v.id,name=v.name} end
+  s = api.get("/rooms")
+  for _,v in ipairs(s) do sectionMap[v.id]={id=v.id,name=v.name,sectionID=v.sectionID} end
+  s = api.get("/devices")
+  for _,v in ipairs(s) do 
+    devMap[v.id]={id=v.id,name=v.name,roomID=v.roomID,baseType=v.baseType,type=v.type,interfaces=v.interfaces}
+  end
+  local f = io.open("hc2.data","w+")
+  f:write(tojson({sectionMap,roomMap,devMap}))
+  Log(LOG.SYSTEM,"Writing HC2 data to 'hc2.data'")
+  f:close()
 end
 
 function _System.readHC2FromFile()
+  local f = io.open("hc2.data")
+  if f then
+    local data = f:read("*all")
+    data = json.decode(data)
+  end
+  f.close()
 end
 
 --- Parse scene headers ------------------------
