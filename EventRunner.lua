@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.11"  -- Fix5, Jan 20, 2019 
+_version = "1.11"  -- Fix6, Jan 20, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -1629,7 +1629,8 @@ function hueSetup(cont)
     end
 
     function self.monitor(name,interval,filter)
-      if type(id) == 'string' and not name:match(":") then name = _defaultHubName..":"..name end
+      if type(name)=='table' then Util.mapF(function(n) self.monitor(n,interval,filter) end, name) return end
+      if type(name) == 'string' and not name:match(":") then name = _defaultHubName..":"..name end
       local id = hueNames[name] or name -- name could be deviceID
       local sensor = devMap[id]
       sensor.hub.monitor(sensor.hue,interval,filter)
