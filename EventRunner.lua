@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.11"  -- Fix2, Jan 18, 2019 
+_version = "1.11"  -- Fix4, Jan 20, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -51,8 +51,8 @@ function main()
   --local devs = json.decode(fibaro:getGlobalValue(_deviceTable)) -- Read in "HomeTable" global
   --Util.defvars(devs)                                            -- Make HomeTable defs available in EventScript
   --Util.reverseMapDef(devs)                                      -- Make HomeTable names available for logger
-  
-  --dofile("example_rules.lua")      -- some example rules to try out...
+
+  dofile("example_rules.lua")      -- some example rules to try out...
 end -- main()
 
 ------------------- EventModel - Don't change! --------------------  
@@ -1591,7 +1591,11 @@ function hueSetup(cont)
     function self.connect(name,user,ip,cont)
       self.hubs[name]=makeHueHub(name,user,ip,cont)
     end
-
+    function self.hueName(hue) --Hue1﻿:SensorID=1
+      local name,t,id=hue:match("(%w+):(%a+)=(%d+)")
+      local dev = ({SensorID='_sensors',LightID='_lights',GroupID='_groups'})[t]
+      return name..":"..self.hubs[name][dev]()[tonumber(id)].name 
+    end
     function self.request(url,cont,op,payload)
       op,payload = op or "GET", payload and json.encode(payload) or ""
       Debug(_debugFlags.hue,"Hue req:%s Payload:%s",url,payload)
@@ -1709,7 +1713,7 @@ function hueSetup(cont)
   mapFib('get',function(obj,id,...)
       local val,res,dev,time=({...})[1],nil,Hue.isHue(id)
       if val=='value' then 
-        if dev.state.on and dev.state.reachable then 
+        if dev.state.on and (dev.state.reachable==nil or  dev.state.reachable==true) then 
           res = dev.state.bri and tostring(math.floor((dev.state.bri/254)*99+0.5)) or '99' 
         else res = '0' end 
       elseif val=='values' then res = dev.state
