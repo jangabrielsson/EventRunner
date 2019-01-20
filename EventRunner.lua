@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.11"  -- Fix4, Jan 20, 2019 
+_version = "1.11"  -- Fix5, Jan 20, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -1657,7 +1657,7 @@ function hueSetup(cont)
       self.request(_format(d.url,d.id),h.updateState,"PUT",pl) h._setState(d,pl) 
     end
     function self.setValue(id,val) local d,h,payload=devMap[id].hue, devMap[id].hub
-      if type(val)=='string' and d.scenes[val] then payload={scene=d.scenes[val]}
+      if type(val)=='string' and not tonumber(val) then payload={scene=d.scenes[val] or val}
       elseif tonumber(val)==0 then payload={on=false} 
       elseif tonumber(val) then payload={on=true,bri=math.floor((val/99)*254)}
       elseif type(val)=='table' then
