@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.11"  -- Fix8, Jan 21, 2019 
+_version = "1.11"  -- Fix9, Jan 21, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -741,8 +741,9 @@ function newScriptEngine()
   getIdFun['dID']=function(s,i,e) local a = s.pop()
     if type(a)=='table' then
       local id = e.event and e.event.deviceID
-      if id then return id end --for _,id2 in ipairs(a) do if id == id2 then return id end end end
-    else return a end
+      if id then for _,id2 in ipairs(a) do if id == id2 then return id end end end
+    end
+    return a
   end 
   function esort(t) table.sort(t,function(a,b) return (a.timestamp or 0) > (b.timestamp or 0) end) return t end
   getIdFun['access']=function(s,i) return esort(doit(Util.map,function(id) return _lastEID['AccessControlEvent'][id] or {} end,s.pop())) end
