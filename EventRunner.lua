@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.11"  -- Fix6, Jan 20, 2019 
+_version = "1.11"  -- Fix7, Jan 21, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -735,6 +735,13 @@ function newEventEngine()
     getIdFun['roomName']=function(s,i) return doit(Util.map,function(id) return fibaro:getRoomNameByDeviceID(ID(id,i)) end,s.pop()) end 
     getIdFun['safe']=getIdFun['isOff'] getIdFun['breached']=getIdFun['isOn']
     getIdFun['trigger']=function(s,i) return true end -- Nop, only for triggering rules
+    getIdFun['dID']=function(s,i,e) local a = s.pop()
+      if type(a)=='table' then
+        local id = e.event and e.event.deviceID
+        if id then return id end
+      end
+      return a 
+    end 
     function esort(t) table.sort(t,function(a,b) return (a.timestamp or 0) > (b.timestamp or 0) end) return t end
     getIdFun['access']=function(s,i) return esort(doit(Util.map,function(id) return _lastEID['AccessControlEvent'][id] or {} end,s.pop())) end
     getIdFun['central']=function(s,i) return esort(doit(Util.map,function(id) return _lastEID['CentralSceneEvent'][id] or {} end,s.pop())) end
@@ -797,7 +804,7 @@ function newEventEngine()
     end
     instr['fn'] = function(s,n,e,i) local vars,cnxt = i[3],e.context or {__instr={}} for i=1,n do cnxt[vars[i]]={s.pop()} end end
     instr['rule'] = function(s,n,e,i) local r,b,h=s.pop(),s.pop(),s.pop() s.push(Rule.compRule({'=>',h,b},e)) end
-    instr['prop'] = function(s,n,e,i)local prop=i[3] if getIdFun[prop] then s.push(getIdFun[prop](s,i)) else s.push(getIdFuns(s,i,prop)) end end
+    instr['prop'] = function(s,n,e,i)local prop=i[3] if getIdFun[prop] then s.push(getIdFun[prop](s,i,e)) else s.push(getIdFuns(s,i,prop)) end end
     instr['apply'] = function(s,n,e,i) local f = s.pop()
       local fun = type(f) == 'string' and getVar(f,e) or f
       if type(fun)=='function' then s.push(fun(table.unpack(s.lift(n)))) 
@@ -1340,7 +1347,7 @@ function newRuleCompiler()
   local self = {}
   local map,mapkl=Util.map,Util.mapkl
   local _macros,_dailys,rCounter= {},{},0
-  local tProps ={value=1,isOn=1,isOff=1,isAnyOff=1,isAllOn=1,last=1,safe=1,breached=1,scene=2,power=3,bat=4,trigger=1,toggle=1,lux=1,temp=1,manual=1,central=5,access=6}
+  local tProps ={value=1,isOn=1,isOff=1,isAnyOff=1,isAllOn=1,last=1,safe=1,breached=1,scene=2,power=3,bat=4,trigger=1,dID=1,toggle=1,lux=1,temp=1,manual=1,central=5,access=6}
   local tPropsV = {[1]='value',[2]='sceneActivation',[3]='power',[4]='batteryLevel',[5]='CentralSceneEvent',[6]='AccessControlEvent'}
   local lblF=function(id,e) return {type='property', deviceID=id, propertyName=_format("ui.%s.value",e[3])} end
   local triggFuns={
@@ -1593,8 +1600,8 @@ function hueSetup(cont)
     end
     function self.hueName(hue) --Hue1﻿:SensorID=1
       local name,t,id=hue:match("(%w+):(%a+)=(%d+)")
-      local dev = ({SensorID='_sensors',LightID='_lights',GroupID='_groups'})[t]
-      return name..":"..self.hubs[name][dev]()[tonumber(id)].name 
+      local dev = ({SensorID='sensors',LightID='lights',GroupID='groups'})[t]
+      return name..":"..self.hubs[name][dev][tonumber(id)].name 
     end
     function self.request(url,cont,op,payload)
       op,payload = op or "GET", payload and json.encode(payload) or ""
@@ -1611,7 +1618,7 @@ function hueSetup(cont)
     local function find(name) -- find a Hue device in any of the connected Hue hubs we have, name is <hub>:<name>
       local hname,dname=name:match("(.*):(.*)")
       local hub = self.hubs[hname]
-      return hub._lights()[dname] or hub._groups()[dname] or hub._sensors()[dname],hname
+      return hub.lights[dname] or hub.groups[dname] or hub.sensors[dname],hname
     end
 
     local mapIndex=10000 -- start mapping at deviceID 10000
@@ -1665,7 +1672,7 @@ function hueSetup(cont)
         if val.startup then
           local lights = d.lights and #d.lights>0 and d.lights or {d.id}
           for _,id in ipairs(lights) do
-            local d = h._lights()[tonumber(id)]
+            local d = h.lights[tonumber(id)]
             local url = (d.url:match("(.*)/state")).."/config/startup/"
             payload=val
             self.request(_format(url,d.id),nil,"PUT",payload)
@@ -1729,10 +1736,8 @@ function hueSetup(cont)
 end
 
 function makeHueHub(name,username,ip,cont)
-  local self,lights,groups,scenes,sensors = {},{},{},{},{}
-  function self._lights() return lights end
-  function self._groups() return groups end
-  function self._sensors() return sensors end
+  local lights,groups,scenes,sensors = {},{},{},{},{}
+  local self = {lights=lights,groups=groups,scenes=scenes,sensors=sensors}
   local hubName,baseURL=name,"http://"..ip..":80/api/"..username.."/"
   local lightURL = baseURL.."lights/%s/state"
   local groupURL = baseURL.."groups/%s/action"
@@ -1746,20 +1751,19 @@ function makeHueHub(name,username,ip,cont)
     hue.state[prop],hue.state['lastupdate']=val,osTime()
     local filter = id and hue._filter
     if change and id and filter and filter[prop] then 
-      Event.post({type='property',deviceID=id,propertyName=prop,value=val,_hue=true,_sh=true}) 
+      Event.post({type='property',deviceID=id,propertyName=prop,value=val,_hue=true}) 
     end
     --Log(LOG.LOG,"Name:%s, PROP:%s, VAL:%s",hue.name,tojson(prop),tojson(val))
     if (not upd) and hue.lights then -- for groups
       for _,id in ipairs(hue.lights) do self._setState(lights[tonumber(id)],prop,val,upd) end 
     end
   end
-  local _DT={groups=groups,lights=lights,sensors=sensors}
   function self.updateState(state)
     for _,s in ipairs(state[1] and state or {}) do
       if s.success then 
         for p,v in pairs(s.success) do 
           local tp,id,mt,prop = p:match("/(%a+)/(%d+)/(%a+)/(.*)")
-          if id then self._setState(_DT[tp][ tonumber(id) ],prop,v)
+          if id then self._setState(self[tp][ tonumber(id) ],prop,v)
           else Log(LOG.LOG,"Unknown Hue state %s %s",p,v) end
         end --for 
       end -- if
