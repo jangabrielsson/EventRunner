@@ -26,8 +26,8 @@ if not _SCENERUNNER then
   _ruleLogLength = 80          -- Log message cut-off, defaults to 40
   _HueHubs       = {}          -- Hue bridges, Ex. {{name='Hue',user=_HueUserName,ip=_HueIP}}
   _GUI = false                 -- Offline only, Open WX GUI for event triggers, Requires Lua 5.1 in ZBS
-  _SPEEDTIME = false --24*36           -- Offline only, Speed through X hours, set to false will run in real-time
-  _EVENTSERVER = true          -- Starts port on 6872 listening for incoming events (Node-red, HC2 etc)
+  _SPEEDTIME     = false --24*36           -- Offline only, Speed through X hours, set to false will run in real-time
+  _EVENTSERVER   = true          -- Starts port on 6872 listening for incoming events (Node-red, HC2 etc)
 
   _myNodeRed = "http://192.168.1.50:1880/eventrunner"  -- Ex. used for Event.postRemote(_myNodeRed,{type='test})
 
@@ -719,6 +719,12 @@ function Util.mkStack()
   return self
 end
 
+Util.getIDfromEvent={ CentralSceneEvent=function(d) return d.deviceId end,AccessControlEvent=function(d) return d.id end }
+Util.getIDfromTrigger={
+  property=function(e) return e.deviceID end,
+  event=function(e) return e.event and Util.getIDfromEvent[e.event.type or ""](e.event.data) end
+}
+
 --------- ScriptEngine ------------------------------------------
 _traceInstrs=false
 
@@ -749,14 +755,13 @@ function newScriptEngine()
   getIdFun['trigger']=function(s,i) return true end -- Nop, only for triggering rules
   getIdFun['dID']=function(s,i,e) local a = s.pop()
     if type(a)=='table' then
-      local id = e.event and e.event.deviceID
+      local id = e.event and Util.getIDfromTrigger[e.event.type or ""](e.event)
       if id then for _,id2 in ipairs(a) do if id == id2 then return id end end end
     end
     return a
   end 
-  function esort(t) table.sort(t,function(a,b) return (a.timestamp or 0) > (b.timestamp or 0) end) return t end
-  getIdFun['access']=function(s,i) return esort(doit(Util.map,function(id) return _lastEID['AccessControlEvent'][id] or {} end,s.pop())) end
-  getIdFun['central']=function(s,i) return esort(doit(Util.map,function(id) return _lastEID['CentralSceneEvent'][id] or {} end,s.pop())) end
+  getIdFun['access']=function(s,i) return doit(Util.map,function(id) return _lastEID['AccessControlEvent'][id] or {} end,s.pop()) end
+  getIdFun['central']=function(s,i) return doit(Util.map,function(id) return _lastEID['CentralSceneEvent'][id] or {} end,s.pop()) end
   getIdFun['lux']=function(s,i) return getIdFuns(s,i,'value') end
   getIdFun['temp']=getIdFun['lux']
   getIdFun['manual']=function(s,i) return doit(Util.map,function(id) return Event.lastManual(id) end,s.pop()) end
@@ -1568,20 +1573,17 @@ ScriptEngine.addInstr("wday",makeDateInstr(function(s) return "* * * * "..s end)
 
 -- Support for CentralSceneEvent & WeatherChangedEvent
 _lastEID = {CentralSceneEvent={}, AccessControlEvent={}}
-_getEID={
-  CentralSceneEvent=function(e) return e.event.data.deviceId end,
-  AccessControlEvent=function(e) return e.event.data.id end
-}
-Event.event({type='event', event={type='$t', data='$data'}}, 
-  function(env)                 
-    if _getEID[env.p.t] then
-      local t = env.p.t
-      local id = _getEID[t](env.event)
+Util.printRule(Event.event({type='event', event={type='$t', data='$data'}}, 
+  function(env) 
+    local t = env.p.t
+    if _getEID[t] then
+      local id = Util.getIDfromEvent[t](env.p.data)
+      if not id then return end
       env.p.data.timestamp=osTime()
       _lastEID[t][id]=env.p.data
       Event.post({type='property',deviceID=id,propertyName=t, value=env.p.data, _sh=true})
     end
-  end)
+  end))
 
 _lastWeatherEvent = {}
 Event.event({type='WeatherChangedEvent'}, 

@@ -341,7 +341,7 @@ if tHouse then
   Rule.load([[
 -- Kitchen
       for(00:10,kt.movement:safe&$LIGHTTIME$) => kt.lamp_table:off
-      log("A:%s",{kt.movement,lr.movement,ha.movement}:safe)
+      --log("A:%s",{kt.movement,lr.movement,ha.movement}:safe)
       for(00:10,{kt.movement,lr.movement,ha.movement}:safe & $LIGHTTIME$) =>
         {kt.lamp_stove,kt.lamp_sink,ha.lamp_hall}:isOn &
         {kt.lamp_stove,kt.lamp_sink,ha.lamp_hall}:off &
