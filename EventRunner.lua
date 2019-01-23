@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.11"  -- Fix10, Jan 22, 2019 
+_version = "1.11"  -- Fix11, Jan 23, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -51,7 +51,7 @@ function main()
   --local devs = json.decode(fibaro:getGlobalValue(_deviceTable)) -- Read in "HomeTable" global
   --Util.defvars(devs)                                            -- Make HomeTable defs available in EventScript
   --Util.reverseMapDef(devs)                                      -- Make HomeTable names available for logger
-
+  
   dofile("example_rules.lua")      -- some example rules to try out...
 end -- main()
 
@@ -487,7 +487,7 @@ function interceptFib(name,flag,spec,mf)
 end
 
 interceptFib("call","fibaro")
-interceptFib("setGlobal","fibaroSet")
+interceptFib("setGlobal","fibaroSet") 
 interceptFib("getGlobal","fibaroGet",nil,true)
 interceptFib("getGlobalValue","fibaroGet")
 interceptFib("get","fibaroGet",nil,true)
@@ -1576,7 +1576,7 @@ _lastEID = {CentralSceneEvent={}, AccessControlEvent={}}
 Util.printRule(Event.event({type='event', event={type='$t', data='$data'}}, 
   function(env) 
     local t = env.p.t
-    if _getEID[t] then
+    if _lastEID[t] then
       local id = Util.getIDfromEvent[t](env.p.data)
       if not id then return end
       env.p.data.timestamp=osTime()
