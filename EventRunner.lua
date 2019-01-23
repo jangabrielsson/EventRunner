@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.11"  -- Fix13, Jan 23, 2019 
+_version = "1.11"  -- Fix14, Jan 23, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -40,7 +40,7 @@ if not _SCENERUNNER then
 end
 -- If running offline we need our own setTimeout and net.HTTPClient() and other fibaro funs...
 if dofile then dofile("EventRunnerDebug.lua") require('mobdebug').coro() end
-_HueHubs=nil
+
 ---------------- Here you place rules and user code, called once --------------------
 function main()
   local rule = Rule.eval
@@ -914,10 +914,11 @@ function newScriptEngine()
   instr['cancel'] = function(s,n) Event.cancel(s.pop()) s.push(nil) end
   instr['add'] = function(s,n) local v,t=s.pop(),s.pop() table.insert(t,v) s.push(t) end
   instr['betw'] = function(s,n) local t2,t1,now=s.pop(),s.pop(),osTime()-midnight()
+    _assert(tonumber(t1) and tonumber(t2),"Bad arguments to between '...', '%s' '%s'",t1 or "nil", t2 or "nil")
     if t1<=t2 then s.push(t1 <= now and now <= t2) else s.push(now >= t1 or now <= t2) end 
   end
   instr['eventmatch'] = function(s,n,e,i) local ev,evp=i[3][2],i[3][3] s.push(e.event and Event._match(evp,e.event) and ev or false) end
-  instr['wait'] = function(s,n,e,i) local t,cp=s.pop(),e.cp
+  instr['wait'] = function(s,n,e,i) local t,cp=s.pop(),e.cp _assert(tonumber(t),"Bad argument to wait '%s'",t or "nil")
     if i[4] then s.push(false) -- Already 'waiting'
     elseif i[5] then i[5]=false s.push(true) -- Timer expired, return true
     else 
@@ -1784,7 +1785,7 @@ function makeHueHub(name,username,ip,cont)
       for _,id in ipairs(hue.lights) do self._setState(lights[tonumber(id)],prop,val,upd) end 
     end
   end
-  function self.updateState(state)
+  function self.updateState(state) -- partial state
     for _,s in ipairs(state[1] and state or {}) do
       if s.success then 
         for p,v in pairs(s.success) do 
