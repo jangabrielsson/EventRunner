@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.11"  -- Fix12, Jan 23, 2019 
+_version = "1.11"  -- Fix13, Jan 23, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -40,7 +40,7 @@ if not _SCENERUNNER then
 end
 -- If running offline we need our own setTimeout and net.HTTPClient() and other fibaro funs...
 if dofile then dofile("EventRunnerDebug.lua") require('mobdebug').coro() end
-
+_HueHubs=nil
 ---------------- Here you place rules and user code, called once --------------------
 function main()
   local rule = Rule.eval
@@ -51,7 +51,7 @@ function main()
   --local devs = json.decode(fibaro:getGlobalValue(_deviceTable)) -- Read in "HomeTable" global
   --Util.defvars(devs)                                            -- Make HomeTable defs available in EventScript
   --Util.reverseMapDef(devs)                                      -- Make HomeTable names available for logger
-  
+
   dofile("example_rules.lua")      -- some example rules to try out...
 end -- main()
 
@@ -1575,7 +1575,7 @@ ScriptEngine.addInstr("wday",makeDateInstr(function(s) return "* * * * "..s end)
 
 -- Support for CentralSceneEvent & WeatherChangedEvent
 _lastEID = {CentralSceneEvent={}, AccessControlEvent={}}
-Util.printRule(Event.event({type='event', event={type='$t', data='$data'}}, 
+Event.event({type='event', event={type='$t', data='$data'}}, 
   function(env) 
     local t = env.p.t
     if _lastEID[t] then
@@ -1585,7 +1585,7 @@ Util.printRule(Event.event({type='event', event={type='$t', data='$data'}},
       _lastEID[t][id]=env.p.data
       Event.post({type='property',deviceID=id,propertyName=t, value=env.p.data, _sh=true})
     end
-  end))
+  end)
 
 _lastWeatherEvent = {}
 Event.event({type='WeatherChangedEvent'}, 
