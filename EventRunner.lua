@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.11"  -- Fix11, Jan 23, 2019 
+_version = "1.11"  -- Fix12, Jan 23, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -26,7 +26,7 @@ if not _SCENERUNNER then
   _ruleLogLength = 80          -- Log message cut-off, defaults to 40
   _HueHubs       = {}          -- Hue bridges, Ex. {{name='Hue',user=_HueUserName,ip=_HueIP}}
   _GUI = false                 -- Offline only, Open WX GUI for event triggers, Requires Lua 5.1 in ZBS
-  _SPEEDTIME     = false --24*36           -- Offline only, Speed through X hours, set to false will run in real-time
+  _SPEEDTIME     = 24*36           -- Offline only, Speed through X hours, set to false will run in real-time
   _EVENTSERVER   = true          -- Starts port on 6872 listening for incoming events (Node-red, HC2 etc)
 
   _myNodeRed = "http://192.168.1.50:1880/eventrunner"  -- Ex. used for Event.postRemote(_myNodeRed,{type='test})
@@ -1099,6 +1099,7 @@ function newScriptCompiler()
   _comp['%NULL'] = function(e,ops) compT(e[2],ops); ops[#ops+1]= POP; compT(e[3],ops) end
 
   function self.dump(code)
+    code = code or {}
     for p = 1,#code do
       local i = code[p]
       Log(LOG.LOG,"%-3d:[%s/%s%s%s]",p,i[1],i[2] ,i[3] and ","..tojson(i[3]) or "",i[4] and ","..tojson(i[4]) or "")
@@ -1492,6 +1493,7 @@ function newRuleCompiler()
     end
     res=Event._mkCombEvent(ctx.src,ctx.src,action,events)
     res.dailys,res.ctx = dailys,ctx
+    res._code = code
     res.print = function()
       Util.map(function(d) Log(LOG.LOG,"Interval(%s) =>...",time2str(d)) end,compTimes(scheds)) 
       Util.map(function(d) Log(LOG.LOG,"Daily(%s) =>...",d==CATCHUP and "catchup" or time2str(d)) end,compTimes(dailys)) 
