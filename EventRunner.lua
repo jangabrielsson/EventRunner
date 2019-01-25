@@ -1513,7 +1513,7 @@ function newRuleCompiler()
     for _,t in ipairs(dailys.timers or {}) do Event.cancel(t) end
     local times,m,ot = compTimes(dailys.dailys),midnight(),osTime()
     for _,t in ipairs(times) do
-      if t+m >= ot then Log(LOG.LOG,"Rescheduling at %s",osDate("%X",t+m)); Event.post(dailys.event,t+m) end
+      if t ~= CATCHUP and t+m >= ot then Log(LOG.LOG,"Rescheduling at %s",osDate("%X",t+m)); Event.post(dailys.event,t+m) end
     end
   end
 
