@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.11"  -- Fix15, Jan 25, 2019 
+_version = "1.11"  -- Fix17, Jan 25, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -917,6 +917,7 @@ function newScriptEngine()
     _assert(tonumber(t1) and tonumber(t2),"Bad arguments to between '...', '%s' '%s'",t1 or "nil", t2 or "nil")
     if t1<=t2 then s.push(t1 <= now and now <= t2) else s.push(now >= t1 or now <= t2) end 
   end
+  instr['redaily'] = function(s,n,e,i) s.push(Rule.restartDaily(s.pop())) end
   instr['eventmatch'] = function(s,n,e,i) local ev,evp=i[3][2],i[3][3] s.push(e.event and Event._match(evp,e.event) and ev or false) end
   instr['wait'] = function(s,n,e,i) local t,cp=s.pop(),e.cp 
 --    _assert(tonumber(t),"Bad argument to wait '%s'",t or "nil")

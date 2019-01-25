@@ -39,7 +39,7 @@ _POLLINTERVAL = 200
 _PORT         = 6872
 _MEM          = false  -- Log memory usage
 _HTMLFILTER   = true   -- Remove <span>...</span> in fibaro:debug output
-_COLOR        = true   -- Log messages in color on ZBS Output
+_COLOR        = false   -- Log messages in color on ZBS Output
 
 _LATITUDE     = "59.316947"  -- Set HC2 place to make sunset/sunrise give correct values
 _LONGITUDE    = "18.064006"
@@ -543,12 +543,12 @@ end
 
 function clearTimeout(timer)
   if timer==nil then return end
-  if _gTimers == timer then
+  if _gTimers.co == timer then
     _gTimers = _gTimers.next
   else
     local tp = _gTimers
     while tp and tp.next do
-      if tp.next == timer then tp.next = timer.next return end
+      if tp.next.co == timer then tp.next = tp.next.next return end
       tp = tp.next
     end
   end
