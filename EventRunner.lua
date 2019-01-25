@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.11"  -- Fix18, Jan 25, 2019 
+_version = "1.11"  -- Fix19, Jan 25, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -40,7 +40,7 @@ if not _SCENERUNNER then
 end
 -- If running offline we need our own setTimeout and net.HTTPClient() and other fibaro funs...
 if dofile then dofile("EventRunnerDebug.lua") require('mobdebug').coro() end
-
+_HueHubs=nil
 ---------------- Here you place rules and user code, called once --------------------
 function main()
   local rule,define = Rule.eval, Util.defvar
@@ -52,7 +52,13 @@ function main()
   --Util.defvars(devs)                                            -- Make HomeTable defs available in EventScript
   --Util.reverseMapDef(devs)                                      -- Make HomeTable names available for logger
   
-  dofile("example_rules.lua")      -- some example rules to try out...
+  _System.setTime('11:00')
+  rule("$BlindTimeC='12:00'")
+  R1=rule("@time($BlindTimeC)  => log('Hupp')")
+  rule("$BlindTimeC => redaily(R1)")
+  
+  rule("wait(t/11:58); $BlindTimeC='12:01'; wait(00:00:01); $BlindTimeC='12:02'; wait(00:00:01); $BlindTimeC='12:03'")
+  --dofile("example_rules.lua")      -- some example rules to try out...
 end -- main()
 
 ------------------- EventModel - Don't change! --------------------  
@@ -1513,9 +1519,13 @@ function newRuleCompiler()
     if not r.dailys then return end
     local dailys = r.dailys
     for _,t in ipairs(dailys.timers or {}) do Event.cancel(t) end
+    dailys.timers = {}
     local times,m,ot = compTimes(dailys.dailys),midnight(),osTime()
     for _,t in ipairs(times) do
-      if t ~= CATCHUP and t+m >= ot then Log(LOG.LOG,"Rescheduling at %s",osDate("%X",t+m)); Event.post(dailys.event,t+m) end
+      if t ~= CATCHUP and t+m >= ot then 
+        Debug(_debugFlags.dailys,"Rescheduling at %s",osDate("%X",t+m)); 
+        dailys.timers[#dailys.timers+1]=Event.post(dailys.event,t+m) 
+      end
     end
   end
 
