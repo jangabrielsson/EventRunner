@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.11"  -- Fix17, Jan 25, 2019 
+_version = "1.11"  -- Fix18, Jan 25, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -1204,7 +1204,7 @@ function newScriptCompiler()
     {"^(%.%.)",'op'},{"^(->)",'op'},    
     {"^(%d+%.?%d*)",'num'},
     {"^(%|%|)",'token'},{"^(>>)",'token'},{"^(=>)",'token'},{"^(@@)",'op'},
-    {"^([%%%*%+/&%.:~=><%|!@]+)",'op'},{"^(-)",'op'},{"^(%=%-)",'op'},
+    {"^([%%%*%+/&%.:~=><%|!@]+)",'op'},{"^(%-%=)",'op'},{"^(-)",'op'},
   }
 
   local _specT={bracks={['{']='lbrack',['}']='rbrack',[',']='token',['[']='lsquare',[']']='rsquare'},
@@ -1231,7 +1231,7 @@ function newScriptCompiler()
       cp = cp+(#s1-#s)
     until s:match("^[%s%c]*$")
     return { peek = function() return tkns[tp] or EOF end, nxt = function() tp=tp+1 return tkns[tp-1] or EOF end, 
-      prev = function() return tkns[tp-2] end, push=function() tp=tp-1 end, str=org}
+      prev = function() return tkns[tp-2] end, push=function() tp=tp-1 end, str=org, atkns=tkns}
   end
 
   local function tmatch(str,t) _passert(t.peek().v==str,t.peek().cp,"expected '%s'",str) t.nxt() end
@@ -1275,6 +1275,8 @@ function newScriptCompiler()
   pExpr['gvar'] = function(t,tokens) return {'glob',t.v} end
   pExpr['addr'] = function(t,tokens) return {'%addr',t.v} end
   pExpr['time'] = function(t,tokens) return {'time',t.v} end
+
+  function self._dtokens(tokens) for _,t in ipairs(tokens.atkns) do printf("%s, %s, %s",t.t,t.v,t.cp) end end
 
   function self.expr(tokens)
     local s,res = Util.mkStack(),Util.mkStack()
