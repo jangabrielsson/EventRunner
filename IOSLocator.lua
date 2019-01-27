@@ -11,7 +11,7 @@
 -- Email: jan@gabrielsson.com
 --]]
 
-_version = "1.11" 
+_version = "1.12" 
 osTime = os.time
 osDate = os.date
 _debugFlags = { post=false,invoke=false,triggers=false,timers=false,fibaro=true,fibaroGet=false }

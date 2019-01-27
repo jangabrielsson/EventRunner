@@ -11,7 +11,7 @@
 -- Email: jan@gabrielsson.com
 --]]
 
-_version = "1.2" 
+_version = "1.12" 
 osTime = os.time
 osDate = os.date
 _debugFlags = { post=true,invoke=false,triggers=false,timers=false,fibaro=true,fibaroGet=false }
@@ -201,6 +201,7 @@ function urldecode(str) return str:gsub('%%(%x%x)',function (x) return string.ch
 if _type == 'other' and fibaro:args() then
   _trigger,_type = urldecode(fibaro:args()[1]),'remote'
 end
+tojson = json.encode
 
 function _midnight() local t=osDate("*t"); t.min,t.hour,t.sec=0,0,0; return osTime(t) end
 function _now() local t=osDate("*t"); return 60*(t.min+60*t.hour)+t.sec end

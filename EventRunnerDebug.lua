@@ -25,8 +25,8 @@ counter
   _EVENTSERVER=true starts a listener on a socket for receieving sourcetriggers/events from HC2 scene
   
 --]] 
-_version = _version or "1.11"
-if _version ~= "1.11" then error("Bad version of EventRunnerDebug") end  
+_version = _version or "1.12"
+if _version ~= "1.12" then error("Bad version of EventRunnerDebug") end  
 function _DEF(v,d) if v==nil then return d else return v end end
 
 _GUI           = _DEF(_GUI,false)        -- Needs wxwidgets support (e.g. require "wx"). Works in ZeroBrane under Lua 5.1.
@@ -867,7 +867,7 @@ if not _REMOTE then
     local idKey = id..key
     if not fibaro._fibaroCalls[idKey] or fibaro._fibaroCalls[idKey][1] ~= value then
       local ev = {type='property', deviceID=id, propertyName=key, value=value, _sh=true}
-      if Event then Event.post(ev) else setTimeout(function() main(ev) end,0) end
+      if Event.post then Event.post(ev) else setTimeout(function() main(ev) end,0) end
     end
     fibaro._fibaroCalls[idKey] = {value,osTime()}
   end

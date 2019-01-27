@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.11"  -- Fix19, Jan 25, 2019 
+_version = "1.12"  -- Jan 27, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -33,14 +33,14 @@ if not _SCENERUNNER then
 
 -- debug flags for various subsystems...
   _debugFlags = { 
-    post=true,invoke=false,eventserver=true,triggers=false,dailys=false,timers=false,rule=false,ruleTrue=false,
-    fibaro=true,fibaroGet=false,fibaroSet=false,sysTimers=false, hue=false,scene=true
+    post=true,invoke=false,eventserver=true,triggers=false,dailys=true,timers=false,rule=false,ruleTrue=false,
+    fibaro=true,fibaroStart=false,fibaroGet=false,fibaroSet=false,sysTimers=false,hue=false,scene=true
   }
 
 end
 -- If running offline we need our own setTimeout and net.HTTPClient() and other fibaro funs...
 if dofile then dofile("EventRunnerDebug.lua") require('mobdebug').coro() end
-_HueHubs=nil
+
 ---------------- Here you place rules and user code, called once --------------------
 function main()
   local rule,define = Rule.eval, Util.defvar
@@ -52,13 +52,7 @@ function main()
   --Util.defvars(devs)                                            -- Make HomeTable defs available in EventScript
   --Util.reverseMapDef(devs)                                      -- Make HomeTable names available for logger
   
-  _System.setTime('11:00')
-  rule("$BlindTimeC='12:00'")
-  R1=rule("@time($BlindTimeC)  => log('Hupp')")
-  rule("$BlindTimeC => redaily(R1)")
-  
-  rule("wait(t/11:58); $BlindTimeC='12:01'; wait(00:00:01); $BlindTimeC='12:02'; wait(00:00:01); $BlindTimeC='12:03'")
-  --dofile("example_rules.lua")      -- some example rules to try out...
+  dofile("example_rules.lua")      -- some example rules to try out...
 end -- main()
 
 ------------------- EventModel - Don't change! --------------------  
@@ -383,7 +377,7 @@ function newEventEngine()
     local res = nil
     res = {
       [self.RULE] = {}, src=ctx.src, line=ctx.line, --- res ??????
-      enable = function() if not tp then tp = self.post(loop,start and 0 or time,ctx) end return res end, 
+      enable = function() if not tp then tp = self.post(loop,(not start) and time or nil,ctx) end return res end, 
       disable= function() tp = self.cancel(tp) return res end, 
     }
     res.enable()
@@ -1486,15 +1480,15 @@ function newRuleCompiler()
     else
       local m,ot,catchup1,catchup2=midnight(),osTime()
       if #dailys > 0 then
-        local devent,dtimers={type=Util.gensym("DAILY")},{}
-        _dailys[#_dailys+1]={dailys=dailys,event=devent,timers=dtimers}
-        events[#events+1]=Event.event(devent,action,nil,ctx); events[#events].ctx=ctx; sdaily = _dailys[#_dailys]
-        devent._sh=true
+        local devent,dtimers={type=Util.gensym("DAILY"),_sh=true},{}
+        sdaily={dailys=dailys,event=devent,timers=dtimers}
+        _dailys[#_dailys+1] = sdaily
+        events[#events+1]=Event.event(devent,action,nil,ctx); events[#events].ctx=ctx; 
         times = compTimes(dailys)
-        for _,t in ipairs(times) do _assert(tonumber(t),"@time not a number:%s",t)
+        for i,t in ipairs(times) do _assert(tonumber(t),"@time not a number:%s",t)
           if t ~= CATCHUP then
             if t+m >= ot then dtimers[#dtimers+1]=Event.post(devent,t+m) else catchup1=true end
-          else catchup2 = true end
+          else catchup2 = true, table.remove(dailys,i) end
         end
         if catchup2 and catchup1 then Log(LOG.LOG,"Cathing up:%s",ctx.src); Event.post(devent) end
       end
@@ -1503,7 +1497,7 @@ function newRuleCompiler()
       end
     end
     res=Event._mkCombEvent(ctx.src,ctx.src,action,events)
-    res.dailys,res.ctx = sdaily,ctx
+    res.dailys,res.ctx,sdaily.rule = sdaily,ctx,res
     res._code = code
     res.print = function()
       Util.map(function(d) Log(LOG.LOG,"Interval(%s) =>...",time2str(d)) end,compTimes(scheds)) 
@@ -1515,74 +1509,72 @@ function newRuleCompiler()
     return res
   end
 
+-- context = {log=<bool>, level=<int>, line=<int>, doc=<str>, trigg=<bool>, enable=<bool>}
+  function self.eval(escript,log,ctx)
+    ctx = ctx or {src=escript, line=_LINE()}
+    ctx.src,ctx.line = ctx.src or escript, ctx.line or _LINE()
+    local status, res = pcall(function() 
+        local expr = self.macroSubs(escript)
+        local res = ScriptCompiler.parse(expr)
+        res = ScriptCompiler.compile(res)
+        res = ScriptEngine.eval(res,ctx) -- ctx is like an environment...
+        if log then Log(LOG.LOG,"%s = %s",escript,tojson(res)) end
+        return res
+      end)
+    if not status then errThrow(_format("Error evaluating '%s'%s",ctx.src,_LINEFORMAT(ctx.line)),res)
+    else return res end
+  end
+
+  function self.load(rules,log)
+    local function splitRules(rules)
+      local lines,cl,pb,cline = {},math.huge,false,""
+      if not rules:match("([^%c]*)\r?\n") then return {rules} end
+      rules:gsub("([^%c]*)\r?\n?",function(p) 
+          if p:match("^%s*---") then return end
+          local s,l = p:match("^(%s*)(.*)")
+          if l=="" then cl = math.huge return end
+          if #s > cl then cline=cline.." "..l cl = #s pb = true
+          elseif #s == cl and pb then cline=cline.." "..l
+          else if cline~="" then lines[#lines+1]=cline end cline=l cl=#s pb = false end
+        end)
+      lines[#lines+1]=cline
+      return lines
+    end
+    map(function(r) self.eval(r,log,{src=r,level=_LINE()}) end,splitRules(rules))
+  end
+
+  function self.macro(name,str) _macros['%$'..name..'%$'] = str end
+  function self.macroSubs(str) for m,s in pairs(_macros) do str = str:gsub(m,s) end return str end
+
   function self.restartDaily(r)
     if not r.dailys then return end
-    local dailys = r.dailys
+    local dailys,dtimers = r.dailys,{}
     for _,t in ipairs(dailys.timers or {}) do Event.cancel(t) end
-    dailys.timers = {}
+    dailys.timers = dtimers
     local times,m,ot = compTimes(dailys.dailys),midnight(),osTime()
     for _,t in ipairs(times) do
-      if t ~= CATCHUP and t+m >= ot then 
-        Debug(_debugFlags.dailys,"Rescheduling at %s",osDate("%X",t+m)); 
-        dailys.timers[#dailys.timers+1]=Event.post(dailys.event,t+m) 
+      if t+m >= ot then 
+        Debug(_debugFlags.dailys,"Rescheduling daily %s at %s",r._name or "",osDate("%c",t+m)); 
+        dtimers[#dtimers+1]=Event.post(dailys.event,t+m) 
       end
     end
   end
 
--- context = {log=<bool>, level=<int>, line=<int>, doc=<str>, trigg=<bool>, enable=<bool>}
-function self.eval(escript,log,ctx)
-  ctx = ctx or {src=escript, line=_LINE()}
-  ctx.src,ctx.line = ctx.src or escript, ctx.line or _LINE()
-  local status, res = pcall(function() 
-      local expr = self.macroSubs(escript)
-      local res = ScriptCompiler.parse(expr)
-      res = ScriptCompiler.compile(res)
-      res = ScriptEngine.eval(res,ctx) -- ctx is like an environment...
-      if log then Log(LOG.LOG,"%s = %s",escript,tojson(res)) end
-      return res
-    end)
-  if not status then errThrow(_format("Error evaluating '%s'%s",ctx.src,_LINEFORMAT(ctx.line)),res)
-  else return res end
-end
-
-function self.load(rules,log)
-  local function splitRules(rules)
-    local lines,cl,pb,cline = {},math.huge,false,""
-    if not rules:match("([^%c]*)\r?\n") then return {rules} end
-    rules:gsub("([^%c]*)\r?\n?",function(p) 
-        if p:match("^%s*---") then return end
-        local s,l = p:match("^(%s*)(.*)")
-        if l=="" then cl = math.huge return end
-        if #s > cl then cline=cline.." "..l cl = #s pb = true
-        elseif #s == cl and pb then cline=cline.." "..l
-        else if cline~="" then lines[#lines+1]=cline end cline=l cl=#s pb = false end
-      end)
-    lines[#lines+1]=cline
-    return lines
-  end
-  map(function(r) self.eval(r,log,{src=r,level=_LINE()}) end,splitRules(rules))
-end
-
-function self.macro(name,str) _macros['%$'..name..'%$'] = str end
-function self.macroSubs(str) for m,s in pairs(_macros) do str = str:gsub(m,s) end return str end
-
-Event.schedule("n/00:00",function(env)  -- Scheduler that every night posts 'daily' rules
-    _DSTadjust = os.date("*t").isdst and -60*60 or 0
-    local midnight = midnight()
-    for _,d in ipairs(_dailys) do
-      d.timers={}
-      local times,dt = compTimes(d.dailys)
-      for _,t in ipairs(times) do
-        if t ~= CATCHUP then
-          if _debugFlags.dailys then Debug(true,"Scheduling at %s",osDate("%X",midnight+t)) end
+  Event.schedule("n/00:00",function(env)  -- Scheduler that every night posts 'daily' rules
+      _DSTadjust = os.date("*t").isdst and -60*60 or 0
+      local midnight = midnight()
+      for _,d in ipairs(_dailys) do
+        d.timers={}
+        local times,dt = compTimes(d.dailys)
+        for _,t in ipairs(times) do
+          if _debugFlags.dailys then Debug(true,"Scheduling daily %s at %s",d.rule._name or "",osDate("%c",midnight+t)) end
           if t==0 then dt=Event.post(d.event) else dt=Event.post(d.event,midnight+t) end
           d.timers[#d.timers+1]=dt
         end
       end
-    end
-  end)
+    end)
 
-return self
+  return self
 end
 Rule = newRuleCompiler()
 
