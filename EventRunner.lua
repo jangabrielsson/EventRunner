@@ -13,6 +13,7 @@ counter
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
 _version = "1.12"  -- Jan 27, 2019 
+_fix = ""
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -1863,7 +1864,7 @@ end
 
 ---------------------- Startup -----------------------------    
 if _type == 'autostart' or _type == 'other' then
-  Log(LOG.WELCOME,_format("%sEventRunner v%s",_sceneName and (_sceneName.." - " or ""),_version))
+  Log(LOG.WELCOME,_format("%sEventRunner v%s %s",_sceneName and (_sceneName.." - " or ""),_version,_fix))
 
   if not _OFFLINE then
     local info = api.get("/settings/info")
