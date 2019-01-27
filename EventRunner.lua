@@ -12,8 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.12"  -- Jan 27, 2019 
-_fix = ""
+_version,_fix = "1.12",""  -- Jan 27, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -1498,7 +1497,8 @@ function newRuleCompiler()
       end
     end
     res=Event._mkCombEvent(ctx.src,ctx.src,action,events)
-    res.dailys,res.ctx,sdaily.rule = sdaily,ctx,res
+    res.dailys,res.ctx = sdaily,ctx
+    if sdaily then sdaily.rule=res end
     res._code = code
     res.print = function()
       Util.map(function(d) Log(LOG.LOG,"Interval(%s) =>...",time2str(d)) end,compTimes(scheds)) 
