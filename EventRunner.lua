@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version,_fix = "1.12",""  -- Jan 27, 2019 
+_version,_fix = "1.12","1"  -- Jan 27, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -51,7 +51,7 @@ function main()
   --local devs = json.decode(fibaro:getGlobalValue(_deviceTable)) -- Read in "HomeTable" global
   --Util.defvars(devs)                                            -- Make HomeTable defs available in EventScript
   --Util.reverseMapDef(devs)                                      -- Make HomeTable names available for logger
-  
+
   dofile("example_rules.lua")      -- some example rules to try out...
 end -- main()
 
@@ -1377,6 +1377,14 @@ function newRuleCompiler()
     label=lblF,slider=lblF
   }
 
+  local function dupProp(tr1,tr2) 
+    if tr1 and tr1.type and tr2.type then
+      tr1.propertyName = type(tr1.propertyName)=='table' and tr1.propertyName or {tr1.propertyName}
+      table.insert(tr1.propertyName,tr2.propertyName)
+      return tr1
+    else return tr2 end
+  end
+  
   local gtFuns = {
     ['daily'] = function(e,s) s.dailys[#s.dailys+1 ]=ScriptCompiler.compile(e[2]) s.dailyFlag=true end,
     ['schedule'] = function(e,s) s.scheds[#s.scheds+1 ] = ScriptCompiler.compile(e[2]) end,
@@ -1391,7 +1399,7 @@ function newRuleCompiler()
       local pn = tProps[e[3]] and tPropsV[tProps[e[3]]] or e[3]
       local cv = ScriptCompiler.compile(e[2])
       local v = ScriptEngine.eval(cv)
-      map(function(id) s.triggs[id]={type='property', deviceID=id, propertyName=pn} end,type(v)=='table' and v or {v})
+      map(function(id) s.triggs[id]=dupProp(s.triggs[id],{type='property', deviceID=id, propertyName=pn}) end,type(v)=='table' and v or {v})
     end,
   }
 
@@ -1465,6 +1473,7 @@ function newRuleCompiler()
     end
     local code,action = ScriptCompiler.compile({'and',(_debugFlags.rule or _debugFlags.ruleTrue) and {'logRule',h,ctx.src} or h,body})
     action = function(env) return ScriptEngine.eval(code,env) end
+    local triggs2={}
     if #scheds>0 then
       local sevent={type=Util.gensym("INTERV")}
       events[#events+1] = Event.event(sevent,action,nil,ctx); events[#events].ctx=ctx
@@ -1493,7 +1502,14 @@ function newRuleCompiler()
         if catchup2 and catchup1 then Log(LOG.LOG,"Cathing up:%s",ctx.src); Event.post(devent) end
       end
       if not dailyFlag and #triggs > 0 then -- id/glob trigger or events
-        for _,tr in ipairs(triggs) do events[#events+1]=Event.event(tr,action,nil,ctx); events[#events].ctx=ctx end
+        for _,tr in ipairs(triggs) do 
+          for _,pn in ipairs(type(tr.propertyName)=='table' and tr.propertyName or {tr.propertyName}) do
+            if pn~='$prop' then
+              local tr2 = _copy(tr); tr2.propertyName=pn; triggs2[#triggs2+1]=tr2
+              events[#events+1]=Event.event(tr2,action,nil,ctx); events[#events].ctx=ctx
+            end
+          end
+        end
       end
     end
     res=Event._mkCombEvent(ctx.src,ctx.src,action,events)
@@ -1503,7 +1519,7 @@ function newRuleCompiler()
     res.print = function()
       Util.map(function(d) Log(LOG.LOG,"Interval(%s) =>...",time2str(d)) end,compTimes(scheds)) 
       Util.map(function(d) Log(LOG.LOG,"Daily(%s) =>...",d==CATCHUP and "catchup" or time2str(d)) end,compTimes(dailys)) 
-      Util.map(function(tr) Log(LOG.LOG,"Trigger(%s) =>...",tojson(tr)) end,triggs)
+      Util.map(function(tr) Log(LOG.LOG,"Trigger(%s) =>...",tojson(tr)) end,triggs2)
     end
     rCounter=rCounter+1
     Log(LOG.SYSTEM,RULEFORMAT,rCounter,ctx.src:match("([^%c]*)"))
