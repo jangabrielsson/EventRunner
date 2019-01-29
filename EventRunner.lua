@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version,_fix = "1.12","3"  -- Jan 27, 2019 
+_version,_fix = "1.12","fix3"  -- Jan 27, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
