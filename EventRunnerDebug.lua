@@ -1,18 +1,4 @@
 --[[
-%% properties
-55 value
-66 value
-77 value
-%% events
-88 CentralSceneEvent
-99 sceneActivation
-100 AccessControlEvent
-%% globals
-counter
-%% autostart
---]]
-
---[[
 
   EventRunnerDebug. EventRunner support
   GNU GENERAL PUBLIC LICENSE. Version 3, 29 June 2007
@@ -25,8 +11,8 @@ counter
   _EVENTSERVER=true starts a listener on a socket for receieving sourcetriggers/events from HC2 scene
   
 --]] 
-_version = _version or "1.12"
-if _version ~= "1.12" then error("Bad version of EventRunnerDebug") end  
+_version = _version or "1.14"
+if _version ~= "1.14" then error("Bad version of EventRunnerDebug") end  
 function _DEF(v,d) if v==nil then return d else return v end end
 
 _GUI           = _DEF(_GUI,false)        -- Needs wxwidgets support (e.g. require "wx"). Works in ZeroBrane under Lua 5.1.
@@ -116,7 +102,7 @@ if _REMOTE then
   end
 end
 if not _REMOTE then _System._addMsg("Emulating local Fibaro API") end
-  
+
 _ENV = _ENV or _G or {}
 
 do -- metadata and globals per coroutine
@@ -1145,7 +1131,7 @@ end
 function _System.runOffline(setup)
   _System._msgFlush()
   if _EVENTSERVER then
-    setTimeout(_System.startServer(_PORT),100)
+    setTimeout(_System.startServer(_PORT),100,"EVENTSERVER")
   end
   if _SPEEDTIME then
     setTimeout(_System.checkMaxTime,1000*3600,"Check")
@@ -1199,12 +1185,14 @@ function _System.startServer(port)
           j=l:match("GET[%s%c]*/(.*)HTTP/1%.1$")
           j = urldecode(j)
           if _debugFlags.eventserver then Debug(true,"HC2:%s",j) end
+          if Util.validateChars then Util.validateChars(j,"Bad chars in event from HC2:%s") end
           j=json.decode(j) j._sh=true
           Event.post(j)
         elseif j and j~="" then
           --c:close()
           j = urldecode(j)
           if _debugFlags.eventserver then Debug(true,"Node_red:%s",j) end
+          if Util.validateChars then Util.validateChars(j,"Bad chars in event from node-red:%s") end
           j=json.decode(j) j._sh=true
           Event.post(j)
         end

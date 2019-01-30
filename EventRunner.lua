@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version,_fix = "1.12","fix3"  -- Jan 27, 2019 
+_version,_fix = "1.14",""  -- Jan 30, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -26,9 +26,9 @@ if not _SCENERUNNER then
   _ruleLogLength = 80          -- Log message cut-off, defaults to 40
   _HueHubs       = {}          -- Hue bridges, Ex. {{name='Hue',user=_HueUserName,ip=_HueIP}}
   _GUI = false                 -- Offline only, Open WX GUI for event triggers, Requires Lua 5.1 in ZBS
-  _SPEEDTIME     = 24*36           -- Offline only, Speed through X hours, set to false will run in real-time
-  _EVENTSERVER   = true          -- Starts port on 6872 listening for incoming events (Node-red, HC2 etc)
-
+  _SPEEDTIME     = 24*36       -- Offline only, Speed through X hours, set to false will run in real-time
+  _EVENTSERVER   = true        -- Starts port on 6872 listening for incoming events (Node-red, HC2 etc)
+  _VALIDATECHARS = true        -- Check rules for invalid characters (cut&paste)
   _myNodeRed = "http://192.168.1.50:1880/eventrunner"  -- Ex. used for Event.postRemote(_myNodeRed,{type='test})
 
 -- debug flags for various subsystems...
@@ -78,8 +78,10 @@ if _supportedEvents[_type] then
   if fibaro:countScenes() == 1 then fibaro:debug("Aborting: Server not started yet"); fibaro:abort() end
   local event = type(_trigger) ~= 'string' and json.encode(_trigger) or _trigger
   local ticket = string.format('<@>%s%s',tostring(_source),event)
-  repeat 
-    while(fibaro:getGlobal(_MAILBOX) ~= "") do fibaro:sleep(100) end -- try again in 100ms
+  repeat
+    local tries=50 -- Can't acquire lock in 5second, consider something wrong...
+    while(fibaro:getGlobal(_MAILBOX) ~= "" and tries>0) do fibaro:sleep(100); tries=tries-1 end -- try again in 100ms
+    if tries<1 then fibaro:debug("Couldn't post event (dead?), dropping:"..event) fibaro:abort() end
     fibaro:setGlobal(_MAILBOX,ticket) -- try to acquire lock
   until fibaro:getGlobal(_MAILBOX) == ticket -- got lock
   fibaro:setGlobal(_MAILBOX,event) -- write msg
@@ -425,6 +427,7 @@ function newEventEngine()
     for _,hashKey in ipairs(hasKeys) do
       for _,rules in ipairs(_handlers[hashKey] or {}) do -- Check all rules of 'type'
         local match = _match(rules[1][self.RULE],e)
+        if e.type=='alexa' then Log(LOG.LOG,"Match %s %s %s",tojson(e),tojson(rules[1][self.RULE]),tojson(match)) end
         if match then
           if next(match) then for k,v in pairs(match) do env.p[k]=v match[k]={v} end env.context = match end
           for _,rule in ipairs(rules) do 
@@ -595,6 +598,13 @@ function Util.printRule(rule)
   Log(LOG.LOG,"Source:'%s'%s",rule.src,_LINEFORMAT(rule.line))
   rule.print()
   Log(LOG.LOG,"-----------------------------------")
+end
+
+function Util.validateChars(str,msg)
+  if _VALIDATECHARS then -- Check for strange characters in input string, can happen with cut&paste
+    str=str:gsub("[\192-\255]+[\128-\191]*","X") -- remove multibyte unicode
+    if str:match("[%w%p%s]*") ~= str then error(string.format(msg,str)) end 
+  end
 end
 
 function Util.mapAnd(f,l,s) s = s or 1; local e=true for i=s,#l do e = f(l[i]) if not e then return false end end return e end 
@@ -1494,9 +1504,9 @@ function newRuleCompiler()
       end
       if not dailyFlag and #triggs > 0 then -- id/glob trigger or events
         for _,tr in ipairs(triggs) do 
-            if tr.propertyName~='$prop' then
-              events[#events+1]=Event.event(tr,action,nil,ctx); events[#events].ctx=ctx
-            end
+          if tr.propertyName~='$prop' then
+            events[#events+1]=Event.event(tr,action,nil,ctx); events[#events].ctx=ctx
+          end
         end
       end
     end
@@ -1516,6 +1526,7 @@ function newRuleCompiler()
 
 -- context = {log=<bool>, level=<int>, line=<int>, doc=<str>, trigg=<bool>, enable=<bool>}
   function self.eval(escript,log,ctx)
+    Util.validateChars(escript,"Invlid char in rule:%s")
     ctx = ctx or {src=escript, line=_LINE()}
     ctx.src,ctx.line = ctx.src or escript, ctx.line or _LINE()
     local status, res = pcall(function() 
@@ -1866,7 +1877,11 @@ function makeHueHub(name,username,ip,cont)
   return self
 end
 
----------------------- Startup -----------------------------    
+---------------------- Startup -----------------------------  
+if _type == 'other' and fibaro:countScenes() > 1 then 
+  Log(LOG.LOG,"Scene already started. Try again?") 
+  fibaro:abort()
+end
 if _type == 'autostart' or _type == 'other' then
   Log(LOG.WELCOME,_format("%sEventRunner v%s %s",_sceneName and (_sceneName.." - " or ""),_version,_fix))
 
