@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version,_fix = "1.14","fix1"  -- Jan 30, 2019 
+_version,_fix = "1.14","fix2"  -- Jan 30, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -602,7 +602,7 @@ end
 
 function Util.validateChars(str,msg)
   if _VALIDATECHARS then -- Check for strange characters in input string, can happen with cut&paste
-    if str:find("\xEF\xBB\xBF") then error(string.format(msg,str)) end
+    local p = str:find("\xEF\xBB\xBF") if p then error(string.format("Char:%s, "..msg,p,str)) end
     str=str:gsub("[\192-\255]+[\128-\191]*","X") -- remove multibyte unicode
     if str:match("[%w%p%s]*") ~= str then error(string.format(msg,str)) end 
   end
