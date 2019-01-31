@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version,_fix = "1.14",""  -- Jan 30, 2019 
+_version,_fix = "1.14","fix1"  -- Jan 30, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -602,6 +602,7 @@ end
 
 function Util.validateChars(str,msg)
   if _VALIDATECHARS then -- Check for strange characters in input string, can happen with cut&paste
+    if str:find("\xEF\xBB\xBF") then error(string.format(msg,str)) end
     str=str:gsub("[\192-\255]+[\128-\191]*","X") -- remove multibyte unicode
     if str:match("[%w%p%s]*") ~= str then error(string.format(msg,str)) end 
   end
@@ -1526,7 +1527,7 @@ function newRuleCompiler()
 
 -- context = {log=<bool>, level=<int>, line=<int>, doc=<str>, trigg=<bool>, enable=<bool>}
   function self.eval(escript,log,ctx)
-    Util.validateChars(escript,"Invlid char in rule:%s")
+    Util.validateChars(escript,"Invalid (multi-byte) char in rule:%s")
     ctx = ctx or {src=escript, line=_LINE()}
     ctx.src,ctx.line = ctx.src or escript, ctx.line or _LINE()
     local status, res = pcall(function() 
