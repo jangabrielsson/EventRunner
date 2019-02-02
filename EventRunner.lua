@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version,_fix = "1.14","fix2"  -- Jan 30, 2019 
+_version,_fix = "1.14","fix4"  -- Feb 2, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -26,6 +26,7 @@ if not _SCENERUNNER then
   _ruleLogLength = 80          -- Log message cut-off, defaults to 40
   _HueHubs       = {}          -- Hue bridges, Ex. {{name='Hue',user=_HueUserName,ip=_HueIP}}
   _GUI = false                 -- Offline only, Open WX GUI for event triggers, Requires Lua 5.1 in ZBS
+  _REMOTE=false
   _SPEEDTIME     = 24*36       -- Offline only, Speed through X hours, set to false will run in real-time
   _EVENTSERVER   = true        -- Starts port on 6872 listening for incoming events (Node-red, HC2 etc)
   _VALIDATECHARS = true        -- Check rules for invalid characters (cut&paste)
@@ -603,8 +604,8 @@ end
 function Util.validateChars(str,msg)
   if _VALIDATECHARS then -- Check for strange characters in input string, can happen with cut&paste
     local p = str:find("\xEF\xBB\xBF") if p then error(string.format("Char:%s, "..msg,p,str)) end
-    str=str:gsub("[\192-\255]+[\128-\191]*","X") -- remove multibyte unicode
-    if str:match("[%w%p%s]*") ~= str then error(string.format(msg,str)) end 
+--    str=str:gsub("[\192-\255]+[\128-\191]*","X") -- remove multibyte unicode
+--    if str:match("[%w%p%s]*") ~= str then error(string.format(msg,str)) end 
   end
 end
 
@@ -790,6 +791,9 @@ function newScriptEngine()
   end
   setIdFun['color'] = function(s,i,id,v) doit(Util.mapF,function(id) fibaro:call(ID(id,i),'setColor',v[1],v[2],v[3]) end,id) return v end
   setIdFun['msg'] = function(s,i,id,v) local m = v doit(Util.mapF,function(id) fibaro:call(ID(id,i),'sendPush',m) end,id) return m end
+  setIdFun['email'] = function(s,i,id,v) local h,m = v:match("(.-):(.*)") 
+    doit(Util.mapF,function(id) fibaro:call(ID(id,i),'sendEmail',h,m) end,id) return v
+  end
   setIdFun['btn'] = function(s,i,id,v) local k = v doit(Util.mapF,function(id) fibaro:call(ID(id,i),'pressButton',k) end,id) return k end
   setIdFun['start'] = function(s,i,id,v) 
     if isEvent(v) then doit(Util.mapF,function(id) Event.postRemote(ID(id,i),v) end,id) return v
@@ -1650,7 +1654,7 @@ function hueSetup(cont)
     function self.connect(name,user,ip,cont)
       self.hubs[name]=makeHueHub(name,user,ip,cont)
     end
-    function self.hueName(hue) --Hue1﻿:SensorID=1
+    function self.hueName(hue) --Hue1:SensorID=1
       local name,t,id=hue:match("(%w+):(%a+)=(%d+)")
       local dev = ({SensorID='sensors',LightID='lights',GroupID='groups'})[t]
       return name..":"..self.hubs[name][dev][tonumber(id)].name 

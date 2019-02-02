@@ -25,7 +25,7 @@ _POLLINTERVAL = 200
 _PORT         = 6872
 _MEM          = false  -- Log memory usage
 _HTMLFILTER   = true   -- Remove <span>...</span> in fibaro:debug output
-_COLOR        = false   -- Log messages in color on ZBS Output
+_COLOR        = true   -- Log messages in color on ZBS Output
 
 _LATITUDE     = "59.316947"  -- Set HC2 place to make sunset/sunrise give correct values
 _LONGITUDE    = "18.064006"
@@ -279,6 +279,19 @@ function _System.readHC2FromFile()
   f.close()
 end
 
+function _System.checkValidCharsInFile(src,fileName)
+  local lines = split(src,'\r')
+  local function ptr(p) local r={}; for i=1,p+9 do r[#r+1]=' ' end return table.concat(r).."^" end
+  for n,s in ipairs(lines) do
+    s=s:match("^%c*(.*)")
+    local p = s:find("\xEF\xBB\xBF")
+    if p then 
+      local err = string.format("Illegal UTF-8 sequence in file:%s\rLine:%3d, %s\r%s",fileName,n,s,ptr(p))
+      Log(LOG.ERROR,err)
+    end
+  end
+end
+
 --- Parse scene headers ------------------------
 function _System.parseHeaders(fileName)
   local headers = {}
@@ -286,6 +299,7 @@ function _System.parseHeaders(fileName)
   local f = io.open(fileName)
   if not f then error("No such file:"..fileName) end
   local src = f:read("*all")
+  _System.checkValidCharsInFile(src,fileName)
   local c = src:match("--%[%[.-%-%-%]%]")
   local curr = nil
   if c and c~="" then
