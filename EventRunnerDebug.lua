@@ -287,6 +287,7 @@ function _System.checkValidCharsInFile(src,fileName)
     local p = s:find("\xEF\xBB\xBF")
     if p then 
       local err = string.format("Illegal UTF-8 sequence in file:%s\rLine:%3d, %s\r%s",fileName,n,s,ptr(p))
+      err=err:gsub("%%","%%%%")
       Log(LOG.ERROR,err)
     end
   end
