@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version,_fix = "1.14","fix4"  -- Feb 2, 2019 
+_version,_fix = "1.14","fix5"  -- Feb 3, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -51,7 +51,7 @@ function main()
 
   --local devs = json.decode(fibaro:getGlobalValue(_deviceTable)) -- Read in "HomeTable" global
   --Util.defvars(devs)                                            -- Make HomeTable defs available in EventScript
-  --Util.reverseMapDef(devs)                                      -- Make HomeTable names available for logger
+  --Util.reverseMapDef(devs)                                       -- Make HomeTable names available for logger
 
   dofile("example_rules.lua")      -- some example rules to try out...
 end -- main()
@@ -1503,7 +1503,7 @@ function newRuleCompiler()
         for i,t in ipairs(times) do _assert(tonumber(t),"@time not a number:%s",t)
           if t ~= CATCHUP then
             if t+m >= ot then dtimers[#dtimers+1]=Event.post(devent,t+m) else catchup1=true end
-          else catchup2 = true, table.remove(dailys,i) end
+          else catchup2 = true end
         end
         if catchup2 and catchup1 then Log(LOG.LOG,"Cathing up:%s",ctx.src); Event.post(devent) end
       end
@@ -1574,7 +1574,7 @@ function newRuleCompiler()
     dailys.timers = dtimers
     local times,m,ot = compTimes(dailys.dailys),midnight(),osTime()
     for _,t in ipairs(times) do
-      if t+m >= ot then 
+      if t ~= CATCHUP and t+m >= ot then 
         Debug(_debugFlags.dailys,"Rescheduling daily %s at %s",r._name or "",osDate("%c",t+m)); 
         dtimers[#dtimers+1]=Event.post(dailys.event,t+m) 
       end
@@ -1588,9 +1588,11 @@ function newRuleCompiler()
         d.timers={}
         local times,dt = compTimes(d.dailys)
         for _,t in ipairs(times) do
-          if _debugFlags.dailys then Debug(true,"Scheduling daily %s at %s",d.rule._name or "",osDate("%c",midnight+t)) end
-          if t==0 then dt=Event.post(d.event) else dt=Event.post(d.event,midnight+t) end
-          d.timers[#d.timers+1]=dt
+          if t ~= CATCHUP then
+            if _debugFlags.dailys then Debug(true,"Scheduling daily %s at %s",d.rule._name or "",osDate("%c",midnight+t)) end
+            if t==0 then dt=Event.post(d.event) else dt=Event.post(d.event,midnight+t) end
+            d.timers[#d.timers+1]=dt
+          end
         end
       end
     end)
