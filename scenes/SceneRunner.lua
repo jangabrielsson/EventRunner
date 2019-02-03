@@ -4,8 +4,8 @@
 -- Email: jan@gabrielsson.com
 --]]
 
-_GUI = true               -- Offline only, Open WX GUI for event triggers, Requires Lua 5.1 in ZBS
-_SPEEDTIME = 24*36        -- Offline only, Speed through X hours, set to false will run in real-time
+_GUI = false               -- Offline only, Open WX GUI for event triggers, Requires Lua 5.1 in ZBS
+_SPEEDTIME = 24*60        -- Offline only, Speed through X hours, set to false will run in real-time
 _EVENTSERVER=false        -- Starts port on 6872 listening for incoming events (Node-red, HC2 etc)
 _REMOTE=false             -- Use Fibaro remote API
 hc2_user = "xxx"          -- used for api.x/FibaroSceneAPI calls
@@ -13,6 +13,12 @@ hc2_pwd  = "xxx"
 hc2_ip   = "192.168.1.84" -- IP of HC2
 
 ----------- Set up scenes and commands/triggers --------
+if true then -- Example of scenes starting up each other
+scenes = {
+   {name="Theo",id=11,file="Theo.lua"},
+}
+end
+
 if nil then -- Example of scenes starting up each other
 scenes = {
    {name="Ping",id=11,file="scenes/Ping.lua"},
@@ -20,7 +26,7 @@ scenes = {
 }
 end
 
-if true then -- Example of scene reacting on sensor turning on/off light
+if nil then -- Example of scene reacting on sensor turning on/off light
 scenes = {
    {name="Test2",id=11,file="scenes/Test2.lua"},
 }
@@ -58,7 +64,7 @@ function _ALTERNATIVEMAIN()
   end
   local choices2 = {}
   for k,v in pairs(choices) do choices2[#choices2+1]=k end
-  _setUIEventItems(choices2)
+  if _GUI then _setUIEventItems(choices2) end
   for _,cmd in ipairs(commands or {}) do
     Rule.eval(cmd)
   end

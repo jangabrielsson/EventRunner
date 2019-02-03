@@ -883,7 +883,7 @@ if not _REMOTE then
 
   function fibaro:call(id,prop,...)
     if _specCalls[prop] then _specCalls[prop](id,...) return end 
-    local value = ({turnOff="0",turnOn="99",on="99",off="0"})[prop] or (prop=='setValue' and tostring(({...})[1]))
+    local value = ({turnOff="0",turnOn="99",open='99', on="99",close='0', off="0"})[prop] or (prop=='setValue' and tostring(({...})[1]))
     if not value then error(_format("fibaro:call(..,'%s',..) is not supported, fix it!",prop)) end
     setAndPropagate(id,'value',value)
   end
