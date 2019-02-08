@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version,_fix = "1.14","fix5"  -- Feb 3, 2019 
+_version,_fix = "1.14","fix6"  -- Feb 8, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -53,6 +53,7 @@ function main()
   --Util.defvars(devs)                                            -- Make HomeTable defs available in EventScript
   --Util.reverseMapDef(devs)                                       -- Make HomeTable names available for logger
 
+  rule("trace(true)")
   dofile("example_rules.lua")      -- some example rules to try out...
 end -- main()
 
@@ -502,7 +503,7 @@ interceptFib("sleep","fibaro",
     Debug(true,"fibaro:sleep(%s) until %s",time,osDate("%X",osTime()+math.floor(0.5+time/1000)))
     fun(obj,time) 
   end)
-interceptFib("startScene","fibaro",
+interceptFib("startScene","fibaroStart",
   function(obj,fun,id,args) 
     local a = args and #args==1 and type(args[1])=='string' and (json.encode({(urldecode(args[1]))})) or args and json.encode(args)
     Debug(true,"fibaro:start(%s%s)",id,a and ","..a or "")
@@ -685,19 +686,22 @@ function Util._keyCompare(a,b)
 end
 
 function Util.prettyJson(e) -- our own json encode, as we don't have 'pure' json structs, and sorts keys in order
-  local res,t = {}
+  local res,seen,t = {},{}
   local function pretty(e)
     local t = type(e)
     if t == 'string' then res[#res+1] = '"' res[#res+1] = e res[#res+1] = '"' 
     elseif t == 'number' then res[#res+1] = e
-    elseif t == 'boolean' or t == 'function' then res[#res+1] = tostring(e)
+    elseif t == 'boolean' or t == 'function' or t=='thread' then res[#res+1] = tostring(e)
     elseif t == 'table' then
       if next(e)==nil then res[#res+1]='{}'
+      elseif seen[e] then res[#res+1]="..rec.."
       elseif e[1] then
+        seen[e]=true
         res[#res+1] = "[" pretty(e[1])
         for i=2,#e do res[#res+1] = "," pretty(e[i]) end
         res[#res+1] = "]"
       else
+        seen[e]=true
         if e._var_  then res[#res+1] = _format('"%s"',e._str) return end
         local k = {} for key,_ in pairs(e) do k[#k+1] = key end 
         table.sort(k,Util._keyCompare)
