@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version,_fix = "1.14","fix6"  -- Feb 8, 2019 
+_version,_fix = "1.14","fix7"  -- Feb 8, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -53,7 +53,6 @@ function main()
   --Util.defvars(devs)                                            -- Make HomeTable defs available in EventScript
   --Util.reverseMapDef(devs)                                       -- Make HomeTable names available for logger
 
-  rule("trace(true)")
   dofile("example_rules.lua")      -- some example rules to try out...
 end -- main()
 
