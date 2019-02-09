@@ -595,6 +595,7 @@ function _System.setTime(start,stop)
   -- Log(LOG.SYSTEM,"Starting time:%s, Ending time:%s",osOrgDate("%x %X",_gTime),osOrgDate("%x %X",_eTime))
 end
 
+tojson=json.encode
 function _System.runTimers()
   if _gsSt then _gTime=_gTime+(osOrgTime()-_gsSt) _gsSt=nil end -- Sleeping with wxWidget timers
   while _gTimers ~= nil do

@@ -11,9 +11,10 @@
 -- Email: jan@gabrielsson.com
 --]]
 
-_version = "1.12" 
+_version = "1.14" 
 osTime = os.time
 osDate = os.date
+_SPEEDTIME=false
 _debugFlags = { post=false,invoke=false,triggers=false,timers=false,fibaro=true,fibaroGet=false }
 if dofile then dofile("EventRunnerDebug.lua") end -- Support for running off-line on PC/Mac
 
@@ -43,11 +44,15 @@ HomeTable = [[
   },
 }
 ]]
+if dofile then dofile("iOScredentials.lua") end
 
+local nameOfHome = "Home"
 local whereIsUser = {}
 local devicePattern = "iPhone"
 local extrapolling = 4000
 local conf
+locations = {}
+homeFlag = false
 
 function distance(lat1, lon1, lat2, lon2)
   local dlat = math.rad(lat2-lat1)
@@ -116,21 +121,27 @@ function main(sourceTrigger)
     homeLongitude=conf.places[1].longitude
     for _,v in pairs(conf.users) do if v.icloud then v.icloud.name = v.name iUsers[#iUsers+1] = v.icloud end end
     Debug(true,"Configuration data:")
-    for u,p in pairs(iUsers) do Debug(true,"User:%s",p.name) end
-    for _,p in ipairs(conf.places) do Debug(true,"Place:%s",p.name) end
+    for _,p in ipairs(iUsers) do Debug(true,"User:%s",p.name) end
+    for _,p in ipairs(conf.places) do 
+      Debug(true,"Place:%s",p.name) 
+      if p.name==nameOfHome then 
+        homeLatitude=p.latitude
+        homeLongitude=p.longitude
+      end
+    end
   end
 
-  if event.type=='location' then 
+  if event.type=='location_upd' then 
     local loc = event.result.location
     if not loc then return end
     for _,v in ipairs(conf.places) do
       local d = distance(loc.latitude,loc.longitude,v.latitude,v.longitude)
       if d < v.dist then 
-        post({type='checkPresence', user=event.user, place=v.name, _sh=true})
+        post({type='checkPresence', user=event.user, place=v.name, dist=d, _sh=true})
         return
       end
     end
-    post({type='checkPresence', user=event.user, place='away', _sh=true})
+    post({type='checkPresence', user=event.user, place='away', dist=event.result.distance, _sh=true})
   end
 
   if event.type == 'deviceMap' then
@@ -147,7 +158,7 @@ function main(sourceTrigger)
     end
     if #result == 1 then result = result[1] end
     --Log(LOG.LOG,"%s LOC:%s",env.p.user,json.encode(result))
-    post({type='location', user=event.user, result=result, _sh=true})
+    post({type='location_upd', user=event.user, result=result, _sh=true})
   end
 
   if event.type=='getIOSdevices' then --, user='$user', name = '$name', pwd='$pwd'},
@@ -196,7 +207,31 @@ function main(sourceTrigger)
     if whereIsUser[event.user] ~= event.place then  -- user at new place
       whereIsUser[event.user] = event.place
       Debug(true,"%s is at %s",event.user,event.place)
-      local ev = {type='location', user=event.user, place=event.place}
+      local ev = {type='location', user=event.user, place=event.place, dist=event.dist}
+      local evs = json.encode(ev)
+      for _,v in pairs(conf.scenes.iOSLocator.send) do
+        Debug(true,"Sending %s to scene %s",evs,conf.scenes[v].id)
+        postRemote(conf.scenes[v].id,ev)
+      end
+    end
+
+    local user,place,ev=event.user,event.place 
+    locations[user]=place
+    local home = false
+    local who = {}
+    for w,p in pairs(locations) do 
+      if p == nameOfHome then home=true; who[#who+1]=w end
+    end
+    if home and homeFlag ~= true then 
+      homeFlag = true
+      ev={type='presence', state='home', who=table.concat(who,',')}
+    elseif #locations == #iUsers then
+      if homeFlag ~= false then
+        homeFlag = false
+        ev={type='presence', state='allaway'}
+      end
+    end
+    if ev then
       local evs = json.encode(ev)
       for _,v in pairs(conf.scenes.iOSLocator.send) do
         Debug(true,"Sending %s to scene %s",evs,conf.scenes[v].id)
@@ -233,37 +268,6 @@ function main(sourceTrigger)
 
   if event.type == '%%PING%%' then event.type='%%PONG%%' postRemote(event._from,event) end
 
-  if nil then
-    -- example of client receiving location events
-    locations = {}
-    numberOfPeople = 4
-    homeFlag = false
-
-    Rule.eval("#presence{state='home',who='$who'} => phonesToNotify:msg=log('%s at home',who)")
-    Rule.eval("#presence{state='allaway'} => phonesToNotify:msg=log('House empty')")
-
-    function checkLocation()
-      local home = false
-      local who = {}
-      for w,p in ipairs(locations) do
-        if p == 'Home' then home=true; who[#who+1]=w end
-      end
-      if home and homeFlag ~= true then 
-        homeFlag = true
-        Event.post({type='presence', state='home', who=table.concat(who,',')})
-      elseif #locations == numberOfPeople then
-        if homeFlag ~= false then
-          homeFlag = false
-          Event.post({type='presence', state='allaway'})
-        end
-      end
-    end
-
-    Rule.eval([[#location{user='$user', place='$place'} => 
-      locations[user]=place;
-      phoneToNotify:msg=log('%s at %s',user,place);
-      checkLocations()]])
-  end
 end -- main()
 
 ------------------------ Framework, do not change ---------------------------  
@@ -363,7 +367,7 @@ interceptFib("getGlobalValue","fibaroGet")
 interceptFib("get","fibaroGet",nil,true)
 interceptFib("getValue","fibaroGet")
 interceptFib("killScenes","fibaro")
-interceptFib("startScene","fibaro",
+interceptFib("startScene","fibaroStart",
   function(obj,fun,id,args) 
     local a = args and #args==1 and type(args[1])=='string' and (json.encode({(urldecode(args[1]))})) or ""
     fibaro:debug(string.format("fibaro:start(%s,%s)",id,a))
