@@ -46,6 +46,7 @@ HomeTable = [[
 ]]
 if dofile then dofile("iOScredentials.lua") end
 
+INTERVAL = 90 -- check every 90s
 local nameOfHome = "Home"
 local whereIsUser = {}
 local devicePattern = "iPhone"
@@ -254,7 +255,7 @@ function main(sourceTrigger)
     local index = event.index
     local user = iUsers[(index % #iUsers)+1]
     post({type='getIOSdevices', user=user.user, pwd=user.pwd, name=user.name})
-    post({type='poll',index=index+1},"+/00:01") -- check every minute
+    post({type='poll',index=index+1},math.floor(0.5+INTERVAL/#iUsers)) -- INTERVAL=60 => check every minute
   end
 
   if event.type == 'error' then 
