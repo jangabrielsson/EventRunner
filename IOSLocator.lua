@@ -208,7 +208,7 @@ function main(sourceTrigger)
     if whereIsUser[event.user] ~= event.place then  -- user at new place
       whereIsUser[event.user] = event.place
       Debug(true,"%s is at %s",event.user,event.place)
-      local ev = {type='location', user=event.user, place=event.place, dist=event.dist}
+      local ev = {type='location', user=event.user, place=event.place, dist=event.dist, ios=true}
       local evs = json.encode(ev)
       for _,v in pairs(conf.scenes.iOSLocator.send) do
         Debug(true,"Sending %s to scene %s",evs,conf.scenes[v].id)
@@ -225,11 +225,11 @@ function main(sourceTrigger)
     end
     if home and homeFlag ~= true then 
       homeFlag = true
-      ev={type='presence', state='home', who=table.concat(who,',')}
+      ev={type='presence', state='home', who=table.concat(who,','), ios=true}
     elseif #locations == #iUsers then
       if homeFlag ~= false then
         homeFlag = false
-        ev={type='presence', state='allaway'}
+        ev={type='presence', state='allaway', ios=true}
       end
     end
     if ev then
@@ -246,7 +246,7 @@ function main(sourceTrigger)
     for u,p in pairs(whereIsUser) do
       if u and p then
         Debug(true,"User:%s Position:%s",u,p)
-        postRemote(event._from,{type='location', user=u, place=p})
+        postRemote(event._from,{type='location', user=u, place=p, ios=true})
       end
     end
   end
