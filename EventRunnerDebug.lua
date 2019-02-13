@@ -11,8 +11,8 @@
   _EVENTSERVER=true starts a listener on a socket for receieving sourcetriggers/events from HC2 scene
   
 --]] 
-_version = _version or "1.14"
-if _version ~= "1.14" then error("Bad version of EventRunnerDebug") end  
+_version = _version or "1.15"
+if _version ~= "1.15" then error("Bad version of EventRunnerDebug") end  
 function _DEF(v,d) if v==nil then return d else return v end end
 
 _GUI           = _DEF(_GUI,false)        -- Needs wxwidgets support (e.g. require "wx"). Works in ZeroBrane under Lua 5.1.
@@ -214,7 +214,7 @@ end
 ------------- Saving restoring globals -----------------
 
 function _System.copyGlobalsFromHC2()
-  file = file or _GLOBALS_FILE
+  local file = file or _GLOBALS_FILE
   Log(LOG.SYSTEM,"Reading globals from H2C...")
   local vars = api.get("/globalVariables/")
   for _,v in ipairs(vars) do
@@ -431,7 +431,6 @@ end
 
 function _System.runScene(scene,env,args)
   local instance=scene.instances
-  local event = 
   Debug(_debugFlags.scene,"Starting scene:%s, trigger:%s, instance:%s",scene.name,tojson(env.event),instance+1)
   setTimeout(function()
       local c = coroutine.running()
@@ -840,7 +839,7 @@ if not _REMOTE then
   function _setGlobal(name,value)
     if value ~= nil then value = tostring(value) end
     if fibaro._globals[name] == nil or fibaro._globals[name][1] ~= value then
-      local ev = {type='global', name=name, value=x, _sh=true} -- If global changes value, fibaro send back event to scene
+      local ev = {type='global', name=name, value=value, _sh=true} -- If global changes value, fibaro send back event to scene
       if Event then if Event.post then Event.post(ev) end else setTimeout(function() main(ev) end,0) end
     end
     fibaro._globals[name] = {value,osTime and osTime() or osOrgTime()}
@@ -1055,7 +1054,7 @@ if _GUI then
       --implements SelectEvent
       local i = UI.m_listBox1:GetSelection()
       if i >= 0 then 
-        str = UI.m_listBox1:GetString(i)
+        local str = UI.m_listBox1:GetString(i)
         UI.m_textCtrl1:SetValue(str)
       end
       event:Skip()

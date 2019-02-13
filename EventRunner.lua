@@ -12,7 +12,7 @@ counter
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version,_fix = "1.14","fix7"  -- Feb 8, 2019 
+_version,_fix = "1.15",""  -- Feb 13, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -27,6 +27,7 @@ if not _SCENERUNNER then
   _HueHubs       = {}          -- Hue bridges, Ex. {{name='Hue',user=_HueUserName,ip=_HueIP}}
   _GUI = false                 -- Offline only, Open WX GUI for event triggers, Requires Lua 5.1 in ZBS
   _REMOTE=false
+  _NUMBEROFBOXES = 1           -- Number of mailboxes, increase if exceeding 10 instances...
   _SPEEDTIME     = 24*36       -- Offline only, Speed through X hours, set to false will run in real-time
   _EVENTSERVER   = true        -- Starts port on 6872 listening for incoming events (Node-red, HC2 etc)
   _VALIDATECHARS = true        -- Check rules for invalid characters (cut&paste)
@@ -51,13 +52,14 @@ function main()
 
   --local devs = json.decode(fibaro:getGlobalValue(_deviceTable)) -- Read in "HomeTable" global
   --Util.defvars(devs)                                            -- Make HomeTable defs available in EventScript
-  --Util.reverseMapDef(devs)                                       -- Make HomeTable names available for logger
-
+  --Util.reverseMapDef(devs)                                      -- Make HomeTable names available for logger
+  
   dofile("example_rules.lua")      -- some example rules to try out...
 end -- main()
 
 ------------------- EventModel - Don't change! --------------------  
 Event = Event or {}
+_MAILBOXES={}
 if not _OFFLINE then -- define _System
   local f = function(...) return true end
   _System = {copyGlobalsFromHC2=f,writeGlobalsToFile=f,readGlobalsFromFile=f,defineGlobals=f,setTime=f}
@@ -75,31 +77,48 @@ end
 
 ---------- Producer(s) - Handing over incoming triggers to consumer --------------------
 
+local _MAXWAIT=5.0 -- seconds to wait
 if _supportedEvents[_type] then
-  if fibaro:countScenes() == 1 then fibaro:debug("Aborting: Server not started yet"); fibaro:abort() end
+  local _MBP = _MAILBOX.."_"
+  local mbp,mb,time,cos = 1,nil,os.clock(),fibaro:countScenes()
+  if  cos == 1 then fibaro:debug("Aborting: Server not started yet"); fibaro:abort() end
   local event = type(_trigger) ~= 'string' and json.encode(_trigger) or _trigger
   local ticket = string.format('<@>%s%s',tostring(_source),event)
+  math.randomseed(time*100000)
+  cos = math.random(1,_NUMBEROFBOXES)
+  mbp=cos
   repeat
-    local tries=50 -- Can't acquire lock in 5second, consider something wrong...
-    while(fibaro:getGlobal(_MAILBOX) ~= "" and tries>0) do fibaro:sleep(100); tries=tries-1 end -- try again in 100ms
-    if tries<1 then fibaro:debug("Couldn't post event (dead?), dropping:"..event) fibaro:abort() end
-    fibaro:setGlobal(_MAILBOX,ticket) -- try to acquire lock
-  until fibaro:getGlobal(_MAILBOX) == ticket -- got lock
-  fibaro:setGlobal(_MAILBOX,event) -- write msg
+    mb = _MBP..mbp
+    mbp = (mbp % _NUMBEROFBOXES)+1
+    while(fibaro:getGlobal(mb) ~= "") do
+      if os.clock()-time>=_MAXWAIT then fibaro:debug("Couldn't post event (dead?), dropping:"..event) fibaro:abort() end
+      if mbp == cos then fibaro:sleep(10) end
+      mb = _MBP..mbp
+      mbp = (mbp % _NUMBEROFBOXES)+1
+    end
+    fibaro:setGlobal(mb,ticket) -- try to acquire lock
+  until fibaro:getGlobal(mb) == ticket -- got lock
+  --fibaro:debug(os.clock()-time)
+  fibaro:setGlobal(mb,event) -- write msg
   fibaro:abort() -- and exit
 end
 
 ---------- Consumer - re-posting incoming triggers as internal events --------------------
 
+local _CXCS=250
 local function _poll()
-  local l = fibaro:getGlobal(_MAILBOX)
-  if l and l ~= "" and l:sub(1,3) ~= '<@>' then -- Something in the mailbox
-    fibaro:setGlobal(_MAILBOX,"") -- clear mailbox
-    Debug(_debugFlags.triggers,"Incoming event:%s",l)
-    l = json.decode(l) l._sh=true
-    Event.post(l) -- and post it to our "main()"
+  _CXCS = math.min(2*(_CXCS+1),250)
+  for _,mb in ipairs(_MAILBOXES) do
+    local l = fibaro:getGlobal(mb)
+    if l and l ~= "" and l:sub(1,3) ~= '<@>' then -- Something in the mailbox
+      fibaro:setGlobal(mb,"") -- clear mailbox
+      Debug(_debugFlags.triggers,"Incoming event:%s",l)
+      l = json.decode(l) l._sh=true
+      setTimeout(function() Event.post(l) end,5)-- and post it to our "main()"
+      _CXCS=0
+    end
   end
-  setTimeout(_poll,250) -- check every 250ms
+  setTimeout(_poll,_CXCS) -- check again
 end
 
 ------------------------ Support functions -----------------
@@ -938,10 +957,10 @@ function newScriptEngine()
   instr['redaily'] = function(s,n,e,i) s.push(Rule.restartDaily(s.pop())) end
   instr['eventmatch'] = function(s,n,e,i) local ev,evp=i[3][2],i[3][3] s.push(e.event and Event._match(evp,e.event) and ev or false) end
   instr['wait'] = function(s,n,e,i) local t,cp=s.pop(),e.cp 
---    _assert(tonumber(t),"Bad argument to wait '%s'",t or "nil")
     if i[4] then s.push(false) -- Already 'waiting'
     elseif i[5] then i[5]=false s.push(true) -- Timer expired, return true
     else 
+      _assert(type(t)=='number',"Bad argument to wait '%s'",t~=nil and t or "nil")
       if t<midnight() then t = osTime()+t end -- Allow both relative and absolute time... e.g '10:00'->midnight+10:00
       i[4]=Event.post(function() i[4]=nil i[5]=true self.eval(e.code,e,e.stack,cp) end,t,e.rule) s.push(false) error({type='yield'})
     end 
@@ -1469,7 +1488,7 @@ function newRuleCompiler()
       Event._compilePattern(cep)
       return {'%eventmatch',{'quote',ce,cep}}
     elseif type(obj) == 'table' then
-      local res = {} for l,v in pairs(obj) do res[l] = _remapEvents(v,tf) end 
+      local res = {} for l,v in pairs(obj) do res[l] = _remapEvents(v) end 
       return res
     else return obj end
   end
@@ -1639,7 +1658,7 @@ Rule.addTrigger('weather',
   function(s,n,e,i) local k = n>0 and s.pop() or '*'; return s.push(_lastWeatherEvent[k]) end,
   function(id) return {type='WeatherChangedEvent',data={changed=id}} end)
 
-Event.event({type=Event.PING},function(env) e=env.event;e.type=Event.PONG; Event.postRemote(e._from,e) end)
+Event.event({type=Event.PING},function(env) local e=env.event;e.type=Event.PONG; Event.postRemote(e._from,e) end)
 
 --- SceneActivation constants
 Util.defvar('S1',Util.S1)
@@ -1899,8 +1918,12 @@ if _type == 'autostart' or _type == 'other' then
     local info = api.get("/settings/info")
     Log(LOG.LOG,"Fibaro software version: %s",info.currentVersion.version)
     Log(LOG.LOG,"HC2 uptime: %s hours",math.floor((os.time()-info.serverStatus)/3600))
-    if not string.find(json.encode((api.get("/globalVariables/"))),"\"".._MAILBOX.."\"") then
-      api.post("/globalVariables/",{name=_MAILBOX}) 
+    for i=1,_NUMBEROFBOXES do
+      local mailbox = _MAILBOX.."_"..tostring(i)
+      if not string.find(json.encode((api.get("/globalVariables/"))),"\""..mailbox.."\"") then
+        api.post("/globalVariables/",{name=mailbox})
+      end
+      _MAILBOXES[i]=mailbox
     end
   end 
 
@@ -1929,8 +1952,10 @@ if _type == 'autostart' or _type == 'other' then
 
   local function chainStartup() if hueSetup then return hueSetup(setUp) else return setUp() end end
 
-  if not _OFFLINE then 
-    fibaro:setGlobal(_MAILBOX,"") 
+  if not _OFFLINE then
+    for _,mb in ipairs(_MAILBOXES) do 
+    	fibaro:setGlobal(mb,"") 
+    end
     _poll()  -- start polling mailbox
     chainStartup()
   else 
