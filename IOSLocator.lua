@@ -120,7 +120,7 @@ function main(sourceTrigger)
 
   if event.type=='global' and event.name == _deviceTable then
     iUsers = {}
-    local conf = readConfigurationData()
+    conf = readConfigurationData()
     if conf  == nil or not conf.users then 
       Debug(true,"Missing configuration data, HomeTable='%s'",tojson(conf))
       fibaro:abort()
