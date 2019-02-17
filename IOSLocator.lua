@@ -55,6 +55,18 @@ local conf
 locations = {}
 homeFlag = false
 
+function readConfigurationData()
+  return json.decode(_test and HomeTable or fibaro:getGlobalValue(_deviceTable))
+  -- return json.decode(api.get("/scenes/"..idOfHomeTableScene).lua)
+end
+
+local gname = _test and HomeTable or fibaro:getGlobalValue(_deviceTable)
+if gname  == nil or gname == "" then 
+  Debug(true,"Missing configuration data, HomeTable='%s'",_deviceTable or "")
+  fibaro:abort()
+end
+
+
 function distance(lat1, lon1, lat2, lon2)
   local dlat = math.rad(lat2-lat1)
   local dlon = math.rad(lon2-lon1)
@@ -88,7 +100,7 @@ function getIOSDeviceNextStage(nextStage,username,headers,pollingextra)
         Debug(true,"Error getting NextStage data:"..status)
       end,
       success = function(status)
-        local output = json.decode(status.data,{statusCode=="444"})
+        local output = json.decode(status.data,{statusCode="444"})
         --Debug("iCloud Response:"..status.data)
         if (output.statusCode=="200") then			
           if (pollingextra==0) then
@@ -112,14 +124,18 @@ function main(sourceTrigger)
 
   if event.type=='global' and event.name == _deviceTable then
     iUsers = {}
-    local gname = _test and HomeTable or fibaro:getGlobalValue(_deviceTable)
-    if gname  == nil or gname == "" then 
-      Debug(true,"Missing configuration data, HomeTable='%s'",_deviceTable or "")
+    local conf = readConfigurationData()
+    if conf  == nil or not conf.users then 
+      Debug(true,"Missing configuration data, HomeTable='%s'",tojson(conf))
       fibaro:abort()
     end
-    conf = json.decode(gname)
-    homeLatitude=conf.places[1].latitude
-    homeLongitude=conf.places[1].longitude
+    if conf.places then
+      homeLatitude=conf.places[1].latitude
+      homeLongitude=conf.places[1].longitude
+    else
+      homeLatitude = fibaro:getValue(2, "Latitude")
+      homeLongitude = fibaro:getValue(2, "Longitude")
+    end
     for _,v in pairs(conf.users) do if v.icloud then v.icloud.name = v.name iUsers[#iUsers+1] = v.icloud end end
     Debug(true,"Configuration data:")
     for _,p in ipairs(iUsers) do Debug(true,"User:%s",p.name) end
