@@ -56,16 +56,12 @@ locations = {}
 homeFlag = false
 
 function readConfigurationData()
-  return json.decode(_test and HomeTable or fibaro:getGlobalValue(_deviceTable))
-  -- return json.decode(api.get("/scenes/"..idOfHomeTableScene).lua)
+  if type(_deviceTable)=='number' then
+    return json.decode(api.get("/scenes/".._deviceTable).lua)
+  else
+    return json.decode(_test and HomeTable or fibaro:getGlobalValue(_deviceTable))
+  end
 end
-
-local gname = _test and HomeTable or fibaro:getGlobalValue(_deviceTable)
-if gname  == nil or gname == "" then 
-  Debug(true,"Missing configuration data, HomeTable='%s'",_deviceTable or "")
-  fibaro:abort()
-end
-
 
 function distance(lat1, lon1, lat2, lon2)
   local dlat = math.rad(lat2-lat1)
