@@ -1701,7 +1701,9 @@ Event.event({type=Event.ANNOUNCE},function(env)
 
 function Event.sendScene(id,event) if Event._rScenes[id] and isRunning(id) then Event.postRemote(id,event) else Event._rScenes[id]=false end end
 function Event.sendAllScenes(event) for id,s in pairs(Event._rScenes) do Event.sendScene(id,event) end end
-function Event.subscribe(event) Event._subs[#Event._subs+1]=event; Event.sendAllScenes({type=Event.SUB, event=event}) 
+function Event.subscribe(event,h) 
+  Event._subs[#Event._subs+1]=event; Event.sendAllScenes({type=Event.SUB, event=event}) 
+  if h then Event.event(event,h) end
 end
 function Event.publish(event,stat)
   if stat then Event._stats[#Event._stats+1]=event end
