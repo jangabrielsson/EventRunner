@@ -5,7 +5,7 @@
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version = "1.12"  -- Fix20, Jan 25, 2019 
+_version = "1.15"  -- , Feb 21, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -40,50 +40,46 @@ function main()
   local PINGTIMEOUT = "+/00:00:10"  -- No answer in 10s, scene will be restarted
   local STARTUPDELAY = "+/00:00:20" -- Time for scene to startup after a restart before pinging starts again
   local MAXRESTARTS = 2             -- Number of failed restarts before disabling the scene
-  local RESCANFORSCENES = "+/00:05" -- Check for new scenes every 5 minute
   local phonesToNotify = {}         -- Phone to alter when restarting scenes
 
   local eventRunners = {}
   local eventMap = {}
 
-  Event.event({type='notify', scene='$scene', msg='$msg'}, 
+  Event.event({{type='autostart'},{type='other'}},
     function(env)
-      local scene = env.p.scene
-      local msg = _format(env.p.scene,scene.name,scene.id)
-      Log(ERROR.LOG,msg)
-      for _,p in ipairs(phonesToNotify) do fibaro:call(p,'sendPush',msg) end
+      local scenes = Util.findScenes(gEventRunnerKey)
+      for _,id in ipairs(scenes) do Event.post({type=Event.ANNOUNCE,_from=id}) end
     end)
-
-  function getEventRunners()
-    local res={}
-    local scenes = api.get("/scenes")
-    for _,s1 in ipairs(scenes) do
-      if s1.isLua and s1.id ~= __fibaroSceneId then
-        local s2 = api.get("/scenes/"..s1.id)
-        if s2.lua and s2.lua:match(gEventRunnerKey) then
-          res[s2.id]={id=s2.id,name=s2.name}
-        end
-      end
-    end
-    return res
-  end
+  
+  Event.event({type=Event.ANNOUNCE},
+    function(env)
+      local id = env.event._from
+      local scene = eventRunners[id]
+      if scene and scene.timeout then scene.timeout = Event.cancel(scene.timeout) end -- if we have pinged, cancel
+      scene={id=id,name=api.get("/scenes/"..id).name}
+      eventRunners[id]=scene
+      Log(LOG.LOG,"Registering scene:'%s', ID:%s",scene.name,scene.id) 
+      scene.timeout=Event.post({type='watch',scene=scene,interval=POLLINTERVAL,timeout=PINGTIMEOUT},osTime()+math.random(1,4))
+    end)
 
   Event.event({type='watch', scene='$scene', timeout='$timeout',},
     function(env)
       local scene = env.p.scene
+      scene.timeout=nil
       local runconfig = fibaro:getSceneRunConfig(scene.id)
+      if runconfig == nil then eventRunners[scene.id]=nil; return end -- Removed?
       eventMap[scene.id]=env.event
       if (not scene.disabled) and runconfig == 'TRIGGER_AND_MANUAL' then
-        scene.ref=Event.post({type='pingTimeout',scene=scene},env.p.timeout)
+        scene.timeout=Event.post({type='pingTimeout',scene=scene},env.p.timeout)
         Log(LOG.LOG,"Pinging scene:'%s', ID:%s",scene.name,scene.id)
-        Event.postRemote(scene.id,{type=Event.PING,sceneID=scene.id})
+        Event.postRemote(scene.id,{type=Event.PING})
       else
         if scene.disabled then
-          Log(LOG.LOG,"Skipping disabled scene:'%s', ID:%s",scene.name,scene.id)
+          -- Log(LOG.LOG,"Skipping disabled scene:'%s', ID:%s",scene.name,scene.id)
         else
-          Log(LOG.LOG,"Skipping scene:'%s', ID:%s with runconfig:%s",scene.name,scene.id,runconfig)
+          -- Log(LOG.LOG,"Skipping scene:'%s', ID:%s with runconfig:%s",scene.name,scene.id,runconfig)
         end
-        Event.post(env.event,env.event.interval) 
+        scene.timeout=Event.post(env.event,env.event.interval) 
       end
     end) 
 
@@ -91,41 +87,32 @@ function main()
     function(env)
       local scene = env.p.scene
       local wevent = eventMap[scene.id]
+      scene.timeout=nil
       if scene.restarts and scene.restarts >= MAXRESTARTS then
         fibaro:setSceneRunConfig(scene.id,'MANUAL_ONLY')
         Event.post({type='notify',scene=scene, msg="Scene:'%s', ID:%s could not be restarted"})
-        Event.post(wevent,wevent.interval)
+        scene.timeout=Event.post(wevent,wevent.interval)
       else
         Log(LOG.ERROR,"Scene:'%s', ID:%s not answering, restarting scene!",scene.name,scene.id)
         fibaro:killScenes(scene.id) 
         fibaro:startScene(scene.id)
         Event.post({type='notify',scene=scene, msg="Restarted scene:'%s', ID:%s"})
         scene.restarts = scene.restarts and scene.restarts+1 or 1
-        Event.post(wevent,STARTUPDELAY)-- Start watching again. Give scene some time to start up 
+        scene.timeout=Event.post(wevent,STARTUPDELAY)-- Start watching again. Give scene some time to start up 
       end
     end)
 
-  Event.event({type=Event.PONG, sceneID='$id'}, -- Got a pong back from client, cancel 'timeout' and watch again 
+  Event.event({type=Event.PONG}, -- Got a pong back from client, cancel 'timeout' and watch again 
     function(env)
-      local id = env.p.id
+      local id = env.event._from
       local scene = eventRunners[id]
-      local wevent = eventMap[scene.id]
+      local wevent = eventMap[id]
+      if scene.timeout == nil then return end
       scene.restarts = nil
-      Log(LOG.LOG,"Pong from scene:'%s', ID:%s",scene.name,scene.id)
-      scene.ref=Event.cancel(scene.ref) 
-      Event.post(wevent,wevent.interval) 
+      Log(LOG.LOG,"Pong from scene:'%s', ID:%s",scene.name,id)
+      Event.cancel(scene.timeout) 
+      scene.timeout=Event.post(wevent,wevent.interval)
     end)
-
-  Event.schedule(RESCANFORSCENES,function(env)
-      local es = getEventRunners() 
-      for _,e in pairs(es) do
-        if (not eventRunners[e.id]) and e.id ~= __fibaroSceneId then -- new scene?
-          eventRunners[e.id]=e
-          Log(LOG.LOG,"Watching scene:'%s', ID:%s",e.name,e.id) 
-          Event.post({type='watch',scene=e,interval=POLLINTERVAL,timeout=PINGTIMEOUT},osTime()+math.random(3,15))
-        end
-      end
-    end,{start=true})
 
 end -- main()
 
@@ -181,6 +168,7 @@ if not _getIdProp then
 end
 Util = Util or {}
 gEventRunnerKey="6w8562395ue734r437fg3"
+gEventSupervisorKey="9t8232395ue734r327fh3"
 
 if not _OFFLINE then -- if running on the HC2
   function _Msg(color,message,...)
@@ -265,7 +253,9 @@ end
 function newEventEngine()
   local self,_handlers = {},{}
   self.BREAK, self.TIMER, self.RULE ='%%BREAK%%', '%%TIMER%%', '%%RULE%%'
-  self.PING, self.PONG ='%%PING%%', '%%PONG%%'
+  self.PING, self.PONG = '%%PING%%', '%%PONG%%'
+  self.PUBLISH, self.SUBSCRIBE = '%%PUBLISH%%', '%%SUBSCRIBE%%'
+  self.REGISTER, self.DIRECTORY = '%%REGISTER%%', '%%DIRECTORY%%'
   self._sections = {}
   self.SECTION = nil
 
@@ -738,13 +728,96 @@ function Util.prettyJson(e) -- our own json encode, as we don't have 'pure' json
 end
 tojson = Util.prettyJson
 
+function Util.findScenes(str)
+  local res = {}
+  for _,s1 in ipairs(api.get("/scenes")) do
+    if s1.isLua and s1.id~=__fibaroSceneId then
+      local s2=api.get("/scenes/"..s1.id)
+      if s2.lua:match(str) then res[#res+1]=s1.id end
+    end
+  end
+  return res
+end
+
 Util.getIDfromEvent={ CentralSceneEvent=function(d) return d.deviceId end,AccessControlEvent=function(d) return d.id end }
 Util.getIDfromTrigger={
   property=function(e) return e.deviceID end,
   event=function(e) return e.event and Util.getIDfromEvent[e.event.type or ""](e.event.data) end
 }
 
-Event.event({type=Event.PING},function(env) e=env.event;e.type=Event.PONG; Event.postRemote(e._from,e) end)
+-- Ping / publish / subscribe
+Event._dir,Event._rScenes,Event._subs,Event._stats = {},{},{},{}
+Event.ANNOUNCE,Event.SUB = '%%ANNOUNCE%%','%%SUB%%' 
+Event.event({type=Event.PING},function(env) e=_copy(env.event);e.type=Event.PONG; Event.postRemote(e._from,e) end)
+
+function isRunning(id) return fibaro:countScenes(id)>0 end
+
+Event.event({{type='autostart'},{type='other'}},
+  function(env)
+    local event = {type=Event.ANNOUNCE, subs=#Event._subs>0 and Event._subs or nil}
+    for _,id in ipairs(Util.findScenes(gEventRunnerKey)) do 
+      if isRunning(id) then Debug(_debugFlags.pubsub,"Found ID:%s",id); Event._rScenes[id]=true; Event.postRemote(id,event) end
+    end
+  end)
+
+Event.event({type=Event.ANNOUNCE},function(env)
+    local id = env.event._from
+    Debug(_debugFlags.pubsub,"Announce from ID:%s %s",id,tojson(env.event.subs))
+    Event._rScenes[id]=true;
+    if #Event._subs>0 then Event.postRemote(id,{type=Event.SUB, event=Event._subs}) end
+    for _,e in ipairs(Event._dir) do for i,id2 in ipairs(e.ids) do if id==id2 then table.remove(e.ids,i); break; end end end
+    if env.event.subs then Event.post({type=Event.SUB, event=env.event.subs, _from=id}) end
+  end)
+
+function Event.sendScene(id,event) if Event._rScenes[id] and isRunning(id) then Event.postRemote(id,event) else Event._rScenes[id]=false end end
+function Event.sendAllScenes(event) for id,s in pairs(Event._rScenes) do Event.sendScene(id,event) end end
+function Event.subscribe(event) Event._subs[#Event._subs+1]=event; Event.sendAllScenes({type=Event.SUB, event=event}) 
+end
+function Event.publish(event,stat)
+  if stat then Event._stats[#Event._stats+1]=event end
+  for _,e in ipairs(Event._dir) do
+    if Event._match(e.pattern,event) then for _,id in ipairs(e.ids) do Event.sendScene(id,event) end end
+  end
+end
+
+Event.event({type=Event.SUB},
+  function(env)
+    local id = env.event._from
+    Debug(_debugFlags.pubsub,"Subcribe from ID:%s %s",id,tojson(env.event.event))
+    for _,event in ipairs(env.event.event[1] and env.event.event or {env.event.event}) do
+      local seen = false
+      for _,e in ipairs(Event._dir) do
+        if _equal(e.event) and not Util.member(id,e.ids) then e.ids[#e.ids+1]=id; seen=true; break; end
+      end
+      if not seen then
+        local pattern = _copy(event); Event._compilePattern(pattern)
+        Event._dir[#Event._dir+1]={event=event,ids={id},pattern=pattern}
+        for _,se in ipairs(Event._stats) do
+          if Event._match(pattern,se) then Event.sendScene(id,se) end
+        end
+      end
+    end
+  end)
+
+Event.event({type=Event.SUB},
+  function(env)
+    local id = env.event._from
+    Debug(_debugFlags.pubsub,"Subcribe from ID:%s %s",id,tojson(env.event.event))
+    for _,event in ipairs(env.event.event[1] and env.event.event or {env.event.event}) do
+      local seen = false
+      for _,e in ipairs(Event._dir) do
+        if _equal(e.event) and not Util.member(id,e.ids) then e.ids[#e.ids+1]=id; seen=true; break; end
+      end
+      if not seen then
+        local pattern = _copy(event); Event._compilePattern(pattern)
+        Event._dir[#Event._dir+1]={event=event,ids={id},pattern=pattern}
+        for _,se in ipairs(Event._stats) do
+          if Event._match(pattern,se) then Event.sendScene(id,se) end
+        end
+      end
+    end
+  end)
+
 ---------------------- Startup -----------------------------    
 if _type == 'autostart' or _type == 'other' then
   Log(LOG.WELCOME,_format("%sEventRunner v%s",_sceneName and (_sceneName.." - " or ""),_version))

@@ -1,22 +1,16 @@
 --[[
 %% properties
-55 value
-66 value
-77 value
 %% events
-88 CentralSceneEvent
-99 sceneActivation
-100 AccessControlEvent
 %% globals
-counter 
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version,_fix = "1.15",""  -- Feb 13, 2019 
+_version,_fix = "1.15","fix2"  -- Feb 21, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
 -- Copyright 2018 Jan Gabrielsson. All Rights Reserved.
+-- Email: jan@gabrielsson.com
 -- Email: jan@gabrielsson.com
 --]]
 if not _SCENERUNNER then 
@@ -46,15 +40,19 @@ if dofile then dofile("EventRunnerDebug.lua") require('mobdebug').coro() end
 ---------------- Here you place rules and user code, called once --------------------
 function main()
   local rule,define = Rule.eval, Util.defvar
-  --_System.copyGlobalsFromHC2()             -- copy globals from HC2 to ZBS
-  --_System.writeGlobalsToFile("test.data")  -- write globals from ZBS to file, default 'globals.data'
-  --_System.readGlobalsFromFile()            -- read in globals from file, default 'globals.data'
+  if dofile then
+    --_System.copyGlobalsFromHC2()             -- copy globals from HC2 to ZBS
+    --_System.writeGlobalsToFile("test.data")  -- write globals from ZBS to file, default 'globals.data'
+    _System.readGlobalsFromFile()            -- read in globals from file, default 'globals.data'
+  end
 
-  --local devs = json.decode(fibaro:getGlobalValue(_deviceTable)) -- Read in "HomeTable" global
-  --Util.defvars(devs)                                            -- Make HomeTable defs available in EventScript
-  --Util.reverseMapDef(devs)                                      -- Make HomeTable names available for logger
-  
-  dofile("example_rules.lua")      -- some example rules to try out...
+  -- Read in "HomeTable"
+  --local conf = type(_deviceTable)=='number' and api.get("/scenes/".._deviceTable).lua or fibaro:getGlobalValue(_deviceTable) 
+  --conf = json.decode(conf)
+  --Util.defvars(conf.dev)                                       -- Make HomeTable defs available in EventScript
+  --Util.reverseMapDef(conf.dev)                                 -- Make HomeTable names available for logger
+
+  if dofile then dofile("example_rules.lua") end     -- some example rules to try out...
 end -- main()
 
 ------------------- EventModel - Don't change! --------------------  
@@ -98,7 +96,6 @@ if _supportedEvents[_type] then
     end
     fibaro:setGlobal(mb,ticket) -- try to acquire lock
   until fibaro:getGlobal(mb) == ticket -- got lock
-  --fibaro:debug(os.clock()-time)
   fibaro:setGlobal(mb,event) -- write msg
   fibaro:abort() -- and exit
 end
@@ -128,7 +125,9 @@ if not _getIdProp then
   _getIdProp = function(id,prop) return fibaro:get(id,prop) end; _getGlobal = function(id) return fibaro:getGlobal(id) end
 end
 Util = Util or {}
+tojson = json.encode
 gEventRunnerKey="6w8562395ue734r437fg3"
+gEventSupervisorKey="9t823239".."5ue734r327fh3"
 
 if not _OFFLINE then -- if running on the HC2
   function _Msg(color,message,...)
@@ -751,6 +750,17 @@ function Util.mkStack()
   function self.size() return stackp end
   self.stack = stack
   return self
+end
+
+function Util.findScenes(str)
+  local res = {}
+  for _,s1 in ipairs(api.get("/scenes")) do
+    if s1.isLua and s1.id~=__fibaroSceneId then
+      local s2=api.get("/scenes/"..s1.id)
+      if s2.lua:match(str) then res[#res+1]=s1.id end
+    end
+  end
+  return res
 end
 
 Util.getIDfromEvent={ CentralSceneEvent=function(d) return d.deviceId end,AccessControlEvent=function(d) return d.id end }
@@ -1658,14 +1668,66 @@ Rule.addTrigger('weather',
   function(s,n,e,i) local k = n>0 and s.pop() or '*'; return s.push(_lastWeatherEvent[k]) end,
   function(id) return {type='WeatherChangedEvent',data={changed=id}} end)
 
-Event.event({type=Event.PING},function(env) local e=env.event;e.type=Event.PONG; Event.postRemote(e._from,e) end)
-
 --- SceneActivation constants
 Util.defvar('S1',Util.S1)
 Util.defvar('S2',Util.S2)
 Util.defvar('catch',math.huge)
 Util.defvar("defvars",Util.defvars)
 Util.defvar("mapvars",Util.reverseMapDef)
+
+-- Ping / publish / subscribe
+Event._dir,Event._rScenes,Event._subs,Event._stats = {},{},{},{}
+Event.ANNOUNCE,Event.SUB = '%%ANNOUNCE%%','%%SUB%%' 
+Event.event({type=Event.PING},function(env) e=_copy(env.event);e.type=Event.PONG; Event.postRemote(e._from,e) end)
+
+function isRunning(id) return fibaro:countScenes(id)>0 end
+
+Event.event({{type='autostart'},{type='other'}},
+  function(env)
+    local event = {type=Event.ANNOUNCE, subs=#Event._subs>0 and Event._subs or nil}
+    for _,id in ipairs(Util.findScenes(gEventRunnerKey)) do 
+      if isRunning(id) then Debug(_debugFlags.pubsub,"Announce to ID:%s %s",id,tojson(env.event.subs)); Event._rScenes[id]=true; Event.postRemote(id,event) end
+    end
+  end)
+
+Event.event({type=Event.ANNOUNCE},function(env)
+    local id = env.event._from
+    Debug(_debugFlags.pubsub,"Announce from ID:%s %s",id,tojson(env.event.subs))
+    Event._rScenes[id]=true;
+    if #Event._subs>0 then Event.postRemote(id,{type=Event.SUB, event=Event._subs}) end
+    for _,e in ipairs(Event._dir) do for i,id2 in ipairs(e.ids) do if id==id2 then table.remove(e.ids,i); break; end end end
+    if env.event.subs then Event.post({type=Event.SUB, event=env.event.subs, _from=id}) end
+  end)
+
+function Event.sendScene(id,event) if Event._rScenes[id] and isRunning(id) then Event.postRemote(id,event) else Event._rScenes[id]=false end end
+function Event.sendAllScenes(event) for id,s in pairs(Event._rScenes) do Event.sendScene(id,event) end end
+function Event.subscribe(event) Event._subs[#Event._subs+1]=event; Event.sendAllScenes({type=Event.SUB, event=event}) 
+end
+function Event.publish(event,stat)
+  if stat then Event._stats[#Event._stats+1]=event end
+  for _,e in ipairs(Event._dir) do
+    if Event._match(e.pattern,event) then for _,id in ipairs(e.ids) do Event.sendScene(id,event) end end
+  end
+end
+
+Event.event({type=Event.SUB},
+  function(env)
+    local id = env.event._from
+    Debug(_debugFlags.pubsub,"Subcribe from ID:%s %s",id,tojson(env.event.event))
+    for _,event in ipairs(env.event.event[1] and env.event.event or {env.event.event}) do
+      local seen = false
+      for _,e in ipairs(Event._dir) do
+        if _equal(e.event) and not Util.member(id,e.ids) then e.ids[#e.ids+1]=id; seen=true; break; end
+      end
+      if not seen then
+        local pattern = _copy(event); Event._compilePattern(pattern)
+        Event._dir[#Event._dir+1]={event=event,ids={id},pattern=pattern}
+        for _,se in ipairs(Event._stats) do
+          if Event._match(pattern,se) then Event.sendScene(id,se) end
+        end
+      end
+    end
+  end)
 
 ---------------------- Hue support, can be removed if not needed -------------------------
 function hueSetup(cont)
@@ -1954,7 +2016,7 @@ if _type == 'autostart' or _type == 'other' then
 
   if not _OFFLINE then
     for _,mb in ipairs(_MAILBOXES) do 
-    	fibaro:setGlobal(mb,"") 
+      fibaro:setGlobal(mb,"") 
     end
     _poll()  -- start polling mailbox
     chainStartup()

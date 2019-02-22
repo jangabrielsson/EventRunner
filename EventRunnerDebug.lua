@@ -11,7 +11,7 @@
   _EVENTSERVER=true starts a listener on a socket for receieving sourcetriggers/events from HC2 scene
   
 --]] 
-_version = _version or "1.15"
+_version = _version or "1.15" 
 if _version ~= "1.15" then error("Bad version of EventRunnerDebug") end  
 function _DEF(v,d) if v==nil then return d else return v end end
 
