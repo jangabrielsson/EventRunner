@@ -5,7 +5,7 @@
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version,_fix = "1.15","fix2"  -- Feb 21, 2019 
+_version,_fix = "1.15","fix4"  -- Feb 21, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -457,77 +457,80 @@ function newEventEngine()
     end
   end
 
+-- User defined device IDs, > 10000
+  fibaro._idMap={}
+  fibaro._call,fibaro._get=fibaro.call,fibaro.get
+  function self._registerID(id,call,get) fibaro._idMap[id]={call=call,get=get} end
+  fibaro.call=function(obj,id,...)
+    if id < 10000 then return fibaro._call(obj,id,...) else return fibaro._idMap[tonumber(id)].call(obj,id,...) end
+  end
+  fibaro.get=function(obj,id,...) 
+    if id < 10000 then return fibaro._get(obj,id,...) else return fibaro._idMap[tonumber(id)].get(obj,id,...) end
+  end
+  fibaro.getValue=function (obj,id,...) 
+    if id < 10000 then return (fibaro._get(obj,id,...)) else return (fibaro._idMap[tonumber(id)].get(obj,id,...)) end
+  end
+
 -- We intercept all fibaro:call so we can detect manual invocations of switches
-  fibaro._call = fibaro.call 
-  local lastID = {}
-  fibaro.call = function(obj,id,a1,...)
-    if ({turnOff=true,turnOn=true,on=true,off=true,setValue=true})[a1] then lastID[id]={script=true,time=osTime()} end
-    fibaro._call(obj,id,a1,...)
-  end
-  function self.lastManual(id)
-    lastID[id] = lastID[id] or {time=0}
-    if lastID[id].script then return -1 
-    else return osTime()-lastID[id].time end
-  end
-  function self.trackManual(id,value)
-    lastID[id] = lastID[id] or {time=0}
-    if lastID[id].script==nil or osTime()-lastID[id].time>1 then lastID[id]={time=osTime()} end -- Update last manual
-  end
-  if nil then
-    fibaro._orgf={}
-    function fibaro:_intercept(name,fun)
-      local ff = fibaro._orgf[name] or fibaro[name]
-      if fibaro._orgf[name] then 
-        fibaro._orgf[name] =function(obj,...) fun(obj,ff,...) end
-      else fibaro._orgf[name] = ff; fibaro[name]=function(obj,...) fun(obj,ff,...) end 
+  do
+    local lastID,orgCall = {},fibaro.call
+    fibaro.call = function(obj,id,a1,...)
+      if ({turnOff=true,turnOn=true,on=true,off=true,setValue=true})[a1] then lastID[id]={script=true,time=osTime()} end
+      orgCall(obj,id,a1,...)
+    end
+    function self.lastManual(id)
+      lastID[id] = lastID[id] or {time=0}
+      if lastID[id].script then return -1 else return osTime()-lastID[id].time end
+    end
+    function self.trackManual(id,value)
+      lastID[id] = lastID[id] or {time=0}
+      if lastID[id].script==nil or osTime()-lastID[id].time>1 then lastID[id]={time=osTime()} end -- Update last manual
     end
   end
-end
+
 -- Logging of fibaro:* calls -------------
-fibaro._orgf={}
-function interceptFib(name,flag,spec,mf)
-  local fun,fstr = fibaro[name],name:match("^get") and "fibaro:%s(%s%s%s) = %s" or "fibaro:%s(%s%s%s)"
-  fibaro._orgf[name]=fun
-  if spec then 
-    fibaro[name] = function(obj,...) 
-      if _debugFlags[flag] then 
-        return spec(obj,fibaro._orgf[name],...) else return fibaro._orgf[name](obj,...) 
+  fibaro._orgf={}
+  function interceptFib(fs,name,flag,spec)
+    local fun,fstr = fibaro[name],fs:match("r") and "fibaro:%s(%s%s%s) = %s" or "fibaro:%s(%s%s%s)"
+    fibaro._orgf[name]=fun
+    if spec then 
+      fibaro[name] = function(obj,...) 
+        if _debugFlags[flag] then return spec(obj,fibaro._orgf[name],...) else return fibaro._orgf[name](obj,...)  end 
       end 
-    end 
-  else 
-    fibaro[name] = function(obj,id,...)
-      local id2,args = type(id) == 'number' and Util.reverseVar(id) or '"'..(id or "<ID>")..'"',{...}
-      local status,res,r2 = pcall(function() return fibaro._orgf[name](obj,id,table.unpack(args)) end)
-      if status and _debugFlags[flag] then
-        Debug(true,fstr,name,id2,(#args>0 and "," or ""),json.encode(args):sub(2,-2),json.encode(res))
-      elseif not status then
-        error(string.format("Err:fibaro:%s(%s%s%s), %s",name,id2,(#args>0 and "," or ""),json.encode(args):sub(2,-2),res),3)
+    else 
+      fibaro[name] = function(obj,id,...)
+        local id2,args = type(id) == 'number' and Util.reverseVar(id) or '"'..(id or "<ID>")..'"',{...}
+        local status,res,r2 = pcall(function() return fibaro._orgf[name](obj,id,table.unpack(args)) end)
+        if status and _debugFlags[flag] then
+          Debug(true,fstr,name,id2,(#args>0 and "," or ""),json.encode(args):sub(2,-2),json.encode(res))
+        elseif not status then
+          error(string.format("Err:fibaro:%s(%s%s%s), %s",name,id2,(#args>0 and "," or ""),json.encode(args):sub(2,-2),res),3)
+        end
+        if fs=="mr" then return res,r2 else return res end
       end
-      if mf then return res,r2 else return res end
     end
   end
-end
 
-interceptFib("call","fibaro")
-interceptFib("setGlobal","fibaroSet") 
-interceptFib("getGlobal","fibaroGet",nil,true)
-interceptFib("getGlobalValue","fibaroGet")
-interceptFib("get","fibaroGet",nil,true)
-interceptFib("getValue","fibaroGet")
-interceptFib("killScenes","fibaro")
-interceptFib("sleep","fibaro",
-  function(obj,fun,time) 
-    Debug(true,"fibaro:sleep(%s) until %s",time,osDate("%X",osTime()+math.floor(0.5+time/1000)))
-    fun(obj,time) 
-  end)
-interceptFib("startScene","fibaroStart",
-  function(obj,fun,id,args) 
-    local a = args and #args==1 and type(args[1])=='string' and (json.encode({(urldecode(args[1]))})) or args and json.encode(args)
-    Debug(true,"fibaro:start(%s%s)",id,a and ","..a or "")
-    fun(obj,id, args) 
-  end)
+  interceptFib("","call","fibaro")
+  interceptFib("","setGlobal","fibaroSet") 
+  interceptFib("mr","getGlobal","fibaroGet")
+  interceptFib("r","getGlobalValue","fibaroGet")
+  interceptFib("mr","get","fibaroGet")
+  interceptFib("r","getValue","fibaroGet")
+  interceptFib("","killScenes","fibaro")
+  interceptFib("","sleep","fibaro",
+    function(obj,fun,time) 
+      Debug(true,"fibaro:sleep(%s) until %s",time,osDate("%X",osTime()+math.floor(0.5+time/1000)))
+      fun(obj,time) 
+    end)
+  interceptFib("","startScene","fibaroStart",
+    function(obj,fun,id,args) 
+      local a = args and #args==1 and type(args[1])=='string' and (json.encode({(urldecode(args[1]))})) or args and json.encode(args)
+      Debug(true,"fibaro:start(%s%s)",id,a and ","..a or "")
+      fun(obj,id, args) 
+    end)
 
-return self
+  return self
 end
 
 Event = newEventEngine()
@@ -1767,6 +1770,23 @@ function hueSetup(cont)
       return hub.lights[dname] or hub.groups[dname] or hub.sensors[dname],hname
     end
 
+    local function hueCall(obj,id,...)
+      local val,params=({...})[1],{select(2,...)}
+      if Hue[val] then Hue[val](id,table.unpack(params)) end
+    end
+    local function hueGet(obj,id,...)
+      local val,res,dev,time=({...})[1],nil,Hue.isHue(id)
+      if val=='value' then 
+        if dev.state.on and (dev.state.reachable==nil or  dev.state.reachable==true) then 
+          res = dev.state.bri and tostring(math.floor((dev.state.bri/254)*99+0.5)) or '99' 
+        else res = '0' end 
+      elseif val=='values' then res = dev.state
+      else res =  dev.state[val] and tostring(dev.state[val]) or nil end
+      time=dev.state.lastupdate or 0
+      Debug(_debugFlags.hue,"Get ID:%s %s -> %s",id,val,res)
+      return res and res,time
+    end
+
     local mapIndex=10000 -- start mapping at deviceID 10000
     --devMap[deviceID] -> {hub, type, hue}
     function self.define(name,var,id) -- optional var
@@ -1778,6 +1798,7 @@ function hueSetup(cont)
       else error("No Hue name:"..name) end
       if Util and var then Util.defvar(var,id) end
       Log(LOG.LOG,"Hue device '%s' assigned deviceID %s",name,id)
+      Event._registerID(id,hueCall,hueGet)
       return id
     end
 
@@ -1862,32 +1883,6 @@ function hueSetup(cont)
 --      local keyAttr = ({'Down','Hold','Down/Released','Released'})[env.p.val % 1000 + 1]
 --      Event.post({type='event',event={type='CentralSceneEvent',data={deviceId=e.deviceID,keyId=keyId,keyAttribute=keyAttr}}})
 --    end)
-
-  local function mapFib(f,fun)
-    local fm = fibaro._orgf or fibaro
-    local ofc = fm[f]
-    fm[f] = function(obj,id,...)
-      if not Hue.isHue(id) then return ofc(obj,id,...) else return fun(obj,id,...) end 
-    end
-  end
-  mapFib('call',function(obj,id,...)
-      local val,params=({...})[1],{select(2,...)}
-      if Hue[val] then Hue[val](id,table.unpack(params)) end
-    end)
-  mapFib('get',function(obj,id,...)
-      local val,res,dev,time=({...})[1],nil,Hue.isHue(id)
-      if val=='value' then 
-        if dev.state.on and (dev.state.reachable==nil or  dev.state.reachable==true) then 
-          res = dev.state.bri and tostring(math.floor((dev.state.bri/254)*99+0.5)) or '99' 
-        else res = '0' end 
-      elseif val=='values' then res = dev.state
-      else res =  dev.state[val] and tostring(dev.state[val]) or nil end
-      time=dev.state.lastupdate or 0
-      Debug(_debugFlags.hue,"Get ID:%s %s -> %s",id,val,res)
-      return res and res,time
-    end)
-  mapFib('getValue',function(obj,id,...) return (fibaro.get(obj,id,...)) end)
-
   cont()
 end
 
