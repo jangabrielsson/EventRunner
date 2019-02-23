@@ -5,7 +5,7 @@
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version,_fix = "1.15","fix4"  -- Feb 21, 2019 
+_version,_fix = "1.15","fix5"  -- Feb 21, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -461,13 +461,13 @@ function newEventEngine()
   fibaro._idMap={}
   fibaro._call,fibaro._get=fibaro.call,fibaro.get
   function self._registerID(id,call,get) fibaro._idMap[id]={call=call,get=get} end
-  fibaro.call=function(obj,id,...)
+  fibaro.call=function(obj,id,...) id = tonumber(id)
     if id < 10000 then return fibaro._call(obj,id,...) else return fibaro._idMap[tonumber(id)].call(obj,id,...) end
   end
-  fibaro.get=function(obj,id,...) 
+  fibaro.get=function(obj,id,...) id = tonumber(id)
     if id < 10000 then return fibaro._get(obj,id,...) else return fibaro._idMap[tonumber(id)].get(obj,id,...) end
   end
-  fibaro.getValue=function (obj,id,...) 
+  fibaro.getValue=function (obj,id,...) id = tonumber(id)
     if id < 10000 then return (fibaro._get(obj,id,...)) else return (fibaro._idMap[tonumber(id)].get(obj,id,...)) end
   end
 
