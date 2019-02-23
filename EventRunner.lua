@@ -1757,7 +1757,7 @@ function hueSetup(cont)
       Debug(_debugFlags.hue,"Hue req:%s Payload:%s",url,payload)
       HTTP:request(url,{
           options = {headers={['Accept']='application/json',['Content-Type']='application/json'},
-            data = payload, timeout=2000, method = op},
+            data = payload, timeout=_HueTimeout or 2000, method = op},
           error = function(status) error("Hue connection:"..tojson(status)) end,
           success = function(status) if cont then cont(json.decode(status.data)) end end
         })
