@@ -462,13 +462,13 @@ function newEventEngine()
   fibaro._call,fibaro._get=fibaro.call,fibaro.get
   function self._registerID(id,call,get) fibaro._idMap[id]={call=call,get=get} end
   fibaro.call=function(obj,id,...) id = tonumber(id)
-    if id < 10000 then return fibaro._call(obj,id,...) else return fibaro._idMap[tonumber(id)].call(obj,id,...) end
+    if id < 10000 then return fibaro._call(obj,id,...) else return fibaro._idMap[id].call(obj,id,...) end
   end
   fibaro.get=function(obj,id,...) id = tonumber(id)
-    if id < 10000 then return fibaro._get(obj,id,...) else return fibaro._idMap[tonumber(id)].get(obj,id,...) end
+    if id < 10000 then return fibaro._get(obj,id,...) else return fibaro._idMap[id].get(obj,id,...) end
   end
   fibaro.getValue=function (obj,id,...) id = tonumber(id)
-    if id < 10000 then return (fibaro._get(obj,id,...)) else return (fibaro._idMap[tonumber(id)].get(obj,id,...)) end
+    if id < 10000 then return (fibaro._get(obj,id,...)) else return (fibaro._idMap[id].get(obj,id,...)) end
   end
 
 -- We intercept all fibaro:call so we can detect manual invocations of switches
