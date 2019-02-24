@@ -17,7 +17,7 @@ osTime = os.time
 osDate = os.date
 _REMOTE=true
 _SPEEDTIME=false
-_debugFlags = { post=true,invoke=false,triggers=false,timers=false,fibaro=true,fibaroGet=false }
+_debugFlags = { post=true,invoke=false,fibaroStart=true,triggers=false,timers=false,fibaro=true,fibaroGet=false }
 if dofile then dofile("EventRunnerDebug.lua") end -- Support for running off-line on PC/Mac
 
 _deviceTable = 456         -- name of HomeTable global
@@ -983,7 +983,11 @@ Event.event({type=Event.SUB},
     end
   end)
 
----------------------- Startup -----------------------------    
+---------------------- Startup -----------------------------   
+if _type == 'other' and fibaro:countScenes() > 1 then 
+  Log(LOG.LOG,"Scene already started. Try again?") 
+  fibaro:abort()
+end
 if _type == 'autostart' or _type == 'other' then
   Log(LOG.WELCOME,_format("%sEventRunner v%s",_sceneName and (_sceneName.." - " or ""),_version))
   Log(LOG.WELCOME,"Starting iOSLocator service")

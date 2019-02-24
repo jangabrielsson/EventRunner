@@ -818,7 +818,11 @@ Event.event({type=Event.SUB},
     end
   end)
 
----------------------- Startup -----------------------------    
+---------------------- Startup -----------------------------  
+if _type == 'other' and fibaro:countScenes() > 1 then 
+  Log(LOG.LOG,"Scene already started. Try again?") 
+  fibaro:abort()
+end
 if _type == 'autostart' or _type == 'other' then
   Log(LOG.WELCOME,_format("%sEventRunner v%s",_sceneName and (_sceneName.." - " or ""),_version))
 
