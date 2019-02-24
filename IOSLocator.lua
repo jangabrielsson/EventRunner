@@ -12,6 +12,7 @@
 --]]
 
 _version,_fix = "1.15","fix2"  -- Feb 21, 2019 
+_sceneName = "iOSLocator"
 osTime = os.time
 osDate = os.date
 _REMOTE=true
@@ -19,9 +20,9 @@ _SPEEDTIME=false
 _debugFlags = { post=true,invoke=false,triggers=false,timers=false,fibaro=true,fibaroGet=false }
 if dofile then dofile("EventRunnerDebug.lua") end -- Support for running off-line on PC/Mac
 
-_deviceTable = "HomeTable"         -- name of HomeTable global
+_deviceTable = 456         -- name of HomeTable global
 
-local _test = true                -- use local HomeTable variable instead of fibaro global
+local _test = false                -- use local HomeTable variable instead of fibaro global
 local homeLatitude,homeLongitude  -- set to first place in HomeTable.places list
 
 HomeTable = [[
@@ -116,7 +117,7 @@ function main()
 
   _format = string.format
 
-  Event.event({type='global',name=_deviceTable},
+  Event.event({type='readConfig'},
     function(env)
       iUsers = {}
       conf = readConfigurationData()
@@ -292,7 +293,7 @@ function main()
   Event.event({{type='autostart'},{type='other'}},
     function(env)
       local event=env.event
-      Event.post({type='global', name=_deviceTable})
+      Event.post({type='readConfig'})
       Event.post({type='poll',index=1})
     end)
 
