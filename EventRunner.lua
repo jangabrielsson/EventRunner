@@ -5,7 +5,7 @@
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version,_fix = "1.15","fix5"  -- Feb 21, 2019 
+_version,_fix = "1.15","fix6"  -- Feb 21, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -25,7 +25,7 @@ if not _SCENERUNNER then
   _SPEEDTIME     = 24*36       -- Offline only, Speed through X hours, set to false will run in real-time
   _EVENTSERVER   = true        -- Starts port on 6872 listening for incoming events (Node-red, HC2 etc)
   _VALIDATECHARS = true        -- Check rules for invalid characters (cut&paste)
-  _myNodeRed = "http://192.168.1.50:1880/eventrunner"  -- Ex. used for Event.postRemote(_myNodeRed,{type='test})
+  _myNodeRed = "http://192.168.1.50:1880/eventrunner"  -- Ex. used for Event.postRemote(_myNodeRed,{type='test'})
 
 -- debug flags for various subsystems...
   _debugFlags = { 
@@ -36,14 +36,14 @@ if not _SCENERUNNER then
 end
 -- If running offline we need our own setTimeout and net.HTTPClient() and other fibaro funs...
 if dofile then dofile("EventRunnerDebug.lua") require('mobdebug').coro() end
-
+_HueHubs=nil
 ---------------- Here you place rules and user code, called once --------------------
 function main()
   local rule,define = Rule.eval, Util.defvar
   if dofile then
     --_System.copyGlobalsFromHC2()             -- copy globals from HC2 to ZBS
     --_System.writeGlobalsToFile("test.data")  -- write globals from ZBS to file, default 'globals.data'
-    _System.readGlobalsFromFile()            -- read in globals from file, default 'globals.data'
+    --_System.readGlobalsFromFile()            -- read in globals from file, default 'globals.data'
   end
 
   -- Read in "HomeTable"
@@ -756,6 +756,7 @@ function Util.mkStack()
 end
 
 function Util.findScenes(str)
+  if _OFFLINE then return {} end
   local res = {}
   for _,s1 in ipairs(api.get("/scenes")) do
     if s1.isLua and s1.id~=__fibaroSceneId then
@@ -1485,11 +1486,12 @@ function newRuleCompiler()
   local RULEFORMAT = "Rule:%s:%."..(_ruleLogLength or 40).."s"
 
   -- #property{deviceID={6,7} & 6:isOn => .. generates 2 triggers for 6????
+  -- #ev & 6:isOn
   function _remapEvents(obj)
     if isTEvent(obj) then 
       local ce = ScriptEngine.eval(ScriptCompiler.compile(obj))
-      if ce.type == 'property' and type(ce.deviceID)=='table' then
-        if #ce.deviceID> 0 then
+      if isEvent(ce) then ---ce.type == 'property' and type(ce.deviceID)=='table' then
+        if type(ce.deviceID)=='table' and #ce.deviceID> 0 then
           local ss =Util.map(function(id) 
               local ce1,cep = _copy(ce); ce1.deviceID=id
               cep = _copy(ce1); Event._compilePattern(cep)
