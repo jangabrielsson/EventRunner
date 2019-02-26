@@ -5,7 +5,7 @@
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version,_fix = "1.15","fix6"  -- Feb 21, 2019 
+_version,_fix = "1.15","fix7"  -- Feb 26, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -446,7 +446,6 @@ function newEventEngine()
     for _,hashKey in ipairs(hasKeys) do
       for _,rules in ipairs(_handlers[hashKey] or {}) do -- Check all rules of 'type'
         local match = _match(rules[1][self.RULE],e)
-        if e.type=='alexa' then Log(LOG.LOG,"Match %s %s %s",tojson(e),tojson(rules[1][self.RULE]),tojson(match)) end
         if match then
           if next(match) then for k,v in pairs(match) do env.p[k]=v match[k]={v} end env.context = match end
           for _,rule in ipairs(rules) do 
@@ -971,7 +970,8 @@ function newScriptEngine()
     if t1<=t2 then s.push(t1 <= now and now <= t2) else s.push(now >= t1 or now <= t2) end 
   end
   instr['redaily'] = function(s,n,e,i) s.push(Rule.restartDaily(s.pop())) end
-  instr['eventmatch'] = function(s,n,e,i) local ev,evp=i[3][2],i[3][3] s.push(e.event and Event._match(evp,e.event) and ev or false) end
+  instr['eventmatch'] = function(s,n,e,i) local ev,evp=i[3][2],i[3][3] 
+    s.push(e.event and Event._match(evp,e.event) and ev or false) end
   instr['wait'] = function(s,n,e,i) local t,cp=s.pop(),e.cp 
     if i[4] then s.push(false) -- Already 'waiting'
     elseif i[5] then i[5]=false s.push(true) -- Timer expired, return true
@@ -989,7 +989,7 @@ function newScriptEngine()
   instr['for'] = function(s,n,e,i) 
     local val,time, stack, cp = s.pop(),s.pop(), e.stack, e.cp
     local code = e.code
-    local rep = function() i[6] = true; i[5] = nil; self.eval(code) end
+    local rep = function() i[6] = true; i[5] = nil; self.eval(code,e) end
     e.forR = nil -- Repeat function (see repeat())
     --Log(LOG.LOG,"FOR")
     if i[6] then -- true if timer has expired
