@@ -5,7 +5,7 @@
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version,_fix = "1.15","fix7"  -- Feb 26, 2019 
+_version,_fix = "1.15","fix8"  -- Feb 26, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -921,7 +921,7 @@ function newScriptEngine()
   instr['-'] = function(s,n) s.push(-s.pop()+s.pop()) end
   instr['*'] = function(s,n) s.push(s.pop()*s.pop()) end
   instr['/'] = function(s,n) local y,x=s.pop(),s.pop()
-    if type(x)=='table' and type(y)=='string' then s.push(Util.deviceTypeFilter(x,y)) else s.push(x,y) end
+    if type(x)=='table' and type(y)=='string' then s.push(Util.deviceTypeFilter(x,y)) else s.push(x/y) end
   end
   instr['%'] = function(s,n) local a,b=s.pop(),s.pop(); s.push(b % a) end
   instr['inc+'] = function(s,n,e,i) local var,val=i[3],i[4] or s.pop() s.push(setVar(var,getVar(var,e)+val,e)) end
