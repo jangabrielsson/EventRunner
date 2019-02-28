@@ -5,7 +5,7 @@
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version,_fix = "1.15","fix11"  -- Feb 28, 2019 
+_version,_fix = "1.15","fix12"  -- Feb 28, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -517,7 +517,8 @@ function newEventEngine()
       end
     end
   end
-
+  function fibaro:sleep() error("Not allowed to use fibaro:sleep in EventRunner scenes!") end
+  
   interceptFib("","call","fibaro")
   interceptFib("","setGlobal","fibaroSet") 
   interceptFib("mr","getGlobal","fibaroGet")
