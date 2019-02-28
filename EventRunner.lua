@@ -5,7 +5,7 @@
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version,_fix = "1.15","fix9"  -- Feb 28, 2019 
+_version,_fix = "1.15","fix10"  -- Feb 28, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -70,7 +70,8 @@ local _type, _source = _trigger.type, _trigger
 local _MAILBOX = "MAILBOX"..__fibaroSceneId 
 function urldecode(str) return str:gsub('%%(%x%x)',function (x) return string.char(tonumber(x,16)) end) end
 if _type == 'other' and fibaro:args() then
-  _trigger,_type = json.decode(urldecode(fibaro:args()[1])),'remote'
+  _trigger,_type = urldecode(fibaro:args()[1]),'remote'
+  _trigger=json.decode(_trigger)
 end
 
 ---------- Producer(s) - Handing over incoming triggers to consumer --------------------
