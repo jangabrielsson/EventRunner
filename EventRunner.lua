@@ -5,7 +5,7 @@
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version,_fix = "1.15","fix10"  -- Feb 28, 2019 
+_version,_fix = "1.15","fix11"  -- Feb 28, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -106,8 +106,12 @@ end
 ---------- Consumer - re-posting incoming triggers as internal events --------------------
 
 local _CXCS=250
+local _CXCST1,_CXCST2=os.clock()
 local function _poll()
   _CXCS = math.min(2*(_CXCS+1),250)
+  _CXCST2 = _CXCST1
+  _CXCST1 = os.clock()
+  if _CXCST1-_CXCST2 > 1 then Log(LOG.ERROR,"Slow mailbox watch:%ss",_CXCST1-_CXCST2) end
   for _,mb in ipairs(_MAILBOXES) do
     local l = fibaro:getGlobal(mb)
     if l and l ~= "" and l:sub(1,3) ~= '<@>' then -- Something in the mailbox
