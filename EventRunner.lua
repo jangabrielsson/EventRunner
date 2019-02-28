@@ -625,13 +625,21 @@ function Util.printRule(rule)
   Log(LOG.LOG,"-----------------------------------")
 end
 
-function Util.eventTimestamp(e)
+function Util.eventTimestamp(e,mt,color)
   if not e._timestamps then return end
   local t=e._timestamps
-  Log(LOG.LOG,"Triggered:%s",osDate("%H:%M:%S",t.triggered[1]))
-  Log(LOG.LOG,"Posted:%s seconds later",t.posted[2]-t.triggered[2])
-  Log(LOG.LOG,"Received:%s",osDate("%H:%M:%S",t.received[1]))
-  Log(LOG.LOG,"Logged:%s seconds later",os.clock()-t.received[2])
+  mt=mt or 0
+  color = color or LOG.LOG
+  local totalMain=os.clock()-t.received[2]
+  local totalPost=t.posted[2]-t.triggered[2]
+  local totalSec=osTime()-t.triggered[1]
+  if (totalMain+totalPost > mt) or totalSec>mt then
+    Log(color,"Triggered:%s",osDate("%H:%M:%S",t.triggered[1]))
+    Log(color,"Posted:%s seconds later",totalPost)
+    Log(color,"Received:%s",osDate("%H:%M:%S",t.received[1]))
+    Log(color,"Logged:%s seconds later",totalMain)
+    Log(color,"%s seconds from triggered to logged",totalSec)
+  end
 end
 
 function Util.validateChars(str,msg)
