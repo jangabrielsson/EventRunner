@@ -5,7 +5,7 @@
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version,_fix = "1.15","fix8"  -- Feb 26, 2019 
+_version,_fix = "1.15","fix9"  -- Feb 28, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -30,7 +30,7 @@ if not _SCENERUNNER then
 -- debug flags for various subsystems...
   _debugFlags = { 
     post=true,invoke=false,eventserver=true,triggers=false,dailys=true,timers=false,rule=false,ruleTrue=false,
-    fibaro=true,fibaroStart=false,fibaroGet=false,fibaroSet=false,sysTimers=false,hue=false,scene=true
+    fibaro=true,fibaroStart=false,fibaroGet=false,fibaroSet=false,sysTimers=false,hue=false,scene=true,msgTime=true
   }
 
 end
@@ -70,7 +70,7 @@ local _type, _source = _trigger.type, _trigger
 local _MAILBOX = "MAILBOX"..__fibaroSceneId 
 function urldecode(str) return str:gsub('%%(%x%x)',function (x) return string.char(tonumber(x,16)) end) end
 if _type == 'other' and fibaro:args() then
-  _trigger,_type = urldecode(fibaro:args()[1]),'remote'
+  _trigger,_type = json.decode(urldecode(fibaro:args()[1])),'remote'
 end
 
 ---------- Producer(s) - Handing over incoming triggers to consumer --------------------
@@ -79,6 +79,7 @@ local _MAXWAIT=5.0 -- seconds to wait
 if _supportedEvents[_type] then
   local _MBP = _MAILBOX.."_"
   local mbp,mb,time,cos = 1,nil,os.clock(),fibaro:countScenes()
+  if _debugFlags.msgTime then _trigger._timestamps={triggered={os.time(),time}} end
   if  cos == 1 then fibaro:debug("Aborting: Server not started yet"); fibaro:abort() end
   local event = type(_trigger) ~= 'string' and json.encode(_trigger) or _trigger
   local ticket = string.format('<@>%s%s',tostring(_source),event)
@@ -96,6 +97,7 @@ if _supportedEvents[_type] then
     end
     fibaro:setGlobal(mb,ticket) -- try to acquire lock
   until fibaro:getGlobal(mb) == ticket -- got lock
+  if _debugFlags.msgTime then _trigger._timestamps.posted={os.time(),os.clock()} event=json.encode(_trigger) end
   fibaro:setGlobal(mb,event) -- write msg
   fibaro:abort() -- and exit
 end
@@ -111,6 +113,7 @@ local function _poll()
       fibaro:setGlobal(mb,"") -- clear mailbox
       Debug(_debugFlags.triggers,"Incoming event:%s",l)
       l = json.decode(l) l._sh=true
+      if _debugFlags.msgTime then l._timestamps.received={os.time(),os.clock()} end
       setTimeout(function() Event.post(l) end,5)-- and post it to our "main()"
       _CXCS=0
     end
@@ -621,6 +624,15 @@ function Util.printRule(rule)
   Log(LOG.LOG,"-----------------------------------")
 end
 
+function Util.eventTimestamp(e)
+  if not e._timestamps then return end
+  local t=e._timestamps
+  Log(LOG.LOG,"Triggered:%s",osDate("%H:%M:%S",t.triggered[1]))
+  Log(LOG.LOG,"Posted:%s seconds later",t.posted[2]-t.triggered[2])
+  Log(LOG.LOG,"Received:%s",osDate("%H:%M:%S",t.received[1]))
+  Log(LOG.LOG,"Logged:%s seconds later",os.clock()-t.received[2])
+end
+
 function Util.validateChars(str,msg)
   if _VALIDATECHARS then -- Check for strange characters in input string, can happen with cut&paste
     local p = str:find("\xEF\xBB\xBF") if p then error(string.format("Char:%s, "..msg,p,str)) end
@@ -972,448 +984,448 @@ function newScriptEngine()
   instr['redaily'] = function(s,n,e,i) s.push(Rule.restartDaily(s.pop())) end
   instr['eventmatch'] = function(s,n,e,i) local ev,evp=i[3][2],i[3][3] 
     s.push(e.event and Event._match(evp,e.event) and ev or false) end
-  instr['wait'] = function(s,n,e,i) local t,cp=s.pop(),e.cp 
-    if i[4] then s.push(false) -- Already 'waiting'
-    elseif i[5] then i[5]=false s.push(true) -- Timer expired, return true
-    else 
-      _assert(type(t)=='number',"Bad argument to wait '%s'",t~=nil and t or "nil")
-      if t<midnight() then t = osTime()+t end -- Allow both relative and absolute time... e.g '10:00'->midnight+10:00
-      i[4]=Event.post(function() i[4]=nil i[5]=true self.eval(e.code,e,e.stack,cp) end,t,e.rule) s.push(false) error({type='yield'})
-    end 
-  end
-  instr['repeat'] = function(s,n,e) 
-    local v,c = n>0 and s.pop() or math.huge
-    if not e.forR then s.push(0) 
-    elseif v > e.forR[2] then s.push(e.forR[1]()) else s.push(e.forR[2]) end 
-  end
-  instr['for'] = function(s,n,e,i) 
-    local val,time, stack, cp = s.pop(),s.pop(), e.stack, e.cp
-    local code = e.code
-    local rep = function() i[6] = true; i[5] = nil; self.eval(code,e) end
-    e.forR = nil -- Repeat function (see repeat())
-    --Log(LOG.LOG,"FOR")
-    if i[6] then -- true if timer has expired
-      --Log(LOG.LOG,"Timer expired")
-      i[6] = nil; 
-      if val then 
-        i[7] = (i[7] or 0)+1 -- Times we have repeated 
-        --print(string.format("REP:%s, TIME:%s",i[7],time))
-        e.forR={function() Event.post(rep,time+osTime(),e.rule) return i[7] end,i[7]}
-      end
-      s.push(val) 
-      return
-    end 
-    i[7] = 0
-    if i[5] and (not val) then i[5] = 
-      Event.cancel(i[5]) --Log(LOG.LOG,"Killing timer")-- Timer already running, and false, stop timer
-    elseif (not i[5]) and val then                        -- Timer not running, and true, start timer
-      i[5]=Event.post(rep,time+osTime(),e.rule) --Log(LOG.LOG,"Starting timer %s",tostring(i[5]))
+    instr['wait'] = function(s,n,e,i) local t,cp=s.pop(),e.cp 
+      if i[4] then s.push(false) -- Already 'waiting'
+      elseif i[5] then i[5]=false s.push(true) -- Timer expired, return true
+      else 
+        _assert(type(t)=='number',"Bad argument to wait '%s'",t~=nil and t or "nil")
+        if t<midnight() then t = osTime()+t end -- Allow both relative and absolute time... e.g '10:00'->midnight+10:00
+        i[4]=Event.post(function() i[4]=nil i[5]=true self.eval(e.code,e,e.stack,cp) end,t,e.rule) s.push(false) error({type='yield'})
+      end 
     end
-    s.push(false)
-  end
-
-  function self.addInstr(name,fun) _assert(instr[name] == nil,"Instr already defined: %s",name) instr[name] = fun end
-
-  function postTrace(i,args,stack,cp)
-    local f,n = i[1],i[2]
-    if not ({jmp=true,push=true,pop=true,addr=true,fn=true,table=true,})[f] then
-      local p0,p1=3,1; while i[p0] do table.insert(args,p1,i[p0]) p1=p1+1 p0=p0+1 end
-      args = _format("%s(%s)=%s",f,tojson(args):sub(2,-2),tojson(stack.ref(0)))
-      Log(LOG.LOG,"pc:%-3d sp:%-3d %s",cp,stack.size(),args)
-    else
-      Log(LOG.LOG,"pc:%-3d sp:%-3d [%s/%s%s]",cp,stack.size(),i[1],i[2],i[3] and ","..tojson(i[3]) or "")
+    instr['repeat'] = function(s,n,e) 
+      local v,c = n>0 and s.pop() or math.huge
+      if not e.forR then s.push(0) 
+      elseif v > e.forR[2] then s.push(e.forR[1]()) else s.push(e.forR[2]) end 
     end
-  end
-
-  function self.eval(code,env,stack,cp) 
-    stack = stack or Util.mkStack()
-    env = env or {}
-    env.context = env.context or {__instr={}}
-    env.cp,env.code,env.stack = cp or 1,code,stack
-    local i,args
-    local status, res = pcall(function()  
-        while env.cp <= #env.code do
-          i = env.code[env.cp]
-          if _traceInstrs then 
-            args = _copy(stack.liftc(i[2]))
-            instr[i[1]](stack,i[2],env,i)
-            postTrace(i,args,stack,env.cp) 
-          else instr[i[1]](stack,i[2],env,i) end
-          env.cp = env.cp+1
+    instr['for'] = function(s,n,e,i) 
+      local val,time, stack, cp = s.pop(),s.pop(), e.stack, e.cp
+      local code = e.code
+      local rep = function() i[6] = true; i[5] = nil; self.eval(code,e) end
+      e.forR = nil -- Repeat function (see repeat())
+      --Log(LOG.LOG,"FOR")
+      if i[6] then -- true if timer has expired
+        --Log(LOG.LOG,"Timer expired")
+        i[6] = nil; 
+        if val then 
+          i[7] = (i[7] or 0)+1 -- Times we have repeated 
+          --print(string.format("REP:%s, TIME:%s",i[7],time))
+          e.forR={function() Event.post(rep,time+osTime(),e.rule) return i[7] end,i[7]}
         end
-        return stack.pop(),env,stack,1 
-      end)
-    if status then return res
-    else
-      if not instr[i[1]] then errThrow("eval",_format("undefined instruction '%s'",i[1])) end
-      if type(res) == 'table' and res.type == 'yield' then
-        if res.fun then res.fun(env,stack,env.cp+1,res) end
-        return "%YIELD%",env,stack,env.cp+1
+        s.push(val) 
+        return
+      end 
+      i[7] = 0
+      if i[5] and (not val) then i[5] = 
+        Event.cancel(i[5]) --Log(LOG.LOG,"Killing timer")-- Timer already running, and false, stop timer
+      elseif (not i[5]) and val then                        -- Timer not running, and true, start timer
+        i[5]=Event.post(rep,time+osTime(),e.rule) --Log(LOG.LOG,"Starting timer %s",tostring(i[5]))
       end
-      error(res)
+      s.push(false)
     end
+
+    function self.addInstr(name,fun) _assert(instr[name] == nil,"Instr already defined: %s",name) instr[name] = fun end
+
+    function postTrace(i,args,stack,cp)
+      local f,n = i[1],i[2]
+      if not ({jmp=true,push=true,pop=true,addr=true,fn=true,table=true,})[f] then
+        local p0,p1=3,1; while i[p0] do table.insert(args,p1,i[p0]) p1=p1+1 p0=p0+1 end
+        args = _format("%s(%s)=%s",f,tojson(args):sub(2,-2),tojson(stack.ref(0)))
+        Log(LOG.LOG,"pc:%-3d sp:%-3d %s",cp,stack.size(),args)
+      else
+        Log(LOG.LOG,"pc:%-3d sp:%-3d [%s/%s%s]",cp,stack.size(),i[1],i[2],i[3] and ","..tojson(i[3]) or "")
+      end
+    end
+
+    function self.eval(code,env,stack,cp) 
+      stack = stack or Util.mkStack()
+      env = env or {}
+      env.context = env.context or {__instr={}}
+      env.cp,env.code,env.stack = cp or 1,code,stack
+      local i,args
+      local status, res = pcall(function()  
+          while env.cp <= #env.code do
+            i = env.code[env.cp]
+            if _traceInstrs then 
+              args = _copy(stack.liftc(i[2]))
+              instr[i[1]](stack,i[2],env,i)
+              postTrace(i,args,stack,env.cp) 
+            else instr[i[1]](stack,i[2],env,i) end
+            env.cp = env.cp+1
+          end
+          return stack.pop(),env,stack,1 
+        end)
+      if status then return res
+      else
+        if not instr[i[1]] then errThrow("eval",_format("undefined instruction '%s'",i[1])) end
+        if type(res) == 'table' and res.type == 'yield' then
+          if res.fun then res.fun(env,stack,env.cp+1,res) end
+          return "%YIELD%",env,stack,env.cp+1
+        end
+        error(res)
+      end
+    end
+    return self
   end
-  return self
-end
-ScriptEngine = newScriptEngine()
+  ScriptEngine = newScriptEngine()
 
 ------------------------ ScriptCompiler --------------------
-Rule = nil
-function newScriptCompiler()
-  local self,gensym,preC = {},Util.gensym,{}
+  Rule = nil
+  function newScriptCompiler()
+    local self,gensym,preC = {},Util.gensym,{}
 
-  local function mkOp(o) return o end
-  local POP = {mkOp('pop'),0}
-  local function isVar(e) return type(e)=='table' and e[1]=='var' end
-  function isGlob(e) return type(e)=='table' and e[1]=='glob' end
-  function isTriggerVar(e) return isVar(e) and e[2]:sub(1,1)=='_' end
-  local function isNum(e) return type(e)=='number' end
-  local function isBuiltin(fun) return ScriptEngine.isInstr(fun) or preC[fun] end
-  local function isString(e) return type(e)=='string' end
-  local _comp = {}
-  function self._getComps() return _comp end
+    local function mkOp(o) return o end
+    local POP = {mkOp('pop'),0}
+    local function isVar(e) return type(e)=='table' and e[1]=='var' end
+    function isGlob(e) return type(e)=='table' and e[1]=='glob' end
+    function isTriggerVar(e) return isVar(e) and e[2]:sub(1,1)=='_' end
+    local function isNum(e) return type(e)=='number' end
+    local function isBuiltin(fun) return ScriptEngine.isInstr(fun) or preC[fun] end
+    local function isString(e) return type(e)=='string' end
+    local _comp = {}
+    function self._getComps() return _comp end
 
-  local symbol={['{}'] = {{'quote',{}}}, ['true'] = {true}, ['false'] = {false}, ['nil'] = {nil},
-    ['env'] = {{'env'}}, ['wnum'] = {{'%time','wnum'}},['now'] = {{'%time','now'}},['sunrise'] = {{'%time','sunrise','*'}}, ['sunset'] = {{'%time','sunset','*'}},
-    ['midnight'] = {{'%time','midnight'}}}
+    local symbol={['{}'] = {{'quote',{}}}, ['true'] = {true}, ['false'] = {false}, ['nil'] = {nil},
+      ['env'] = {{'env'}}, ['wnum'] = {{'%time','wnum'}},['now'] = {{'%time','now'}},['sunrise'] = {{'%time','sunrise','*'}}, ['sunset'] = {{'%time','sunset','*'}},
+      ['midnight'] = {{'%time','midnight'}}}
 
-  local function compT(e,ops)
-    if type(e) == 'table' then
-      local ef = e[1]
-      if _comp[ef] then _comp[ef](e,ops)
-      else for i=2,#e do compT(e[ i],ops) end ops[#ops+1] = {mkOp(e[1]),#e-1} end -- built-in fun
-    else 
-      ops[#ops+1]={mkOp('push'),0,e} -- constants etc
+    local function compT(e,ops)
+      if type(e) == 'table' then
+        local ef = e[1]
+        if _comp[ef] then _comp[ef](e,ops)
+        else for i=2,#e do compT(e[ i],ops) end ops[#ops+1] = {mkOp(e[1]),#e-1} end -- built-in fun
+      else 
+        ops[#ops+1]={mkOp('push'),0,e} -- constants etc
+      end
     end
-  end
 
-  _comp['%jmp'] = function(e,ops) ops[#ops+1] = {mkOp('jmp'),0,e[2],e[3]} end
-  _comp['%addr'] = function(e,ops) ops[#ops+1] = {mkOp('addr'),0,e[2]} end
-  _comp['%time'] = function(e,ops) ops[#ops+1] = {mkOp('time'),0,e[2],e[3]} end
-  _comp['%eventmatch'] = function(e,ops) ops[#ops+1] = {mkOp('eventmatch'),0,e[2]} end
-  _comp['quote'] = function(e,ops) ops[#ops+1] = {mkOp('push'),0,e[2]} end
-  _comp['glob'] = function(e,ops) ops[#ops+1] = {mkOp('glob'),0,e[2]} end
-  _comp['var'] = function(e,ops) ops[#ops+1] = {mkOp('var'),0,e[2]} end
-  _comp['prop'] = function(e,ops) 
-    _assert(isString(e[3]),"bad property field: '%s'",e[3])
-    compT(e[2],ops) ops[#ops+1]={mkOp('prop'),0,e[3]} 
-  end
-  _comp['apply'] = function(e,ops) for i=1,#e[3] do compT(e[3][i],ops) end compT(e[2],ops) ops[#ops+1] = {mkOp('apply'),#e[3],e[2][2]} end
-  _comp['%table'] = function(e,ops) local keys = {}
-    for key,val in pairs(e[2]) do keys[#keys+1] = key; compT(val,ops) end
-    ops[#ops+1]={mkOp('table'),#keys,keys}
-  end
-  _comp['inc'] = function(e,ops) -- {inc,var,val,op}
-    if isString(e[3]) or isNum(e[3]) then ops[#ops+1]= {mkOp('inc'..e[4]),0,e[2][2],e[3]}
-    else compT(e[3],ops) ops[#ops+1]= {mkOp('inc'..e[4]),1,e[2][2]} end
-  end
-  _comp['and'] = function(e,ops) 
-    compT(e[2],ops)
-    local o1,z = {mkOp('ifnskip'),0,0}
-    ops[#ops+1] = o1 -- true skip 
-    z = #ops; ops[#ops+1]= POP; compT(e[3],ops); o1[3] = #ops-z+1
-  end
-  _comp['or'] = function(e,ops)  
-    compT(e[2],ops)
-    local o1,z = {mkOp('ifskip'),0,0}
-    ops[#ops+1] = o1 -- true skip 
-    z = #ops; ops[#ops+1]= POP; compT(e[3],ops); o1[3] = #ops-z+1;
-  end
-  _comp['progn'] = function(e,ops)
-    if #e == 2 then compT(e[2],ops) 
-    elseif #e > 2 then
-      for i=2,#e-1 do compT(e[i],ops); ops[#ops+1]=POP end 
-      compT(e[#e],ops)
+    _comp['%jmp'] = function(e,ops) ops[#ops+1] = {mkOp('jmp'),0,e[2],e[3]} end
+    _comp['%addr'] = function(e,ops) ops[#ops+1] = {mkOp('addr'),0,e[2]} end
+    _comp['%time'] = function(e,ops) ops[#ops+1] = {mkOp('time'),0,e[2],e[3]} end
+    _comp['%eventmatch'] = function(e,ops) ops[#ops+1] = {mkOp('eventmatch'),0,e[2]} end
+    _comp['quote'] = function(e,ops) ops[#ops+1] = {mkOp('push'),0,e[2]} end
+    _comp['glob'] = function(e,ops) ops[#ops+1] = {mkOp('glob'),0,e[2]} end
+    _comp['var'] = function(e,ops) ops[#ops+1] = {mkOp('var'),0,e[2]} end
+    _comp['prop'] = function(e,ops) 
+      _assert(isString(e[3]),"bad property field: '%s'",e[3])
+      compT(e[2],ops) ops[#ops+1]={mkOp('prop'),0,e[3]} 
     end
-  end
-  _comp['->'] = function(e,ops)
-    local h,body,vars,f,code = e[2],e[3],{},{'progn',true},{}
-    for i=1,#h do vars[i]=h[#h+1-i] end
-    code[#code+1]={mkOp('fn'),#vars,vars}
-    compT(body,code)
-    ops[#ops+1]={mkOp('push'),0,code}
-  end
-  _comp['aref'] = function(e,ops) 
-    compT(e[2],ops) 
-    if isNum(e[3]) or isString(e[3]) then ops[#ops+1]={mkOp('aref'),1,e[3]}
-    else compT(e[3],ops) ops[#ops+1]={mkOp('aref'),2} end
-  end
-  _comp['set'] = function(e,ops)
-    local ref,val=e[2],e[3]
-    local setF = type(ref)=='table' and ({var='setVar',glob='setGlob',aref='setRef',label='setLabel',slider='setSlider',prop='setProp'})[ref[1]]
-    if setF=='setRef' or setF=='setLabel' or setF=='setProp' or setF=='setSlider' then -- ["setRef,["var","foo"],"bar",5]
-      local expr,idx = ref[2],ref[3]
-      compT(val,ops) compT(expr,ops)
-      idx = setF=='setProp' and idx[2] or idx
-      if isString(idx) or isNum(idx) then ops[#ops+1]={mkOp(setF),2,idx}
-      else compT(idx,ops) ops[#ops+1]={mkOp(setF),3} end
-    elseif setF=='setVar' or setF=='setGlob' then
-      if isString(val) or isNum(val) then ops[#ops+1]={mkOp(setF),0,ref[2],val}
-      else compT(val,ops) ops[#ops+1]={mkOp(setF),1,ref[2]} end
-    else error({_format("trying to set illegal value '%s'",tojson(ref))}) end
-  end
-  _comp['%NULL'] = function(e,ops) compT(e[2],ops); ops[#ops+1]= POP; compT(e[3],ops) end
-
-  function self.dump(code)
-    code = code or {}
-    for p = 1,#code do
-      local i = code[p]
-      Log(LOG.LOG,"%-3d:[%s/%s%s%s]",p,i[1],i[2] ,i[3] and ","..tojson(i[3]) or "",i[4] and ","..tojson(i[4]) or "")
+    _comp['apply'] = function(e,ops) for i=1,#e[3] do compT(e[3][i],ops) end compT(e[2],ops) ops[#ops+1] = {mkOp('apply'),#e[3],e[2][2]} end
+    _comp['%table'] = function(e,ops) local keys = {}
+      for key,val in pairs(e[2]) do keys[#keys+1] = key; compT(val,ops) end
+      ops[#ops+1]={mkOp('table'),#keys,keys}
     end
-  end
+    _comp['inc'] = function(e,ops) -- {inc,var,val,op}
+      if isString(e[3]) or isNum(e[3]) then ops[#ops+1]= {mkOp('inc'..e[4]),0,e[2][2],e[3]}
+      else compT(e[3],ops) ops[#ops+1]= {mkOp('inc'..e[4]),1,e[2][2]} end
+    end
+    _comp['and'] = function(e,ops) 
+      compT(e[2],ops)
+      local o1,z = {mkOp('ifnskip'),0,0}
+      ops[#ops+1] = o1 -- true skip 
+      z = #ops; ops[#ops+1]= POP; compT(e[3],ops); o1[3] = #ops-z+1
+    end
+    _comp['or'] = function(e,ops)  
+      compT(e[2],ops)
+      local o1,z = {mkOp('ifskip'),0,0}
+      ops[#ops+1] = o1 -- true skip 
+      z = #ops; ops[#ops+1]= POP; compT(e[3],ops); o1[3] = #ops-z+1;
+    end
+    _comp['progn'] = function(e,ops)
+      if #e == 2 then compT(e[2],ops) 
+      elseif #e > 2 then
+        for i=2,#e-1 do compT(e[i],ops); ops[#ops+1]=POP end 
+        compT(e[#e],ops)
+      end
+    end
+    _comp['->'] = function(e,ops)
+      local h,body,vars,f,code = e[2],e[3],{},{'progn',true},{}
+      for i=1,#h do vars[i]=h[#h+1-i] end
+      code[#code+1]={mkOp('fn'),#vars,vars}
+      compT(body,code)
+      ops[#ops+1]={mkOp('push'),0,code}
+    end
+    _comp['aref'] = function(e,ops) 
+      compT(e[2],ops) 
+      if isNum(e[3]) or isString(e[3]) then ops[#ops+1]={mkOp('aref'),1,e[3]}
+      else compT(e[3],ops) ops[#ops+1]={mkOp('aref'),2} end
+    end
+    _comp['set'] = function(e,ops)
+      local ref,val=e[2],e[3]
+      local setF = type(ref)=='table' and ({var='setVar',glob='setGlob',aref='setRef',label='setLabel',slider='setSlider',prop='setProp'})[ref[1]]
+      if setF=='setRef' or setF=='setLabel' or setF=='setProp' or setF=='setSlider' then -- ["setRef,["var","foo"],"bar",5]
+        local expr,idx = ref[2],ref[3]
+        compT(val,ops) compT(expr,ops)
+        idx = setF=='setProp' and idx[2] or idx
+        if isString(idx) or isNum(idx) then ops[#ops+1]={mkOp(setF),2,idx}
+        else compT(idx,ops) ops[#ops+1]={mkOp(setF),3} end
+      elseif setF=='setVar' or setF=='setGlob' then
+        if isString(val) or isNum(val) then ops[#ops+1]={mkOp(setF),0,ref[2],val}
+        else compT(val,ops) ops[#ops+1]={mkOp(setF),1,ref[2]} end
+      else error({_format("trying to set illegal value '%s'",tojson(ref))}) end
+    end
+    _comp['%NULL'] = function(e,ops) compT(e[2],ops); ops[#ops+1]= POP; compT(e[3],ops) end
 
-  preC['progn'] = function(e) local r={'progn'}
-    Util.map(function(p) 
-        if type(p)=='table' and p[1 ]=='progn' then for i=2,#p do r[#r+1 ] = p[i] end
-      else r[#r+1 ]=p end end
-      ,e,2)
-    return r
-  end
-  preC['if'] = function(e) local e1={'and',e[2],e[3]} return #e==4 and {'or',e1,e[4]} or e1 end
-  preC['dolist'] = function(e) local var,list,expr,idx,lvar,LBL=e[2],e[3],e[4],{'var',gensym('fi')},{'var',gensym('fl')},gensym('LBL')
-    e={'progn',{'set',idx,1},{'set',lvar,list},{'%addr',LBL}, -- dolist(var,list,expr)
-      {'set',var,{'aref',lvar,idx}},{'and',var,{'progn',expr,{'set',idx,{'+',idx,1}},{'%jmp',LBL,0}}},lvar}
-    return self.precompile(e)
-  end
-  preC['dotimes'] = function(e) local var,start,stop,step,body=e[2],e[3],e[4],e[5], e[6] -- dotimes(var,start,stop[,step],expr)
-    local LBL = gensym('LBL')
-    if body == nil then body,step = step,1 end
-    e={'progn',{'set',var,start},{'%addr',LBL},{'if',{'<=',var,stop},{'progn',body,{'+=',var,step},{'%jmp',LBL,0}}}}
-    return self.precompile(e)
-  end
+    function self.dump(code)
+      code = code or {}
+      for p = 1,#code do
+        local i = code[p]
+        Log(LOG.LOG,"%-3d:[%s/%s%s%s]",p,i[1],i[2] ,i[3] and ","..tojson(i[3]) or "",i[4] and ","..tojson(i[4]) or "")
+      end
+    end
+
+    preC['progn'] = function(e) local r={'progn'}
+      Util.map(function(p) 
+          if type(p)=='table' and p[1 ]=='progn' then for i=2,#p do r[#r+1 ] = p[i] end
+        else r[#r+1 ]=p end end
+        ,e,2)
+      return r
+    end
+    preC['if'] = function(e) local e1={'and',e[2],e[3]} return #e==4 and {'or',e1,e[4]} or e1 end
+    preC['dolist'] = function(e) local var,list,expr,idx,lvar,LBL=e[2],e[3],e[4],{'var',gensym('fi')},{'var',gensym('fl')},gensym('LBL')
+      e={'progn',{'set',idx,1},{'set',lvar,list},{'%addr',LBL}, -- dolist(var,list,expr)
+        {'set',var,{'aref',lvar,idx}},{'and',var,{'progn',expr,{'set',idx,{'+',idx,1}},{'%jmp',LBL,0}}},lvar}
+      return self.precompile(e)
+    end
+    preC['dotimes'] = function(e) local var,start,stop,step,body=e[2],e[3],e[4],e[5], e[6] -- dotimes(var,start,stop[,step],expr)
+      local LBL = gensym('LBL')
+      if body == nil then body,step = step,1 end
+      e={'progn',{'set',var,start},{'%addr',LBL},{'if',{'<=',var,stop},{'progn',body,{'+=',var,step},{'%jmp',LBL,0}}}}
+      return self.precompile(e)
+    end
 --  preC['>>'] = function(k,e) return self.precompile({'and',e[2],{'always',e[3]}}) end -- test >> expr |||| test >> expr ||| t >> expr
-  preC['||'] = function(e) local c = {'and',e[2],{'always',e[3]}} return self.precompile(#e==3 and c or {'or',c,e[4]}) end
-  preC['=>'] = function(e) return {'rule',{'quote',e[2]},{'quote',e[3]},{'quote',e[4]}} end
-  preC['.'] = function(e) return {'aref',e[2],e[3]} end
-  preC['neg'] = function(e) return isNum(e[2]) and -e[2] or e end
-  preC['+='] = function(e) return {'inc',e[2],e[3],'+'} end
-  preC['-='] = function(e) return {'inc',e[2],e[3],'-'} end
-  preC['*='] = function(e) return {'inc',e[2],e[3],'*'} end
-  preC['+'] = function(e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])+tonumber(e[3]) or e end
-  preC['-'] = function(e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])-tonumber(e[3]) or e end
-  preC['*'] = function(e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])*tonumber(e[3]) or e end
-  preC['/'] = function(e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])/tonumber(e[3]) or e end
-  preC['%'] = function(e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])%tonumber(e[3]) or e end
-  preC['time'] = function(e)
-    if type(e[2])~='string' then return e end
-    local tm,ts = e[2]:match("([tn%+]?)/?(.+)")
-    if tm == "" or tm==nil then tm = '*' end
-    if ts=='sunrise' or ts=='sunset' then return {'%time',ts,tm} end
-    local date,h,m,s = ts:match("([%d/]+)/(%d%d):(%d%d):?(%d*)") 
-    if date~=nil and date~="" then 
-      local year,month,day=date:match("(%d+)/(%d+)/(%d+)")
-      _assert(h and m and year and month and day,"malformed date constant '%s'",e[2])
-      local t = osDate("*t") 
-      t.year,t.month,t.day,t.hour,t.min,t.sec=year,month,day,h,m,((s~="" and s or 0) or 0)
-      return {'%time',tm,osTime(t)}
-    else
-      local sg
-      sg,h,m,s = ts:match("(%-?)(%d%d):(%d%d):?(%d*)")
-      _assert(h and m,"malformed time constant '%s'",e[2])
-      return {'%time',tm,(sg == '-' and -1 or 1)*(h*3600+m*60+(s~="" and s or 0))}
-    end
-  end 
-
-  function self.precompile(e)
-    local function traverse(e)
-      if type(e)=='table' then
-        if e[1]=='quote' then return e
-        else 
-          local pc = Util.mapkk(traverse,e)
-          return preC[pc[1]] and preC[pc[1]](pc) or pc
-        end
-      else return e end
-    end
-    return traverse(e)
-  end
-  function self.compile(expr) local code = {} local prc = self.precompile(expr) compT(prc,code) return code end
-
-  local _opMap = {['&']='and',['|']='or',['=']='set',[':']='prop',[';']='progn',['..']='betw', ['!']='not', ['@']='daily', ['@@']='schedule'}
-  local function mapOp(op) return _opMap[op] or op end
-
-  local function _binop(s,res) res.push({mapOp(s.pop().v),table.unpack(res.lift(2))}) end
-  local function _unnop(s,res) res.push({mapOp(s.pop().v),res.pop()}) end
-  local _prec = {
-    ['*'] = 10, ['/'] = 10, ['%'] = 10, ['.'] = 12.5, ['+'] = 9, ['-'] = 9, [':'] = 12.6, ['..'] = 8.5, ['=>'] = -2, ['neg'] = 13, ['!'] = 6.5, ['@']=8.5, ['@@']=8.5,
-    ['>']=7, ['<']=7, ['>=']=7, ['<=']=7, ['==']=7, ['~=']=7, ['&']=6, ['|']=5, ['=']=4, ['+=']=4, ['-=']=4, ['*=']=4, [';']=3.6, ['('] = 1, }
-
-  for i,j in pairs(_prec) do _prec[i]={j,_binop} end 
-  _prec['neg']={13,_unnop} _prec['!']={6.5,_unnop} _prec['@']={8.5,_unnop} _prec['@@']={8.5,_unnop}
-
-  local _tokens = {
-    {"^(%b'')",'string'},{'^(%b"")','string'},
-    {"^%#([0-9a-zA-Z]+{?)",'event'},
-    {"^({})",'symbol'},
-    {"^({)",'lbrack'},{"^(})",'rbrack'},{"^(,)",'token'},
-    {"^(%[)",'lsquare'},{"^(%])",'rsquare'},
-    {"^%$([_0-9a-zA-Z\\$]+)",'gvar'},
-    {"^([tn]/[sunriset]+)",'time'},
-    {"^([tn%+]/%d%d:%d%d:?%d*)",'time'},{"^([%d/]+/%d%d:%d%d:?%d*)",'time'},{"^(%d%d:%d%d:?%d*)",'time'},    
-    {"^:(%u+%d*)",'addr'},
-    {"^(fn%()",'fun'}, 
-    {"^(%()",'lpar'},{"^(%))",'rpar'},
-    {"^([;,])",'token'},{"^(end)",'token'},
-    {"^([_a-zA-Z][_0-9a-zA-Z]*)",'symbol'},
-    {"^(%.%.)",'op'},{"^(->)",'op'},    
-    {"^(%d+%.?%d*)",'num'},
-    {"^(%|%|)",'token'},{"^(>>)",'token'},{"^(=>)",'token'},{"^(@@)",'op'},
-    {"^([%%%*%+/&%.:~=><%|!@]+)",'op'},{"^(%-%=)",'op'},{"^(-)",'op'},
-  }
-
-  local _specT={bracks={['{']='lbrack',['}']='rbrack',[',']='token',['[']='lsquare',[']']='rsquare'},
-    symbols={['end']='token'}}
-  local function _passert(test,pos,msg,...) if not test then msg = _format(msg,...) error({msg,'at char',pos},3) end end
-
-  local function tokenize(s) 
-    local i,tkns,cp,s1,tp,EOF,org = 1,{},1,'',1,{t='EOF',v='<eol>',cp=#s},s
-    repeat
-      s1,s = s,s:match("^[^%w%p]*(.*)") --"^[%s%c]*(.*)")
-      cp = cp+(#s1-#s)
-      s = s:gsub(_tokens[ i ][ 1 ],
-        function(m) local r,to = "",_tokens[i]
-          if to[2]=='num' and m:match("%.$") then m=m:sub(1,-2); r ='.' -- hack for e.g. '7.'
-          elseif m == '(' and #tkns>0 and tkns[#tkns ].t ~= 'fun' and tkns[#tkns ].v:match("^[%]%)%da-zA-Z]") then 
-            m='call' to={1,'call'} 
-          elseif m == '-' and (#tkns==0 or tkns[#tkns ].t=='call' or tkns[#tkns ].v:match("^[+%-*/({.><=&|;,@]")) then 
-            m='neg' to={1,'op'} 
-          end
-          tkns[#tkns+1 ] = {t=to[2], v=m, cp=cp} i = 1 return r
-        end
-      )
-      if s1 == s then i = i+1 _passert(i <= #_tokens,cp,"bad token '%s'",s) end
-      cp = cp+(#s1-#s)
-    until s:match("^[%s%c]*$")
-    return { peek = function() return tkns[tp] or EOF end, nxt = function() tp=tp+1 return tkns[tp-1] or EOF end, 
-      prev = function() return tkns[tp-2] end, push=function() tp=tp-1 end, str=org, atkns=tkns}
-  end
-
-  local function tmatch(str,t) _passert(t.peek().v==str,t.peek().cp,"expected '%s'",str) t.nxt() end
-  local function tpeek(str,t) if t.peek().v==str then return t.nxt() else return false end end
-
-  local pExpr = {}
-  pExpr['lbrack'] = function(t,tokens,it) 
-    local table,idx,tt=it or {},1
-    if tokens.peek().t =='rbrack' then tokens.nxt() return {'%table',table} end
-    repeat
-      local el,key,val = self.expr(tokens)
-      if type(el)=='table' and el[1]=='set' then key,val=el[2][2],el[3] else key,val=idx,el idx=idx+1 end
-      table[key]=val
-      local t = tokens.nxt() _passert(t.v==',' or t.v=='}',t and t.cp or tt.cp,"bad table")
-    until t.v=='}'
-    return {'%table',table}
-  end
-  pExpr['event'] = function(t,tokens) 
-    if t.v:sub(-1,-1) ~= '{' then return {'quote',{type=t.v}} 
-    else return pExpr['lbrack'](nil,tokens,{type=t.v:sub(1,-2)}) end
-  end
-  pExpr['fun'] = function(t,tokens) -- Fix!!!
-    local args = {}
-    if tokens.peek().t ~= 'rpar' then 
-      repeat
-        args[#args+1]=tokens.nxt().v 
-        local t = tokens.nxt() _passert(t.v==',' or t.t=='rpar',t.cp,"bad function definition")
-      until t.t=='rpar'
-    else tokens.nxt() end
-    local body = self.statements(tokens) tmatch("end",tokens)
-    return {'->',args,body}
-  end
-  pExpr['num']=function(t,tokens) return tonumber(t.v) end
-  pExpr['string']=function(t,tokens) return t.v:sub(2,-2) end
-  pExpr['symbol']=function(t,tokens) local p = tokens.prev(); 
-    if symbol[t.v] then return symbol[t.v][1] 
-    elseif p and (p.v=='.' or p.v == ':') and p.t=='op' then 
-      return t.v 
-    else return {'var',t.v} end 
-  end
-  pExpr['gvar'] = function(t,tokens) return {'glob',t.v} end
-  pExpr['addr'] = function(t,tokens) return {'%addr',t.v} end
-  pExpr['time'] = function(t,tokens) return {'time',t.v} end
-
-  function self._dtokens(tokens) for _,t in ipairs(tokens.atkns) do printf("%s, %s, %s",t.t,t.v,t.cp) end end
-
-  function self.expr(tokens)
-    local s,res = Util.mkStack(),Util.mkStack()
-    while true do
-      local t,tsq = tokens.peek(),nil
-      if t.t=='EOF' or t.t=='token' or t.v == '}' or t.v == ']' then
-        while not s.isEmpty() do _prec[s.peek().v][2](s,res) end
-        _passert(res.size()==1,t and t.cp or 1,"bad expression")
-        return res.pop()
-      end
-      tokens.nxt()
-      if t.t == 'lsquare' then 
-        tsq=self.expr(tokens) t = tokens.nxt()
-        _passert(t.t =='rsquare',t.cp,"bad index [] operator")
-        t = {t='op',v='.',cp=t.cp}
-      end
-      if t.t=='op' then
-        if s.isEmpty() then s.push(t); if tsq then res.push(tsq) end
+    preC['||'] = function(e) local c = {'and',e[2],{'always',e[3]}} return self.precompile(#e==3 and c or {'or',c,e[4]}) end
+    preC['=>'] = function(e) return {'rule',{'quote',e[2]},{'quote',e[3]},{'quote',e[4]}} end
+    preC['.'] = function(e) return {'aref',e[2],e[3]} end
+    preC['neg'] = function(e) return isNum(e[2]) and -e[2] or e end
+    preC['+='] = function(e) return {'inc',e[2],e[3],'+'} end
+    preC['-='] = function(e) return {'inc',e[2],e[3],'-'} end
+    preC['*='] = function(e) return {'inc',e[2],e[3],'*'} end
+    preC['+'] = function(e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])+tonumber(e[3]) or e end
+    preC['-'] = function(e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])-tonumber(e[3]) or e end
+    preC['*'] = function(e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])*tonumber(e[3]) or e end
+    preC['/'] = function(e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])/tonumber(e[3]) or e end
+    preC['%'] = function(e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])%tonumber(e[3]) or e end
+    preC['time'] = function(e)
+      if type(e[2])~='string' then return e end
+      local tm,ts = e[2]:match("([tn%+]?)/?(.+)")
+      if tm == "" or tm==nil then tm = '*' end
+      if ts=='sunrise' or ts=='sunset' then return {'%time',ts,tm} end
+      local date,h,m,s = ts:match("([%d/]+)/(%d%d):(%d%d):?(%d*)") 
+      if date~=nil and date~="" then 
+        local year,month,day=date:match("(%d+)/(%d+)/(%d+)")
+        _assert(h and m and year and month and day,"malformed date constant '%s'",e[2])
+        local t = osDate("*t") 
+        t.year,t.month,t.day,t.hour,t.min,t.sec=year,month,day,h,m,((s~="" and s or 0) or 0)
+        return {'%time',tm,osTime(t)}
       else
-        while (not s.isEmpty()) do
-          local p1,p2 = _prec[t.v][1], _prec[s.peek().v][1] p1 = t.v=='=' and 11 or p1
-          if s.peek().v=='.' then p2=p2+.2 end
-          if p2 >= p1 then _prec[s.peek().v][2](s,res) else break end
-        end
-        s.push(t); if tsq then res.push(tsq) end
+        local sg
+        sg,h,m,s = ts:match("(%-?)(%d%d):(%d%d):?(%d*)")
+        _assert(h and m,"malformed time constant '%s'",e[2])
+        return {'%time',tm,(sg == '-' and -1 or 1)*(h*3600+m*60+(s~="" and s or 0))}
       end
-    elseif t.t == 'call' then
-      local args,fun = {}
+    end 
+
+    function self.precompile(e)
+      local function traverse(e)
+        if type(e)=='table' then
+          if e[1]=='quote' then return e
+          else 
+            local pc = Util.mapkk(traverse,e)
+            return preC[pc[1]] and preC[pc[1]](pc) or pc
+          end
+        else return e end
+      end
+      return traverse(e)
+    end
+    function self.compile(expr) local code = {} local prc = self.precompile(expr) compT(prc,code) return code end
+
+    local _opMap = {['&']='and',['|']='or',['=']='set',[':']='prop',[';']='progn',['..']='betw', ['!']='not', ['@']='daily', ['@@']='schedule'}
+    local function mapOp(op) return _opMap[op] or op end
+
+    local function _binop(s,res) res.push({mapOp(s.pop().v),table.unpack(res.lift(2))}) end
+    local function _unnop(s,res) res.push({mapOp(s.pop().v),res.pop()}) end
+    local _prec = {
+      ['*'] = 10, ['/'] = 10, ['%'] = 10, ['.'] = 12.5, ['+'] = 9, ['-'] = 9, [':'] = 12.6, ['..'] = 8.5, ['=>'] = -2, ['neg'] = 13, ['!'] = 6.5, ['@']=8.5, ['@@']=8.5,
+      ['>']=7, ['<']=7, ['>=']=7, ['<=']=7, ['==']=7, ['~=']=7, ['&']=6, ['|']=5, ['=']=4, ['+=']=4, ['-=']=4, ['*=']=4, [';']=3.6, ['('] = 1, }
+
+    for i,j in pairs(_prec) do _prec[i]={j,_binop} end 
+    _prec['neg']={13,_unnop} _prec['!']={6.5,_unnop} _prec['@']={8.5,_unnop} _prec['@@']={8.5,_unnop}
+
+    local _tokens = {
+      {"^(%b'')",'string'},{'^(%b"")','string'},
+      {"^%#([0-9a-zA-Z]+{?)",'event'},
+      {"^({})",'symbol'},
+      {"^({)",'lbrack'},{"^(})",'rbrack'},{"^(,)",'token'},
+      {"^(%[)",'lsquare'},{"^(%])",'rsquare'},
+      {"^%$([_0-9a-zA-Z\\$]+)",'gvar'},
+      {"^([tn]/[sunriset]+)",'time'},
+      {"^([tn%+]/%d%d:%d%d:?%d*)",'time'},{"^([%d/]+/%d%d:%d%d:?%d*)",'time'},{"^(%d%d:%d%d:?%d*)",'time'},    
+      {"^:(%u+%d*)",'addr'},
+      {"^(fn%()",'fun'}, 
+      {"^(%()",'lpar'},{"^(%))",'rpar'},
+      {"^([;,])",'token'},{"^(end)",'token'},
+      {"^([_a-zA-Z][_0-9a-zA-Z]*)",'symbol'},
+      {"^(%.%.)",'op'},{"^(->)",'op'},    
+      {"^(%d+%.?%d*)",'num'},
+      {"^(%|%|)",'token'},{"^(>>)",'token'},{"^(=>)",'token'},{"^(@@)",'op'},
+      {"^([%%%*%+/&%.:~=><%|!@]+)",'op'},{"^(%-%=)",'op'},{"^(-)",'op'},
+    }
+
+    local _specT={bracks={['{']='lbrack',['}']='rbrack',[',']='token',['[']='lsquare',[']']='rsquare'},
+      symbols={['end']='token'}}
+    local function _passert(test,pos,msg,...) if not test then msg = _format(msg,...) error({msg,'at char',pos},3) end end
+
+    local function tokenize(s) 
+      local i,tkns,cp,s1,tp,EOF,org = 1,{},1,'',1,{t='EOF',v='<eol>',cp=#s},s
+      repeat
+        s1,s = s,s:match("^[^%w%p]*(.*)") --"^[%s%c]*(.*)")
+        cp = cp+(#s1-#s)
+        s = s:gsub(_tokens[ i ][ 1 ],
+          function(m) local r,to = "",_tokens[i]
+            if to[2]=='num' and m:match("%.$") then m=m:sub(1,-2); r ='.' -- hack for e.g. '7.'
+            elseif m == '(' and #tkns>0 and tkns[#tkns ].t ~= 'fun' and tkns[#tkns ].v:match("^[%]%)%da-zA-Z]") then 
+              m='call' to={1,'call'} 
+            elseif m == '-' and (#tkns==0 or tkns[#tkns ].t=='call' or tkns[#tkns ].v:match("^[+%-*/({.><=&|;,@]")) then 
+              m='neg' to={1,'op'} 
+            end
+            tkns[#tkns+1 ] = {t=to[2], v=m, cp=cp} i = 1 return r
+          end
+        )
+        if s1 == s then i = i+1 _passert(i <= #_tokens,cp,"bad token '%s'",s) end
+        cp = cp+(#s1-#s)
+      until s:match("^[%s%c]*$")
+      return { peek = function() return tkns[tp] or EOF end, nxt = function() tp=tp+1 return tkns[tp-1] or EOF end, 
+        prev = function() return tkns[tp-2] end, push=function() tp=tp-1 end, str=org, atkns=tkns}
+    end
+
+    local function tmatch(str,t) _passert(t.peek().v==str,t.peek().cp,"expected '%s'",str) t.nxt() end
+    local function tpeek(str,t) if t.peek().v==str then return t.nxt() else return false end end
+
+    local pExpr = {}
+    pExpr['lbrack'] = function(t,tokens,it) 
+      local table,idx,tt=it or {},1
+      if tokens.peek().t =='rbrack' then tokens.nxt() return {'%table',table} end
+      repeat
+        local el,key,val = self.expr(tokens)
+        if type(el)=='table' and el[1]=='set' then key,val=el[2][2],el[3] else key,val=idx,el idx=idx+1 end
+        table[key]=val
+        local t = tokens.nxt() _passert(t.v==',' or t.v=='}',t and t.cp or tt.cp,"bad table")
+      until t.v=='}'
+      return {'%table',table}
+    end
+    pExpr['event'] = function(t,tokens) 
+      if t.v:sub(-1,-1) ~= '{' then return {'quote',{type=t.v}} 
+      else return pExpr['lbrack'](nil,tokens,{type=t.v:sub(1,-2)}) end
+    end
+    pExpr['fun'] = function(t,tokens) -- Fix!!!
+      local args = {}
       if tokens.peek().t ~= 'rpar' then 
         repeat
-          args[#args+1]=self.expr(tokens)
-          local t = tokens.nxt() _passert(t.v==',' or t.t=='rpar',t.cp,"bad function call")
+          args[#args+1]=tokens.nxt().v 
+          local t = tokens.nxt() _passert(t.v==',' or t.t=='rpar',t.cp,"bad function definition")
         until t.t=='rpar'
       else tokens.nxt() end
-      while (not s.isEmpty()) and _prec[s.peek().v][1] > 11 do _prec[s.peek().v][2](s,res) end
-      fun = res.pop()
-      if isVar(fun) and isBuiltin(fun[2]) then res.push({fun[2],table.unpack(args)})
-      else res.push({'apply',fun,args}) end
-    elseif t.t == 'lpar' then s.push(t)
-    elseif t.t== 'rpar' then
-      while not s.isEmpty() and s.peek().t ~= 'lpar' do _prec[s.peek().v][2](s,res) end
-      if s.isEmpty() then tokens.push(t) return res.pop() end
-      s.pop()
-    elseif pExpr[t.t] then res.push(pExpr[t.t](t,tokens))
-    else
-      res.push(t.v) -- symbols, constants etc
+      local body = self.statements(tokens) tmatch("end",tokens)
+      return {'->',args,body}
+    end
+    pExpr['num']=function(t,tokens) return tonumber(t.v) end
+    pExpr['string']=function(t,tokens) return t.v:sub(2,-2) end
+    pExpr['symbol']=function(t,tokens) local p = tokens.prev(); 
+      if symbol[t.v] then return symbol[t.v][1] 
+      elseif p and (p.v=='.' or p.v == ':') and p.t=='op' then 
+        return t.v 
+      else return {'var',t.v} end 
+    end
+    pExpr['gvar'] = function(t,tokens) return {'glob',t.v} end
+    pExpr['addr'] = function(t,tokens) return {'%addr',t.v} end
+    pExpr['time'] = function(t,tokens) return {'time',t.v} end
+
+    function self._dtokens(tokens) for _,t in ipairs(tokens.atkns) do printf("%s, %s, %s",t.t,t.v,t.cp) end end
+
+    function self.expr(tokens)
+      local s,res = Util.mkStack(),Util.mkStack()
+      while true do
+        local t,tsq = tokens.peek(),nil
+        if t.t=='EOF' or t.t=='token' or t.v == '}' or t.v == ']' then
+          while not s.isEmpty() do _prec[s.peek().v][2](s,res) end
+          _passert(res.size()==1,t and t.cp or 1,"bad expression")
+          return res.pop()
+        end
+        tokens.nxt()
+        if t.t == 'lsquare' then 
+          tsq=self.expr(tokens) t = tokens.nxt()
+          _passert(t.t =='rsquare',t.cp,"bad index [] operator")
+          t = {t='op',v='.',cp=t.cp}
+        end
+        if t.t=='op' then
+          if s.isEmpty() then s.push(t); if tsq then res.push(tsq) end
+        else
+          while (not s.isEmpty()) do
+            local p1,p2 = _prec[t.v][1], _prec[s.peek().v][1] p1 = t.v=='=' and 11 or p1
+            if s.peek().v=='.' then p2=p2+.2 end
+            if p2 >= p1 then _prec[s.peek().v][2](s,res) else break end
+          end
+          s.push(t); if tsq then res.push(tsq) end
+        end
+      elseif t.t == 'call' then
+        local args,fun = {}
+        if tokens.peek().t ~= 'rpar' then 
+          repeat
+            args[#args+1]=self.expr(tokens)
+            local t = tokens.nxt() _passert(t.v==',' or t.t=='rpar',t.cp,"bad function call")
+          until t.t=='rpar'
+        else tokens.nxt() end
+        while (not s.isEmpty()) and _prec[s.peek().v][1] > 11 do _prec[s.peek().v][2](s,res) end
+        fun = res.pop()
+        if isVar(fun) and isBuiltin(fun[2]) then res.push({fun[2],table.unpack(args)})
+        else res.push({'apply',fun,args}) end
+      elseif t.t == 'lpar' then s.push(t)
+      elseif t.t== 'rpar' then
+        while not s.isEmpty() and s.peek().t ~= 'lpar' do _prec[s.peek().v][2](s,res) end
+        if s.isEmpty() then tokens.push(t) return res.pop() end
+        s.pop()
+      elseif pExpr[t.t] then res.push(pExpr[t.t](t,tokens))
+      else
+        res.push(t.v) -- symbols, constants etc
+      end
     end
   end
-end
 
-function self.parse(s)
-  local t = tokenize(s)
-  local status,res = pcall(function()
-      if tpeek("def",t) then
-        _assert(false,"'def' not implemented yet")
-      else
-        if t.peek().v=='||' then return self.statements(t) end
-        local e = self.expr(t)
-        return tpeek("=>",t) and {"=>",e,self.statements(t),t.str} or self.statements(t,e)
-      end
-    end)
-  if status then return res 
-  else 
-    res = type(res) == 'string' and {res} or res
-    errThrow(_format(" parsing '%s'",s),res)
+  function self.parse(s)
+    local t = tokenize(s)
+    local status,res = pcall(function()
+        if tpeek("def",t) then
+          _assert(false,"'def' not implemented yet")
+        else
+          if t.peek().v=='||' then return self.statements(t) end
+          local e = self.expr(t)
+          return tpeek("=>",t) and {"=>",e,self.statements(t),t.str} or self.statements(t,e)
+        end
+      end)
+    if status then return res 
+    else 
+      res = type(res) == 'string' and {res} or res
+      errThrow(_format(" parsing '%s'",s),res)
+    end
   end
-end
 
-function self.statements(t,ie)
-  local e = {'progn',ie or self.statement(t)}
-  while tpeek(";",t) and t.peek().v~=';' do e[#e+1]=self.statement(t) end
-  return #e>2 and e or e[2]
-end
+  function self.statements(t,ie)
+    local e = {'progn',ie or self.statement(t)}
+    while tpeek(";",t) and t.peek().v~=';' do e[#e+1]=self.statement(t) end
+    return #e>2 and e or e[2]
+  end
 
-function self.statement(t)
-  if tpeek('||',t) then 
-    local c,a=self.expr(t) 
-    tmatch(">>",t)
-    a=self.statements(t)
-    return {'||',c,a,t.peek().v=='||' and self.statement(t) or nil}
-  else return self.expr(t) end
-end
+  function self.statement(t)
+    if tpeek('||',t) then 
+      local c,a=self.expr(t) 
+      tmatch(">>",t)
+      a=self.statements(t)
+      return {'||',c,a,t.peek().v=='||' and self.statement(t) or nil}
+    else return self.expr(t) end
+  end
 
-return self
+  return self
 end
 ScriptCompiler = newScriptCompiler()
 
