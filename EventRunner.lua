@@ -111,7 +111,7 @@ local function _poll()
   _CXCS = math.min(2*(_CXCS+1),250)
   _CXCST2 = _CXCST1
   _CXCST1 = os.clock()
-  if _CXCST1-_CXCST2 > 1 then Log(LOG.ERROR,"Slow mailbox watch:%ss",_CXCST1-_CXCST2) end
+  if _CXCST1-_CXCST2 > 0.75 then Log(LOG.ERROR,"Slow mailbox watch:%ss",_CXCST1-_CXCST2) end
   for _,mb in ipairs(_MAILBOXES) do
     local l = fibaro:getGlobal(mb)
     if l and l ~= "" and l:sub(1,3) ~= '<@>' then -- Something in the mailbox
