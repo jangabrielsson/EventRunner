@@ -88,7 +88,7 @@ function main()
   --fibaro:call(17,"turnOn")
 
   --HC2.registerScene("Scene1",11,"EventRunnerA.lua")
-  HC2.registerScene("Scene1",11,"GEA 6.11.lua")
+  --HC2.registerScene("Scene1",11,"GEA 6.11.lua")
   --HC2.registerScene("Scene1",11,"Main scene FTBE v1.3.0.lua",{Darkness=0,TimeOfDay='Morning'})
 
   -- Post a simulated trigger 10min in the future...
