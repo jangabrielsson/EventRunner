@@ -23,7 +23,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 --]]
 
-_version,_fix = "0.1","" -- first version
+_version,_fix = "0.2","" -- first version
 
 _REMOTE=true                 -- Run remote, fibaro:* calls functions on HC2, on non-local resources
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
@@ -49,9 +49,9 @@ function main()
   HC2.localDevices()
   HC2.localGlobals(true)
   HC2.localRooms(true)
-  --HC2.localScenes()
+  --HC2.localScenes(true)
 
-  HC2.loadScenesFromDir("scenes")
+  HC2.loadScenesFromDir("scenes") -- Load all files with name <ID>_<name>.lua from dir, Ex. 11_MyScene.lua
 
   HC2.createDevice(77,"Test") -- Create local deviceID 77 with name "Test"
 
@@ -68,14 +68,16 @@ function main()
   -- Post a simulated trigger 10min in the future...
   --HC2.post({type='property',deviceID=77, propertyName='value'},"+/00:10")
 
-  -- Debug filters can be used to trim debug output from noisy scenes...
+  --Log fibaro:* calls
+  --HC2.logFibaroCalls()
+  --Debug filters can be used to trim debug output from noisy scenes...
   --HC2.addDebugFilter("Memory used:",true) 
   --HC2.addDebugFilter("GEA run since",true)
   --HC2.addDebugFilter("%.%.%. check running",true)
   --HC2.addDebugFilter("%b<>(.*)</.*>")
 end
 
-_debugFlags = { threads=false, triggers=false, eventserver=false, hc2calls=true, globals=false }
+_debugFlags = { threads=false, triggers=false, eventserver=false, hc2calls=true, globals=false, fibaroSet=true, fibaroStart=true }
 ------------------------------------------------------
 -- Context, functions exported to scenes
 ------------------------------------------------------
@@ -909,7 +911,7 @@ function fibaro:startScene(sceneID,args)
   local scene = __fibaro_get_scene(sceneID,true)  
   if (not _REMOTE) or (scene and scene._local) then
     if scene and not scene._local then error("Can only start scenes marked local:"..sceneID) end
-    if scene then Scene.start(scene,{event={type='other'}},args) end --ToDo
+    if scene then Scene.start(scene,{type='other'},args) end --ToDo
   else
     api.post("/scenes/"..sceneID.."/action/start",args and {args=args} or nil) 
   end
@@ -997,8 +999,11 @@ function fibaro:setGlobal(varName ,value)
     Event.post({type='global',name=globalVar.name}) -- trigger
   elseif _REMOTE and HC2._allGlobals:match(varName) then
     api.put("/globalVariables/"..varName ,{value=tostring(value), invokeScenes= true}) 
+  elseif _AUTOCREATEGLOBALS then
+    HC2.globals[varName]={name=varName,_local=true}
+    fibaro:setGlobal(varName,value)
   else
-    error("Non existent fibaro global: %s",varName)
+    error("Non existent fibaro global: "..varName)
   end
 end
 
@@ -1230,6 +1235,51 @@ HomeCenter = {
   }
 }
 
+-------- Fibaro log support --------------
+-- Logging of fibaro:* calls -------------
+function HC2.logFibaroCalls()
+  if fibaro._orgf then return end
+  fibaro._orgf={}
+  local function interceptFib(fs,name,flag,spec)
+    local fun,fstr = fibaro[name],fs:match("r") and "fibaro:%s(%s%s%s) = %s" or "fibaro:%s(%s%s%s)"
+    fibaro._orgf[name]=fun
+    if spec then 
+      fibaro[name] = function(obj,...) 
+        if _debugFlags[flag] then return spec(obj,fibaro._orgf[name],...) else return fibaro._orgf[name](obj,...)  end 
+      end 
+    else 
+      fibaro[name] = function(obj,id,...)
+        local id2,args = type(id) == 'number' and Util.reverseVar(id) or '"'..(id or "<ID>")..'"',{...}
+        local status,res,r2 = pcall(function() return fibaro._orgf[name](obj,id,table.unpack(args)) end)
+        if status and _debugFlags[flag] then
+          Debug(true,fstr,name,id2,(#args>0 and "," or ""),json.encode(args):sub(2,-2),json.encode(res))
+        elseif not status then
+          error(string.format("Err:fibaro:%s(%s%s%s), %s",name,id2,(#args>0 and "," or ""),json.encode(args):sub(2,-2),res),3)
+        end
+        if fs=="mr" then return res,r2 else return res end
+      end
+    end
+  end
+
+  interceptFib("","call","fibaro")
+  interceptFib("","setGlobal","fibaroSet") 
+  interceptFib("mr","getGlobal","fibaroGet")
+  interceptFib("r","getGlobalValue","fibaroGet")
+  interceptFib("mr","get","fibaroGet")
+  interceptFib("r","getValue","fibaroGet")
+  interceptFib("","killScenes","fibaro")
+  interceptFib("","sleep","fibaro",
+    function(obj,fun,time) 
+      Debug(true,"fibaro:sleep(%s) until %s",time,osDate("%X",osTime()+math.floor(0.5+time/1000)))
+      fun(obj,time) 
+    end)
+  interceptFib("","startScene","fibaroStart",
+    function(obj,fun,id,args) 
+      local a = args and #args==1 and type(args[1])=='string' and (json.encode({(urldecode(args[1]))})) or args and json.encode(args)
+      Debug(true,"fibaro:start(%s%s)",id,a and ","..a or "")
+      fun(obj,id, args) 
+    end)
+end
 ------------------------------------------------------------------------------
 -- HC2.lua functions
 ------------------------------------------------------------------------------
