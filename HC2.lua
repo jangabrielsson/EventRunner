@@ -271,7 +271,7 @@ function Scene.parseHeaders(fileName,id)
     c=c:gsub("([\r\n]+)","\n")
     c = split(c,'\n')
     for i=2,#c-1 do
-      if c[i]:match("%%%%") then curr=c[i]:match("%a+"); headers[curr]={}
+      if c[i]:match("^%%%%") then curr=c[i]:match("%a+"); headers[curr]={}
       elseif curr then 
         local h = headers[curr] or {}
         h[#h+1] = c[i]

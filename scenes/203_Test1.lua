@@ -8,7 +8,6 @@
 99 sceneActivation
 100 AccessControlEvent
 %% globals
-counter
 %% autostart
 --]] 
 
@@ -18,7 +17,7 @@ local trigger = fibaro:getSourceTrigger()
 printf("Hello from Test1(%s):%s",__fibaroSceneId,json.encode(trigger))
 if fibaro:args() then printf("Got arguments:%s",json.encode(fibaro:args())) end
 
-printf("Looping 10 times, every 5min")
+printf("Looping 5 times, every 5min")
 
 for i=1,5 do
   fibaro:debug("PING")
