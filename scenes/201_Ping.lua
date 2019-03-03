@@ -12,5 +12,5 @@ elseif trigger.type=='other' then
   if counter <= 0 then fibaro:abort() end
   counter=counter-1
   fibaro:setGlobal("counter",counter)
-  fibaro:startScene(22,{"Ping - "..counter})
+  fibaro:startScene(202,{"Ping - "..counter})
 end
