@@ -10,7 +10,7 @@
 %% globals
 counter
 %% autostart
---]]
+--]] 
 
 function printf(...) fibaro:debug(string.format(...)) end
 

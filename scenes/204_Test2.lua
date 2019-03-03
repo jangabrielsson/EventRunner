@@ -4,7 +4,7 @@
 --]]
 
 sensor = 55
-light = 66
+light = 66  
 
 if fibaro:countScenes() > 1 then
   fibaro:debug("Already started, exit")

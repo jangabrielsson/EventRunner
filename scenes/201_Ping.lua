@@ -1,9 +1,9 @@
 --[[
 %% autostart
 --]]
-
-local trigger = fibaro:getSourceTrigger()
-
+ 
+local trigger = fibaro:getSourceTrigger() 
+  
 if trigger.type=='autostart' then
   fibaro:startScene(22,{"Ping - 4"})
   fibaro:setGlobal("counter","4")
