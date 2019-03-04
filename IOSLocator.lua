@@ -11,7 +11,7 @@
 -- Email: jan@gabrielsson.com
 --]]
 
-_version,_fix = "1.15","fix2"  -- Feb 21, 2019 
+_version,_fix = "1.15","fix3"  -- Feb 21, 2019 
 _sceneName = "iOSLocator"
 osTime = os.time
 osDate = os.date
@@ -95,7 +95,7 @@ function main()
   function getIOSDeviceNextStage(nextStage,username,headers,pollingextra)
     pollingextra = pollingextra or 0
     HTTP:request("https://" .. nextStage .. "/fmipservice/device/" .. username .."/initClient",{
-        options = { headers = headers, data = '', method = 'POST', timeout = 20000 },
+        options = { headers = headers, data = '', checkCertificate = false, method = 'POST', timeout = 20000 },
         error = function(status)
           Debug(true,"Error getting NextStage data:"..status)
         end,
@@ -202,6 +202,7 @@ function main()
           options = {
             headers = headers,
             data = '',
+            checkCertificate = false,
             method = 'POST', 
             timeout = 20000
           },
