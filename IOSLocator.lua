@@ -11,7 +11,7 @@
 -- Email: jan@gabrielsson.com
 --]]
 
-_version,_fix = "1.15","fix3"  -- Feb 21, 2019 
+_version,_fix = "1.15","fix3"  -- Mar 4, 2019 
 _sceneName = "iOSLocator"
 osTime = os.time
 osDate = os.date
