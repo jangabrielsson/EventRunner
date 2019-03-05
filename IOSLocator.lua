@@ -204,7 +204,7 @@ function main()
           options = {
             headers = headers,
             data = '',
-            checkCertificate = true,
+            checkCertificate = false,
             method = 'POST', 
             timeout = 20000
           },
