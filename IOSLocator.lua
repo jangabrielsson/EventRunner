@@ -11,7 +11,7 @@
 -- Email: jan@gabrielsson.com
 --]]
 
-_version,_fix = "1.15","fix4"  -- Mar 4, 2019 
+_version,_fix = "1.15","fix5"  -- Mar 5, 2019 
 _sceneName = "iOSLocator"
 osTime = os.time
 osDate = os.date
@@ -100,7 +100,7 @@ function main()
           Debug(true,"Error getting NextStage data:%s",status or "<unknown error>")
         end,
         success = function(status)
-          Debug(true,"iCloud Response:%s",status.status)
+          --Debug(true,"iCloud Response:%s",status.status)
           if (status.status==200) then			
             if (pollingextra==0) then
               local output = json.decode(status.data)
