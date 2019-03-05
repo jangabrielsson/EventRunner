@@ -213,7 +213,8 @@ function main()
           end,
           success = function(status)
             if (status.status==330) then
-              local nextStage=status.headers["x-apple-mme-host"] --"fmipmobile.icloud.com" 
+              Debug(true,"330 Resp:%s",json.encode(status))
+              local nextStage=status.headers["x-apple-mme-host"] or "fmipmobile.icloud.com" 
               Debug(true,"NextStage")
               getIOSDeviceNextStage(nextStage,event.user,event.name,headers,pollingextra)
             elseif (status.status==200) then
