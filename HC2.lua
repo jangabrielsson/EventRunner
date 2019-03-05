@@ -23,9 +23,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 --]]
 
-_version,_fix = "0.3","fix1" -- first version
+_version,_fix = "0.3","fix2" -- first version
 
-_REMOTE=true                 -- Run remote, fibaro:* calls functions on HC2, on non-local resources
+_REMOTE=false                 -- Run remote, fibaro:* calls functions on HC2, on non-local resources
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
 _SPEEDTIME = 24*30           -- Speed through X hours, if set to false run in real time
 _AUTOCREATEGLOBALS=true      -- Will (silently) autocreate a local fibaro global if it doesn't exist
@@ -46,7 +46,7 @@ if creds then creds() end
 --------------------------------------------------------
 function main()
 
-  HC2.setupConfiguration(true,true) -- read in configuration from stored local file, or from remote HC2
+  HC2.setupConfiguration(true,false) -- read in configuration from stored local file, or from remote HC2
   --HC2.localDevices()
   --HC2.localGlobals()
   --HC2.localRooms(true)
@@ -58,13 +58,10 @@ function main()
 
   --HC2.createDevice(77,"Test") -- Create local deviceID 77 with name "Test"
 
-  --HC2.listDevices()
-  --HC2.listScenes()
-
   --fibaro:call(17,"turnOn")
 
-  --HC2.registerScene("Scene1",10,"ff.lua")
-
+  --HC2.listDevices()
+  --HC2.listScenes()
   --HC2.registerScene("Scene1",11,"EventRunnerA.lua")
   --HC2.registerScene("Scene1",12,"GEA 6.11.lua")
   --HC2.registerScene("Scene1",13,"Main scene FTBE v1.3.0.lua",{Darkness=0,TimeOfDay='Morning'})
@@ -344,7 +341,8 @@ function HC2.registerScene(name,id,file,globVars)
   for name,value in pairs(globVars or {}) do HC2.createGlobal(name,value) end
 end
 
-local function patchID(t) local c= 0; for k,v in pairs(t) do t[k]=nil; t[tonumber(k)]=v c=c+1 end return c end
+local function patchID(t) local c= 0; for k,v in pairs(t) do t[k]=nil; 
+  if type(v)=='table' then t[tonumber(k)]=v c=c+1 end end return c end
 
 function HC2.setupConfiguration(file,copyFromHC2)
   local file2 = type(file)=='string' and file or _HC2_FILE
@@ -518,15 +516,15 @@ end
 
 function HC2.listDevices()
   for id,dev in pairs(HC2.rsrc.devices) do
-    if id > 3 then
-      printf("deviceID:%-3d, name:%-20s type:%-30s, value:%s",id,dev.name,dev.type,dev.properties.value)
+    if tonumber(id) > 3 then
+      printf("deviceID:%-3d, name:%-20s type:%-30s, value:%-10s",id,dev.name,dev.type,dev.properties.value,dev._local and "local" or "")
     end
   end
 end
 
 function HC2.listScenes()
   for id,scene in pairs(HC2.rsrc.scenes) do
-    printf("SceneID :%-3d, name:%s",id,scene.name)
+    printf("SceneID :%-3d, name:%-10s %s",id,scene.name,scene._local and "local" or "")
   end
 end
 
@@ -631,7 +629,7 @@ end
 
 _System.createGlobal = HC2.createGlobal
 _System.createDevice = HC2.createDevice
-  
+
 function _System._getInstance(id,inst)
   for co,env in pairs(_SceneContext) do
     if env.fibaroSelfId==id and env.__orgInstanceNumber==inst then return co,env end
