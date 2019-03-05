@@ -196,7 +196,7 @@ function main()
         ["X-Apple-Realm-Support"] = "1.0",
         ["User-agent"] = "Find iPhone/1.3 MeKit (iPad: iPhone OS/4.2.1)",
         ["X-Client-Name"]= "iPad",
-        ["X-Client-UUID"]= "0cf3dc501ff812adb0b202baed4f37274b210854",
+        ["X-Client-UUID"]= "0cf3dc501ff812adb0b202baed4f37274b210853",
         ["Accept-Language"]= "en-us",
         ["Connection"]= "keep-alive"}
 
