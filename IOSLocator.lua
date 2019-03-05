@@ -11,7 +11,7 @@
 -- Email: jan@gabrielsson.com
 --]]
 
-_version,_fix = "1.15","fix5"  -- Mar 5, 2019 
+_version,_fix = "1.15","fix6"  -- Mar 5, 2019 
 _sceneName = "iOSLocator"
 osTime = os.time
 osDate = os.date
@@ -213,8 +213,8 @@ function main()
           end,
           success = function(status)
             if (status.status==330) then
-              Debug(true,"330 Resp:%s",json.encode(status))
-              local nextStage=status.headers["x-apple-mme-host"] or "fmipmobile.icloud.com" 
+              --Debug(true,"330 Resp:%s",json.encode(status))
+              local nextStage=status.headers["x-apple-mme-host"] or status.headers["X-Apple-MMe-Host"] or "fmipmobile.icloud.com" 
               Debug(true,"NextStage")
               getIOSDeviceNextStage(nextStage,event.user,event.name,headers,pollingextra)
             elseif (status.status==200) then
