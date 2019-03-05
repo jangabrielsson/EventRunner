@@ -20,9 +20,9 @@ _SPEEDTIME=false
 _debugFlags = { post=true,invoke=false,fibaroStart=true,triggers=false,timers=false,fibaro=true,fibaroGet=false }
 if dofile then dofile("EventRunnerDebug.lua") end -- Support for running off-line on PC/Mac
 
-_deviceTable = "456"         -- name of HomeTable global
+_deviceTable = 456         -- name of HomeTable global
 
-local _test = true                -- use local HomeTable variable instead of fibaro global
+local _test = false                -- use local HomeTable variable instead of fibaro global
 local homeLatitude,homeLongitude  -- set to first place in HomeTable.places list
 
 HomeTable = [[
