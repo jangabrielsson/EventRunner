@@ -5,7 +5,7 @@
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-_version,_fix = "1.15","fix12"  -- Feb 28, 2019 
+_version,_fix = "1.15","fix15"  -- Mar 5, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -51,7 +51,7 @@ function main()
   --conf = json.decode(conf)
   --Util.defvars(conf.dev)                                       -- Make HomeTable defs available in EventScript
   --Util.reverseMapDef(conf.dev)                                 -- Make HomeTable names available for logger
-
+  
   if dofile then dofile("example_rules.lua") end     -- some example rules to try out...
 end -- main()
 
@@ -1752,7 +1752,7 @@ Event.event({type=Event.SUB},
     for _,event in ipairs(env.event.event[1] and env.event.event or {env.event.event}) do
       local seen = false
       for _,e in ipairs(Event._dir) do
-        if _equal(e.event) and not Util.member(id,e.ids) then e.ids[#e.ids+1]=id; seen=true; break; end
+        if _equal(e.event,event) then seen=true; if not Util.member(id,e.ids) then e.ids[#e.ids+1]=id end; break; end
       end
       if not seen then
         local pattern = _copy(event); Event._compilePattern(pattern)
@@ -2045,6 +2045,7 @@ if _type == 'autostart' or _type == 'other' then
     for _,mb in ipairs(_MAILBOXES) do 
       fibaro:setGlobal(mb,"") 
     end
+    _CXCST1=os.clock()
     _poll()  -- start polling mailbox
     chainStartup()
   else 
