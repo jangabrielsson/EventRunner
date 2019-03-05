@@ -11,7 +11,7 @@
 -- Email: jan@gabrielsson.com
 --]]
 
-_version,_fix = "1.15","fix3"  -- Mar 4, 2019 
+_version,_fix = "1.15","fix4"  -- Mar 4, 2019 
 _sceneName = "iOSLocator"
 osTime = os.time
 osDate = os.date
@@ -20,9 +20,9 @@ _SPEEDTIME=false
 _debugFlags = { post=true,invoke=false,fibaroStart=true,triggers=false,timers=false,fibaro=true,fibaroGet=false }
 if dofile then dofile("EventRunnerDebug.lua") end -- Support for running off-line on PC/Mac
 
-_deviceTable = 456         -- name of HomeTable global
+_deviceTable = "456"         -- name of HomeTable global
 
-local _test = false                -- use local HomeTable variable instead of fibaro global
+local _test = true                -- use local HomeTable variable instead of fibaro global
 local homeLatitude,homeLongitude  -- set to first place in HomeTable.places list
 
 HomeTable = [[
@@ -92,26 +92,28 @@ function main()
         end)..({ '', '==', '=' })[#data%3+1])
   end
 
-  function getIOSDeviceNextStage(nextStage,username,headers,pollingextra)
+  function getIOSDeviceNextStage(nextStage,username,name,headers,pollingextra)
     pollingextra = pollingextra or 0
     HTTP:request("https://" .. nextStage .. "/fmipservice/device/" .. username .."/initClient",{
         options = { headers = headers, data = '', checkCertificate = false, method = 'POST', timeout = 20000 },
         error = function(status)
-          Debug(true,"Error getting NextStage data:"..status)
+          Debug(true,"Error getting NextStage data:%s",status or "<unknown error>")
         end,
         success = function(status)
-          local output = json.decode(status.data,{statusCode="444"})
-          --Debug("iCloud Response:"..status.data)
-          if (output.statusCode=="200") then			
+          Debug(true,"iCloud Response:%s",status.status)
+          if (status.status==200) then			
             if (pollingextra==0) then
-              listDevices(output.content)
+              local output = json.decode(status.data)
+              Event.post({type='deviceMap', user=username, data=output.content, _sh=true})
+              --listDevices(output.content)
+              return
             else
-              Debug(2,"Waiting for NextStage extra polling")
-              fibaro:sleep(extrapolling)	
-              getIOSDeviceNextStage(nextStage,username,headers,0)
+              Debug(true,"Waiting for NextStage extra polling")
+              setTimeout(function() getIOSDeviceNextStage(nextStage,username,name,headers,0) end, extrapolling)
+              return
             end
           end
-          Debug(true,"Bad response from NextStage:" .. json.encode(status) )	
+          Debug(true,"Bad response from NextStage:%s",json.encode(status) )	
         end})
   end
 
@@ -194,7 +196,7 @@ function main()
         ["X-Apple-Realm-Support"] = "1.0",
         ["User-agent"] = "Find iPhone/1.3 MeKit (iPad: iPhone OS/4.2.1)",
         ["X-Client-Name"]= "iPad",
-        ["X-Client-UUID"]= "0cf3dc501ff812adb0b202baed4f37274b210853",
+        ["X-Client-UUID"]= "0cf3dc501ff812adb0b202baed4f37274b210854",
         ["Accept-Language"]= "en-us",
         ["Connection"]= "keep-alive"}
 
@@ -202,7 +204,7 @@ function main()
           options = {
             headers = headers,
             data = '',
-            checkCertificate = false,
+            checkCertificate = true,
             method = 'POST', 
             timeout = 20000
           },
@@ -211,9 +213,9 @@ function main()
           end,
           success = function(status)
             if (status.status==330) then
-              local nextStage="fmipmobile.icloud.com" --status.headers["x-apple-mme-host"]
-              Debug(2,"NextStage")
-              getIOSDeviceNextStage(nextStage,event.user,headers,pollingextra)
+              local nextStage=status.headers["x-apple-mme-host"] --"fmipmobile.icloud.com" 
+              Debug(true,"NextStage")
+              getIOSDeviceNextStage(nextStage,event.user,event.name,headers,pollingextra)
             elseif (status.status==200) then
               --Debug(true,"Data:%s",json.encode(status.data))
               Event.post({type='deviceMap', user=event.name, data=json.decode(status.data).content, _sh=true})
@@ -356,12 +358,17 @@ gEventRunnerKey="6w8562395ue734r437fg3"
 gEventSupervisorKey="9t8232395ue734r327fh3"
 
 if not _OFFLINE then -- if running on the HC2
-  function _Msg(color,message,...)
+  function __Msg(color,message,...)
     local args = type(... or 42) == 'function' and {(...)()} or {...}
     local tadj = _timeAdjust > 0 and osDate("(%X) ") or ""
     message = _format(message,table.unpack(args))
     fibaro:debug(_format('<span style="color:%s;">%s%s</span><br>', color, tadj, message))
     return message
+  end
+  function _Msg(color,message,...)
+    local args = {...}
+    local stat,res = pcall(function() __Msg(color,message,table.unpack(args)) end)
+    if stat then return res else error("Bad _Msg:"..message,3) end
   end
   if not _timeAdjust then _timeAdjust = 0 end -- support for adjusting for hw time drift on HC2
   osTime = function(arg) return arg and os.time(arg) or os.time()+_timeAdjust end
