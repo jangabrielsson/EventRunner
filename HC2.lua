@@ -23,9 +23,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 --]]
 
-_version,_fix = "0.2","fix2" -- first version
+_version,_fix = "0.3","fix1" -- first version
 
-_REMOTE=false                 -- Run remote, fibaro:* calls functions on HC2, on non-local resources
+_REMOTE=true                 -- Run remote, fibaro:* calls functions on HC2, on non-local resources
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
 _SPEEDTIME = 24*30           -- Speed through X hours, if set to false run in real time
 _AUTOCREATEGLOBALS=true      -- Will (silently) autocreate a local fibaro global if it doesn't exist
@@ -48,8 +48,8 @@ function main()
 
   HC2.setupConfiguration(true,true) -- read in configuration from stored local file, or from remote HC2
   --HC2.localDevices()
-  HC2.localGlobals(true)
-  HC2.localRooms(true)
+  --HC2.localGlobals()
+  --HC2.localRooms(true)
   --HC2.localScenes(true)
 
   HC2.loadEmbedded()
@@ -64,6 +64,7 @@ function main()
   --fibaro:call(17,"turnOn")
 
   --HC2.registerScene("Scene1",10,"ff.lua")
+
   --HC2.registerScene("Scene1",11,"EventRunnerA.lua")
   --HC2.registerScene("Scene1",12,"GEA 6.11.lua")
   --HC2.registerScene("Scene1",13,"Main scene FTBE v1.3.0.lua",{Darkness=0,TimeOfDay='Morning'})
@@ -325,6 +326,24 @@ HC2.rsrc.rooms = {}
 HC2.rsrc.info = {}
 HC2.rsrc.location = {}
 
+function HC2.registerScene(name,id,file,globVars)
+  local scene = Scene.load(name,id,file) 
+  HC2.rsrc.scenes[id]=scene
+  for _,t in ipairs(scene.triggers) do
+    Log(LOG.SYSTEM,"Scene:%s [ Trigger:%s ]",id,tojson(t))
+    Event.event(t,function(env) Scene.start(scene,env.event) end)
+  end
+  Event.event({type='other',_id=id}, -- startup event
+    function(env) 
+      local event = env.event
+      local args = event._args
+      event._args=nil
+      event._id=nil
+      Scene.start(scene,event,args)
+    end)
+  for name,value in pairs(globVars or {}) do HC2.createGlobal(name,value) end
+end
+
 local function patchID(t) local c= 0; for k,v in pairs(t) do t[k]=nil; t[tonumber(k)]=v c=c+1 end return c end
 
 function HC2.setupConfiguration(file,copyFromHC2)
@@ -333,25 +352,20 @@ function HC2.setupConfiguration(file,copyFromHC2)
   local rsrc = HC2.rsrc
   if copyFromHC2 then
     Log(LOG.SYSTEM,"Reading configuration from H2C...")
-    local REM = _REMOTE
-    _REMOTE='FORCE'
-    local vars = api.get("/globalVariables/")
+    local vars = api._get(false,"/globalVariables/")
     for _,v in ipairs(vars) do rsrc.globalVariables[v.name] = v c1=c1+1 end
-    local s = api.get("/sections")
+    local s = api._get(false,"/sections")
     for _,v in ipairs(s) do rsrc.sections[v.id] = v end
-    s = api.get("/rooms")
+    s = api._get(false,"/rooms")
     for _,v in ipairs(s) do rsrc.rooms[v.id] = v c4=c4+1 end
-    s = api.get("/devices")
+    s = api._get(false,"/devices")
     for _,v in ipairs(s) do rsrc.devices[v.id] = v c3=c3+1 end
-    s = api.get("/scenes")
-    for _,v in ipairs(s) do v.lua="" rsrc.scenes[v.id] = v c2=c2+1 end
-    s = api.get("/settings/info")
-    rsrc.info=s
-    s = api.get("/settings/location")
-    rsrc.location=s
-    s = api.get("/iosDevices")
-    for _,v in ipairs(s) do rsrc.location[v.id] = v c4=c4+1 end
-    _REMOTE=REM
+    s = api._get(false,"/scenes") -- need to retrieve once more to get the Lua code
+    for _,v in ipairs(s) do rsrc.scenes[v.id] = api._get(false,"/scenes/"..v.id) c2=c2+1 end
+    s = api._get(false,"/iosDevices")
+    for _,v in ipairs(s) do rsrc.iosDevices[v.id] = v end
+    rsrc.info = api._get(false,"/settings/info")
+    rsrc.location = api._get(false,"/settings/location")
     if file then HC2.writeConfigurationToFile(file2) end
   else
     local f = io.open(file2)
@@ -360,7 +374,6 @@ function HC2.setupConfiguration(file,copyFromHC2)
       rsrc = json.decode(data)
       for n,_ in pairs(rsrc.globalVariables) do c1=c1+1 end
       c3=patchID(rsrc.devices); c=patchID(rsrc.scenes); c4=patchID(rsrc.rooms); patchID(rsrc.sections); patchID(rsrc.iosDevices); 
-      for _,s in pairs(rsrc.scenes) do s.lua="" end
       HC2.rsrc=rsrc
     else Log(LOG.SYSTEM,"No HC2 data file found (%s)'",file2) end
   end
@@ -377,30 +390,47 @@ function HC2.writeConfigurationToFile(file)
   f:close()
 end
 
-if nil then -- alternative api handler
-
-  function HC2.getRsrc(name,id)
-    local rsrcs=HC2.rsrc[name]
-    local rsrc=rsrcs[id]
-    if rsrc and rsrc._local then return rsrc
-    elseif _REMOTE then
-      rsrc = api._get("/"..name.."/"..id)
-      if rsrc then return rsrc end
-    else return null end
+function HC2.getRsrc(name,id)
+  local rsrcs=HC2.rsrc[name]
+  local rsrc=rsrcs[id]
+  if rsrc and rsrc._local then return rsrc
+  elseif _REMOTE and rsrc then
+    local rsrc = api._get(false,"/"..name.."/"..id)
+    rsrcs[id] = rsrc
+    return rsrc
+  elseif not rsrc then-- rsrc doesn't exists
+    if name=='globalVariables' and _AUTOCREATEGLOBALS then
+      rsrc = {name=is, modified=osTime(), _local=true}
+      rsrcs[id] = rsrc
+    elseif name=='devices' and _AUTOCREATEDEVICES then
+      rsrc = HC2.createDevice(id,tostring(id))
+      rsrcs[id] = rsrc
+    end
   end
+  return rsrc
+end
 
-  function HC2.getAllRsrc(name)
-    local res = {}
-    for id,_ in pairs(HC2.rsrc[name]) do res[#res+1]=HC2.getRsrc(name,id) end
-    return res
+local function _getId(n,r) return n=='globalVariables' and r.name or r.id end
+
+function HC2.getAllRsrc(name)
+  local r2,res={},{}
+  if _REMOTE then 
+    r2 = api._get(false,"/"..name) -- if remote connection, get fresh data
+    for _,r3 in ipairs(r2) do
+      local i = _getId(name,r3) -- only update non-local data
+      if HC2.rsrc[name][i] and not HC2.rsrc[name][i]._local then HC2.rsrc[name][i] = r3 end
+    end
   end
+  for id,r in pairs(HC2.rsrc[name]) do res[#res+1]=r end
+  return res
+end
 
-  function HC2.getDevice(id) return HC2.getRsrc('devices',id) end
-  function HC2.getGlobal(id) return HC2.getRsrc('globalVariables',id) end
-  function HC2.getScene(id) return HC2.getRsrc('scenes',id) end
-  function HC2.getRoom(id) return HC2.getRsrc('rooms',id) end
-  function HC2.getSection(id) return HC2.getRsrc('sections',id) end
-  function HC2.getiosDevice(id) return HC2.getRsrc('iosDevices',id) end
+function HC2.getDevice(id) return HC2.getRsrc('devices',id) end
+function HC2.getGlobal(id) return HC2.getRsrc('globalVariables',id) end
+function HC2.getScene(id) return HC2.getRsrc('scenes',id) end
+function HC2.getRoom(id) return HC2.getRsrc('rooms',id) end
+function HC2.getSection(id) return HC2.getRsrc('sections',id) end
+function HC2.getiosDevice(id) return HC2.getRsrc('iosDevices',id) end
 
 -- ToDo, This should be cleaned up and functionality moved from fibaro:* to api.*
 --[[
@@ -424,113 +454,66 @@ PUT:/globalVariables/<var struct> -- Modify variable
 POST:/globalVariables/<var struct> -- Create variable
 --]]
 
-  local function stdGetRsrc(name,id)
-    if id=="" then return  HC2.getAllRsrc(name)
-    elseif id then return HC2.getRsrc(name,id)
+local function stdGetRsrc(name,id)
+  if id==nil or id=="" then return  HC2.getAllRsrc(name)
+  elseif id then return HC2.getRsrc(name,id)
+  else return null end
+end
+
+HC2._getHandlers={
+  settings=function(arg)
+    if arg=='info' then return HC2.rsrc.info
+    elseif arg=='location' then return HC2.rsrc.location
     else return null end
-  end
+  end,
+  iosDevice=function(arg) return stdGetRsrc('iosDevices',tonumber(arg)) end,
+  devices=function(arg) return stdGetRsrc('devices',tonumber(arg)) end,
+  sections=function(arg) return stdGetRsrc('sections',tonumber(arg)) end,
+  scenes=function(arg) return stdGetRsrc('scenes',tonumber(arg)) end,
+  rooms=function(arg) return stdGetRsrc('rooms',tonumber(arg)) end,
+  globalVariables=function(arg) return stdGetRsrc('globalVariables',arg) end,
+}
 
-  HC2._getHandlers={
-    settings=function(arg)
-      if arg=='info' then return HC2.rsrc.info
-      elseif arg=='location' then return HC2.rsrc.location
-      else return null end
-    end,
-    iosDevice=function(arg) return stdGetRsrc('iosDevices',tonumber(arg)) end,
-    devices=function(arg) return stdGetRsrc('devices',tonumber(arg)) end,
-    sections=function(arg) return stdGetRsrc('sections',tonumber(arg)) end,
-    scenes=function(arg) return stdGetRsrc('scenes',tonumber(arg)) end,
-    rooms=function(arg) return stdGetRsrc('rooms',tonumber(arg)) end,
-    globalVariables=function(arg) return stdGetRsrc('globalVariables',arg) end,
-  }
-
-  HC2._putHandlers={
-    globalVariables=function(r,data,cType)
-      local v = HC2.getRsrc('globalVariables',r)
-      if v and v._local then HC2.rsrc.globalVariables[r]=data
-      elseif _REMOTE then -- update global remote
-        api._put("/globalVariables/"..r,data,cType)
-        HC2.rsrc.globalVariables[r]=data
-      else  
-      end
-    end,
-  }
-
-  HC2._postHandlers={
-    globalVariables=function(r,data,cType) return stdGetRsrc('globalVariables',arg) end,
-  }
-
-  _API_METHODS={
-    GET=function(call,data,cType)
-      local m,r = call:match("/([^/]+)/?(%w*)")
-      if m and HC2._getHandlers[m] then return HC2._getHandlers[m](r)
-      else return null end
-    end,
-    PUT=function(call,data,cType)
-      local m,r = call:match("/([^/]+)/?(%w*)")
-      if m and HC2._putHandlers[m] then return HC2._putHandlers[m](r,data,cType)
-      else return null end
-    end,
-    POST=function(call,data,cType) 
-      local m,r = call:match("/([^/]+)/?(%w*)")
-      if m and HC2._getHandlers[m] then return HC2._getHandlers[m](r,data,cType)
-      else return null end
-    end,
-    DELETE=function(call,data,cType) error("DELETE not supported") end,
-  }
-
-  function HC2._apiIntercept(method,call,data,cType) 
-    local mhandler = _API_METHODS[METHOD]
-    if mHandler then return mHandler(call,data,cType) else return null end
-  end
-
-else
-
-  local function arrayify(t) local res={} for _,v in pairs(t) do res[#res+1]=v end return res end
-
-  HC2._apiIntercepts={
-    ["GET:/settings/info"] = function() return HC2.rsrc.info end,
-    ["GET:/globalVariables/"] = function() return arrayify(HC2.rsrc.globalVariables) end,
-    -- ToDo, We must be able to handle GET:/devices/1/properties/sunriseHour etc...
-    ["GET:/scenes/?(%d*)$"] = function(m) 
-      if m=="" then return arrayify(HC2.rsrc.scenes)  end
-      m=tonumber(m)
-      return (HC2.rsrc.scenes[m]._local or _LOCAL) and  HC2.rsrc.scenes[m] or null
-    end,
-    ["GET:/rooms/"] = function() return arrayify(HC2.rsrc.rooms) end,
-    ["GET:/rooms"] = function() return arrayify(HC2.rsrc.rooms) end,
-    ["GET:/devices/?(%d*)$"] = function(m) 
-      return m and m~= "" and HC2.rsrc.devices[tonumber(m)] or arrayify(HC2.rsrc.devices) 
-    end,
-    ["PUT:/globalVariables"] = function(m,data)  -- Modify variable
-      local var = json.decode(data)
-      local varName=var.name
-      if HC2.rsrc.globalVariables[varName] then
-        error("Global already exists, "..varName)
-      end
-      HC2.rsrc.globalVariables[varName]=var
-      return true
-    end,
-    ["POST:/globalVariables/"] = function(m,data)  -- Create variable
-      local var = json.decode(data)
-      local varName=var.name
-      if HC2.rsrc.globalVariables[varName] then
-        error("Global already exists, "..varName)
-      end
-      HC2.rsrc.globalVariables[varName]=var
-      return true
-    end,
-  }
-  function HC2._apiIntercept(method,call,data,cType) -- Should do string matching...
-    if _REMOTE=='FORCE' then return null end
-    local r = method..":"..call
-    for p,f in pairs(HC2._apiIntercepts) do
-      local m = r:match(p)
-      if m then return f(m,data) end
+HC2._putHandlers={ -- update global variable
+  globalVariables=function(r,data,cType)
+    local v = HC2.getRsrc('globalVariables',r)
+    if v and v._local then HC2.rsrc.globalVariables[r]=data
+    elseif v and _REMOTE then -- update global remote
+      api._put(false,"/globalVariables/"..r,data,cType)
+      HC2.rsrc.globalVariables[r]=data -- cache
     end
-    return null
-  end
+  end,
+}
 
+HC2._postHandlers={ -- create global variable, always local...?
+  globalVariables=function(r,data,cType) 
+    local v = HC2.rsrc.globalVariable[r]
+    if not v then data._local=true; HC2.rsrc.globalVariables[data.name]=data end
+  end,
+}
+
+_API_METHODS={
+  GET=function(call,data,cType)
+    local m,r = call:match("/([^/]+)/?(%w*)$")
+    if m and HC2._getHandlers[m] then return HC2._getHandlers[m](r)
+    else error("GET "..call.." not supported") end
+  end,
+  PUT=function(call,data,cType)
+    local m,r = call:match("/([^/]+)/?(%w*)$")
+    if m and HC2._putHandlers[m] then return HC2._putHandlers[m](r,data,cType)
+    else error("PUT "..call.." not supported") end
+  end,
+  POST=function(call,data,cType) 
+    local m,r = call:match("/([^/]+)/?(%w*)$")
+    if m and HC2._getHandlers[m] then return HC2._getHandlers[m](r,data,cType)
+    else error("POST "..call.." not supported") end
+  end,
+  DELETE=function(call,data,cType) error("DELETE not supported") end,
+}
+
+function HC2.apiCall(method,call,data,cType) 
+  local mhandler = _API_METHODS[method]
+  if mhandler then return mhandler(call,data,cType) else return null end
 end
 
 function HC2.listDevices()
@@ -631,6 +614,9 @@ function HC2.loadEmbedded()
     local scene = HC2.registerScene(name,id,short_src)
   end
 end
+
+function HC2.logFibaroCalls() fibaro._logFibaroCalls() end
+
 ------------------------------------------------------------------------------
 -- _System
 ------------------------------------------------------------------------------
@@ -643,7 +629,9 @@ function _System.dofile(file)
   code()
 end
 
-function _System.debugCoroutines() require('mobdebug').coro() end
+_System.createGlobal = HC2.createGlobal
+_System.createDevice = HC2.createDevice
+  
 function _System._getInstance(id,inst)
   for co,env in pairs(_SceneContext) do
     if env.fibaroSelfId==id and env.__orgInstanceNumber==inst then return co,env end
@@ -977,42 +965,38 @@ function __convertToString(value)
 end
 
 function __fibaro_get_device(deviceID,lcl) 
-  __assert_type (deviceID ,"number")
+  __assert_type(deviceID ,"number")
   local d = HC2.rsrc.devices[deviceID]
   if lcl or (not _REMOTE) or (d and d._local) then return d
-  else return api.get("/devices/"..deviceID) end
+  else return api._get(true,"/devices/"..deviceID) end
 end
 
-function __fibaro_get_room(roomID) 
+function __fibaro_get_room(roomID,lcl) 
   __assert_type(roomID , "number") 
   local r = HC2.rsrc.rooms[roomID]
-  if (not _REMOTE) or (r and r._local) then return r
-  else return api.get( "/rooms/"..roomID) end
+  if lcl or (not _REMOTE) or (r and r._local) then return r
+  else return api._get(true,"/rooms/"..roomID) end
 end
 
 function __fibaro_get_global_variable(varName,lcl)
   __assert_type(varName ,"string")
   local v = HC2.rsrc.globalVariables[varName]
   if lcl or (not _REMOTE) or (v and v._local) then return v
-    -- ToDo, api calls that don't barf on nonexistent resources...
-  elseif _REMOTE and HC2._allGlobals:match(varName) then return api.get("/globalVariables/"..varName)
-  else return null end
+  else return api._get(true,"/globalVariables/"..varName) end
 end
 
-function __fibaro_get_device_property(deviceID ,propertyName)
+function __fibaro_get_device_property(deviceID ,propertyName, lcl)
   local d = HC2.rsrc.devices[deviceID]
-  if (not _REMOTE) or (d and d._local) then
+  if lcl or (not _REMOTE) or (d and d._local) then
     return d and {value=__convertToString(d.properties[propertyName]),modified=d.modified}
-  else 
-    return api.get("/devices/"..deviceID.."/properties/"..propertyName)
-  end
+  else return api._get(true,"/devices/"..deviceID.."/properties/"..propertyName) end
 end
 
 function __fibaro_get_scene(sceneID,lcl) 
   __assert_type(sceneID, "number")
-  local s = HC2.rsrc.scenes[sceneID]
-  if (not _REMOTE) or lcl or (s and s._local) then return s
-  else return api.get("/scenes/"..sceneID) end
+  local s = HC2.getScene(sceneID)
+  if lcl or (not _REMOTE) or (s and s._local) then return s
+  else return api._get(true,"/scenes/"..sceneID) end
 end
 
 function fibaro:getSourceTrigger() return Scene.global().__fibaroSceneSourceTrigger end
@@ -1042,20 +1026,18 @@ function fibaro:isSceneEnabled(sceneID)
 end
 
 function fibaro:killScenes(sceneID)
-  local scene = __fibaro_get_scene(sceneID,true) 
-  if (not _REMOTE) or (scene and scene._local) then
+  local scene = __fibaro_get_scene(sceneID,true)
+  if not scene then return end
+  if scene._local then
     error("local killScene not implemented yet")
-  else api.post("/scenes/"..sceneID.."/action/stop") end
+  elseif _REMOTE then api._post(true,"/scenes/"..sceneID.."/action/stop") end
 end
 
 function fibaro:startScene(sceneID,args)
-  local scene = __fibaro_get_scene(sceneID,true)  
-  if (not _REMOTE) or (scene and scene._local) then
-    if scene and not scene._local then error("Can only start scenes marked local:"..sceneID) end
-    if scene then Scene.start(scene,{type='other'},args) end --ToDo
-  else
-    api.post("/scenes/"..sceneID.."/action/start",args and {args=args} or nil) 
-  end
+  local scene = __fibaro_get_scene(sceneID,true)
+  if not scene then return end
+  if scene._local then Scene.start(scene,{type='other'},args) 
+  elseif _REMOTE then api._post(true,"/scenes/"..sceneID.."/action/start",args and {args=args} or nil)  end
 end
 
 function fibaro:args() return Scene.global().__fibaroSceneArgs end
@@ -1067,7 +1049,7 @@ function fibaro:setSceneEnabled(sceneID , enabled)
   local runConfig = enabled ==true and "TRIGGER_AND_MANUAL" or "DISABLED"
   if (not _REMOTE) or (scene and scene._local) then
     if scene then scene.runConfig = runConfig end
-  else api.put("/scenes/"..sceneID, {id = sceneID ,runConfig = runConfig}) end 
+  else api._put(true,"/scenes/"..sceneID, {id = sceneID ,runConfig = runConfig}) end 
 end
 
 function fibaro:getSceneRunConfig(sceneID) 
@@ -1082,26 +1064,26 @@ function fibaro:setSceneRunConfig(sceneID ,runConfig)
   local scene = __fibaro_get_scene(sceneID,true)
   if (not _REMOTE) or (scene and scene._local) then 
     if scene then scene.runConfig = runConfig end
-  else api.put("/scenes/"..sceneID, {id = sceneID ,runConfig = runConfig}) end
+  else api._put(true,"/scenes/"..sceneID, {id = sceneID ,runConfig = runConfig}) end
 end
 
 function fibaro:getRoomID(deviceID) 
-  local dev = __fibaro_get_device(deviceID) 
+  local dev = HC2.getDevice(deviceID)
   if  dev ==  nil then return  nil end
   return dev.roomID
 end
 
 function fibaro:getSectionID(deviceID) 
-  local dev = __fibaro_get_device(deviceID) 
+  local dev = HC2.getDevice(deviceID)
   if  dev ==  nil then return  nil end
   if  dev.ROOMID ~=  0  then 
-    return __fibaro_get_room(dev.ROOMID).sectionID
+    return HC2.getRoom(dev.ROOMID).sectionID
   end 
   return  0 
 end
 
 function fibaro:getType(deviceID) 
-  local dev = __fibaro_get_device(deviceID) 
+  local dev = HC2.getDevice(deviceID)
   if  dev == nil then return  nil end
   return dev.type
 end
@@ -1138,8 +1120,8 @@ function fibaro:setGlobal(varName ,value)
     globalVar.value,globalVar.modified= tostring(value),osTime()
     if _debugFlags.globals then Log(LOG.LOG,"Setting global %s='%s'",varName,value) end
     Event.post({type='global',name=globalVar.name}) -- trigger
-  elseif _REMOTE and HC2._allGlobals:match(varName) then
-    api.put("/globalVariables/"..varName ,{value=tostring(value), invokeScenes= true}) 
+  elseif _REMOTE then
+    api._put(true,"/globalVariables/"..varName ,{value=tostring(value), invokeScenes= true}) 
   elseif _AUTOCREATEGLOBALS then
     HC2.rsrc.globalVariables[varName]={name=varName,_local=true}
     fibaro:setGlobal(varName,value)
@@ -1185,24 +1167,23 @@ _specCalls['setPower'] = function(id,value) setAndPropagate(id,"power",value) en
 function fibaro:call(deviceID ,actionName ,...) 
   deviceID =  tonumber(deviceID) 
   __assert_type(actionName ,"string")
-  local dev = __fibaro_get_device(deviceID,true) 
-  if (not _REMOTE) or (dev and dev._local) then
-    if not dev then error("No such device, deviceID:"..deviceID) end
+  local dev = HC2.getDevice(deviceID)
+  if dev and dev._local then
     if _specCalls[prop] then _specCalls[actionName](deviceID,...) return end 
     local value = ({turnOff=false,turnOn=true,open=true, on=true,close=false, off=false})[actionName] or 
     (actionName=='setValue' and tostring(({...})[1]))
     if value==nil then error(_format("fibaro:call(..,'%s',..) is not supported, fix it!",actionName)) end
     setAndPropagate(deviceID,'value',value)
-  else 
+  elseif _REMOTE and dev then
     local args = "" 
     for i,v in  ipairs ({...})  do args = args.. '&arg'..tostring(i)..'='..urlencode(tostring(v)) end 
-    api.get("/callAction?deviceID="..deviceID.."&name="..actionName..args) 
+    api._get(true,"/callAction?deviceID="..deviceID.."&name="..actionName..args) 
   end
 end
 
 function fibaro:getName(deviceID) 
   __assert_type(deviceID ,'number') 
-  local dev = __fibaro_get_device(deviceID) 
+  local dev = HC2.getDevice(deviceID)
   return dev and dev.name
 end
 
@@ -1214,9 +1195,9 @@ end
 
 function fibaro:getRoomNameByDeviceID(deviceID) 
   __assert_type(deviceID,'number') 
-  local dev = __fibaro_get_device(deviceID) 
+  local dev = HC2.getDevice(deviceID)
   if  dev == nil then return  nil end
-  local room = __fibaro_get_room(dev.ROOMID)
+  local room =HC2.getRoom(dev.ROOMID)
   return dev.ROOMID==0 and 'unassigned' or room and room.name
 end
 
@@ -1328,10 +1309,8 @@ function _HTTP:request(url,options)
 end
 
 api={} -- Emulation of api.get/put/post
-local function apiCall(method,call,data,cType)
-  local res = HC2._apiIntercept(method,call,data,cType)
-  if res ~= null then return res end
-  if _debugFlags.hc2calls then Log(LOG.LOG,"HC2 call:%s:%s",method,call) end
+local function apiCall(flag,method,call,data,cType)
+  if flag and _debugFlags.hc2calls then Log(LOG.LOG,"HC2 call:%s:%s",method,call) end
   local resp = {}
   local req={ method=method, timeout=5000,
     url = "http://".._HC2_IP.."/api"..call,sink = ltn12.sink.table(resp),
@@ -1356,10 +1335,15 @@ local function apiCall(method,call,data,cType)
   os.exit(1)
 end
 
-function api.get(call) return apiCall("GET",call) end
-function api.put(call, data) return apiCall("PUT",call,json.encode(data),"application/json") end
-function api.post(call, data) return apiCall("POST",call,json.encode(data),"application/json") end
-function api.delete(call, data) return apiCall("DELETE",call,json.encode(data),"application/json") end
+function api.get(call) return HC2.apiCall("GET",call) end
+function api.put(call, data) return HC2.apiCall("PUT",call,data,"application/json") end
+function api.post(call, data) return HC2.apiCall("POST",call,data,"application/json") end
+function api.delete(call, data) return HC2.apiCall("DELETE",call,data,"application/json") end
+
+function api._get(l,call) return apiCall(l,"GET",call) end
+function api._put(l,call, data) return apiCall(l,"PUT",call,json.encode(data),"application/json") end
+function api._post(l,call, data) return apiCall(l,"POST",call,json.encode(data),"application/json") end
+function api._delete(l,call, data) return apiCall(l,"DELETE",call,json.encode(data),"application/json") end
 
 HomeCenter = {
   PopupService = {
@@ -1378,7 +1362,7 @@ HomeCenter = {
 
 -------- Fibaro log support --------------
 -- Logging of fibaro:* calls -------------
-function HC2.logFibaroCalls()
+function fibaro._logFibaroCalls()
   if fibaro._orgf then return end
   fibaro._orgf={}
   local function interceptFib(fs,name,flag,spec)
@@ -1420,27 +1404,6 @@ function HC2.logFibaroCalls()
       Debug(true,"fibaro:start(%s%s)",id,a and ","..a or "")
       fun(obj,id, args) 
     end)
-end
-------------------------------------------------------------------------------
--- HC2.lua functions
-------------------------------------------------------------------------------
-
-function HC2.registerScene(name,id,file,globVars)
-  local scene = Scene.load(name,id,file) 
-  HC2.rsrc.scenes[id]=scene
-  for _,t in ipairs(scene.triggers) do
-    Log(LOG.SYSTEM,"Scene:%s [ Trigger:%s ]",id,tojson(t))
-    Event.event(t,function(env) Scene.start(scene,env.event) end)
-  end
-  Event.event({type='other',_id=id}, -- startup event
-    function(env) 
-      local event = env.event
-      local args = event._args
-      event._args=nil
-      event._id=nil
-      Scene.start(scene,event,args)
-    end)
-  for name,value in pairs(globVars or {}) do HC2.createGlobal(name,value) end
 end
 
 ------------------------------------------------------------------------------
