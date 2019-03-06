@@ -34,7 +34,7 @@ _SPEEDTIME = 24*180           -- Speed through X hours, if set to false run in r
 _AUTOCREATEGLOBALS=true      -- Will (silently) autocreate a local fibaro global if it doesn't exist
 _AUTOCREATEDEVICES=true      -- Will (silently) autocreate a local fibaro device if it doesn't exist
 _VALIDATECHARS = true        -- Check rules for invalid characters (cut&paste, multi-byte charqcters)
-_COLOR = "Dark"              -- Log with colors on ZBS Output console
+_COLOR = ""              -- Log with colors on ZBS Output console
 _HC2_FILE = "HC2.data"
 
 _HC2_IP="192.198.1.xx"       -- HC2 IP address
@@ -61,7 +61,9 @@ function main()
   --HC2.createDevice(77,"Test") -- Create local deviceID 77 with name "Test"
 
   HC2.registerScene("SceneTest",99,"sceneTest.lua",nil,
-                     {"+/00:10;call(66,'turnOn')"})
+                     {"+/00:10;call(66,'turnOn')",      -- breached after 10min
+                       "+/00:11;call(66,'turnOff')"})   -- safe after 11min
+                   
   --HC2.registerScene("EventRunnerEM",10,"EventRunnerEM.lua")
   --HC2.registerScene("Supervisor",11,"SupervisorEM.lua")
   --HC2.registerScene("iosLocator",14,"IOSLOcatorEM.lua")
@@ -77,7 +79,7 @@ function main()
   --HC2.post({type='property',deviceID=77, propertyName='value'},"+/00:10")
 
   --Log fibaro:* calls
-  --HC2.logFibaroCalls()
+  HC2.logFibaroCalls()
   --Debug filters can be used to trim debug output from noisy scenes...
   HC2.addDebugFilter("Memory used:",true) 
   HC2.addDebugFilter("GEA run since",true)
@@ -85,7 +87,7 @@ function main()
   HC2.addDebugFilter("%b<>(.*)</.*>")
 end
 
-_debugFlags = { threads=false, triggers=false, eventserver=false, hc2calls=true, globals=false, fibaroSet=true, fibaroStart=true }
+_debugFlags = { threads=false, triggers=false, eventserver=false, hc2calls=true, globals=false, fibaro=true, fibaroSet=true, fibaroStart=true }
 ------------------------------------------------------
 -- Context, functions exported to scenes
 ------------------------------------------------------
@@ -1508,7 +1510,7 @@ Expected input:
         end 
       else 
         fibaro[name] = function(obj,id,...)
-          local id2,args = type(id) == 'number' and Util.reverseVar(id) or '"'..(id or "<ID>")..'"',{...}
+          local id2,args = type(id) == 'number' and Util and Util.reverseVar(id) or '"'..(id or "<ID>")..'"',{...}
           local status,res,r2 = pcall(function() return fibaro._orgf[name](obj,id,table.unpack(args)) end)
           if status and _debugFlags[flag] then
             Debug(true,fstr,name,id2,(#args>0 and "," or ""),json.encode(args):sub(2,-2),json.encode(res))
