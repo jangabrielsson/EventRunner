@@ -26,7 +26,7 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
 
-_version,_fix = "0.3","fix7" -- first version 
+_version,_fix = "0.3","fix8" -- first version 
 
 _REMOTE=true                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
@@ -58,15 +58,12 @@ function main()
   HC2.loadEmbedded()
 
   --HC2.loadScenesFromDir("scenes") -- Load all files with name <ID>_<name>.lua from dir, Ex. 11_MyScene.lua
-
   --HC2.createDevice(77,"Test") -- Create local deviceID 77 with name "Test"
 
   --fibaro:call(17,"turnOn")
 
   --HC2.registerScene("EventRunnerEM",10,"EventRunnerEM.lua")
   --HC2.registerScene("Supervisor",11,"SupervisorEM.lua")
-  --HC2.registerScene("PubSub1",12,"PubSub1EM.lua")
-  --HC2.registerScene("PubSub2",13,"PubSub2EM.lua")
   --HC2.registerScene("iosLocator",14,"IOSLOcatorEM.lua")
     
   --HC2.listDevices()
@@ -78,10 +75,6 @@ function main()
 
   -- Post a simulated trigger 10min in the future...
   --HC2.post({type='property',deviceID=77, propertyName='value'},"+/00:10")
-
-  --HC2.createDevice(66,"Test")
-  --_System.setTimeout(function() fibaro:call(66,"turnOn") end,5*1000)
-  --_System.setTimeout(function() fibaro:call(66,"turnOff") end,10*1000)
   
   --Log fibaro:* calls
   --HC2.logFibaroCalls()
