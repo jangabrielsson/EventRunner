@@ -73,7 +73,7 @@ function main()
   --HC2.listScenes()
   --HC2.registerScene("Scene1",55,"55_Simple.lua",nil,{"+/00:10;call(66,'turnOn')","+/00:20;call(66,'turnOff')"})
   --HC2.registerScene("Scene1",11,"EventRunnerA.lua")
-  --HC2.registerScene("Scene1",12,"GEA 6.11.lua")
+  --HC2.registerScene("Scene1",12,"GEA 6.11.lua") 
   --HC2.registerScene("Scene1",13,"Main scene FTBE v1.3.0.lua",{Darkness=0,TimeOfDay='Morning'})
 
   -- Post a simulated trigger 10min in the future...
