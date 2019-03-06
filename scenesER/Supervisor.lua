@@ -1,11 +1,11 @@
 --[[
 %% properties
 %% events
-%% globals
+%% globals 
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-if dofile and not _EMULATED then _EMBEDDED={name="EventRunner",id=10} dofile("HC2.lua") end
+if dofile and not _EMULATED then _EMBEDDED={name="Supervisor",id=11} dofile("HC2.lua") end
 
 _version,_fix = "2.0","B1"  -- Mar 5, 2019 
 
@@ -15,46 +15,102 @@ _version,_fix = "2.0","B1"  -- Mar 5, 2019
 -- Email: jan@gabrielsson.com
 -- Email: jan@gabrielsson.com
 --]]
-
-_sceneName   = "Demo"      -- Set to scene/script name
-_homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
-_HueHubs     = {}          -- Hue bridges, Ex. {{name='Hue',user=_HueUserName,ip=_HueIP}}
-_myNodeRed   = "http://192.168.1.50:1880/eventrunner" -- Ex. used for Event.postRemote(_myNodeRed,{type='test'})
---if dofile then dofile("credentials.lua") end -- To not accidently commit credentials to Github, or post at forum :-)
--- E.g. Hue user names, icloud passwords etc. HC2 credentials is set from HC2.lua, but can use same file.
+_sceneName     = "Supervisor"      -- Set to scene/script name
+_deviceTable   = "devicemap" -- Name of your HomeTable variable
+_ruleLogLength = 80          -- Log message cut-off, defaults to 40
+_HueHubs       = {}          -- Hue bridges, Ex. {{name='Hue',user=_HueUserName,ip=_HueIP}}
+_NUMBEROFBOXES = 1           -- Number of mailboxes, increase if exceeding 10 instances...
 
 -- debug flags for various subsystems...
 _debugFlags = { 
-  post=true,invoke=false,triggers=true,dailys=true,timers=false,rule=false,ruleTrue=false,hue=false,msgTime=false
+  post=false,invoke=false,triggers=true,dailys=true,rule=false,ruleTrue=false,hue=false
 }
-
+if dofile and not _EMULATED then _EMBEDDED={name="Supervisor",id=11} dofile("HC2.lua") end
 ---------------- Here you place rules and user code, called once --------------------
 function main()
-  local rule,define = Rule.eval, Util.defvar
 
-  HT =[[
-  {
-  "dev":{"bedroom":{"lamp":88,"motion":99},
-         "phones":{"bob":121},
-         "kitchen":{"lamp":66,"motion":77}},
-  "other":"other"
- }
-  ]]
+  local POLLINTERVAL = "+/00:03"    -- poll every 3 minute
+  local PINGTIMEOUT = "+/00:00:10"  -- No answer in 10s, scene will be restarted
+  local STARTUPDELAY = "+/00:00:20" -- Time for scene to startup after a restart before pinging starts again
+  local MAXRESTARTS = 2             -- Number of failed restarts before disabling the scene
+  local phonesToNotify = {}         -- Phone to alter when restarting scenes
 
-  --or read in "HomeTable"
-  --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
-  HT = json.decode(HT)
-  Util.defvars(HT.dev)            -- Make HomeTable defs available in EventScript
-  Util.reverseMapDef(HT.dev)      -- Make HomeTable names available for logger
+  local eventRunners = {}
+  local eventMap = {}
 
-  rule("@@00:00:10 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 10 second
+  Event.event({{type='autostart'},{type='other'}},
+    function(env)
+      local scenes = Util.findScenes(gEventRunnerKey)
+      for _,id in ipairs(scenes) do Event.post({type=Event.ANNOUNCE,_from=id,d='AS'}) end
+    end)
   
-  --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
+  Event.event({type=Event.ANNOUNCE},
+    function(env)
+      local id,old = env.event._from
+      local scene = eventRunners[id]
+      if scene and scene.timeout then scene.timeout = Event.cancel(scene.timeout) old=true end -- if we have pinged, cancel
+      scene={id=id,name=api.get("/scenes/"..id).name}
+      eventRunners[id]=scene
+      Log(LOG.LOG,"%segistering scene:'%s', ID:%s",old and "Re-r" or "R",scene.name,scene.id) 
+      scene.timeout=Event.post({type='watch',scene=scene,interval=POLLINTERVAL,timeout=PINGTIMEOUT},osTime()+math.random(1,4))
+    end)
+
+  Event.event({type='watch', scene='$scene', timeout='$timeout',},
+    function(env)
+      local scene = env.p.scene
+      scene.timeout=nil
+      local runconfig = fibaro:getSceneRunConfig(scene.id)
+      if runconfig == nil then eventRunners[scene.id]=nil; return end -- Removed?
+      eventMap[scene.id]=env.event
+      if (not scene.disabled) and runconfig == 'TRIGGER_AND_MANUAL' then
+        scene.timeout=Event.post({type='pingTimeout',scene=scene},env.p.timeout)
+        Log(LOG.LOG,"Pinging scene:'%s', ID:%s",scene.name,scene.id)
+        Event.postRemote(scene.id,{type=Event.PING})
+      else
+        if scene.disabled then
+          -- Log(LOG.LOG,"Skipping disabled scene:'%s', ID:%s",scene.name,scene.id)
+        else
+          -- Log(LOG.LOG,"Skipping scene:'%s', ID:%s with runconfig:%s",scene.name,scene.id,runconfig)
+        end
+        scene.timeout=Event.post(env.event,env.event.interval) 
+      end
+    end) 
+
+  Event.event({type='pingTimeout', scene='$scene'}, -- restart scene
+    function(env)
+      local scene = env.p.scene
+      local wevent = eventMap[scene.id]
+      scene.timeout=nil
+      if scene.restarts and scene.restarts >= MAXRESTARTS then
+        fibaro:setSceneRunConfig(scene.id,'MANUAL_ONLY')
+        Event.post({type='notify',scene=scene, msg="Scene:'%s', ID:%s could not be restarted"})
+        scene.timeout=Event.post(wevent,wevent.interval)
+      else
+        Log(LOG.ERROR,"Scene:'%s', ID:%s not answering, restarting scene!",scene.name,scene.id)
+        fibaro:killScenes(scene.id) 
+        fibaro:startScene(scene.id)
+        Event.post({type='notify',scene=scene, msg="Restarted scene:'%s', ID:%s"})
+        scene.restarts = scene.restarts and scene.restarts+1 or 1
+        scene.timeout=Event.post(wevent,STARTUPDELAY)-- Start watching again. Give scene some time to start up 
+      end
+    end)
+
+  Event.event({type=Event.PONG}, -- Got a pong back from client, cancel 'timeout' and watch again 
+    function(env)
+      local id = env.event._from
+      local scene = eventRunners[id]
+      local wevent = eventMap[id]
+      if scene.timeout == nil then return end
+      scene.restarts = nil
+      Log(LOG.LOG,"Pong from scene:'%s', ID:%s",scene.name,id)
+      Event.cancel(scene.timeout) 
+      scene.timeout=Event.post(wevent,wevent.interval)
+    end)
+
 end -- main()
 
 ------------------- EventModel - Don't change! --------------------  
 Event = Event or {}
-_NUMBEROFBOXES = _NUMBEROFBOXES or 1
 _MAILBOXES={}
 --_STARTLINE = _EMULATED and debug.getinfo(1).currentline or nil
 local _supportedEvents = {property=true,global=true,event=true,remote=true}
@@ -68,6 +124,7 @@ if _type == 'other' and fibaro:args() then
 end
 
 ---------- Producer(s) - Handing over incoming triggers to consumer --------------------
+
 local _MAXWAIT=5.0 -- seconds to wait
 if _supportedEvents[_type] then
   local _MBP = _MAILBOX.."_"
@@ -126,7 +183,7 @@ end
 ------------------------ Support functions -----------------
 LOG = {WELCOME = "orange",DEBUG = "white", SYSTEM = "Cyan", LOG = "green", ULOG="Khaki", ERROR = "Tomato"}
 _format = string.format
-_ruleLogLength = _ruleLogLength or 80   -- Log message cut-off, defaults to 80
+
 _getIdProp = function(id,prop) return fibaro:get(id,prop) end
 _getGlobal = function(id) return fibaro:getGlobal(id) end
 
@@ -145,17 +202,10 @@ end
 
 if _System and _System._Msg then _Msg=_System._Msg end -- Get a better ZBS version of _Msg if running emulated 
 
-function protectMsg(...)
-  local args = {...}
-  local stat,res=pcall(function() return _Msg(table.unpack(args)) end)
-  if not stat then error("Bad arguments to Log/Debug:"..tojson(args),2)
-  else return res end
-end
-
 if not _timeAdjust then _timeAdjust = 0 end -- support for adjusting for hw time drift on HC2
 osTime = function(arg) return arg and os.time(arg) or os.time()+_timeAdjust end
 function Debug(flag,message,...) if flag then _Msg(LOG.DEBUG,message,...) end end
-function Log(color,message,...) return protectMsg(color,message,...) end
+function Log(color,message,...) return _Msg(color,message,...) end
 function _LINEFORMAT(line) return "" end
 function _LINE() return nil end
 function osDate(f,t) t = t or osTime() return os.date(f,t) end
@@ -793,8 +843,7 @@ function Util.findScenes(str)
       if s2.lua:match(str) then res[#res+1]=s1.id end
     end
   end
-  return {11}
-  --return res
+  return res
 end
 
 Util.getIDfromEvent={ CentralSceneEvent=function(d) return d.deviceId end,AccessControlEvent=function(d) return d.id end }
@@ -1287,7 +1336,7 @@ function newScriptEngine()
       {"^([_a-zA-Z][_0-9a-zA-Z]*)",'symbol'},
       {"^(%.%.)",'op'},{"^(->)",'op'},    
       {"^(%d+%.?%d*)",'num'},
-      {"^(%|%|)",'token'},{"^(>>)",'token'},{"^(=>)",'token'},{"^(@@)",'op'},{"^([%*%+~=><]+)",'op'},
+      {"^(%|%|)",'token'},{"^(>>)",'token'},{"^(=>)",'token'},{"^(@@)",'op'},
       {"^([%%%*%+/&%.:~=><%|!@]+)",'op'},{"^(%-%=)",'op'},{"^(-)",'op'},
     }
 
@@ -1978,9 +2027,8 @@ function makeHueHub(name,username,ip,cont)
     sensor._filter = filter or sensor._filter or _defFilter
     if sensor._timer then clearTimeout(sensor._timer) sensor._timer=nil end
     if interval>0 then 
-      Debug(_debugFlags.hue,"Monitoring URL:%s",url)
       local function poll() 
-        Hue.request(url,function(state) self._setState(sensor,state.state) sensor._timer=setTimeout(poll,interval) end)
+        Hue.request(url,function(state) self._setState(sensor,state.state) setTimeout(poll,interval) end)
       end
       poll()
     end

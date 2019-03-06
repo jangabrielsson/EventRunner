@@ -7,54 +7,303 @@
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner",id=10} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B1"  -- Mar 5, 2019 
+_version,_fix  = "2.0","B1"  -- Mar 5, 2019 
+_sceneName     = "iOSLocator"
+_deviceTable   = "devicemap" -- Name of your HomeTable variable
+_ruleLogLength = 80          -- Log message cut-off, defaults to 40
+_HueHubs       = {}          -- Hue bridges, Ex. {{name='Hue',user=_HueUserName,ip=_HueIP}}
+_NUMBEROFBOXES = 1           -- Number of mailboxes, increase if exceeding 10 instances...
 
---[[
--- EventRunner. Event based scheduler/device trigger handler
--- Copyright 2019 Jan Gabrielsson. All Rights Reserved.
--- Email: jan@gabrielsson.com
--- Email: jan@gabrielsson.com
---]]
+local _test = true                -- use local HomeTable variable instead of fibaro global
+local homeLatitude,homeLongitude  -- set to first place in HomeTable.places list
 
-_sceneName   = "Demo"      -- Set to scene/script name
-_homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
-_HueHubs     = {}          -- Hue bridges, Ex. {{name='Hue',user=_HueUserName,ip=_HueIP}}
-_myNodeRed   = "http://192.168.1.50:1880/eventrunner" -- Ex. used for Event.postRemote(_myNodeRed,{type='test'})
---if dofile then dofile("credentials.lua") end -- To not accidently commit credentials to Github, or post at forum :-)
--- E.g. Hue user names, icloud passwords etc. HC2 credentials is set from HC2.lua, but can use same file.
+HomeTable = [[
+{"scenes":{
+    "iOSLocator":{"id":11,"send":["iOSClient"]},
+    "iOSClient":{"id":9,"send":{}},
+  },
+"places":[
+    {"longitude":17.9876023512,"dist":0.6,"latitude":60.7879477,"name":"Home"},
+    {"longitude":17.955049,"dist":0.8,"latitude":59.405818,"name":"Ericsson"},
+    {"longitude":18.080638,"dist":0.8,"latitude":59.52869,"name":"Vallentuna"},
+    {"longitude":17.648488,"dist":0.8,"latitude":59.840704,"name":"Polacksbacken"},
+    {"longitude":17.5951,"dist":0.8,"latitude":59.850153,"name":"Flogsta"},
+    {"longitude":18.120588,"dist":0.5,"latitude":59.303781,"name":"Rytmus"}
+  ],
+"users":{
+    "daniela":{"phone":777,"icloud":{"pwd":"XXXX","user":"XXX@XXX.com"},"name":"Daniela"},
+    "jan":{"phone":411,"icloud":{"pwd":"XXXX","user":"XXX@XXX.com"},"name":"Jan"},
+    "tim":{"phone":888,"icloud":{"pwd":"XXXXX","user":"XXX@XXX.com"},"name":"Tim"},
+    "max":{"phone":888,"icloud":{"pwd":"XXXXX","user":"XXX@XXX.com"},"name":"Max"}
+  },
+}
+]]
+if dofile then dofile("iOScredentials.lua") end
 
 -- debug flags for various subsystems...
 _debugFlags = { 
-  post=true,invoke=false,triggers=true,dailys=true,timers=false,rule=false,ruleTrue=false,hue=false,msgTime=false
+  post=true,invoke=false,triggers=true,dailys=true,timers=false,rule=false,ruleTrue=false,
+  hue=false,msgTime=false
 }
 
----------------- Here you place rules and user code, called once --------------------
 function main()
-  local rule,define = Rule.eval, Util.defvar
 
-  HT =[[
-  {
-  "dev":{"bedroom":{"lamp":88,"motion":99},
-         "phones":{"bob":121},
-         "kitchen":{"lamp":66,"motion":77}},
-  "other":"other"
- }
-  ]]
+  INTERVAL = 90 -- check every 90s
+  local nameOfHome = "Home"
+  local whereIsUser = {}
+  local devicePattern = "iPhone"
+  local extrapolling = 4000
+  local conf
+  locations = {}
+  homeFlag = false
 
-  --or read in "HomeTable"
-  --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
-  HT = json.decode(HT)
-  Util.defvars(HT.dev)            -- Make HomeTable defs available in EventScript
-  Util.reverseMapDef(HT.dev)      -- Make HomeTable names available for logger
+  function readConfigurationData()
+    if type(_deviceTable)=='number' and not _test then
+      return json.decode(api.get("/scenes/".._deviceTable).lua)
+    else
+      return json.decode(_test and HomeTable or fibaro:getGlobalValue(_deviceTable))
+    end
+  end
 
-  rule("@@00:00:10 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 10 second
-  
-  --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
+  function distance(lat1, lon1, lat2, lon2)
+    local dlat = math.rad(lat2-lat1)
+    local dlon = math.rad(lon2-lon1)
+    local sin_dlat = math.sin(dlat/2)
+    local sin_dlon = math.sin(dlon/2)
+    local a = sin_dlat * sin_dlat + math.cos(math.rad(lat1)) * math.cos(math.rad(lat2)) * sin_dlon * sin_dlon
+    local c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+    local d = 6378 * c
+    return d
+  end
+
+  function enc(data)
+    local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+    return ((data:gsub('.', function(x) 
+            local r,b='',x:byte()
+            for i=8,1,-1 do r=r..(b%2^i-b%2^(i-1)>0 and '1' or '0') end
+            return r;
+          end)..'0000'):gsub('%d%d%d?%d?%d?%d?', function(x)
+          if (#x < 6) then return '' end
+          local c=0
+          for i=1,6 do c=c+(x:sub(i,i)=='1' and 2^(6-i) or 0) end
+          return b:sub(c+1,c+1)
+        end)..({ '', '==', '=' })[#data%3+1])
+  end
+
+  function getIOSDeviceNextStage(nextStage,username,name,headers,pollingextra)
+    pollingextra = pollingextra or 0
+    HTTP:request("https://" .. nextStage .. "/fmipservice/device/" .. username .."/initClient",{
+        options = { headers = headers, data = '', checkCertificate = false, method = 'POST', timeout = 20000 },
+        error = function(status)
+          Debug(true,"Error getting NextStage data:%s",status or "<unknown error>")
+        end,
+        success = function(status)
+          --Debug(true,"iCloud Response:%s",status.status)
+          if (status.status==200) then			
+            if (pollingextra==0) then
+              local output = json.decode(status.data)
+              Event.post({type='deviceMap', user=username, data=output.content, _sh=true})
+              --listDevices(output.content)
+              return
+            else
+              Debug(true,"Waiting for NextStage extra polling")
+              setTimeout(function() getIOSDeviceNextStage(nextStage,username,name,headers,0) end, extrapolling)
+              return
+            end
+          end
+          Debug(true,"Bad response from NextStage:%s",json.encode(status) )	
+        end})
+  end
+
+  _format = string.format
+
+  Event.event({type='readConfig'},
+    function(env)
+      iUsers = {}
+      conf = readConfigurationData()
+      if conf  == nil or not conf.users then 
+        Debug(true,"Missing configuration data, HomeTable='%s'",tojson(conf))
+        fibaro:abort()
+      end
+      if conf.places then
+        homeLatitude=conf.places[1].latitude
+        homeLongitude=conf.places[1].longitude
+      else
+        homeLatitude = fibaro:getValue(2, "Latitude")
+        homeLongitude = fibaro:getValue(2, "Longitude")
+      end
+      for _,v in pairs(conf.users) do if v.icloud then v.icloud.name = v.name iUsers[#iUsers+1] = v.icloud end end
+      Debug(true,"Configuration data:")
+      for _,p in ipairs(iUsers) do Debug(true,"User:%s",p.name) end
+      for _,p in ipairs(conf.places) do 
+        Debug(true,"Place:%s",p.name) 
+        if p.name==nameOfHome then 
+          homeLatitude=p.latitude
+          homeLongitude=p.longitude
+        end
+      end
+    end)
+
+  Event.event({type='location_upd'},
+    function(env)
+      local event = env.event
+      local loc = event.result.location
+      if not loc then return end
+      for _,v in ipairs(conf.places) do
+        local d = distance(loc.latitude,loc.longitude,v.latitude,v.longitude)
+        if d < v.dist then 
+          Event.post({type='checkPresence', user=event.user, place=v.name, dist=d, _sh=true})
+          return
+        end
+      end
+      Event.post({type='checkPresence', user=event.user, place='away', dist=event.result.distance, _sh=true})
+    end)
+
+  Event.event({type='deviceMap'},
+    function(env)
+      local event = env.event
+      local dm = event.data  
+      if dm ==nil then return end
+      -- Get the list of all iDevices in the iCloud account
+      local result = {}
+      for key,value in pairs(dm) do
+        local loc = value.location
+        if value.name:match(devicePattern) and loc and type(loc) == 'table' then
+          local d = distance(loc.latitude,loc.longitude,homeLatitude,homeLongitude)
+          result[#result+1] = {device=value.name, distance=d, location=loc}
+        end
+      end
+      if #result == 1 then result = result[1] end
+      --Log(LOG.LOG,"%s LOC:%s",env.p.user,json.encode(result))
+      Event.post({type='location_upd', user=event.user, result=result, _sh=true})
+    end)
+
+  Event.event({type='getIOSdevices'}, --, user='$user', name = '$name', pwd='$pwd'},
+    function(env)
+      local event = env.event
+      --Debug(true,"getIOSdevices for:%s",event.user)
+      pollingextra = event.polling or 0
+
+      HTTP = net.HTTPClient()
+
+      local headers = {
+        ["Authorization"]="Basic ".. enc(event.user..":"..event.pwd), 
+        ["Content-Type"] = "application/json; charset=utf-8",
+        ["X-Apple-Find-Api-Ver"] = "2.0",
+        ["X-Apple-Authscheme"] = "UserIdGuest",
+        ["X-Apple-Realm-Support"] = "1.0",
+        ["User-agent"] = "Find iPhone/1.3 MeKit (iPad: iPhone OS/4.2.1)",
+        ["X-Client-Name"]= "iPad",
+        ["X-Client-UUID"]= "0cf3dc501ff812adb0b202baed4f37274b210853",
+        ["Accept-Language"]= "en-us",
+        ["Connection"]= "keep-alive"}
+
+      HTTP:request("https://fmipmobile.icloud.com/fmipservice/device/" .. event.user .."/initClient",{
+          options = {
+            headers = headers,
+            data = '',
+            checkCertificate = false,
+            method = 'POST', 
+            timeout = 20000
+          },
+          error = function(status) 
+            Event.post({type='error', msg=_format("Failed calling FindMyiPhone service for %s",event.user)})
+          end,
+          success = function(status)
+            if (status.status==330) then
+              --Debug(true,"330 Resp:%s",json.encode(status))
+              local nextStage="fmipmobile.icloud.com"  
+              for k,ns in pairs(status.headers) do if string.lower(k)=="x-apple-mme-host" then nextStage=ns; break  end end
+              Debug(true,"NextStage:%s",nextStage)
+              getIOSDeviceNextStage(nextStage,event.user,event.name,headers,pollingextra)
+            elseif (status.status==200) then
+              --Debug(true,"Data:%s",json.encode(status.data))
+              Event.post({type='deviceMap', user=event.name, data=json.decode(status.data).content, _sh=true})
+            else
+              Event.post({type='error', msg=_format("Access denied for %s :%s",event.user,json.encode(status))})
+            end
+          end})
+    end)
+
+  Event.event({type='checkPresence'},
+    function(env)
+      local event = env.event
+      if whereIsUser[event.user] ~= event.place then  -- user at new place
+        whereIsUser[event.user] = event.place
+        Debug(true,"%s is at %s",event.user,event.place)
+        local ev = {type='location', user=event.user, place=event.place, dist=event.dist, ios=true}
+        local evs = json.encode(ev)
+        for _,v in pairs(conf.scenes.iOSLocator.send) do
+          Debug(true,"Sending %s to scene %s",evs,conf.scenes[v].id)
+          Event.postRemote(conf.scenes[v].id,ev)
+        end
+        Event.publish(ev) -- and publish to subscribers
+      end
+
+      local user,place,ev=event.user,event.place 
+      locations[user]=place
+      local home = false
+      local who = {}
+      for w,p in pairs(locations) do 
+        if p == nameOfHome then home=true; who[#who+1]=w end
+      end
+      if home and homeFlag ~= true then 
+        homeFlag = true
+        ev={type='presence', state='home', who=table.concat(who,','), ios=true}
+      elseif #locations == #iUsers then
+        if homeFlag ~= false then
+          homeFlag = false
+          ev={type='presence', state='allaway', ios=true}
+        end
+      end
+      if ev then
+        local evs = json.encode(ev)
+        for _,v in pairs(conf.scenes.iOSLocator.send) do
+          Debug(true,"Sending %s to scene %s",evs,conf.scenes[v].id)
+          Event.postRemote(conf.scenes[v].id,ev)
+        end
+        Event.publish(ev) -- and to all subscribers
+      end
+    end)
+
+  Event.event({type='getLocations'}, -- Resend all locations if scene asks for it
+    function(env)
+      local event=env.event
+      Debug(true,"Got remote location request from scene:%s",event._from)
+      for u,p in pairs(whereIsUser) do
+        if u and p then
+          Debug(true,"User:%s Position:%s",u,p)
+          Event.postRemote(event._from,{type='location', user=u, place=p, ios=true})
+        end
+      end
+    end)
+
+  Event.event({type='poll'},
+    function(env)
+      local event=env.event
+      local index = event.index
+      local user = iUsers[(index % #iUsers)+1]
+      Event.post({type='getIOSdevices', user=user.user, pwd=user.pwd, name=user.name})
+      Event.post({type='poll',index=index+1},osTime()+math.floor(0.5+INTERVAL/#iUsers)) -- INTERVAL=60 => check every minute
+    end)
+
+  Event.event({type='error'},
+    function(env)
+      local event=env.event
+      Debug(true,"Error %s",tojson(event))
+    end)
+
+  Event.event({{type='autostart'},{type='other'}},
+    function(env)
+      local event=env.event
+      Event.post({type='readConfig'})
+      Event.post({type='poll',index=1})
+    end)
+
 end -- main()
 
 ------------------- EventModel - Don't change! --------------------  
 Event = Event or {}
-_NUMBEROFBOXES = _NUMBEROFBOXES or 1
 _MAILBOXES={}
 --_STARTLINE = _EMULATED and debug.getinfo(1).currentline or nil
 local _supportedEvents = {property=true,global=true,event=true,remote=true}
@@ -126,7 +375,7 @@ end
 ------------------------ Support functions -----------------
 LOG = {WELCOME = "orange",DEBUG = "white", SYSTEM = "Cyan", LOG = "green", ULOG="Khaki", ERROR = "Tomato"}
 _format = string.format
-_ruleLogLength = _ruleLogLength or 80   -- Log message cut-off, defaults to 80
+
 _getIdProp = function(id,prop) return fibaro:get(id,prop) end
 _getGlobal = function(id) return fibaro:getGlobal(id) end
 
@@ -145,17 +394,10 @@ end
 
 if _System and _System._Msg then _Msg=_System._Msg end -- Get a better ZBS version of _Msg if running emulated 
 
-function protectMsg(...)
-  local args = {...}
-  local stat,res=pcall(function() return _Msg(table.unpack(args)) end)
-  if not stat then error("Bad arguments to Log/Debug:"..tojson(args),2)
-  else return res end
-end
-
 if not _timeAdjust then _timeAdjust = 0 end -- support for adjusting for hw time drift on HC2
 osTime = function(arg) return arg and os.time(arg) or os.time()+_timeAdjust end
 function Debug(flag,message,...) if flag then _Msg(LOG.DEBUG,message,...) end end
-function Log(color,message,...) return protectMsg(color,message,...) end
+function Log(color,message,...) return _Msg(color,message,...) end
 function _LINEFORMAT(line) return "" end
 function _LINE() return nil end
 function osDate(f,t) t = t or osTime() return os.date(f,t) end
@@ -1287,7 +1529,7 @@ function newScriptEngine()
       {"^([_a-zA-Z][_0-9a-zA-Z]*)",'symbol'},
       {"^(%.%.)",'op'},{"^(->)",'op'},    
       {"^(%d+%.?%d*)",'num'},
-      {"^(%|%|)",'token'},{"^(>>)",'token'},{"^(=>)",'token'},{"^(@@)",'op'},{"^([%*%+~=><]+)",'op'},
+      {"^(%|%|)",'token'},{"^(>>)",'token'},{"^(=>)",'token'},{"^(@@)",'op'},
       {"^([%%%*%+/&%.:~=><%|!@]+)",'op'},{"^(%-%=)",'op'},{"^(-)",'op'},
     }
 
@@ -1978,9 +2220,8 @@ function makeHueHub(name,username,ip,cont)
     sensor._filter = filter or sensor._filter or _defFilter
     if sensor._timer then clearTimeout(sensor._timer) sensor._timer=nil end
     if interval>0 then 
-      Debug(_debugFlags.hue,"Monitoring URL:%s",url)
       local function poll() 
-        Hue.request(url,function(state) self._setState(sensor,state.state) sensor._timer=setTimeout(poll,interval) end)
+        Hue.request(url,function(state) self._setState(sensor,state.state) setTimeout(poll,interval) end)
       end
       poll()
     end
