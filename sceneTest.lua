@@ -6,6 +6,8 @@
 local motion = 66
 local lamp = 77
 
+if fibaro:sceneCount() > 1 then fibaro:abort() end
+
 local t = fibaro:getSourceTrigger()
 
 if t.type=='property' and t.deviceID==motion and fibaro:getValue(motion,"value") > "0" then

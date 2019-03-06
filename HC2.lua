@@ -34,7 +34,7 @@ _SPEEDTIME = 24*180           -- Speed through X hours, if set to false run in r
 _AUTOCREATEGLOBALS=true      -- Will (silently) autocreate a local fibaro global if it doesn't exist
 _AUTOCREATEDEVICES=true      -- Will (silently) autocreate a local fibaro device if it doesn't exist
 _VALIDATECHARS = true        -- Check rules for invalid characters (cut&paste, multi-byte charqcters)
-_COLOR = ""              -- Log with colors on ZBS Output console
+_COLOR = false              -- Log with colors on ZBS Output console
 _HC2_FILE = "HC2.data"
 
 _HC2_IP="192.198.1.xx"       -- HC2 IP address
