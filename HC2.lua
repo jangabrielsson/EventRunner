@@ -60,12 +60,11 @@ function main()
   --HC2.loadScenesFromDir("scenes") -- Load all files with name <ID>_<name>.lua from dir, Ex. 11_MyScene.lua
   --HC2.createDevice(77,"Test") -- Create local deviceID 77 with name "Test"
 
-  --fibaro:call(17,"turnOn")
-
+  HC2.registerScene("SceneTest",99,"sceneTest.lua")
   --HC2.registerScene("EventRunnerEM",10,"EventRunnerEM.lua")
   --HC2.registerScene("Supervisor",11,"SupervisorEM.lua")
   --HC2.registerScene("iosLocator",14,"IOSLOcatorEM.lua")
-    
+
   --HC2.listDevices()
   --HC2.listScenes()
   --HC2.registerScene("Scene1",55,"55_Simple.lua",nil,{"+/00:10;call(66,'turnOn')","+/00:20;call(66,'turnOff')"})
@@ -75,7 +74,7 @@ function main()
 
   -- Post a simulated trigger 10min in the future...
   --HC2.post({type='property',deviceID=77, propertyName='value'},"+/00:10")
-  
+
   --Log fibaro:* calls
   --HC2.logFibaroCalls()
   --Debug filters can be used to trim debug output from noisy scenes...
@@ -229,9 +228,9 @@ _format=string.format
 LOG = {WELCOME = "orange",DEBUG = "white", SYSTEM = "Cyan", LOG = "green", ERROR = "Tomato"}
 -- ZBS colors, works best with dark color scheme http://bitstopixels.blogspot.com/2016/09/changing-color-theme-in-zerobrane-studio.html
 if _COLOR=='Dark' then
-_LOGMAP = {orange="\027[33m",white="\027[37m",Cyan="\027[1;43m",green="\027[32m",Tomato="\027[39m"} -- ANSI escape code, supported by ZBS
+  _LOGMAP = {orange="\027[33m",white="\027[37m",Cyan="\027[1;43m",green="\027[32m",Tomato="\027[39m"} -- ANSI escape code, supported by ZBS
 else
-_LOGMAP = {orange="\027[33m",white="\027[34m",Cyan="\027[35m",green="\027[32m",Tomato="\027[31m"} -- ANSI escape code, supported by ZBS
+  _LOGMAP = {orange="\027[33m",white="\027[34m",Cyan="\027[35m",green="\027[32m",Tomato="\027[31m"} -- ANSI escape code, supported by ZBS
 end
 _LOGEND = "\027[0m"
 --[[Available colors in Zerobrane
@@ -261,8 +260,12 @@ end
 function Debug(flag,message,...) if flag then _Msg(LOG.DEBUG,message,...) end end
 function Log(color,message,...) return _Msg(color,message,...) end
 
-function _assert(test,msg,...) if not test then msg = _format(msg,...) error({msg},3) end end
-function _assertf(test,msg,fun) if not test then msg = _format(msg,fun and fun() or "") error({msg},3) end end
+function _assert(test,msg,...) 
+  if not test then 
+    msg = _format(msg,...) error(msg,3) 
+  end 
+end
+function _assertf(test,msg,fun) if not test then msg = _format(msg,fun and fun() or "") error(msg,3) end end
 
 function isEvent(e) return type(e) == 'table' and e.type end
 
@@ -318,7 +321,7 @@ function support()
     scene.triggers,scene.lua = Scene.parseHeaders(file,id)
     scene.isLua = true
     scene.code,msg=loadfile(file)
-    _assert(msg==nil,"Error in scene file %s: %s",file,msg)
+    _assert(scene.code~=nil,"Error in scene file %s: %s",file,msg)
     Log(LOG.SYSTEM,"Loaded scene:%s, id:%s, file:'%s'",name,id,file)
     return scene
   end
@@ -434,13 +437,13 @@ function support()
 
   function HC2.runTriggers(tab)
     if type(tab)=='string' then tab={tab} end
-    for _,s in ipairs(tab) do
+    for _,s in ipairs(tab or {}) do
       local t,cmd = s:match("(.-);(.*)")
       cmd = loadstring("fibaro:"..cmd)
       Event.post(cmd,t)
     end
   end
-  
+
   function HC2.registerScene(name,id,file,globVars,triggers)
     local scene = Scene.load(name,id,file) 
     HC2.rsrc.scenes[id]=scene
@@ -747,7 +750,7 @@ POST:/globalVariables/<var struct> -- Create variable
 -- _System
 ------------------------------------------------------------------------------
   _System = {}
- 
+
   function _System.dofile(file)
     local code = loadfile(file)
     if code then
@@ -759,7 +762,7 @@ POST:/globalVariables/<var struct> -- Create variable
   _System.createGlobal = HC2.createGlobal
   _System.createDevice = HC2.createDevice
   _System._Msg = _UserMsg
-  
+
   function _System._getInstance(id,inst)
     for co,env in pairs(_SceneContext) do
       if env.__fibaroSceneId==id and env.__orgInstanceNumber==inst then return co,env end
@@ -2116,6 +2119,6 @@ end
 --------------------------------------------------
 -- Load code and start
 --------------------------------------------------
-  libs()
-  support()
-  startup()
+libs()
+support()
+startup()
