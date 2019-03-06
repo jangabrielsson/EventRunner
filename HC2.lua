@@ -87,7 +87,10 @@ function main()
   HC2.addDebugFilter("%b<>(.*)</.*>")
 end
 
-_debugFlags = { threads=false, triggers=false, eventserver=false, hc2calls=true, globals=false, fibaro=true, fibaroSet=true, fibaroStart=true }
+_debugFlags = { 
+  threads=false, triggers=false, eventserver=false, hc2calls=true, globals=false, 
+  fibaro=true, fibaroSleep=false, fibaroSet=true, fibaroStart=true 
+}
 ------------------------------------------------------
 -- Context, functions exported to scenes
 ------------------------------------------------------
@@ -1529,7 +1532,7 @@ Expected input:
     interceptFib("mr","get","fibaroGet")
     interceptFib("r","getValue","fibaroGet")
     interceptFib("","killScenes","fibaro")
-    interceptFib("","sleep","fibaro",
+    interceptFib("","sleep","fibaroSleep",
       function(obj,fun,time) 
         Debug(true,"fibaro:sleep(%s) until %s",time,osDate("%X",osTime()+math.floor(0.5+time/1000)))
         fun(obj,time) 
