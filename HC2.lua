@@ -26,7 +26,7 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
 
-_version,_fix = "0.3","fix6" -- first version
+_version,_fix = "0.3","fix7" -- first version
 
 _REMOTE=false                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
@@ -79,7 +79,7 @@ function main()
   -- Post a simulated trigger 10min in the future...
   --HC2.post({type='property',deviceID=77, propertyName='value'},"+/00:10")
 
-  HC2.createDevice(66,"Test")
+  --HC2.createDevice(66,"Test")
   --_System.setTimeout(function() fibaro:call(66,"turnOn") end,5*1000)
   --_System.setTimeout(function() fibaro:call(66,"turnOff") end,10*1000)
   
@@ -676,6 +676,7 @@ POST:/globalVariables/<var struct> -- Create variable
 
   function HC2.createGlobal(name,value)
     HC2.rsrc.globalVariables[name]={name=name, value=value,modified=osTime(),_local=true}
+    return C2.rsrc.globalVariables[name]
   end
 
 -- lets make a vanilla device of type switch...
@@ -714,6 +715,7 @@ POST:/globalVariables/<var struct> -- Create variable
     if HC2.rsrc.devices[id] then
       error(_format("deviceID:%s already exists!",id),3)
     else HC2.rsrc.devices[id]=d end
+    return d
   end
 
   HC2._debugFilters={}
