@@ -28,7 +28,7 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 _version,_fix = "0.3","fix7" -- first version 
 
-_REMOTE=false                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
+_REMOTE=true                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
 _SPEEDTIME = 24*180           -- Speed through X hours, if set to false run in real time
 _AUTOCREATEGLOBALS=true      -- Will (silently) autocreate a local fibaro global if it doesn't exist
@@ -41,7 +41,7 @@ _HC2_IP="192.198.1.xx"       -- HC2 IP address
 _HC2_USER="xxx@yyy"          -- HC2 user name
 _HC2_PWD="xxxxxx"            -- HC2 password
 
-local creds = loadfile("credentials2.lua") -- To not accidently commit credentials to Github...
+local creds = loadfile("credentials.lua") -- To not accidently commit credentials to Github...
 if creds then creds() end
 
 --------------------------------------------------------
@@ -49,7 +49,7 @@ if creds then creds() end
 --------------------------------------------------------
 function main()
 
-  HC2.setupConfiguration(true,false) -- read in configuration from stored local file, or from remote HC2
+  HC2.setupConfiguration(true,true) -- read in configuration from stored local file, or from remote HC2
   --HC2.localDevices()
   --HC2.localGlobals()
   --HC2.localRooms(true)
