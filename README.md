@@ -7,6 +7,8 @@ This framework is a way to combine schedulers and trigger rules within a single 
 The goal with the script syntax has been to be able to concisely express typical scheduling/triggering logic needed in my own home automation system; Things that need to happen at specific times. Things that need to be done because of triggers in the systems. And things that should happen if some conditions are true for a given time.
 Rules also need to be able to take into considerations additional conditions like day of week, values of global or local variables etc. More about the script language [here](https://github.com/jangabrielsson/EventRunner/wiki/Script-expressions)
 
+The repository also contains a HC2 scene emulator so the framework can be debugged offline.
+
 ## The problem
 Scenes on the Fibaro HC2 is typically invoked by declaring device triggers in the header.
 Ex
