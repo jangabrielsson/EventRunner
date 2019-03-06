@@ -6,7 +6,7 @@
 local motion = 66
 local lamp = 77
 
-if fibaro:sceneCount() > 1 then fibaro:abort() end
+if fibaro:countScenes() > 1 then fibaro:abort() end
 
 local t = fibaro:getSourceTrigger()
 
