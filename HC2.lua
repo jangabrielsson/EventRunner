@@ -26,15 +26,15 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
 
-_version,_fix = "0.3","fix4" -- first version
+_version,_fix = "0.3","fix6" -- first version
 
-_REMOTE=false                 -- Run remote, fibaro:* calls functions on HC2, on non-local resources
+_REMOTE=false                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
-_SPEEDTIME = 24*30           -- Speed through X hours, if set to false run in real time
+_SPEEDTIME = 24*180           -- Speed through X hours, if set to false run in real time
 _AUTOCREATEGLOBALS=true      -- Will (silently) autocreate a local fibaro global if it doesn't exist
 _AUTOCREATEDEVICES=true      -- Will (silently) autocreate a local fibaro device if it doesn't exist
 _VALIDATECHARS = true        -- Check rules for invalid characters (cut&paste, multi-byte charqcters)
-_COLOR = true                -- Log with colors on ZBS Output console
+_COLOR = "Dark"              -- Log with colors on ZBS Output console
 _HC2_FILE = "HC2.data"
 
 _HC2_IP="192.198.1.xx"       -- HC2 IP address
@@ -63,8 +63,15 @@ function main()
 
   --fibaro:call(17,"turnOn")
 
+  --HC2.registerScene("EventRunnerEM",10,"EventRunnerEM.lua")
+  --HC2.registerScene("Supervisor",11,"SupervisorEM.lua")
+  --HC2.registerScene("PubSub1",12,"PubSub1EM.lua")
+  --HC2.registerScene("PubSub2",13,"PubSub2EM.lua")
+  --HC2.registerScene("iosLocator",14,"IOSLOcatorEM.lua")
+    
   --HC2.listDevices()
   --HC2.listScenes()
+  HC2.registerScene("Scene1",55,"55_Simple.lua",nil,{"+/00:10;call(66,'turnOn')","+/00:20;call(66,'turnOff')"})
   --HC2.registerScene("Scene1",11,"EventRunnerA.lua")
   --HC2.registerScene("Scene1",12,"GEA 6.11.lua")
   --HC2.registerScene("Scene1",13,"Main scene FTBE v1.3.0.lua",{Darkness=0,TimeOfDay='Morning'})
@@ -72,6 +79,10 @@ function main()
   -- Post a simulated trigger 10min in the future...
   --HC2.post({type='property',deviceID=77, propertyName='value'},"+/00:10")
 
+  HC2.createDevice(66,"Test")
+  --_System.setTimeout(function() fibaro:call(66,"turnOn") end,5*1000)
+  --_System.setTimeout(function() fibaro:call(66,"turnOff") end,10*1000)
+  
   --Log fibaro:* calls
   --HC2.logFibaroCalls()
   --Debug filters can be used to trim debug output from noisy scenes...
@@ -196,7 +207,7 @@ function startup()
   end
 
   _POLLINTERVAL = 200 
-  if _EVENTSERVER then
+  if _EVENTSERVER and not _SPEEDTIME then
     _System.setTimeout(eventServer(_EVENTSERVER),100,"EVENTSERVER")
   end
 
@@ -210,19 +221,25 @@ end
 require('mobdebug').coro()   -- Allow debugging of Lua coroutines
 
 --mime = require('mime')
---https = require ("ssl.https")
---ltn12 = require("ltn12")
+https = require ("ssl.https")
+ltn12 = require("ltn12")
 --json = require("json")
 socket = require("socket")
 http = require("socket.http")
 lfs = require("lfs")
 
 _LOCAL= not _REMOTE
+_HCPrompt="[HC2]"
 function printf(...) print(string.format(...)) end -- Lazy printing - should use Log(...)
 
 _format=string.format
 LOG = {WELCOME = "orange",DEBUG = "white", SYSTEM = "Cyan", LOG = "green", ERROR = "Tomato"}
+-- ZBS colors, works best with dark color scheme http://bitstopixels.blogspot.com/2016/09/changing-color-theme-in-zerobrane-studio.html
+if _COLOR=='Dark' then
+_LOGMAP = {orange="\027[33m",white="\027[37m",Cyan="\027[1;43m",green="\027[32m",Tomato="\027[39m"} -- ANSI escape code, supported by ZBS
+else
 _LOGMAP = {orange="\027[33m",white="\027[34m",Cyan="\027[35m",green="\027[32m",Tomato="\027[31m"} -- ANSI escape code, supported by ZBS
+end
 _LOGEND = "\027[0m"
 --[[Available colors in Zerobrane
 for i = 0,8 do
@@ -232,11 +249,18 @@ for i = 0,8 do
   print(("%s \027[1;%dmXYZ\027[0m bright"):format(38+i, 30+i))
 end
 --]]
+function _UserMsg(color,message,...)
+  color = _COLOR and _LOGMAP[color] or ""
+  local args = type(... or 42) == 'function' and {(...)()} or {...}
+  message = string.format(message,table.unpack(args))
+  fibaro:debug(string.format("%s%s %s%s",color,osOrgDate("%a %b %d:",osTime()),message,_COLOR and _LOGEND or "")) 
+  return message
+end
 function _Msg(color,message,...)
   color = _COLOR and _LOGMAP[color] or ""
   local args = type(... or 42) == 'function' and {(...)()} or {...}
   message = _format(message,table.unpack(args))
-  local env,sceneid = Scene.global(),"[SR]"
+  local env,sceneid = Scene.global(),_HCPrompt
   if env then sceneid = _format("[%s:%s]",env.__fibaroSceneId,env.__orgInstanceNumber) end
   print(string.format("%s#%s%s %s%s",color,sceneid,osOrgDate("%H:%M:%S, %a %b %d:",osTime()),message,_COLOR and _LOGEND or "")) 
   return message
@@ -340,7 +364,7 @@ function support()
       end,
       0,scene.name,env)
     _SceneContext[tr]=env
-    Log(LOG.LOG,"Starting scene:%s, trigger:%s (%s)",scene.name,tojson(event),tr)
+    Log(LOG.LOG,"Starting scene:%s, trigger:%s %s(%s)",scene.name,tojson(event),args and tojson(args) or "",tr)
   end
 
   function Scene.checkValidCharsInFile(src,fileName)
@@ -415,7 +439,16 @@ function support()
   HC2.rsrc.info = {}
   HC2.rsrc.location = {}
 
-  function HC2.registerScene(name,id,file,globVars)
+  function HC2.runTriggers(tab)
+    if type(tab)=='string' then tab={tab} end
+    for _,s in ipairs(tab) do
+      local t,cmd = s:match("(.-);(.*)")
+      cmd = loadstring("fibaro:"..cmd)
+      Event.post(cmd,t)
+    end
+  end
+  
+  function HC2.registerScene(name,id,file,globVars,triggers)
     local scene = Scene.load(name,id,file) 
     HC2.rsrc.scenes[id]=scene
     for _,t in ipairs(scene.triggers) do
@@ -431,6 +464,7 @@ function support()
         Scene.start(scene,event,args)
       end)
     for name,value in pairs(globVars or {}) do HC2.createGlobal(name,value) end
+    HC2.runTriggers(triggers)
   end
 
   local function patchID(t) 
@@ -718,20 +752,22 @@ POST:/globalVariables/<var struct> -- Create variable
 -- _System
 ------------------------------------------------------------------------------
   _System = {}
-  _System.createDevice = HC2.createDevice
-
+ 
   function _System.dofile(file)
     local code = loadfile(file)
-    setfenv(code,_SceneContext[coroutine.running()])
-    code()
+    if code then
+      setfenv(code,_SceneContext[coroutine.running()])
+      code()
+    else Log(LOG.ERROR,"Missing file:%s",file) end
   end
 
   _System.createGlobal = HC2.createGlobal
   _System.createDevice = HC2.createDevice
-
+  _System._Msg = _UserMsg
+  
   function _System._getInstance(id,inst)
     for co,env in pairs(_SceneContext) do
-      if env.fibaroSelfId==id and env.__orgInstanceNumber==inst then return co,env end
+      if env.__fibaroSceneId==id and env.__orgInstanceNumber==inst then return co,env end
     end
   end
 
@@ -743,7 +779,7 @@ POST:/globalVariables/<var struct> -- Create variable
       _gTimers,co.next=co,_gTimers
     else
       local tp = _gTimers
-      while tp.next and tp.next.time < co.time do tp=tp.next end
+      while tp.next and tp.next.time <= co.time do tp=tp.next end
       co.next,tp.next=tp.next,co
     end
     return co.co
@@ -924,7 +960,7 @@ POST:/globalVariables/<var struct> -- Create variable
     toHash['global'] = function(e) return e.name and 'global'..e.name or 'global' end
 
     function self.event(e,action) -- define rules - event template + action
-      _assert(isEvent(e), "bad event format '%s'",tojson(e))
+      _assertf(isEvent(e) or type(e)=='function', "bad event format '%s'",tojson(e))
       self._compilePattern(e)
       local hashKey = toHash[e.type] and toHash[e.type](e) or e.type
       _handlers[hashKey] = _handlers[hashKey] or {}
@@ -980,11 +1016,12 @@ POST:/globalVariables/<var struct> -- Create variable
     end
 
     function self.post(e,time) -- time in 'toTime' format, see below.
-      _assert(isEvent(e), "Bad event format %s",tojson(e))
+      _assertf(type(e) == "function" or isEvent(e), "Bad event format %s",function() tojson(e) end)
       time = toTime(time or osTime())
       if time < osTime() then return nil end
-      if _debugFlags.triggers then Log(LOG.LOG,"System trigger:%s at %s",tojson(e),osDate("%a %b %d %X",time)) end
-      return _System.setTimeout(function() self._handleEvent(e) end,1000*(time-osTime()),"Main")
+      if _debugFlags.triggers and not type(e)=='function' then Log(LOG.LOG,"System trigger:%s at %s",tojson(e),osDate("%a %b %d %X",time)) end
+      if type(e)=='function' then return _System.setTimeout(e,1000*(time-osTime()),"Timer")
+      else return _System.setTimeout(function() self._handleEvent(e) end,1000*(time-osTime()),"Main") end
     end
 
     return self
@@ -1133,7 +1170,8 @@ POST:/globalVariables/<var struct> -- Create variable
   function fibaro:startScene(sceneID,args)
     local scene = __fibaro_get_scene(sceneID,true)
     if not scene then return end
-    if scene._local then Scene.start(scene,{type='other'},args) 
+    if scene._local then --Scene.start(scene,{type='other'},args) 
+      Event.post({type='other',_id=scene.id,_args=args})
     elseif _REMOTE then api._post(true,"/scenes/"..sceneID.."/action/start",args and {args=args} or nil)  end
   end
 
@@ -1511,6 +1549,7 @@ end
 function libs()
 
   if not _VERSION:match("5%.1") then
+    loadstring = load
     function setfenv(fn, env)
       local i = 1
       while true do
