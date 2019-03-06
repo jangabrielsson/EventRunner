@@ -60,7 +60,8 @@ function main()
   --HC2.loadScenesFromDir("scenes") -- Load all files with name <ID>_<name>.lua from dir, Ex. 11_MyScene.lua
   --HC2.createDevice(77,"Test") -- Create local deviceID 77 with name "Test"
 
-  HC2.registerScene("SceneTest",99,"sceneTest.lua")
+  HC2.registerScene("SceneTest",99,"sceneTest.lua",nil,
+                     {"+/00:10;call(66,'turnOn')"})
   --HC2.registerScene("EventRunnerEM",10,"EventRunnerEM.lua")
   --HC2.registerScene("Supervisor",11,"SupervisorEM.lua")
   --HC2.registerScene("iosLocator",14,"IOSLOcatorEM.lua")

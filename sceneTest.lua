@@ -6,7 +6,7 @@
 local motion = 66
 local lamp = 77
 
-local t = fibaro:getSoureTrigger()
+local t = fibaro:getSourceTrigger()
 
 if t.type=='property' and t.deviceID==66 then
 
