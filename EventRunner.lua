@@ -20,7 +20,7 @@ _sceneName   = "Demo"      -- Set to scene/script name
 _homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
 _HueHubs     = {}          -- Hue bridges, Ex. {{name='Hue',user=_HueUserName,ip=_HueIP}}
 _myNodeRed   = "http://192.168.1.50:1880/eventrunner" -- Ex. used for Event.postRemote(_myNodeRed,{type='test'})
---if dofile then dofile("credentials.lua") end -- To not accidently commit credentials to Github, or post at forum :-)
+if dofile then dofile("credentials.lua") end -- To not accidently commit credentials to Github, or post at forum :-)
 -- E.g. Hue user names, icloud passwords etc. HC2 credentials is set from HC2.lua, but can use same file.
 
 -- debug flags for various subsystems...
@@ -48,7 +48,7 @@ function main()
   Util.reverseMapDef(HT.dev)      -- Make HomeTable names available for logger
 
   rule("@@00:00:10 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 10 second
-  
+
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
 end -- main()
 
@@ -62,9 +62,13 @@ local _trigger = fibaro:getSourceTrigger()
 local _type, _source = _trigger.type, _trigger
 local _MAILBOX = "MAILBOX"..__fibaroSceneId 
 function urldecode(str) return str:gsub('%%(%x%x)',function (x) return string.char(tonumber(x,16)) end) end
-if _type == 'other' and fibaro:args() then
-  _trigger,_type = urldecode(fibaro:args()[1]),'remote'
-  _trigger=json.decode(_trigger)
+function isRemoteEvent(e) return type(e)=='table' and type(e[1])=='string' end -- change in the future...
+function encodeRemoteEvent(e) return {urlencode(json.encode(e)),'%%ER%%'} end
+function decodeRemoteEvent(e) return (json.decode((urldecode(e[1])))) end
+
+local args = fibaro:args()
+if _type == 'other' and args and isRemoteEvent(args) then
+  _trigger,_type = decodeRemoteEvent(args),'remote'
 end
 
 ---------- Producer(s) - Handing over incoming triggers to consumer --------------------
@@ -116,7 +120,7 @@ local function _poll()
       Debug(_debugFlags.triggers,"Incoming event:%s",l)
       l = json.decode(l) l._sh=true
       if _debugFlags.msgTime then l._timestamps.received={os.time(),os.clock()} end
-      setTimeout(function() Event.post(l) end,5)-- and post it to our "main()"
+      setTimeout(function() Event.triggerHandler(l) end,5)-- and post it to our "main()"
       _CXCS=0
     end
   end
@@ -306,6 +310,8 @@ function newEventEngine()
     return nil 
   end
 
+  self.triggerHandler = self.post -- default handler for consumer
+
   local function httpPostEvent(url,payload, e)
     local HTTP = net.HTTPClient()
     payload=json.encode({args={payload}})
@@ -318,12 +324,12 @@ function newEventEngine()
   end
 
   function self.postRemote(sceneIDorURL, e) -- Post event to other scenes or node-red
-    _assert(isEvent(e), "Bad event format")
+    _assert(isEvent(e),"Bad event format")
     e._from = _OFFLINE and -1 or __fibaroSceneId
-    local payload = urlencode(json.encode(e))
+    local payload = encodeRemoteEvent(e)
     if type(sceneIDorURL)=='string' and sceneIDorURL:sub(1,4)=='http' then
-      httpPostEvent(sceneIDorURL, payload, e)
-    else fibaro:startScene(sceneIDorURL,{payload}) end
+      httpPostEvent(sceneIDorURL, payload[1], e)
+    else fibaro:startScene(sceneIDorURL,payload) end
   end
 
   local _getProp = {}
@@ -524,24 +530,26 @@ function newEventEngine()
   end
   function fibaro:sleep() error("Not allowed to use fibaro:sleep in EventRunner scenes!") end
 
-  interceptFib("","call","fibaro")
-  interceptFib("","setGlobal","fibaroSet") 
-  interceptFib("mr","getGlobal","fibaroGet")
-  interceptFib("r","getGlobalValue","fibaroGet")
-  interceptFib("mr","get","fibaroGet")
-  interceptFib("r","getValue","fibaroGet")
-  interceptFib("","killScenes","fibaro")
-  interceptFib("","sleep","fibaro",
-    function(obj,fun,time) 
-      Debug(true,"fibaro:sleep(%s) until %s",time,osDate("%X",osTime()+math.floor(0.5+time/1000)))
-      fun(obj,time) 
-    end)
-  interceptFib("","startScene","fibaroStart",
-    function(obj,fun,id,args) 
-      local a = args and #args==1 and type(args[1])=='string' and (json.encode({(urldecode(args[1]))})) or args and json.encode(args)
-      Debug(true,"fibaro:start(%s%s)",id,a and ","..a or "")
-      fun(obj,id, args) 
-    end)
+  if not _EMULATED then
+    interceptFib("","call","fibaro")
+    interceptFib("","setGlobal","fibaroSet") 
+    interceptFib("mr","getGlobal","fibaroGet")
+    interceptFib("r","getGlobalValue","fibaroGet")
+    interceptFib("mr","get","fibaroGet")
+    interceptFib("r","getValue","fibaroGet")
+    interceptFib("","killScenes","fibaro")
+    interceptFib("","sleep","fibaro",
+      function(obj,fun,time) 
+        Debug(true,"fibaro:sleep(%s) until %s",time,osDate("%X",osTime()+math.floor(0.5+time/1000)))
+        fun(obj,time) 
+      end)
+    interceptFib("","startScene","fibaroStart",
+      function(obj,fun,id,args) 
+        local a = isRemoteEvent(args) and json.encode(decodeRemoteEvent(args)) or args and json.encode(args)
+        Debug(true,"fibaro:start(%s%s)",id,a and ","..a or "")
+        fun(obj,id, args) 
+      end)
+  end
 
   return self
 end
@@ -1712,7 +1720,7 @@ Util.defvar('catch',math.huge)
 Util.defvar("defvars",Util.defvars)
 Util.defvar("mapvars",Util.reverseMapDef)
 
--- Ping / publish / subscribe
+-- Ping / publish / subscribe / & emulator support
 Event._dir,Event._rScenes,Event._subs,Event._stats = {},{},{},{}
 Event.ANNOUNCE,Event.SUB = '%%ANNOUNCE%%','%%SUB%%' 
 Event.event({type=Event.PING},function(env) e=_copy(env.event);e.type=Event.PONG; Event.postRemote(e._from,e) end)
@@ -1721,9 +1729,13 @@ function isRunning(id) return fibaro:countScenes(id)>0 end
 
 Event.event({{type='autostart'},{type='other'}},
   function(env)
-    local event = {type=Event.ANNOUNCE, subs=#Event._subs>0 and Event._subs or nil}
-    for _,id in ipairs(Util.findScenes(gEventRunnerKey)) do 
-      if isRunning(id) then Debug(_debugFlags.pubsub,"Announce to ID:%s %s",id,tojson(env.event.subs)); Event._rScenes[id]=true; Event.postRemote(id,event) end
+    if not _EMULATED then -- Don't announce to remote scenes. Need to do this in another way...
+      local event = {type=Event.ANNOUNCE, subs=#Event._subs>0 and Event._subs or nil}
+      for _,id in ipairs(Util.findScenes(gEventRunnerKey)) do 
+        if isRunning(id) then 
+          Debug(_debugFlags.pubsub,"Announce to ID:%s %s",id,tojson(env.event.subs)); Event._rScenes[id]=true; Event.postRemote(id,event) 
+        end
+      end
     end
   end)
 
@@ -1768,6 +1780,19 @@ Event.event({type=Event.SUB},
     end
   end)
 
+Event.event({type='%%EMU%%'},function(env) _emulator={ids=env.event.ids,adress=env.event.adress} end)
+Event.event({type='%%PROX%%'},function(env)
+    local function proxy(trigger)
+      if not _emulator.address then return end
+      local req = net.HTTPClient()
+      req:request(_emulator.adress,{options = {method = 'PUT', data=json.encode(trigger), timeout=500},
+          error=function() Event.triggerProxy=Event.post; Log(LOG.LOG,"Resetting proxy") end}) -- reset handler if error
+    end
+    if env.event.value then Event.triggerProxy=proxy else Event.triggerProxy=Event.post end
+    _emulator=_emulator or {}; 
+    _emulator.adress=env.event.adress; 
+  end)
+
 ---------------------- Hue support, can be removed if not needed -------------------------
 function hueSetup(cont)
   local _defaultHubName = "Hue"
@@ -1790,7 +1815,7 @@ function hueSetup(cont)
       HTTP:request(url,{
           options = {headers={['Accept']='application/json',['Content-Type']='application/json'},
             data = payload, timeout=_HueTimeout or 2000, method = op},
-          error = function(status) error("Hue connection:"..tojson(status)) end,
+          error = function(status) error("Hue connection:"..tojson(status)..", "..url) end,
           success = function(status) if cont then cont(json.decode(status.data)) end end
         })
     end

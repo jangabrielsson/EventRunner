@@ -304,6 +304,7 @@ end -- main()
 
 ------------------- EventModel - Don't change! --------------------  
 Event = Event or {}
+_NUMBEROFBOXES = _NUMBEROFBOXES or 1
 _MAILBOXES={}
 --_STARTLINE = _EMULATED and debug.getinfo(1).currentline or nil
 local _supportedEvents = {property=true,global=true,event=true,remote=true}
@@ -311,9 +312,13 @@ local _trigger = fibaro:getSourceTrigger()
 local _type, _source = _trigger.type, _trigger
 local _MAILBOX = "MAILBOX"..__fibaroSceneId 
 function urldecode(str) return str:gsub('%%(%x%x)',function (x) return string.char(tonumber(x,16)) end) end
-if _type == 'other' and fibaro:args() then
-  _trigger,_type = urldecode(fibaro:args()[1]),'remote'
-  _trigger=json.decode(_trigger)
+function isRemoteEvent(e) return type(e)=='table' and type(e[1])=='string' end -- change in the future...
+function encodeRemoteEvent(e) return {urlencode(json.encode(e)),'%%ER%%'} end
+function decodeRemoteEvent(e) return (json.decode((urldecode(e[1])))) end
+
+local args = fibaro:args()
+if _type == 'other' and args and isRemoteEvent(args) then
+  _trigger,_type = decodeRemoteEvent(args),'remote'
 end
 
 ---------- Producer(s) - Handing over incoming triggers to consumer --------------------
@@ -365,7 +370,7 @@ local function _poll()
       Debug(_debugFlags.triggers,"Incoming event:%s",l)
       l = json.decode(l) l._sh=true
       if _debugFlags.msgTime then l._timestamps.received={os.time(),os.clock()} end
-      setTimeout(function() Event.post(l) end,5)-- and post it to our "main()"
+      setTimeout(function() Event.triggerHandler(l) end,5)-- and post it to our "main()"
       _CXCS=0
     end
   end
@@ -375,7 +380,7 @@ end
 ------------------------ Support functions -----------------
 LOG = {WELCOME = "orange",DEBUG = "white", SYSTEM = "Cyan", LOG = "green", ULOG="Khaki", ERROR = "Tomato"}
 _format = string.format
-
+_ruleLogLength = _ruleLogLength or 80   -- Log message cut-off, defaults to 80
 _getIdProp = function(id,prop) return fibaro:get(id,prop) end
 _getGlobal = function(id) return fibaro:getGlobal(id) end
 
@@ -394,10 +399,17 @@ end
 
 if _System and _System._Msg then _Msg=_System._Msg end -- Get a better ZBS version of _Msg if running emulated 
 
+function protectMsg(...)
+  local args = {...}
+  local stat,res=pcall(function() return _Msg(table.unpack(args)) end)
+  if not stat then error("Bad arguments to Log/Debug:"..tojson(args),2)
+  else return res end
+end
+
 if not _timeAdjust then _timeAdjust = 0 end -- support for adjusting for hw time drift on HC2
 osTime = function(arg) return arg and os.time(arg) or os.time()+_timeAdjust end
 function Debug(flag,message,...) if flag then _Msg(LOG.DEBUG,message,...) end end
-function Log(color,message,...) return _Msg(color,message,...) end
+function Log(color,message,...) return protectMsg(color,message,...) end
 function _LINEFORMAT(line) return "" end
 function _LINE() return nil end
 function osDate(f,t) t = t or osTime() return os.date(f,t) end
@@ -548,6 +560,8 @@ function newEventEngine()
     return nil 
   end
 
+  self.triggerHandler = self.post -- default handler for consumer
+
   local function httpPostEvent(url,payload, e)
     local HTTP = net.HTTPClient()
     payload=json.encode({args={payload}})
@@ -560,12 +574,12 @@ function newEventEngine()
   end
 
   function self.postRemote(sceneIDorURL, e) -- Post event to other scenes or node-red
-    _assert(isEvent(e), "Bad event format")
+    _assert(isEvent(e),"Bad event format")
     e._from = _OFFLINE and -1 or __fibaroSceneId
-    local payload = urlencode(json.encode(e))
+    local payload = encodeRemoteEvent(e)
     if type(sceneIDorURL)=='string' and sceneIDorURL:sub(1,4)=='http' then
-      httpPostEvent(sceneIDorURL, payload, e)
-    else fibaro:startScene(sceneIDorURL,{payload}) end
+      httpPostEvent(sceneIDorURL, payload[1], e)
+    else fibaro:startScene(sceneIDorURL,payload) end
   end
 
   local _getProp = {}
@@ -766,24 +780,26 @@ function newEventEngine()
   end
   function fibaro:sleep() error("Not allowed to use fibaro:sleep in EventRunner scenes!") end
 
-  interceptFib("","call","fibaro")
-  interceptFib("","setGlobal","fibaroSet") 
-  interceptFib("mr","getGlobal","fibaroGet")
-  interceptFib("r","getGlobalValue","fibaroGet")
-  interceptFib("mr","get","fibaroGet")
-  interceptFib("r","getValue","fibaroGet")
-  interceptFib("","killScenes","fibaro")
-  interceptFib("","sleep","fibaro",
-    function(obj,fun,time) 
-      Debug(true,"fibaro:sleep(%s) until %s",time,osDate("%X",osTime()+math.floor(0.5+time/1000)))
-      fun(obj,time) 
-    end)
-  interceptFib("","startScene","fibaroStart",
-    function(obj,fun,id,args) 
-      local a = args and #args==1 and type(args[1])=='string' and (json.encode({(urldecode(args[1]))})) or args and json.encode(args)
-      Debug(true,"fibaro:start(%s%s)",id,a and ","..a or "")
-      fun(obj,id, args) 
-    end)
+  if not _EMULATED then
+    interceptFib("","call","fibaro")
+    interceptFib("","setGlobal","fibaroSet") 
+    interceptFib("mr","getGlobal","fibaroGet")
+    interceptFib("r","getGlobalValue","fibaroGet")
+    interceptFib("mr","get","fibaroGet")
+    interceptFib("r","getValue","fibaroGet")
+    interceptFib("","killScenes","fibaro")
+    interceptFib("","sleep","fibaro",
+      function(obj,fun,time) 
+        Debug(true,"fibaro:sleep(%s) until %s",time,osDate("%X",osTime()+math.floor(0.5+time/1000)))
+        fun(obj,time) 
+      end)
+    interceptFib("","startScene","fibaroStart",
+      function(obj,fun,id,args) 
+        local a = isRemoteEvent(args) and json.encode(decodeRemoteEvent(args)) or args and json.encode(args)
+        Debug(true,"fibaro:start(%s%s)",id,a and ","..a or "")
+        fun(obj,id, args) 
+      end)
+  end
 
   return self
 end
@@ -1528,7 +1544,7 @@ function newScriptEngine()
       {"^([_a-zA-Z][_0-9a-zA-Z]*)",'symbol'},
       {"^(%.%.)",'op'},{"^(->)",'op'},    
       {"^(%d+%.?%d*)",'num'},
-      {"^(%|%|)",'token'},{"^(>>)",'token'},{"^(=>)",'token'},{"^(@@)",'op'},
+      {"^(%|%|)",'token'},{"^(>>)",'token'},{"^(=>)",'token'},{"^(@@)",'op'},{"^([%*%+~=><]+)",'op'},
       {"^([%%%*%+/&%.:~=><%|!@]+)",'op'},{"^(%-%=)",'op'},{"^(-)",'op'},
     }
 
@@ -1954,7 +1970,7 @@ Util.defvar('catch',math.huge)
 Util.defvar("defvars",Util.defvars)
 Util.defvar("mapvars",Util.reverseMapDef)
 
--- Ping / publish / subscribe
+-- Ping / publish / subscribe / & emulator support
 Event._dir,Event._rScenes,Event._subs,Event._stats = {},{},{},{}
 Event.ANNOUNCE,Event.SUB = '%%ANNOUNCE%%','%%SUB%%' 
 Event.event({type=Event.PING},function(env) e=_copy(env.event);e.type=Event.PONG; Event.postRemote(e._from,e) end)
@@ -1963,9 +1979,13 @@ function isRunning(id) return fibaro:countScenes(id)>0 end
 
 Event.event({{type='autostart'},{type='other'}},
   function(env)
-    local event = {type=Event.ANNOUNCE, subs=#Event._subs>0 and Event._subs or nil}
-    for _,id in ipairs(Util.findScenes(gEventRunnerKey)) do 
-      if isRunning(id) then Debug(_debugFlags.pubsub,"Announce to ID:%s %s",id,tojson(env.event.subs)); Event._rScenes[id]=true; Event.postRemote(id,event) end
+    if not _EMULATED then -- Don't announce to remote scenes. Need to do this in another way...
+      local event = {type=Event.ANNOUNCE, subs=#Event._subs>0 and Event._subs or nil}
+      for _,id in ipairs(Util.findScenes(gEventRunnerKey)) do 
+        if isRunning(id) then 
+          Debug(_debugFlags.pubsub,"Announce to ID:%s %s",id,tojson(env.event.subs)); Event._rScenes[id]=true; Event.postRemote(id,event) 
+        end
+      end
     end
   end)
 
@@ -2010,6 +2030,19 @@ Event.event({type=Event.SUB},
     end
   end)
 
+Event.event({type='%%EMU%%'},function(env) _emulator={ids=env.event.ids,adress=env.event.adress} end)
+Event.event({type='%%PROX%%'},function(env)
+    local function proxy(trigger)
+      if not _emulator.address then return end
+      local req = net.HTTPClient()
+      req:request(_emulator.adress,{options = {method = 'PUT', data=json.encode(trigger), timeout=500},
+          error=function() Event.triggerProxy=Event.post; Log(LOG.LOG,"Resetting proxy") end}) -- reset handler if error
+    end
+    if env.event.value then Event.triggerProxy=proxy else Event.triggerProxy=Event.post end
+    _emulator=_emulator or {}; 
+    _emulator.adress=env.event.adress; 
+  end)
+
 ---------------------- Hue support, can be removed if not needed -------------------------
 function hueSetup(cont)
   local _defaultHubName = "Hue"
@@ -2032,7 +2065,7 @@ function hueSetup(cont)
       HTTP:request(url,{
           options = {headers={['Accept']='application/json',['Content-Type']='application/json'},
             data = payload, timeout=_HueTimeout or 2000, method = op},
-          error = function(status) error("Hue connection:"..tojson(status)) end,
+          error = function(status) error("Hue connection:"..tojson(status)..", "..url) end,
           success = function(status) if cont then cont(json.decode(status.data)) end end
         })
     end
@@ -2219,8 +2252,9 @@ function makeHueHub(name,username,ip,cont)
     sensor._filter = filter or sensor._filter or _defFilter
     if sensor._timer then clearTimeout(sensor._timer) sensor._timer=nil end
     if interval>0 then 
+      Debug(_debugFlags.hue,"Monitoring URL:%s",url)
       local function poll() 
-        Hue.request(url,function(state) self._setState(sensor,state.state) setTimeout(poll,interval) end)
+        Hue.request(url,function(state) self._setState(sensor,state.state) sensor._timer=setTimeout(poll,interval) end)
       end
       poll()
     end

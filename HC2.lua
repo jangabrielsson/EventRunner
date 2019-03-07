@@ -30,11 +30,13 @@ _version,_fix = "0.3","fix8" -- first version
 
 _REMOTE=true                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
-_SPEEDTIME = 24*180           -- Speed through X hours, if set to false run in real time
+_SPEEDTIME = 24*180          -- Speed through X hours, if set to false run in real time
+_BLOCK_PUT=true              -- Block http PUT commands to the HC2 - e.g. changing resources on the HC2
+_BLOCK_POST=true             -- Block http POST commands to the HC2 - e.g. creating resources on the HC2
 _AUTOCREATEGLOBALS=true      -- Will (silently) autocreate a local fibaro global if it doesn't exist
 _AUTOCREATEDEVICES=true      -- Will (silently) autocreate a local fibaro device if it doesn't exist
 _VALIDATECHARS = true        -- Check rules for invalid characters (cut&paste, multi-byte charqcters)
-_COLOR = false              -- Log with colors on ZBS Output console
+_COLOR = true                -- Log with colors on ZBS Output console
 _HC2_FILE = "HC2.data"
 
 _HC2_IP="192.198.1.xx"       -- HC2 IP address
@@ -49,7 +51,7 @@ if creds then creds() end
 --------------------------------------------------------
 function main()
 
-  HC2.setupConfiguration(true,true) -- read in configuration from stored local file, or from remote HC2
+  HC2.setupConfiguration(true,false) -- read in configuration from stored local file, or from remote HC2
   --HC2.localDevices()
   --HC2.localGlobals()
   --HC2.localRooms(true)
@@ -61,9 +63,12 @@ function main()
   --HC2.createDevice(77,"Test") -- Create local deviceID 77 with name "Test"
 
   HC2.registerScene("SceneTest",99,"sceneTest.lua",nil,
-                     {"+/00:10;call(66,'turnOn')",      -- breached after 10min
-                       "+/00:11;call(66,'turnOff')"})  -- safe after 11min
-                   
+    {"+/00:10;call(66,'turnOn')",      -- breached after 10min
+     "+/00:11;call(66,'turnOff')"})    -- safe after 11min
+
+  --HC2.registerScene("P1",20,"PubSub1EM.lua")
+  --HC2.registerScene("P2",21,"PubSub2EM.lua")
+
   --HC2.registerScene("EventRunnerEM",10,"EventRunnerEM.lua")
   --HC2.registerScene("Supervisor",11,"SupervisorEM.lua")
   --HC2.registerScene("iosLocator",14,"IOSLOcatorEM.lua")
@@ -137,8 +142,6 @@ function startup()
   _mainPosts={}
   function HC2.post(event,t) _mainPosts[#_mainPosts+1]={event,t} end
   main()                             -- Call main to setup scenes
-  Event.post({type='autostart'})     -- Post autostart to get things going
-  for _,e in ipairs(_mainPosts) do Event.post(e[1],e[2]) end
 
   if _SPEEDTIME then                -- If speeding, check every hour if we should exit
     local endTime= osTime()+_SPEEDTIME*3600
@@ -152,13 +155,16 @@ function startup()
     cloop()
   end
 
-  function eventServer(port)
+  function getIPaddress()
     local someRandomIP = "192.168.1.122" --This address you make up
     local someRandomPort = "3102" --This port you make up  
     local mySocket = socket.udp() --Create a UDP socket like normal
     mySocket:setpeername(someRandomIP,someRandomPort) 
     local myDevicesIpAddress, somePortChosenByTheOS = mySocket:getsockname()-- returns IP and Port 
-    local host = myDevicesIpAddress
+    return myDevicesIpAddress
+  end
+
+  function eventServer(host,port)
     Log(LOG.LOG,"Remote Event listener started at %s:%s",host,port)
     local s,c,err = assert(socket.bind("*", port))
     local i, p = s:getsockname()
@@ -201,10 +207,15 @@ function startup()
     end
   end
 
+  local ipAddress = getIPaddress()
   _POLLINTERVAL = 200 
   if _EVENTSERVER and not _SPEEDTIME then
-    _System.setTimeout(eventServer(_EVENTSERVER),100,"EVENTSERVER")
+    _System.setTimeout(eventServer(ipAddress,_EVENTSERVER),nil,"EVENTSERVER")
   end
+
+  if _REMOTE then ER.announceLocals(ipAddress,_EVENTSERVER) end
+  Event.post({type='autostart'})     -- Post autostart to get things going
+  for _,e in ipairs(_mainPosts) do Event.post(e[1],e[2]) end
 
   _System.runTimers()                -- Run our simulated threads...
 
@@ -287,7 +298,9 @@ function _transform(obj,tf)
     return res
   else return tf(obj) end
 end
-
+function isRemoteEvent(e) return type(e)=='table' and type(e[1])=='string' end
+function encodeRemoteEvent(e) return {urlencode(json.encode(e)),'%%ER%%'} end
+function decodeRemoteEvent(e) return (json.decode((urldecode(e[1])))) end
 ------------------------------------------------------------------------------
 -- SSupport functions
 -- Scene
@@ -323,6 +336,7 @@ function support()
     scene.runConfig = "TRIGGER_AND_MANUAL"
     scene.triggers,scene.lua = Scene.parseHeaders(file,id)
     scene.isLua = true
+    scene.EventRunner = scene.lua:match(ER.gEventRunnerKey)
     scene.code,msg=loadfile(file)
     _assert(scene.code~=nil,"Error in scene file %s: %s",file,msg)
     Log(LOG.SYSTEM,"Loaded scene:%s, id:%s, file:'%s'",name,id,file)
@@ -349,9 +363,12 @@ function support()
     globals._ENV=env
     globals.__fibaroSceneSourceTrigger = event
     globals.__fibaroSceneArgs = args
-    globals.__sceneCode = scene.code  
-    globals.__sceneCleanup = function(co) 
-      Log(LOG.LOG,"Scene [%s:%s] terminated (%s)",scene.id,env.__orgInstanceNumber,co)
+    globals.__sceneCode = scene.code 
+    globals.__debugName=_format("[%s:%s]",scene.id,scene.runningInstances+1)
+    globals.__sceneCleanup = function(co)
+      if not (scene.EventRunner and globals.__orgInstanceNumber > 1) then
+        Log(LOG.LOG,"Scene [%s:%s] terminated (%s)",scene.id,env.__orgInstanceNumber,co)
+      end
       scene.runningInstances=scene.runningInstances-1 
     end
     local tr = _System.setTimeoutContext(function() 
@@ -363,7 +380,10 @@ function support()
       end,
       0,scene.name,env)
     _SceneContext[tr]=env
-    Log(LOG.LOG,"Starting scene:%s, trigger:%s %s(%s)",scene.name,tojson(event),args and tojson(args) or "",tr)
+    if isRemoteEvent(args) then args=decodeRemoteEvent(args) end
+    if not (scene.EventRunner and scene.runningInstances > 0) then
+      Log(LOG.LOG,"Scene %s started (%s), trigger:%s %s(%s)",globals.__debugName,scene.name,tojson(event),args and tojson(args) or "",tr)
+    end
   end
 
   function Scene.checkValidCharsInFile(src,fileName)
@@ -609,6 +629,7 @@ POST:/globalVariables/<var struct> -- Create variable
       local v = HC2.getRsrc('globalVariables',r)
       if v and v._local then HC2.rsrc.globalVariables[r]=data
       elseif v and _REMOTE then -- update global remote
+        if _BLOCK_PUT then Log(LOG.LOG,"Updating HC2 global '%s'denied, set _BLOCK_PUT=false",r) return end
         api._put(false,"/globalVariables/"..r,data,cType)
         HC2.rsrc.globalVariables[r]=data -- cache
       end
@@ -1143,7 +1164,7 @@ POST:/globalVariables/<var struct> -- Create variable
       if m then if f.ret then return else str=m; break end end
     end 
     local env = Scene.global()
-    print(_format("[%d:%d]%s %s",env.__fibaroSceneId,env.__orgInstanceNumber,osDate("[DEBUG] %H:%M:%S:"),str)) 
+    print(_format("%s%s %s",env.__debugName,osDate("[DEBUG] %H:%M:%S:"),str)) 
   end
   function fibaro:sleep(n) return coroutine.yield(coroutine.running(),n/1000) end
   function fibaro:abort() coroutine.yield(coroutine.running(),'%%ABORT%%') end
@@ -1536,14 +1557,49 @@ Expected input:
       end)
     interceptFib("","startScene","fibaroStart",
       function(obj,fun,id,args) 
-        local a = args and #args==1 and type(args[1])=='string' and (json.encode({(urldecode(args[1]))})) or args and json.encode(args)
+        local a = isRemoteEvent(args) and json.encode(decodeRemoteEvent(args)) or args and json.encode(args)
         Debug(true,"fibaro:start(%s%s)",id,a and ","..a or "")
         fun(obj,id, args) 
       end)
   end
 
-end
+--------------------------------------
+-- EventRunner support
+--------------------------------------
+  ER={ gEventRunnerKey="6w8562395ue734r437fg3" }
+  function ER.announceLocals(ipaddress,port)
+    -- Tell HC2 what local scenes we have.
+    local locals,remotes={},{}
+    for id,scene in pairs(HC2.rsrc.scenes) do
+      if scene._local then 
+        locals[#locals+1]=id  
+      else 
+        if scene.EventRunner then
+          -- Should we check that they are active too?
+          remotes[#remotes+1]=id
+        end
+      end
+    end
+    if #remotes>0 then
+      local event = {type='%%EMU%%',ids=locals,adress="http://"..ipaddress..":"..port.."/"}
+      local args=encodeRemoteEvent(event)
+      for _,sceneID in ipairs(remotes) do
+        --if _REMOTE then api._post(true,"/scenes/"..sceneID.."/action/start",{args=args}) end
+      end
+    end
+  end
 
+  function ER.makeProxy(remoteSceneID,enable)
+    local s = HC2.rsrc.scenes[remoteSceneID]
+    if s and s.EventRunner then
+      enable = enable==nil and true or enable
+      local event = {type='%%PROX%%',value=enable,adress="http://"..ipaddress..":"..port.."/"}
+      local args=encodeRemoteEvent(event)
+      api._post(true,"/scenes/"..remoteSceneID.."/action/start",{args=args})
+    end
+  end
+
+end
 -------------------------------------------------------------------------------
 -- Libs, json etc
 ---------------------------------------------------------------------------------
