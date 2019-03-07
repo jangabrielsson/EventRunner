@@ -793,8 +793,7 @@ function Util.findScenes(str)
       if s2.lua:match(str) then res[#res+1]=s1.id end
     end
   end
-  return {11}
-  --return res
+  return res
 end
 
 Util.getIDfromEvent={ CentralSceneEvent=function(d) return d.deviceId end,AccessControlEvent=function(d) return d.id end }
