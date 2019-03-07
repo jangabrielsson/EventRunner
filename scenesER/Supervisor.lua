@@ -7,7 +7,7 @@
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="Supervisor",id=11} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B1"  -- Mar 5, 2019 
+_version,_fix = "2.0","B2"  -- Mar 7, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
