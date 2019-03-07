@@ -62,7 +62,7 @@ function main()
 
   HC2.registerScene("SceneTest",99,"sceneTest.lua",nil,
                      {"+/00:10;call(66,'turnOn')",      -- breached after 10min
-                       "+/00:11;call(66,'turnOff')"})   -- safe after 11min
+                       "+/00:11;call(66,'turnOff')"})  -- safe after 11min
                    
   --HC2.registerScene("EventRunnerEM",10,"EventRunnerEM.lua")
   --HC2.registerScene("Supervisor",11,"SupervisorEM.lua")
@@ -75,15 +75,12 @@ function main()
   --HC2.registerScene("Scene1",12,"GEA 6.11.lua") 
   --HC2.registerScene("Scene1",13,"Main scene FTBE v1.3.0.lua",{Darkness=0,TimeOfDay='Morning'})
 
-  -- Post a simulated trigger 10min in the future...
-  --HC2.post({type='property',deviceID=77, propertyName='value'},"+/00:10")
-
   --Log fibaro:* calls
   HC2.logFibaroCalls()
   --Debug filters can be used to trim debug output from noisy scenes...
-  HC2.addDebugFilter("Memory used:",true) 
-  HC2.addDebugFilter("GEA run since",true)
-  HC2.addDebugFilter("%.%.%. check running",true)
+  --HC2.addDebugFilter("Memory used:",true) 
+  --HC2.addDebugFilter("GEA run since",true)
+  --HC2.addDebugFilter("%.%.%. check running",true)
   HC2.addDebugFilter("%b<>(.*)</.*>")
 end
 
