@@ -26,7 +26,7 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
 
-_version,_fix = "0.3","fix14" -- first version 
+_version,_fix = "0.3","fix15" -- first version 
 
 _REMOTE=false                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
@@ -190,16 +190,12 @@ function startup()
         repeat
           local l, e, j = c:receive()
           if l and l:sub(1,3)=='GET' then -- Support GET...
-            printf("HTTP:%s",l)
             j=l:match("GET[%s%c]*/(.*)HTTP/1%.1$")
-            if j:sub(1,1)=='/' then
-            else
-              j = urldecode(j)
-              if _debugFlags.eventserver then Debug(true,"External trigger:%s",j) end
-              if Scene.validateChars then Scene.validateChars(j,"Bad chars in in external trigger:%s") end
-              j=json.decode(j)
-              Event.post(j)
-            end
+            j = urldecode(j)
+            if _debugFlags.eventserver then Debug(true,"External trigger:%s",j) end
+            if Scene.validateChars then Scene.validateChars(j,"Bad chars in in external trigger:%s") end
+            j=json.decode(j)
+            Event.post(j)
           elseif j and j~="" then
             --c:close()
             if _debugFlags.eventserver then Debug(true,"External trigger:%s",j) end
@@ -1129,7 +1125,7 @@ POST:/globalVariables/<var struct> -- Create variable
   fibaro={}
 
   function __assert_type(value ,typeOfValue) 
-    if  type(value) ~= typeOfValue then error("Assertion failed: Expected"..typeOfValue ,3) end 
+    if  type(value) ~= typeOfValue then error("Assertion failed: Expected "..typeOfValue ,3) end 
   end 
 
   function __convertToString(value) 
