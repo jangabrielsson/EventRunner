@@ -26,7 +26,7 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
 
-_version,_fix = "0.3","fix10" -- first version 
+_version,_fix = "0.3","fix11" -- first version 
 
 _REMOTE=false                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
@@ -65,7 +65,7 @@ function main()
   HC2.registerScene("SceneTest",99,"sceneTest.lua",nil,
     {"+/00:10;call(66,'turnOn')",      -- breached after 10min
      "+/00:11;call(66,'turnOff')"})    -- safe after 11min
-  
+
   --HC2.runTriggers{"+/00:00;startScene(".._EMBEDDED.id..")"}
 
   --HC2.registerScene("P1",20,"PubSub1EM.lua")
@@ -93,7 +93,7 @@ end
 
 _debugFlags = { 
   threads=false, triggers=false, eventserver=false, hc2calls=true, globals=false, 
-  fibaro=true, fibaroSleep=false, fibaroSet=true, fibaroStart=true 
+  fibaro=true, fibaroSleep=false, fibaroSet=true, fibaroStart=false 
 }
 ------------------------------------------------------
 -- Context, functions exported to scenes
@@ -338,7 +338,7 @@ function support()
     scene.runConfig = "TRIGGER_AND_MANUAL"
     scene.triggers,scene.lua = Scene.parseHeaders(file,id)
     scene.isLua = true
-    scene.EventRunner = scene.lua:match(ER.gEventRunnerKey)
+    ER.checkForEventRunner(scene)
     scene.code,msg=loadfile(file)
     _assert(scene.code~=nil,"Error in scene file %s: %s",file,msg)
     Log(LOG.SYSTEM,"Loaded scene:%s, id:%s, file:'%s'",name,id,file)
@@ -368,8 +368,8 @@ function support()
     globals.__sceneCode = scene.code 
     globals.__debugName=_format("[%s:%s]",scene.id,scene.runningInstances+1)
     globals.__sceneCleanup = function(co)
-      if not (scene.EventRunner and globals.__orgInstanceNumber > 1) then
-        Log(LOG.LOG,"Scene [%s:%s] terminated (%s)",scene.id,env.__orgInstanceNumber,co)
+      if scene._terminateMsg and not scene._terminateMsg(scene.id,env.__orgInstanceNumber,env) then
+        Log(LOG.LOG,"Scene %s terminated (%s)",env.__debugName,co)
       end
       scene.runningInstances=scene.runningInstances-1 
     end
@@ -383,7 +383,7 @@ function support()
       0,scene.name,env)
     _SceneContext[tr]=env
     if isRemoteEvent(args) then args=decodeRemoteEvent(args) end
-    if not (scene.EventRunner and scene.runningInstances > 0) then
+    if scene._startMsg and not scene._startMsg(scene.id,scene.runningInstances,env) then
       Log(LOG.LOG,"Scene %s started (%s), trigger:%s %s(%s)",globals.__debugName,scene.name,tojson(event),args and tojson(args) or "",tr)
     end
   end
@@ -1043,7 +1043,13 @@ POST:/globalVariables/<var struct> -- Create variable
       _assertf(type(e) == "function" or isEvent(e), "Bad event format %s",function() tojson(e) end)
       time = toTime(time or osTime())
       if time < osTime() then return nil end
-      if _debugFlags.triggers and not type(e)=='function' then Log(LOG.LOG,"System trigger:%s at %s",tojson(e),osDate("%a %b %d %X",time)) end
+      if _debugFlags.triggers and not (type(e)=='function') then
+        local e2 = e
+        if e.type=='other' and isRemoteEvent(e._args) then
+          e2 = decodeRemoteEvent(e._args)
+        end
+        Log(LOG.LOG,"System trigger:%s at %s",tojson(e2),osDate("%a %b %d %X",time)) 
+      end
       if type(e)=='function' then return _System.setTimeout(e,1000*(time-osTime()),"Timer")
       else return _System.setTimeout(function() self._handleEvent(e) end,1000*(time-osTime()),"Main") end
     end
@@ -1273,8 +1279,9 @@ POST:/globalVariables/<var struct> -- Create variable
     if (not _REMOTE) or (globalVar and globalVar._local) then
       if not globalVar and _AUTOCREATEGLOBALS then
         HC2.rsrc.globalVariables[varName]={name=varName,_local=true}
-        fibaro:setGlobal(varName,value)
-        return
+        globalVar=HC2.rsrc.globalVariables[varName]
+        --fibaro:setGlobal(varName,value)
+        --return
       end
       globalVar.value,globalVar.modified= tostring(value),osTime()
       if _debugFlags.globals then Log(LOG.LOG,"Setting global %s='%s'",varName,value) end
@@ -1569,6 +1576,13 @@ Expected input:
 -- EventRunner support
 --------------------------------------
   ER={ gEventRunnerKey="6w8562395ue734r437fg3" }
+
+  function ER.checkForEventRunner(scene)
+    scene.EventRunner = scene.lua:match(ER.gEventRunnerKey)
+    scene._startMsg = function(id,inst,env) return inst > 0 end
+    scene._terminateMsg = function(id,inst,env) return inst > 1 end
+  end
+
   function ER.announceLocals(ipaddress,port)
     -- Tell HC2 what local scenes we have.
     local locals,remotes={},{}

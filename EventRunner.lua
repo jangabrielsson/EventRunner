@@ -530,7 +530,7 @@ function newEventEngine()
   end
   function fibaro:sleep() error("Not allowed to use fibaro:sleep in EventRunner scenes!") end
 
-  if not _EMULATED then
+  if not _EMULATED then  -- Emulator logs fibaro:* calls
     interceptFib("","call","fibaro")
     interceptFib("","setGlobal","fibaroSet") 
     interceptFib("mr","getGlobal","fibaroGet")
@@ -1729,12 +1729,10 @@ function isRunning(id) return fibaro:countScenes(id)>0 end
 
 Event.event({{type='autostart'},{type='other'}},
   function(env)
-    if not _EMULATED then -- Don't announce to remote scenes. Need to do this in another way...
-      local event = {type=Event.ANNOUNCE, subs=#Event._subs>0 and Event._subs or nil}
-      for _,id in ipairs(Util.findScenes(gEventRunnerKey)) do 
-        if isRunning(id) then 
-          Debug(_debugFlags.pubsub,"Announce to ID:%s %s",id,tojson(env.event.subs)); Event._rScenes[id]=true; Event.postRemote(id,event) 
-        end
+    local event = {type=Event.ANNOUNCE, subs=#Event._subs>0 and Event._subs or nil}
+    for _,id in ipairs(Util.findScenes(gEventRunnerKey)) do 
+      if isRunning(id) then 
+        Debug(_debugFlags.pubsub,"Announce to ID:%s %s",id,tojson(env.event.subs)); Event._rScenes[id]=true; Event.postRemote(id,event) 
       end
     end
   end)
