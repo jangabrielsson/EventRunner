@@ -26,7 +26,7 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
 
-_version,_fix = "0.3","fix11" -- first version 
+_version,_fix = "0.3","fix14" -- first version 
 
 _REMOTE=false                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
@@ -63,8 +63,8 @@ function main()
   --HC2.createDevice(77,"Test") -- Create local deviceID 77 with name "Test"
 
   HC2.registerScene("SceneTest",99,"sceneTest.lua",nil,
-    {"+/00:10;call(66,'turnOn')",      -- breached after 10min
-     "+/00:11;call(66,'turnOff')"})    -- safe after 11min
+    {"+/00:00:02;call(66,'turnOn')",      -- breached after 2 sec
+      "+/00:01:02;call(66,'turnOff')"})    -- safe after 1min and 2sec 
 
   --HC2.runTriggers{"+/00:00;startScene(".._EMBEDDED.id..")"}
 
@@ -93,7 +93,7 @@ end
 
 _debugFlags = { 
   threads=false, triggers=false, eventserver=false, hc2calls=true, globals=false, 
-  fibaro=true, fibaroSleep=false, fibaroSet=true, fibaroStart=false 
+  fibaro=true, fibaroSleep=false, fibaroSet=true, fibaroStart=false, 
 }
 ------------------------------------------------------
 -- Context, functions exported to scenes
@@ -190,12 +190,16 @@ function startup()
         repeat
           local l, e, j = c:receive()
           if l and l:sub(1,3)=='GET' then -- Support GET...
+            printf("HTTP:%s",l)
             j=l:match("GET[%s%c]*/(.*)HTTP/1%.1$")
-            j = urldecode(j)
-            if _debugFlags.eventserver then Debug(true,"External trigger:%s",j) end
-            if Scene.validateChars then Scene.validateChars(j,"Bad chars in in external trigger:%s") end
-            j=json.decode(j)
-            Event.post(j)
+            if j:sub(1,1)=='/' then
+            else
+              j = urldecode(j)
+              if _debugFlags.eventserver then Debug(true,"External trigger:%s",j) end
+              if Scene.validateChars then Scene.validateChars(j,"Bad chars in in external trigger:%s") end
+              j=json.decode(j)
+              Event.post(j)
+            end
           elseif j and j~="" then
             --c:close()
             if _debugFlags.eventserver then Debug(true,"External trigger:%s",j) end
@@ -839,8 +843,15 @@ POST:/globalVariables/<var struct> -- Create variable
   WAITINDEX=_SPEEDTIME and "SPEED" or "NORMAL"
 
   _System.waitFor={
-    ["SPEED"] = function(t) _gTime=_gTime+t return false end,
-    ["NORMAL"] = function(t) socket.sleep(t) _gTime=_gTime+t return false end,
+    ["SPEED"] = function(t) _gTime=_gTime+t if _idleHandler then _idleHandler() end return false end,
+    --["NORMAL"] = function(t) socket.sleep(t) _gTime=_gTime+t return false end,
+    ["NORMAL"] = function(t) 
+      t=t+os.clock() 
+      while os.clock() < t do 
+        if _idleHandler then _idleHandler() end
+      end
+      return false 
+    end,
   }
 
   function _System.runTimers()
@@ -1269,7 +1280,11 @@ POST:/globalVariables/<var struct> -- Create variable
     return globalVar.value ,globalVar.modified
   end
 
-  function fibaro:getGlobalValue(varName) return (fibaro:getGlobal(varName)) end
+  function fibaro:getGlobalValue(varName) 
+    local globalVar = __fibaro_get_global_variable(varName) 
+    if globalVar ==  nil then return  nil end
+    return globalVar.value
+  end
 
   function fibaro:getGlobalModificationTime(varName) return select(2,fibaro:getGlobal(varName)) end
 
@@ -1545,6 +1560,7 @@ Expected input:
           if status and _debugFlags[flag] then
             Debug(true,fstr,name,id2,(#args>0 and "," or ""),json.encode(args):sub(2,-2),json.encode(res))
           elseif not status then
+            printf(debug.traceback())
             error(string.format("Err:fibaro:%s(%s%s%s), %s",name,id2,(#args>0 and "," or ""),json.encode(args):sub(2,-2),res),3)
           end
           if fs=="mr" then return res,r2 else return res end
@@ -1999,14 +2015,19 @@ function libs()
 
     function json.decode(str)
       if type(str) ~= "string" then
-        error("expected argument of type string, got " .. type(str))
+        error("expected argument of type string, got " .. type(str),2)
       end
-      local res, idx = parse(str, next_char(str, 1, space_chars, true))
-      idx = next_char(str, idx, space_chars, true)
-      if idx <= #str then
-        decode_error(str, idx, "trailing garbage")
-      end
-      return res
+      local stat,res = pcall(function()
+          local res, idx = parse(str, next_char(str, 1, space_chars, true))
+          idx = next_char(str, idx, space_chars, true)
+          if idx <= #str then
+            decode_error(str, idx, "trailing garbage")
+          end
+          return res
+        end)
+      if not stat then
+        error(res,2)
+      else return res end
     end
   end
 
