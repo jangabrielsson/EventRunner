@@ -28,7 +28,7 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 _version,_fix = "0.3","fix10" -- first version 
 
-_REMOTE=true                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
+_REMOTE=false                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
 _SPEEDTIME = 24*180          -- Speed through X hours, if set to false run in real time
 _BLOCK_PUT=true              -- Block http PUT commands to the HC2 - e.g. changing resources on the HC2
@@ -51,7 +51,7 @@ if creds then creds() end
 --------------------------------------------------------
 function main()
 
-  HC2.setupConfiguration(true,false) -- read in configuration from stored local file, or from remote HC2
+  HC2.setupConfiguration(true,true) -- read in configuration from stored local file, or from remote HC2
   --HC2.localDevices()
   --HC2.localGlobals()
   --HC2.localRooms(true)
@@ -65,6 +65,8 @@ function main()
   HC2.registerScene("SceneTest",99,"sceneTest.lua",nil,
     {"+/00:10;call(66,'turnOn')",      -- breached after 10min
      "+/00:11;call(66,'turnOff')"})    -- safe after 11min
+  
+  --HC2.runTriggers{"+/00:00;startScene(".._EMBEDDED.id..")"}
 
   --HC2.registerScene("P1",20,"PubSub1EM.lua")
   --HC2.registerScene("P2",21,"PubSub2EM.lua")
