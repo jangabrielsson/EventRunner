@@ -48,15 +48,8 @@ function main()
   HT = json.decode(HT)
   Util.defvars(HT.dev)            -- Make HomeTable defs available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable names available for logger
-
-  rule("#alexa => log('HUPP:%s',env.event.val | '')")
-
-  rule("remote(_myNodeRed,{type='echo', value=42})")
-  rule("#response => log('Response:%s',tjson(env.event))")
-
-  rule("#foo => log('Yey')")
   
-  --rule("@@00:00:10 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 10 second
+  rule("@@00:00:10 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 10 second
 
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
 end -- main()
@@ -150,7 +143,7 @@ gEventRunnerKey="6w8562395ue734r437fg3"
 gEventSupervisorKey="9t823239".."5ue734r327fh3"
 
 -- Patch possibly buggy setTimeout - what is 1ms between friends...
-setTimeout,oldSetTimeout = function(f,t) return oldSetTimeout(f, t and t < 1 and 1 or t﻿) end,setTimeout
+setTimeout,oldSetTimeout = function(f,t) return oldSetTimeout(f, t and t < 1 and 1 or t) end,setTimeout
 
 function _Msg(color,message,...)
   local args = type(... or 42) == 'function' and {(...)()} or {...}

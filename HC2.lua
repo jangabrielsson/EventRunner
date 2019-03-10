@@ -97,8 +97,8 @@ function main()
 end
 
 _debugFlags = { 
-  threads=false, triggers=true, eventserver=false, hc2calls=true, globals=false, 
-  fibaro=true, fibaroSleep=false, fibaroSet=true, fibaroStart=false, 
+  threads=false, triggers=false, eventserver=false, hc2calls=true, globals=false, 
+  fibaro=true, fibaroSleep=false, fibaroSet=true, fibaroStart=false, web=true,
 }
 ------------------------------------------------------
 -- Context, functions exported to scenes
@@ -168,6 +168,7 @@ function startup()
   wServer = makeWebserver(ipAddress)
   wServer.createServer("Event server2",_EVENTSERVER,
     function(client,call) -- GET handler
+      if _debugFlags.web then Log(LOG.LOG,"GET %s",call) end
       local stdPage =
 [[HTTP/1.1 200 OK
 Content-Type: text/html
@@ -185,7 +186,7 @@ HELLO
       client:send(stdPage)
     end,
     function(client,call,args)  -- POST handler
-      Log(LOG.LOG,"POST %s %s",call,args)
+      if _debugFlags.web then Log(LOG.LOG,"POST %s %s",call,args) end
       client:send("HTTP/1.1 OK 200\r\n")
       if call:match("^/api/") then api.post(call,json.decode(args)) return end
       local id = call:match("^/trigger/(%-?%d*)")
@@ -197,7 +198,7 @@ HELLO
       end
     end,
     function(client,call,args) -- PUT handler
-      Log(LOG.LOG,"PUT %s %s",call,args)
+      if _debugFlags.web then Log(LOG.LOG,"PUT %s %s",call,args) end
     end)
 
   Event.post({type='autostart'})     -- Post autostart to get things going
