@@ -26,11 +26,11 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
 
-_version,_fix = "0.3","fix15" -- first version 
+_version,_fix = "0.4",""     
 
-_REMOTE=false                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
+_REMOTE=true                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
-_SPEEDTIME = 24*180          -- Speed through X hours, if set to false run in real time
+_SPEEDTIME = false--24*180          -- Speed through X hours, if set to false run in real time
 _BLOCK_PUT=true              -- Block http PUT commands to the HC2 - e.g. changing resources on the HC2
 _BLOCK_POST=true             -- Block http POST commands to the HC2 - e.g. creating resources on the HC2
 _AUTOCREATEGLOBALS=true      -- Will (silently) autocreate a local fibaro global if it doesn't exist
@@ -52,47 +52,52 @@ if creds then creds() end
 function main()
 
   HC2.setupConfiguration(true,true) -- read in configuration from stored local file, or from remote HC2
-  --HC2.localDevices()
-  --HC2.localGlobals()
-  --HC2.localRooms(true)
-  --HC2.localScenes(true)
+
+  if not _REMOTE or _RUNLOCAL then -- If we are remote don't try to access resources on the HC2
+    HC2.localDevices(true) -- set all devices to local
+    HC2.localGlobals(true) -- set all globals to local
+    HC2.localRooms(true)   -- set all rooms to local
+    --HC2.localScenes(true)  -- set all scenes to local
+  end
+
+  --HC2.globalDevices({66,88}) -- We still want to run local, except for deviceID 66,88 thath will be controlled on the HC2
 
   HC2.loadEmbedded()
 
-  --HC2.loadScenesFromDir("scenes") -- Load all files with name <ID>_<name>.lua from dir, Ex. 11_MyScene.lua
-  --HC2.createDevice(77,"Test") -- Create local deviceID 77 with name "Test"
+--HC2.loadScenesFromDir("scenes") -- Load all files with name <ID>_<name>.lua from dir, Ex. 11_MyScene.lua
+--HC2.createDevice(77,"Test") -- Create local deviceID 77 with name "[[Test"
 
   HC2.registerScene("SceneTest",99,"sceneTest.lua",nil,
     {"+/00:00:02;call(66,'turnOn')",      -- breached after 2 sec
       "+/00:01:02;call(66,'turnOff')"})    -- safe after 1min and 2sec 
 
-  --HC2.runTriggers{"+/00:00;startScene(".._EMBEDDED.id..")"}
+--HC2.runTriggers{"+/00:00;startScene(".._EMBEDDED.id..")"}
 
-  --HC2.registerScene("P1",20,"PubSub1EM.lua")
-  --HC2.registerScene("P2",21,"PubSub2EM.lua")
+--HC2.registerScene("P1",20,"PubSub1EM.lua")
+--HC2.registerScene("P2",21,"PubSub2EM.lua")
 
-  --HC2.registerScene("EventRunnerEM",10,"EventRunnerEM.lua")
-  --HC2.registerScene("Supervisor",11,"SupervisorEM.lua")
-  --HC2.registerScene("iosLocator",14,"IOSLOcatorEM.lua")
+--HC2.registerScene("EventRunnerEM",10,"EventRunnerEM.lua")
+--HC2.registerScene("Supervisor",11,"SupervisorEM.lua")
+--HC2.registerScene("iosLocator",14,"IOSLOcatorEM.lua")
 
-  --HC2.listDevices()
-  --HC2.listScenes()
-  --HC2.registerScene("Scene1",55,"55_Simple.lua",nil,{"+/00:10;call(66,'turnOn')","+/00:20;call(66,'turnOff')"})
-  --HC2.registerScene("Scene1",11,"EventRunnerA.lua")
-  --HC2.registerScene("Scene1",12,"GEA 6.11.lua") 
-  --HC2.registerScene("Scene1",13,"Main scene FTBE v1.3.0.lua",{Darkness=0,TimeOfDay='Morning'})
+--HC2.listDevices()
+HC2.listScenes()
+--HC2.registerScene("Scene1",55,"55_Simple.lua",nil,{"+/00:10;call(66,'turnOn')","+/00:20;call(66,'turnOff')"})
+--HC2.registerScene("Scene1",11,"EventRunnerA.lua")
+--HC2.registerScene("Scene1",12,"GEA 6.11.lua") 
+--HC2.registerScene("Scene1",13,"Main scene FTBE v1.3.0.lua",{Darkness=0,TimeOfDay='Morning'})
 
-  --Log fibaro:* calls
+--Log fibaro:* calls
   HC2.logFibaroCalls()
-  --Debug filters can be used to trim debug output from noisy scenes...
-  --HC2.addDebugFilter("Memory used:",true) 
-  --HC2.addDebugFilter("GEA run since",true)
-  --HC2.addDebugFilter("%.%.%. check running",true)
+--Debug filters can be used to trim debug output from noisy scenes...
+--HC2.addDebugFilter("Memory used:",true) 
+--HC2.addDebugFilter("GEA run since",true)
+--HC2.addDebugFilter("%.%.%. check running",true)
   HC2.addDebugFilter("%b<>(.*)</.*>")
 end
 
 _debugFlags = { 
-  threads=false, triggers=false, eventserver=false, hc2calls=true, globals=false, 
+  threads=false, triggers=true, eventserver=false, hc2calls=true, globals=false, 
   fibaro=true, fibaroSleep=false, fibaroSet=true, fibaroStart=false, 
 }
 ------------------------------------------------------
@@ -145,82 +150,63 @@ function startup()
   function HC2.post(event,t) _mainPosts[#_mainPosts+1]={event,t} end
   main()                             -- Call main to setup scenes
 
-  if _SPEEDTIME then                -- If speeding, check every hour if we should exit
-    local endTime= osTime()+_SPEEDTIME*3600
-    local function cloop()
-      if osTime()>endTime then
-        Log(LOG.SYSTEM,"%s, End of time (%s hours) - exiting",osDate("%c"),_SPEEDTIME)
-        os.exit()
-      end   
-      _System.setTimeout(cloop,1000*3600,"Speed watch")
-    end
-    cloop()
+  local endTime= osTime()+(_SPEEDTIME or 365*24)*3600
+  local function cloop()
+    if osTime()>endTime then
+      Log(LOG.SYSTEM,"%s, End of time (%s hours) - exiting",osDate("%c"),_SPEEDTIME)
+      os.exit()
+    end   
+    _System.setTimeout(cloop,1000*3600,"Speed watch")
   end
+  cloop()
 
-  function getIPaddress()
-    local someRandomIP = "192.168.1.122" --This address you make up
-    local someRandomPort = "3102" --This port you make up  
-    local mySocket = socket.udp() --Create a UDP socket like normal
-    mySocket:setpeername(someRandomIP,someRandomPort) 
-    local myDevicesIpAddress, somePortChosenByTheOS = mySocket:getsockname()-- returns IP and Port 
-    return myDevicesIpAddress
-  end
+  ProcessManager = _System.makeProcessManager()
+  _System.idleHandler = ProcessManager.idleHandler
 
-  function eventServer(host,port)
-    Log(LOG.LOG,"Remote Event listener started at %s:%s",host,port)
-    local s,c,err = assert(socket.bind("*", port))
-    local i, p = s:getsockname()
-    local timeoutCounter = 0
-    assert(i, p)
-    return function()
-      local co = coroutine.running()
-      while true do
-        s:settimeout(0)
-        repeat
-          c, err = s:accept()
-          if err == 'timeout' then
-            timeoutCounter = timeoutCounter+1
-            local wt = _POLLINTERVAL
-            if timeoutCounter > 5*60 then wt=wt*100 end
-            coroutine.yield(co,wt/1000) 
-          end
-        until err ~= 'timeout'
-        timeoutCounter = 0
-        c:settimeout(0)
-        repeat
-          local l, e, j = c:receive()
-          if l and l:sub(1,3)=='GET' then -- Support GET...
-            j=l:match("GET[%s%c]*/(.*)HTTP/1%.1$")
-            j = urldecode(j)
-            if _debugFlags.eventserver then Debug(true,"External trigger:%s",j) end
-            if Scene.validateChars then Scene.validateChars(j,"Bad chars in in external trigger:%s") end
-            j=json.decode(j)
-            Event.post(j)
-          elseif j and j~="" then
-            --c:close()
-            if _debugFlags.eventserver then Debug(true,"External trigger:%s",j) end
-            if Scene.validateChars then Scene.validateChars(j,"Bad chars in external trigger:%s") end
-            j=json.decode(j)
-            Event.post(j)
-          end
-          --coroutine.yield(co,_POLLINTERVAL/1000)
-        until (j and j~="") or e == 'closed'
+  local ipAddress = _System.getIPadress()
+
+  wServer = makeWebserver(ipAddress)
+  wServer.createServer("Event server2",_EVENTSERVER,
+    function(client,call) -- GET handler
+      local stdPage =
+[[HTTP/1.1 200 OK
+Content-Type: text/html
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta content="text/html; charset=ISO-8859-1" http-equiv="content-type">
+<title>MyPage</title></head>
+<body>
+HELLO
+</body></html>
+
+]]
+      client:send(stdPage)
+    end,
+    function(client,call,args)  -- POST handler
+      Log(LOG.LOG,"POST %s %s",call,args)
+      client:send("HTTP/1.1 OK 200\r\n")
+      if call:match("^/api/") then api.post(call,json.decode(args)) return end
+      local id = call:match("^/trigger/(%-?%d*)")
+      if id then
+        id=tonumber(id)
+        if id then Event.post({type='other', _id=math.abs(id), _args=json.decode(args)}) 
+        else Event.post(json.decode(args)) end
+        return
       end
-    end
-  end
+    end,
+    function(client,call,args) -- PUT handler
+      Log(LOG.LOG,"PUT %s %s",call,args)
+    end)
 
-  local ipAddress = getIPaddress()
-  _POLLINTERVAL = 200 
-  if _EVENTSERVER and not _SPEEDTIME then
-    _System.setTimeout(eventServer(ipAddress,_EVENTSERVER),nil,"EVENTSERVER")
-  end
-
-  if _REMOTE then ER.announceLocals(ipAddress,_EVENTSERVER) end
   Event.post({type='autostart'})     -- Post autostart to get things going
   for _,e in ipairs(_mainPosts) do Event.post(e[1],e[2]) end
 
-  _System.runTimers()                -- Run our simulated threads...
+  if _REMOTE then ER.announceEmulator(ipAddress,_EVENTSERVER) end
 
+  _System.runTimers()                -- Run our simulated threads...
+  os.exit()
 end
 
 ------------------------------------------------------------------------
@@ -324,6 +310,10 @@ function support()
   local mt = {}; mt.__mode = "k"; 
   setmetatable(_SceneContext,mt)  -- weak keys (keys are coroutines)
 
+  function YIELD(ms)
+    local co = coroutine.running()
+    if _SceneContext[co] then coroutine.yield(co,(ms and ms > 0 and ms or 100)/1000) end
+  end
 -- If we need to access local scene variables
   function Scene.global() return _SceneContext[coroutine.running()] end -- global().<var>
   function Scene.setGlobal(v,s) _SceneContext[coroutine.running()][v]=s end -- setGlobal('v',42)
@@ -368,7 +358,7 @@ function support()
     globals.__sceneCode = scene.code 
     globals.__debugName=_format("[%s:%s]",scene.id,scene.runningInstances+1)
     globals.__sceneCleanup = function(co)
-      if scene._terminateMsg and not scene._terminateMsg(scene.id,env.__orgInstanceNumber,env) then
+      if (not scene._terminateMsg) or (scene._terminateMsg and not scene._terminateMsg(scene.id,env.__orgInstanceNumber,env)) then
         Log(LOG.LOG,"Scene %s terminated (%s)",env.__debugName,co)
       end
       scene.runningInstances=scene.runningInstances-1 
@@ -383,7 +373,7 @@ function support()
       0,scene.name,env)
     _SceneContext[tr]=env
     if isRemoteEvent(args) then args=decodeRemoteEvent(args) end
-    if scene._startMsg and not scene._startMsg(scene.id,scene.runningInstances,env) then
+    if (not scene._startMsg) or (scene._startMsg and not scene._startMsg(scene.id,scene.runningInstances,env)) then
       Log(LOG.LOG,"Scene %s started (%s), trigger:%s %s(%s)",globals.__debugName,scene.name,tojson(event),args and tojson(args) or "",tr)
     end
   end
@@ -511,7 +501,11 @@ function support()
       s = api._get(false,"/devices")
       for _,v in ipairs(s) do rsrc.devices[v.id] = v c3=c3+1 end
       s = api._get(false,"/scenes") -- need to retrieve once more to get the Lua code
-      for _,v in ipairs(s) do rsrc.scenes[v.id] = api._get(false,"/scenes/"..v.id) c2=c2+1 end
+      for _,v in ipairs(s) do 
+        local scene = api._get(false,"/scenes/"..v.id)
+        rsrc.scenes[v.id] = scene; c2=c2+1 
+        scene.EventRunner = scene.lua and scene.lua:match(ER.gEventRunnerKey)
+      end
       s = api._get(false,"/iosDevices")
       for _,v in ipairs(s) do rsrc.iosDevices[v.id] = v end
       rsrc.info = api._get(false,"/settings/info")
@@ -542,21 +536,20 @@ function support()
     persistence.store(file, HC2.rsrc);
   end
 
-  function HC2.getRsrc(name,id)
+  function HC2.getRsrc(name,id,f)
     local rsrcs=HC2.rsrc[name]
     local rsrc=rsrcs[id]
-    if rsrc and rsrc._local then return rsrc
+    if not _REMOTE and rsrc then rsrc._local = true end
+    if rsrc and rsrc._local or f then
+      -- found
     elseif _REMOTE and rsrc then
       local rsrc = api._get(false,"/"..name.."/"..id)
       rsrcs[id] = rsrc
-      return rsrc
     elseif not rsrc then-- rsrc doesn't exists
       if name=='globalVariables' and _AUTOCREATEGLOBALS then
-        rsrc = {name=is, modified=osTime(), _local=true}
-        rsrcs[id] = rsrc
+        rsrc = HC2.createGlobal(id)
       elseif name=='devices' and _AUTOCREATEDEVICES then
         rsrc = HC2.createDevice(id,tostring(id))
-        rsrcs[id] = rsrc
       end
     end
     return rsrc
@@ -570,19 +563,24 @@ function support()
       r2 = api._get(false,"/"..name) -- if remote connection, get fresh data
       for _,r3 in ipairs(r2) do
         local i = _getId(name,r3) -- only update non-local data
-        if HC2.rsrc[name][i] and not HC2.rsrc[name][i]._local then HC2.rsrc[name][i] = r3 end
+        if HC2.rsrc[name][i] and not HC2.rsrc[name][i]._local then 
+          HC2.rsrc[name][i] = r3
+          if name=='scenes' then
+            HC2.rsrc[name][i] = api._get(false,"/"..name.."/"..r3.id)
+          end
+        end
       end
     end
-    for id,r in pairs(HC2.rsrc[name]) do res[#res+1]=r end
+    for id,r in pairs(HC2.rsrc[name]) do res[#res+1]=r r._local=(not _REMOTE) and true or r._local end
     return res
   end
 
-  function HC2.getDevice(id) return HC2.getRsrc('devices',id) end
-  function HC2.getGlobal(id) return HC2.getRsrc('globalVariables',id) end
-  function HC2.getScene(id) return HC2.getRsrc('scenes',id) end
-  function HC2.getRoom(id) return HC2.getRsrc('rooms',id) end
-  function HC2.getSection(id) return HC2.getRsrc('sections',id) end
-  function HC2.getiosDevice(id) return HC2.getRsrc('iosDevices',id) end
+  function HC2.getDevice(id,f) return HC2.getRsrc('devices',id,f) end
+  function HC2.getGlobal(id,f) return HC2.getRsrc('globalVariables',id,f) end
+  function HC2.getScene(id,f) return HC2.getRsrc('scenes',id,f) end
+  function HC2.getRoom(id,f) return HC2.getRsrc('rooms',id,f) end
+  function HC2.getSection(id,f) return HC2.getRsrc('sections',id,f) end
+  function HC2.getiosDevice(id,f) return HC2.getRsrc('iosDevices',id,f) end
 
 -- ToDo, This should be cleaned up and functionality moved from fibaro:* to api.*
 --[[
@@ -618,6 +616,19 @@ POST:/globalVariables/<var struct> -- Create variable
       elseif arg=='location' then return HC2.rsrc.location
       else return null end
     end,
+    weather=function(arg)
+      local w = not _REMOTE and 
+      (json.decode(
+          [[{"Temperature": 9.5,"TemperatureUnit": "C",
+             "Humidity": 91.8,
+             "Wind": 11.52,
+             "WindUnit": "km/h",
+             "WeatherCondition": "cloudy",
+             "ConditionCode": 26}
+          ]]))
+      or api._get(false,"/weather")
+      return w
+    end,
     iosDevice=function(arg) return stdGetRsrc('iosDevices',tonumber(arg)) end,
     devices=function(arg) return stdGetRsrc('devices',tonumber(arg)) end,
     sections=function(arg) return stdGetRsrc('sections',tonumber(arg)) end,
@@ -640,8 +651,20 @@ POST:/globalVariables/<var struct> -- Create variable
 
   HC2._postHandlers={ -- create global variable, always local...?
     globalVariables=function(r,data,cType) 
-      local v = HC2.rsrc.globalVariable[r]
+      local v = HC2.rsrc.globalVariables[data.name]
       if not v then data._local=true; HC2.rsrc.globalVariables[data.name]=data end
+    end,
+    scenes=function(r,data,cType)
+      local sceneID,cmd=r:match("(%-?%d+)/action/(%w+)")
+      sceneID=math.abs(tonumber(sceneID))
+      if cmd=='start' then
+        local scene = HC2.getScene(sceneID,true)
+        if not scene then return end
+        if scene._local then --Scene.start(scene,{type='other'},args) 
+          Event.post({type='other',_id=scene.id,_args=data.args})
+          BREAKIDLE=true
+        end
+      end
     end,
   }
 
@@ -656,15 +679,21 @@ POST:/globalVariables/<var struct> -- Create variable
       if m and HC2._putHandlers[m] then return HC2._putHandlers[m](r,data,cType)
       else error("PUT "..call.." not supported") end
     end,
-    POST=function(call,data,cType) 
-      local m,r = call:match("/([^/]+)/?(%w*)$")
-      if m and HC2._getHandlers[m] then return HC2._getHandlers[m](r,data,cType)
+    POST=function(call,data,cType)
+      if call=="/" then
+        Event.post(data)
+        BREAKIDLE=true
+        return
+      end
+      local m,r = call:match("^/([^/]+)/?(.*)$")
+      if m and HC2._postHandlers[m] then return HC2._postHandlers[m](r,data,cType)
       else error("POST "..call.." not supported") end
     end,
     DELETE=function(call,data,cType) error("DELETE not supported") end,
   }
 
   function HC2.apiCall(method,call,data,cType) 
+    call=call:match("^/api(.*)") or call
     local mhandler = _API_METHODS[method]
     if mhandler then return mhandler(call,data,cType) else return null end
   end
@@ -683,22 +712,32 @@ POST:/globalVariables/<var struct> -- Create variable
     end
   end
 
-  local function setLocal(list,args)
+  local function setRsrcStatus(list,args,tp)
     if args==true then 
-      for _,d in pairs(list) do d._local=true end
+      for _,d in pairs(list) do d._local=tp end
     elseif type(args)=='table' then 
-      for _,id in ipairs(args) do list[id]._local = true end 
+      for _,id in ipairs(args) do if list[id] then list[id]._local = tp end end 
+    elseif type(args)=='number' then 
+      if list[id] then list[id]._local = tp end
+    elseif type(args)=='string' then 
+      if list[id] then list[id]._local = tp end
     end
   end
 
-  function HC2.localDevices(args) setLocal(HC2.rsrc.devices,args) end
-  function HC2.localGlobals(args) setLocal(HC2.rsrc.globalVariables,args) end
-  function HC2.localRooms(args) setLocal(HC2.rsrc.rooms,args) end
-  function HC2.localScenes(args) setLocal(HC2.rsrc.scenes,args) end
+  function HC2.localDevices(args) setRsrcStatus(HC2.rsrc.devices,args,true) end
+  function HC2.localGlobals(args) setRsrcStatus(HC2.rsrc.globalVariables,args,true) end
+  function HC2.localRooms(args) setRsrcStatus(HC2.rsrc.rooms,args,true) end
+  function HC2.localScenes(args) setRsrcStatus(HC2.rsrc.scenes,args,true) end
+
+  function HC2.globalDevices(args) setRsrcStatus(HC2.rsrc.devices,args) end
+  function HC2.globalGlobals(args) setRsrcStatus(HC2.rsrc.globalVariables,args) end
+  function HC2.globalRooms(args) setRsrcStatus(HC2.rsrc.rooms,args) end
+  function HC2.globalScenes(args) setRsrcStatus(HC2.rsrc.scenes,args) end
 
   function HC2.createGlobal(name,value)
+    if value~=nil then value=tostring(value) end
     HC2.rsrc.globalVariables[name]={name=name, value=value,modified=osTime(),_local=true}
-    return C2.rsrc.globalVariables[name]
+    return HC2.rsrc.globalVariables[name]
   end
 
 -- lets make a vanilla device of type switch...
@@ -839,13 +878,16 @@ POST:/globalVariables/<var struct> -- Create variable
   WAITINDEX=_SPEEDTIME and "SPEED" or "NORMAL"
 
   _System.waitFor={
-    ["SPEED"] = function(t) _gTime=_gTime+t if _idleHandler then _idleHandler() end return false end,
+    ["SPEED"] = function(t) _gTime=_gTime+t if _System.idleHandler then _System.idleHandler() end return false end,
     --["NORMAL"] = function(t) socket.sleep(t) _gTime=_gTime+t return false end,
     ["NORMAL"] = function(t) 
+      local idle = _System.idleHandler
+      BREAKIDLE=false
       t=t+os.clock() 
-      while os.clock() < t do 
-        if _idleHandler then _idleHandler() end
+      while os.clock() < t and not BREAKIDLE do 
+        if idle then idle() end
       end
+      _gTime=_gTime+t
       return false 
     end,
   }
@@ -853,8 +895,9 @@ POST:/globalVariables/<var struct> -- Create variable
   function _System.runTimers()
     while _gTimers ~= nil do
       --_System.dumpTimers()
+      ::REDO::
       local co,now = _gTimers,osTimeFrac()
-      if co.time > now then _System.waitFor[WAITINDEX](co.time-now) end
+      if co.time > now then _System.waitFor[WAITINDEX](co.time-now) goto REDO end
       _gTimers=_gTimers.next
       if co.env then setfenv(co.env.__sceneCode,co.env) end
       local stat,thread,time=coroutine.resume(co.co)
@@ -932,6 +975,51 @@ POST:/globalVariables/<var struct> -- Create variable
     end
   end
 
+  function _System.getIPadress()
+    local someRandomIP = "192.168.1.122" --This address you make up
+    local someRandomPort = "3102" --This port you make up  
+    local mySocket = socket.udp() --Create a UDP socket like normal
+    mySocket:setpeername(someRandomIP,someRandomPort) 
+    local myDevicesIpAddress, somePortChosenByTheOS = mySocket:getsockname()-- returns IP and Port 
+    return myDevicesIpAddress
+  end
+
+  function _System.makeProcessManager()
+    self = {}
+    local threads=nil
+    local free=nil
+
+    function self.create(fun,...)
+      local args={...}
+      fun = coroutine.create(fun)
+      local l=free; 
+      if free==nil then l={} else free=free.next; l.next=nil end
+      l.thread=fun; l.args=args; l.next=threads; threads=l; return l
+    end
+    local function dispose(t) t.next=free; free=t end
+
+    function resume(co,args) 
+      coroutine.resume(co,table.unpack(args))
+      local s = coroutine.status(co) 
+      return s
+    end
+
+    function self.idleHandler()
+      while(threads) do
+        if resume(threads.thread,threads.args)=='dead' then
+          local l = threads; threads=threads.next; dispose(l) 
+        else break end
+      end
+      local t = threads
+      while(t and t.next) do 
+        if resume(t.next.thread,t.next.args)=='dead' then 
+          local l = t.next; t.next=t.next.next; dispose(l) 
+        else t=t.next end
+      end
+    end
+
+    return self
+  end
 ------------------------------------------------------------------------------
 -- Event engine
 ------------------------------------------------------------------------------
@@ -1051,12 +1139,13 @@ POST:/globalVariables/<var struct> -- Create variable
       time = toTime(time or osTime())
       if time < osTime() then return nil end
       if _debugFlags.triggers and not (type(e)=='function') then
-        local e2 = e
-        if e.type=='other' and isRemoteEvent(e._args) then
-          e2 = decodeRemoteEvent(e._args)
+        if e.type=='other' and e._id then
+          Log(LOG.LOG,"System trigger:{\"type\":\"other\"} to scene:%s at %s",e._id,osDate("%a %b %d %X",time)) 
+        else
+          Log(LOG.LOG,"System trigger:%s at %s",tojson(e),osDate("%a %b %d %X",time)) 
         end
-        Log(LOG.LOG,"System trigger:%s at %s",tojson(e2),osDate("%a %b %d %X",time)) 
       end
+      BREAKIDLE=true
       if type(e)=='function' then return _System.setTimeout(e,1000*(time-osTime()),"Timer")
       else return _System.setTimeout(function() self._handleEvent(e) end,1000*(time-osTime()),"Main") end
     end
@@ -1135,39 +1224,9 @@ POST:/globalVariables/<var struct> -- Create variable
     else return value end
   end
 
-  function __fibaro_get_device(deviceID,lcl) 
-    __assert_type(deviceID ,"number")
-    local d = HC2.rsrc.devices[deviceID]
-    if lcl or (not _REMOTE) or (d and d._local) then return d
-    else return api._get(true,"/devices/"..deviceID) end
-  end
-
-  function __fibaro_get_room(roomID,lcl) 
-    __assert_type(roomID , "number") 
-    local r = HC2.rsrc.rooms[roomID]
-    if lcl or (not _REMOTE) or (r and r._local) then return r
-    else return api._get(true,"/rooms/"..roomID) end
-  end
-
-  function __fibaro_get_global_variable(varName,lcl)
-    __assert_type(varName ,"string")
-    local v = HC2.rsrc.globalVariables[varName]
-    if lcl or (not _REMOTE) or (v and v._local) then return v
-    else return api._get(true,"/globalVariables/"..varName) end
-  end
-
   function __fibaro_get_device_property(deviceID ,propertyName, lcl)
-    local d = HC2.rsrc.devices[deviceID]
-    if lcl or (not _REMOTE) or (d and d._local) then
-      return d and {value=__convertToString(d.properties[propertyName]),modified=d.modified}
-    else return api._get(true,"/devices/"..deviceID.."/properties/"..propertyName) end
-  end
-
-  function __fibaro_get_scene(sceneID,lcl) 
-    __assert_type(sceneID, "number")
-    local s = HC2.getScene(sceneID)
-    if lcl or (not _REMOTE) or (s and s._local) then return s
-    else return api._get(true,"/scenes/"..sceneID) end
+    local d = HC2.getDevice(deviceID)
+    return d and {value=__convertToString(d.properties[propertyName] or false),modified=d.modified}
   end
 
   function fibaro:getSourceTrigger() return Scene.global().__fibaroSceneSourceTrigger end
@@ -1184,28 +1243,28 @@ POST:/globalVariables/<var struct> -- Create variable
   function fibaro:sleep(n) return coroutine.yield(coroutine.running(),n/1000) end
   function fibaro:abort() coroutine.yield(coroutine.running(),'%%ABORT%%') end
 
-  function fibaro:countScenes(sceneID) 
+  function fibaro:countScenes(sceneID) YIELD()
     sceneID = sceneID or Scene.global().__fibaroSceneId
-    local scene = __fibaro_get_scene(sceneID) 
+    local scene = HC2.getScene(sceneID) 
     return scene ==  nil and 0 or scene.runningInstances
   end
 
-  function fibaro:isSceneEnabled(sceneID) 
-    local scene = __fibaro_get_scene(sceneID) 
+  function fibaro:isSceneEnabled(sceneID) YIELD() 
+    local scene = HC2.getScene(sceneID) 
     if  scene ==  nil then return  nil end
     return scene.runConfig == "TRIGGER_AND_MANUAL" or scene.runConfig == "MANUAL_ONLY"
   end
 
-  function fibaro:killScenes(sceneID)
-    local scene = __fibaro_get_scene(sceneID,true)
+  function fibaro:killScenes(sceneID) YIELD()
+    local scene = HC2.getScene(sceneID,true)
     if not scene then return end
     if scene._local then
       error("local killScene not implemented yet")
     elseif _REMOTE then api._post(true,"/scenes/"..sceneID.."/action/stop") end
   end
 
-  function fibaro:startScene(sceneID,args)
-    local scene = __fibaro_get_scene(sceneID,true)
+  function fibaro:startScene(sceneID,args) YIELD()
+    local scene = HC2.getScene(sceneID,true)
     if not scene then return end
     if scene._local then --Scene.start(scene,{type='other'},args) 
       Event.post({type='other',_id=scene.id,_args=args})
@@ -1214,26 +1273,26 @@ POST:/globalVariables/<var struct> -- Create variable
 
   function fibaro:args() return Scene.global().__fibaroSceneArgs end
 
-  function fibaro:setSceneEnabled(sceneID , enabled) 
+  function fibaro:setSceneEnabled(sceneID , enabled) YIELD() 
     __assert_type(sceneID ,"number") 
     __assert_type(enabled ,"boolean")
-    local scene = __fibaro_get_scene(sceneID,true)
+    local scene = HC2.getScene(sceneID,true)
     local runConfig = enabled ==true and "TRIGGER_AND_MANUAL" or "DISABLED"
     if (not _REMOTE) or (scene and scene._local) then
       if scene then scene.runConfig = runConfig end
     else api._put(true,"/scenes/"..sceneID, {id = sceneID ,runConfig = runConfig}) end 
   end
 
-  function fibaro:getSceneRunConfig(sceneID) 
-    local scene = __fibaro_get_scene(sceneID) 
+  function fibaro:getSceneRunConfig(sceneID) YIELD() 
+    local scene = HC2.getScene(sceneID) 
     if scene ==  nil then return  nil end
     return scene.runConfig
   end
 
-  function fibaro:setSceneRunConfig(sceneID ,runConfig) 
+  function fibaro:setSceneRunConfig(sceneID ,runConfig) YIELD() 
     __assert_type(sceneID ,"number") 
     __assert_type(runConfig ,"string")
-    local scene = __fibaro_get_scene(sceneID,true)
+    local scene = HC2.getScene(sceneID,true)
     if (not _REMOTE) or (scene and scene._local) then 
       if scene then scene.runConfig = runConfig end
     else api._put(true,"/scenes/"..sceneID, {id = sceneID ,runConfig = runConfig}) end
@@ -1254,39 +1313,44 @@ POST:/globalVariables/<var struct> -- Create variable
     return  0 
   end
 
-  function fibaro:getType(deviceID) 
+  function fibaro:getType(deviceID) YIELD() 
     local dev = HC2.getDevice(deviceID)
     if  dev == nil then return  nil end
     return dev.type
   end
 
-  function fibaro:get(deviceID ,propertyName) 
+  function fibaro:get(deviceID ,propertyName) YIELD() 
     local property = __fibaro_get_device_property(deviceID , propertyName)
     if property ==  nil then return  nil end
-    return __convertToString(property.value) , property.modified
+    return property.value , property.modified
   end
 
-  function fibaro:getValue(deviceID , propertyName) return (fibaro:get(deviceID ,propertyName)) end
+  function fibaro:getValue(deviceID ,propertyName) YIELD() 
+    local property = __fibaro_get_device_property(deviceID , propertyName)
+    return property and property.value
+  end
 
-  function fibaro:getModificationTime(deviceID ,propertyName) return select(2,fibaro:get(deviceID,propertyName)) end
+  function fibaro:getModificationTime(deviceID ,propertyName) 
+    local property = __fibaro_get_device_property(deviceID , propertyName)
+    return property and property.modified
+  end
 
-  function fibaro:getGlobal(varName) 
-    local globalVar = __fibaro_get_global_variable(varName) 
+  function fibaro:getGlobal(varName) YIELD(10) 
+    local globalVar = HC2.getGlobal(varName) 
     if globalVar ==  nil then return  nil end
     return globalVar.value ,globalVar.modified
   end
 
-  function fibaro:getGlobalValue(varName) 
-    local globalVar = __fibaro_get_global_variable(varName) 
-    if globalVar ==  nil then return  nil end
-    return globalVar.value
+  function fibaro:getGlobalValue(varName) YIELD(10)
+    local globalVar = HC2.getGlobal(varName)
+    return globalVar and  globalVar.value 
   end
 
   function fibaro:getGlobalModificationTime(varName) return select(2,fibaro:getGlobal(varName)) end
 
-  function fibaro:setGlobal(varName ,value) 
+  function fibaro:setGlobalOld(varName ,value) 
     __assert_type(varName ,"string")
-    local globalVar = __fibaro_get_global_variable(varName,true)
+    local globalVar = HC2.getGlobal(varName,true)
     if (not _REMOTE) or (globalVar and globalVar._local) then
       if not globalVar and _AUTOCREATEGLOBALS then
         HC2.rsrc.globalVariables[varName]={name=varName,_local=true}
@@ -1305,6 +1369,22 @@ POST:/globalVariables/<var struct> -- Create variable
     else
       error("Non existent fibaro global: "..varName)
     end
+  end
+
+  function fibaro:setGlobal(varName ,value) YIELD(10) 
+    __assert_type(varName ,"string")
+    ::REDO::
+    local globalVar = HC2.getGlobal(varName,true)
+    if globalVar and globalVar._local then -- we have a local
+      globalVar.value,globalVar.modified= tostring(value),osTime()
+      if _debugFlags.globals then Log(LOG.LOG,"Setting global %s='%s'",varName,value) end
+      Event.post({type='global',name=globalVar.name}) -- trigger
+    elseif globalVar then -- we have a global
+      api._put(true,"/globalVariables/"..varName ,{value=tostring(value), invokeScenes= true}) 
+    elseif _AUTOCREATEGLOBALS then -- we autocreate
+      _System.createGlobal(varName)
+      goto REDO
+    else error("Non existent fibaro global: "..varName) end
   end
 
   function fibaro:calculateDistance(position1 , position2) 
@@ -1341,7 +1421,7 @@ POST:/globalVariables/<var struct> -- Create variable
   _specCalls['pressButton'] = function(id,msg) end -- simulate VD?
   _specCalls['setPower'] = function(id,value) setAndPropagate(id,"power",value) end
 
-  function fibaro:call(deviceID ,actionName ,...) 
+  function fibaro:call(deviceID ,actionName ,...)  YIELD(10)
     deviceID =  tonumber(deviceID) 
     __assert_type(actionName ,"string")
     local dev = HC2.getDevice(deviceID)
@@ -1366,7 +1446,7 @@ POST:/globalVariables/<var struct> -- Create variable
 
   function fibaro:getRoomName(roomID) 
     __assert_type(roomID ,'number') 
-    local room = __fibaro_get_room(roomID) 
+    local room = HC2.getRoom(roomID) 
     return room and room.name 
   end
 
@@ -1591,28 +1671,28 @@ Expected input:
 
   function ER.checkForEventRunner(scene)
     scene.EventRunner = scene.lua:match(ER.gEventRunnerKey)
-    scene._startMsg = function(id,inst,env) return inst > 0 end
-    scene._terminateMsg = function(id,inst,env) return inst > 1 end
+    if scene.EventRunner then
+      scene._startMsg = function(id,inst,env) return inst > 0 end
+      scene._terminateMsg = function(id,inst,env) return inst > 1 end
+    end
   end
 
-  function ER.announceLocals(ipaddress,port)
+  function ER.announceEmulator(ipaddress,port)
     -- Tell HC2 what local scenes we have.
     local locals,remotes={},{}
     for id,scene in pairs(HC2.rsrc.scenes) do
       if scene._local then 
         locals[#locals+1]=id  
-      else 
-        if scene.EventRunner then
+      elseif scene.EventRunner then
           -- Should we check that they are active too?
           remotes[#remotes+1]=id
-        end
       end
     end
     if #remotes>0 then
       local event = {type='%%EMU%%',ids=locals,adress="http://"..ipaddress..":"..port.."/"}
       local args=encodeRemoteEvent(event)
       for _,sceneID in ipairs(remotes) do
-        --if _REMOTE then api._post(true,"/scenes/"..sceneID.."/action/start",{args=args}) end
+        if _REMOTE then api._post(true,"/scenes/"..sceneID.."/action/start",{args=args}) end
       end
     end
   end
@@ -1625,6 +1705,65 @@ Expected input:
       local args=encodeRemoteEvent(event)
       api._post(true,"/scenes/"..remoteSceneID.."/action/start",{args=args})
     end
+  end
+
+  function makeWebserver(ipAdress)
+    local self = { ipAdress = ipAdress }
+
+    local function clientHandler(client,getHandler,postHandler,putHandler)
+      client:settimeout(0,'b')
+      client:setoption('keepalive',true)
+      while true do
+        local l,e,j = client:receive()
+        if l then
+          local method,call = l:match("^(%w+) (.*) HTTP/1.1")
+          if method and call then
+            if method=='POST' or method=='PUT' then
+              repeat
+                l,e,j = client:receive()
+              until e=='closed' or e=='timeout'
+              if j and j~="" then
+                if method=='POST' and postHandler then postHandler(client,call,j)
+                elseif method=='PUT' and putHandler then putHandler(client,call,j)
+                  client:close()
+                end
+              end
+            elseif method=="GET" and getHandler then
+              getHandler(client,call)
+              client:close()
+            end
+          end
+        end
+        if e == 'closed' then 
+          return else 
+          coroutine.yield() 
+        end
+      end
+    end
+
+    local function socketServer(server,getHandler,postHandler,putHandler)
+      while true do
+        repeat
+          client, err = server:accept()
+          if err == 'timeout' then coroutine.yield() end
+        until err ~= 'timeout'
+        ProcessManager.create(clientHandler,client,getHandler,postHandler,putHandler)
+      end
+    end
+
+    function self.createServer(name,port,getHandler,postHandler,putHandler)
+      local server,c,err=assert(socket.bind("*", port))
+      local i, p = server:getsockname()
+      local timeoutCounter = 0
+      assert(i, p)
+      --printf("http://%s:%s/test",ipAdress,port)
+      server:settimeout(0,'b')
+      server:setoption('keepalive',true)
+      ProcessManager.create(socketServer,server,getHandler,postHandler,putHandler)
+      Log(LOG.LOG,"Created %s at %s:%s",name,self.ipAdress,port)
+    end
+
+    return self
   end
 
 end

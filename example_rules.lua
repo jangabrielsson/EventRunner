@@ -5,15 +5,15 @@
   (to initoialize the HomeTable)
   
 --]]
-local tExpr = false
-local tRules = false
+local tExpr = true
+local tRules = true
 local tShell = false
 local tGEA = false
 local tEarth = false
-local tTest1 = false
+local tTest1 = true
 local tTest2 = false
 local tPresence = false
-local tHouse = true
+local tHouse = false
 local tScheduler = false
 local tRemoteAsync = false
 local tTimes = false
@@ -23,16 +23,92 @@ local function post(e,t) Event.post(e,t) end
 local function prop(id,state,prop) return {type='property', deviceID=id, propertyName=prop, value=state} end
 local function glob(id,state) return {type='global', name=id, value=state} end  
 
+local configData = 
+{
+  scenes = {
+    sonos = {id = 312},
+    alarm = {send = {},id = 307},
+    controller = {send = {},id = 311},
+    arp = {send = {'presence'},id = 32},
+    presence = {id = 308},
+    ilocator = {send = {'alarm','controller'},id = 305},
+    calendar = {send = {},id = 304},
+    timeandlight = {send = {},id = 310},
+    configurator = {id = 291}
+  },
+  dev = {
+    hall = {
+      dryer = 125,door = 102,lamp_hall = 327,door_bell = 367, siren = 380,
+      lux = 136,temp = 135,movement = 134,washing_machine = 95,lamp_entrance = 409
+    },
+    bedroom = {
+      lamp_window = 283,lux = 263,lamp_table = 288,temp = 262,movement = 261,bed_led = 300,lamp_roof = 298
+    },
+    kitchen = {
+      sonos = 360,lamp_sink = 319,dish_washer = 504,lamp_stove = 323,lux = 133,lamp_table = 296,
+      dog = 93,sink_led = 121,temp = 132,movement = 131
+    },
+    game = {
+      lamp_window = 505,temp = 376,heat_alarm = 375,fire = 374,lamp_roof = 224
+    },
+    remote = 362,
+    tim = {
+      lamp_window = 281,lux = 309,computer = 129,temp = 308,movement = 307,
+      bed_led = 83,lamp_roof = 350
+    },
+    back = {
+      door = 119,lamp = 80,power_socket = 82
+    },
+    toilet_up = {
+      temp = 340,movement = 339,lux = 341
+    },
+    max = {
+      lamp_window = 279,lux = 304,temp = 303,movement = 302,bed_led = 84,lamp_roof = 218
+    },
+    toilet_down = {
+      lux = 333,temp = 332,movement = 331,door = 364,lamp_roof = 315
+    },
+    livingroom = {
+      lamp_globe = 87,heat_alarm = 371,light_window = 118,fire = 370,lamp_window = 509,
+      lux = 139,lamp_roof_holk = 225,temp = 138,movement = 137,lamp_roof_sofa = 511,lamp_tv = 512
+    }
+  },
+  users = {
+    max = {phone = 888,name = 'Max'},
+    daniela = {phone = 777,name = 'Daniela'},
+    tim = {phone = 888,name = 'Tim'},
+    jan = {phone = 411,name = 'Jan'}
+  }
+}
+if true then
+function mkDevs(dev)
+  if type(dev)=='number' then _System.createDevice(dev)
+  elseif type(dev)=='table' then
+    for _,v in pairs(dev) do mkDevs(v) end
+  end
+end
+
+mkDevs(configData.dev)
+end
+
 -- Read in devicetable
-local conf = json.decode(fibaro:getGlobalValue(_deviceTable))
+conf = configData
+--local conf = json.decode(fibaro:getGlobalValue(_deviceTable))
 dev = conf.dev
 Util.reverseMapDef(dev) -- Make device names availble for debugging
 
 -- Set up short variables for use in rules
 for k,v in pairs({ 
-    td=dev.toilet_down,kt=dev.kitchen,ha=dev.hall,
-    lr=dev.livingroom,ba=dev.back,gr=dev.game,
-    ti=dev.tim,ma=dev.max,bd=dev.bedroom}) 
+    td=dev.toilet_down,
+    kt=dev.kitchen,
+    ha=dev.hall,
+    lr=dev.livingroom,
+    ba=dev.back,
+    gr=dev.game,
+    ti=dev.tim,
+    ma=dev.max,
+    bd=dev.bedroom
+  }) 
 do Util.defvar(k,v) end
 
 if tExpr then -- test some standard expression
@@ -74,10 +150,10 @@ end
 
 if tRules then
   local conf = [[{
-   kitchen:{light:20,lamp:21,sensor:22},
-   room:{light:23,sensor:24,tableLamp:25},
-   hall:{switch:26,door:27},
-   phone:{jan:100,dani:101}
+   "kitchen":{"light":20,"lamp":21,"sensor":22},
+   "room":{"light":23,"sensor":24,"tableLamp":25},
+   "hall":{"switch":26,"door":27},
+   "phone":{"jan":100,"dani":101}
   }]]
   local dev = json.decode(conf)
   Util.reverseMapDef(dev) -- Make device names availble for debugging
@@ -109,14 +185,14 @@ if tScheduler then
   _System.setTime("06:00",24*20) -- start simulation at 06:00, run for 20 days
   -- setup data we need
   local conf = [[{
-   kitchen:{light:20,lamp:21,sensor:22},
-   room:{light:23,sensor:24,tableLamp:25,philipsHue:201},
-   hall:{switch:26,door:27,sensor:28,light:33},
-   back:{lamp:56,door:57},
-   bathroom:{door:47,lamp:48,sensor:49},
-   max:{lamp_window:70,lamp_bed:71},
-   bed:{lamp_window:80,lamp_bed:81},
-   phone:{jan:100,dani:101}
+   "kitchen":{"light":20,"lamp":21,"sensor":22},
+   "room":{"light":23,"sensor":24,"tableLamp":25,"philipsHue":201},
+   "hall":{"switch":26,"door":27,"sensor":28,"light":33},
+   "back":{"lamp":56,"door":57},
+   "bathroom":{"door":47,"lamp":48,"sensor":49},
+   "max":{"lamp_window":70,"lamp_bed":71},
+   "bed":{"lamp_window":80,"lamp_bed":81},
+   "phone":{"jan":100,"dani":101}
   }]]
   fibaro:setGlobal('jTable',conf)
 
@@ -310,7 +386,7 @@ if tPresence then
   local rule = Rule.eval
   rule("sensors={99,98,97}; door=88; home=true")
   rule("lamps={22,33,44,55}")
-   
+
   rule("sensors:breached => || door:safe >> home=true; post(#home)")
   rule("door:breached => home=false; post(#home)")
   rule("for(00:30,sensors:safe & door:safe) => || home==false >> home=true; post(#away)")
@@ -319,7 +395,7 @@ if tPresence then
   rule("#away => || !sim >> sim=true; post(#sim); log('Starting presence simulation')")
 
   rule("#sim => || sim >> lamp=lamps[rnd(1,4)]; lamp:toggle; post(#sim,ostime()+rnd(00:05,00:30))")
-  
+
   -- Test Presence logic
   --rule("99:off")
   rule("wait(t/13:00); door:on") -- Door open
@@ -606,21 +682,21 @@ if tTimes then
   Rule.eval("@sunrise & wday('mon-fri') => lamp:off")
   -- Every day at sunrise on Monday,Wednesday,Friday,Saturday,Sunday, turn off the lamp 
   Rule.eval("@sunrise & wday('mon,wed,fri-sun') => lamp:off")
- -- Every day at sunrise the first day of the month, turn off the lamp 
+  -- Every day at sunrise the first day of the month, turn off the lamp 
   Rule.eval("@sunrise & day('1') => lamp:off")
- -- Every day at sunrise on the first 15 days of the month, turn off the lamp 
+  -- Every day at sunrise on the first 15 days of the month, turn off the lamp 
   Rule.eval("@sunrise & day('1-15') => lamp:off")
- -- Every day at sunrise on the last day of the month, turn off the lamp 
+  -- Every day at sunrise on the last day of the month, turn off the lamp 
   Rule.eval("@sunrise & day('last') => lamp:off")
- -- Every day at sunrise on the first day of the last week of the month, turn off the lamp 
+  -- Every day at sunrise on the first day of the last week of the month, turn off the lamp 
   Rule.eval("@sunrise & day('lastw') => lamp:off")
- -- Every day at sunrise on a Monday on the last week of the month, turn off the lamp 
+  -- Every day at sunrise on a Monday on the last week of the month, turn off the lamp 
   Rule.eval("@sunrise & day('lastw-last') & wday('mon') => lamp:off")
- -- Every day at sunrise January to Mars, turn off the lamp 
+  -- Every day at sunrise January to Mars, turn off the lamp 
   Rule.eval("@sunrise & month('jan-mar') => lamp:off")
- -- Every day at sunrise on Mondays at even week numbers, turn off the lamp 
+  -- Every day at sunrise on Mondays at even week numbers, turn off the lamp 
   Rule.eval("@sunrise & wnum%2 == 0 & wday('mon') => lamp:off")
- -- Every day at sunrise on weekdays when fibaro global 'Presence' equals 'Home', turn off the lamp 
+  -- Every day at sunrise on weekdays when fibaro global 'Presence' equals 'Home', turn off the lamp 
   Rule.eval("@sunrise & $Presence=='Home' & wday('mon-fri') => lamp:off")
 -- Every day at sunrise on weekdays when fibaro global 'Presence' equals 'Home' or fibaro global 'Simulate' equals 'true', turn off the lamp 
   Rule.eval("@sunrise & ($Presence=='Home' | $Simulate=='true') & wday('mon-fri') => lamp:off")
@@ -632,9 +708,9 @@ if tTimes then
 end
 
 if tTriggerTuturial then
-  
-  
-  
+
+
+
   -- Smallest presence simulator?
   Rule.eval("$Presence='away'")
   Rule.eval("lamps={22,33,44,55,66,77,88}")

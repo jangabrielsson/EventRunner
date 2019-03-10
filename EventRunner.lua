@@ -1,13 +1,15 @@
 --[[
 %% properties
+893 value
 %% events
 %% globals
+myTimer
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-if dofile and not _EMULATED then _EMBEDDED={name="EventRunner",id=10} dofile("HC2.lua") end
+if dofile and not _EMULATED then _EMBEDDED={name="EventRunner",id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B2"  -- Mar 7, 2019 
+_version,_fix = "2.0","B3"  -- Mar 10, 2019 
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -47,7 +49,14 @@ function main()
   Util.defvars(HT.dev)            -- Make HomeTable defs available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable names available for logger
 
-  rule("@@00:00:10 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 10 second
+  rule("#alexa => log('HUPP:%s',env.event.val | '')")
+
+  rule("remote(_myNodeRed,{type='echo', value=42})")
+  rule("#response => log('Response:%s',tjson(env.event))")
+
+  rule("#foo => log('Yey')")
+  
+  --rule("@@00:00:10 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 10 second
 
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
 end -- main()
@@ -56,6 +65,7 @@ end -- main()
 Event = Event or {}
 _NUMBEROFBOXES = _NUMBEROFBOXES or 1
 _MAILBOXES={}
+_emulator={ids={},adress=nil}
 --_STARTLINE = _EMULATED and debug.getinfo(1).currentline or nil
 local _supportedEvents = {property=true,global=true,event=true,remote=true}
 local _trigger = fibaro:getSourceTrigger()
@@ -121,7 +131,7 @@ local function _poll()
       l = json.decode(l) l._sh=true
       if _debugFlags.msgTime then l._timestamps.received={os.time(),os.clock()} end
       setTimeout(function() Event.triggerHandler(l) end,5)-- and post it to our "main()"
-      _CXCS=0
+      _CXCS=1
     end
   end
   setTimeout(_poll,_CXCS) -- check again
@@ -138,6 +148,9 @@ Util = Util or {}
 tojson = json.encode
 gEventRunnerKey="6w8562395ue734r437fg3"
 gEventSupervisorKey="9t823239".."5ue734r327fh3"
+
+-- Patch possibly buggy setTimeout - what is 1ms between friends...
+setTimeout,oldSetTimeout = function(f,t) return oldSetTimeout(f, t and t < 1 and 1 or t﻿) end,setTimeout
 
 function _Msg(color,message,...)
   local args = type(... or 42) == 'function' and {(...)()} or {...}
@@ -314,7 +327,7 @@ function newEventEngine()
 
   local function httpPostEvent(url,payload, e)
     local HTTP = net.HTTPClient()
-    payload=json.encode({args={payload}})
+    payload=json.encode(payload)
     HTTP:request(url,{options = {
           headers = {['Accept']='application/json',['Content-Type']='application/json'},
           data = payload, timeout=2000, method = 'POST'},
@@ -323,13 +336,21 @@ function newEventEngine()
       })
   end
 
-  function self.postRemote(sceneIDorURL, e) -- Post event to other scenes or node-red
+  function self.postRemote(sceneID, e) -- Post event to other scenes or node-red
     _assert(isEvent(e),"Bad event format")
-    e._from = _OFFLINE and -1 or __fibaroSceneId
+    e._from = _EMULATED and -__fibaroSceneId or __fibaroSceneId
     local payload = encodeRemoteEvent(e)
-    if type(sceneIDorURL)=='string' and sceneIDorURL:sub(1,4)=='http' then
-      httpPostEvent(sceneIDorURL, payload[1], e)
-    else fibaro:startScene(sceneIDorURL,payload) end
+    if type(sceneID)=='string' and sceneID:sub(1,4)=='http' then -- external http event (node-red)
+      payload={args={payload[1]}}
+      httpPostEvent(sceneID, payload, e)
+    elseif not _EMULATED then                  -- On HC2
+      if sceneID < 0 then    -- call emulator
+        if not _emulator.adress then return end
+        httpPostEvent(_emulator.adress.."trigger/"..sceneID,payload)
+      else fibaro:startScene(sceneID,payload) end -- call other scene on HC2
+    else -- on emulator
+      fibaro:startScene(math.abs(sceneID),payload)
+    end
   end
 
   local _getProp = {}
@@ -1778,17 +1799,20 @@ Event.event({type=Event.SUB},
     end
   end)
 
-Event.event({type='%%EMU%%'},function(env) _emulator={ids=env.event.ids,adress=env.event.adress} end)
-Event.event({type='%%PROX%%'},function(env)
-    local function proxy(trigger)
-      if not _emulator.address then return end
-      local req = net.HTTPClient()
-      req:request(_emulator.adress,{options = {method = 'PUT', data=json.encode(trigger), timeout=500},
-          error=function() Event.triggerProxy=Event.post; Log(LOG.LOG,"Resetting proxy") end}) -- reset handler if error
-    end
-    if env.event.value then Event.triggerProxy=proxy else Event.triggerProxy=Event.post end
-    _emulator=_emulator or {}; 
-    _emulator.adress=env.event.adress; 
+Event.event({type='%%EMU%%'},function(env)
+    e = env.event
+    local ids = {}
+    for _,id in ipairs(e.ids or {}) do ids[id]=true end
+    _emulator={ids=ids,adress=e.adress} 
+    if e.proxy then
+      local function proxy(trigger)
+        if not _emulator.address then return end
+        local req = net.HTTPClient()
+        req:request(_emulator.adress,{options = {method = 'PUT', data=json.encode(trigger), timeout=500},
+            error=function() Event.triggerProxy=Event.post; Log(LOG.LOG,"Resetting proxy") end}) -- reset handler if error
+      end
+      Event.triggerHandler=proxy
+    else Event.triggerHandler=Event.post end
   end)
 
 ---------------------- Hue support, can be removed if not needed -------------------------
