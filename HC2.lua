@@ -26,7 +26,7 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
 
-_version,_fix = "0.4","fix1"     
+_version,_fix = "0.4","fix2"     
 
 _REMOTE=true                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
@@ -179,11 +179,18 @@ Content-Type: text/html
 <meta content="text/html; charset=ISO-8859-1" http-equiv="content-type">
 <title>HC2 emulator </title></head>
 <body>
-HELLO
+#SCENES#
+#DEVICES#
 </body></html>
 
 ]]
-      client:send(stdPage)
+      local s = HC2.listScenes(true)
+      local r1 = _format("<ul><li>%s</li></ul>",table.concat(s,"</li><li>"))
+      local d = HC2.listDevices(true)
+      local r2 = _format("<ul><li>%s</li></ul>",table.concat(d,"</li><li>"))
+      local page = stdPage:gsub("#SCENES#",r1)
+      page = page:gsub("#DEVICES#",r2)
+      client:send(page)
     end,
     function(client,call,args)  -- POST handler
       if _debugFlags.web then Log(LOG.LOG,"POST %s %s",call,args) end
@@ -699,18 +706,25 @@ POST:/globalVariables/<var struct> -- Create variable
     if mhandler then return mhandler(call,data,cType) else return null end
   end
 
-  function HC2.listDevices()
+  function HC2.listDevices(list)
+    local res={}
     for id,dev in pairs(HC2.rsrc.devices) do
       if tonumber(id) > 3 then
-        printf("deviceID:%-3d, name:%-20s type:%-30s, value:%-10s",id,dev.name,dev.type,dev.properties.value,dev._local and "local" or "")
+        res[#res+1]=string.format("deviceID:%-3d, name:%-20s type:%-30s, value:%-10s",
+          id,dev.name,dev.type,dev.properties.value,dev._local and "local" or "")
       end
     end
+    if not list then print(table.concat(res,"\r\n")) end 
+    return res
   end
 
-  function HC2.listScenes()
+  function HC2.listScenes(list)
+    res={}
     for id,scene in pairs(HC2.rsrc.scenes) do
-      printf("SceneID :%-3d, name:%-10s %s",id,scene.name,scene._local and "local" or "")
+      res[#res+1]=string.format("SceneID :%-3d, name:%-10s %s",id,scene.name,scene._local and "local" or "")
     end
+    if not list then print(table.concat(res,"\r\n")) end 
+    return res
   end
 
   local function setRsrcStatus(list,args,tp)
@@ -1239,7 +1253,7 @@ POST:/globalVariables/<var struct> -- Create variable
       if m then if f.ret then return else str=m; break end end
     end 
     local env = Scene.global()
-    print(_format("%s %s%s %s",os.date("%M:%S"),env.__debugName,osDate("[DEBUG] %H:%M:%S:"),str)) 
+    print(_format("%s%s %s",env.__debugName,osDate("[DEBUG] %H:%M:%S:"),str)) 
   end
   function fibaro:sleep(n) return coroutine.yield(coroutine.running(),n/1000) end
   function fibaro:abort() coroutine.yield(coroutine.running(),'%%ABORT%%') end
@@ -1685,8 +1699,8 @@ Expected input:
       if scene._local then 
         locals[#locals+1]=id  
       elseif scene.EventRunner then
-          -- Should we check that they are active too?
-          remotes[#remotes+1]=id
+        -- Should we check that they are active too?
+        remotes[#remotes+1]=id
       end
     end
     if #remotes>0 then
