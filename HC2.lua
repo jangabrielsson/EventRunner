@@ -26,9 +26,9 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
 
-_version,_fix = "0.4","fix2"     
+_version,_fix = "0.4","fix3"     
 
-_REMOTE=true                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
+_REMOTE=false                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
 _SPEEDTIME = false--24*180          -- Speed through X hours, if set to false run in real time
 _BLOCK_PUT=true              -- Block http PUT commands to the HC2 - e.g. changing resources on the HC2
@@ -59,7 +59,7 @@ function main()
     HC2.localRooms(true)   -- set all rooms to local
     --HC2.localScenes(true)  -- set all scenes to local
   end
-
+  
   --HC2.globalDevices({66,88}) -- We still want to run local, except for deviceID 66,88 thath will be controlled on the HC2
 
   HC2.loadEmbedded()
@@ -547,7 +547,7 @@ function support()
   function HC2.getRsrc(name,id,f)
     local rsrcs=HC2.rsrc[name]
     local rsrc=rsrcs[id]
-    if not _REMOTE and rsrc then rsrc._local = true end
+    --if not _REMOTE and rsrc then rsrc._local = true end
     if rsrc and rsrc._local or f then
       -- found
     elseif _REMOTE and rsrc then
@@ -579,7 +579,9 @@ function support()
         end
       end
     end
-    for id,r in pairs(HC2.rsrc[name]) do res[#res+1]=r r._local=(not _REMOTE) and true or r._local end
+    for id,r in pairs(HC2.rsrc[name]) do res[#res+1]=r 
+      --r._local=(not _REMOTE) and true or r._local 
+    end
     return res
   end
 
@@ -733,7 +735,7 @@ POST:/globalVariables/<var struct> -- Create variable
     elseif type(args)=='table' then 
       for _,id in ipairs(args) do if list[id] then list[id]._local = tp end end 
     elseif type(args)=='number' then 
-      if list[id] then list[id]._local = tp end
+      if list[args] then list[args]._local = tp end
     elseif type(args)=='string' then 
       if list[id] then list[id]._local = tp end
     end
@@ -1283,7 +1285,7 @@ POST:/globalVariables/<var struct> -- Create variable
     if not scene then return end
     if scene._local then --Scene.start(scene,{type='other'},args) 
       Event.post({type='other',_id=scene.id,_args=args})
-    elseif _REMOTE then api._post(true,"/scenes/"..sceneID.."/action/start",args and {args=args} or nil)  end
+    else api._post(true,"/scenes/"..sceneID.."/action/start",args and {args=args} or nil)  end
   end
 
   function fibaro:args() return Scene.global().__fibaroSceneArgs end
@@ -1446,7 +1448,7 @@ POST:/globalVariables/<var struct> -- Create variable
       (actionName=='setValue' and tostring(({...})[1]))
       if value==nil then error(_format("fibaro:call(..,'%s',..) is not supported, fix it!",actionName)) end
       setAndPropagate(deviceID,'value',value)
-    elseif _REMOTE and dev then
+    elseif dev then
       local args = "" 
       for i,v in  ipairs ({...})  do args = args.. '&arg'..tostring(i)..'='..urlencode(tostring(v)) end 
       api._get(true,"/callAction?deviceID="..deviceID.."&name="..actionName..args) 
