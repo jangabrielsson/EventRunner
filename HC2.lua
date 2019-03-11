@@ -26,7 +26,7 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
 
-_version,_fix = "0.4",""     
+_version,_fix = "0.4","fix1"     
 
 _REMOTE=true                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
@@ -177,7 +177,7 @@ Content-Type: text/html
 <html>
 <head>
 <meta content="text/html; charset=ISO-8859-1" http-equiv="content-type">
-<title>MyPage</title></head>
+<title>HC2 emulator </title></head>
 <body>
 HELLO
 </body></html>
@@ -313,7 +313,7 @@ function support()
 
   function YIELD(ms)
     local co = coroutine.running()
-    if _SceneContext[co] then coroutine.yield(co,(ms and ms > 0 and ms or 100)/1000) end
+    if _SceneContext[co] then BREAKIDLE=true; coroutine.yield(co,(ms and ms > 0 and ms or 100)/1000) end
   end
 -- If we need to access local scene variables
   function Scene.global() return _SceneContext[coroutine.running()] end -- global().<var>
@@ -884,11 +884,11 @@ POST:/globalVariables/<var struct> -- Create variable
     ["NORMAL"] = function(t) 
       local idle = _System.idleHandler
       BREAKIDLE=false
-      t=t+os.clock() 
-      while os.clock() < t and not BREAKIDLE do 
+      local t2=os.clock()+t
+      while os.clock() < t2 and not BREAKIDLE do 
         if idle then idle() end
       end
-      _gTime=_gTime+t
+      _gTime=os.time()
       return false 
     end,
   }
@@ -1239,7 +1239,7 @@ POST:/globalVariables/<var struct> -- Create variable
       if m then if f.ret then return else str=m; break end end
     end 
     local env = Scene.global()
-    print(_format("%s%s %s",env.__debugName,osDate("[DEBUG] %H:%M:%S:"),str)) 
+    print(_format("%s %s%s %s",os.date("%M:%S"),env.__debugName,osDate("[DEBUG] %H:%M:%S:"),str)) 
   end
   function fibaro:sleep(n) return coroutine.yield(coroutine.running(),n/1000) end
   function fibaro:abort() coroutine.yield(coroutine.running(),'%%ABORT%%') end
