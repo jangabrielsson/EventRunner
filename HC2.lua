@@ -209,7 +209,7 @@ function startup()
   for _,e in ipairs(_mainPosts) do Event.post(e[1],e[2]) end
 
   if _REMOTE then ER.announceEmulator(ipAddress,_EVENTSERVER) end
-
+  Log(LOG.LOG,"Web GUI at http://%s:%s/emu/main",ipAddress,_EVENTSERVER)
   _System.runTimers()                -- Run our simulated threads...
   os.exit()
 end
