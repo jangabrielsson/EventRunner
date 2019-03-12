@@ -26,11 +26,12 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
 
-_version,_fix = "0.4","fix3"     
+_version,_fix = "0.4","fix5"     
+_sceneName = "HC2 emulator"
 
 _REMOTE=false                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
-_SPEEDTIME = false--24*180          -- Speed through X hours, if set to false run in real time
+_SPEEDTIME = 24*180          -- Speed through X hours, if set to false run in real time
 _BLOCK_PUT=true              -- Block http PUT commands to the HC2 - e.g. changing resources on the HC2
 _BLOCK_POST=true             -- Block http POST commands to the HC2 - e.g. creating resources on the HC2
 _AUTOCREATEGLOBALS=true      -- Will (silently) autocreate a local fibaro global if it doesn't exist
@@ -59,8 +60,8 @@ function main()
     HC2.localRooms(true)   -- set all rooms to local
     --HC2.localScenes(true)  -- set all scenes to local
   end
-  
-  --HC2.globalDevices({66,88}) -- We still want to run local, except for deviceID 66,88 thath will be controlled on the HC2
+
+  --HC2.remoteDevices({66,88}) -- We still want to run local, except for deviceID 66,88 that will be controlled on the HC2
 
   HC2.loadEmbedded()
 
@@ -167,40 +168,35 @@ function startup()
 
   wServer = makeWebserver(ipAddress)
   wServer.createServer("Event server2",_EVENTSERVER,
-    function(client,call) -- GET handler
+    function(client,call,ref) -- GET handler
       if _debugFlags.web then Log(LOG.LOG,"GET %s",call) end
-      local stdPage =
-[[HTTP/1.1 200 OK
-Content-Type: text/html
-
-<!DOCTYPE html>
-<html>
-<head>
-<meta content="text/html; charset=ISO-8859-1" http-equiv="content-type">
-<title>HC2 emulator </title></head>
-<body>
-#SCENES#
-#DEVICES#
-</body></html>
-
-]]
-      local s = HC2.listScenes(true)
-      local r1 = _format("<ul><li>%s</li></ul>",table.concat(s,"</li><li>"))
-      local d = HC2.listDevices(true)
-      local r2 = _format("<ul><li>%s</li></ul>",table.concat(d,"</li><li>"))
-      local page = stdPage:gsub("#SCENES#",r1)
-      page = page:gsub("#DEVICES#",r2)
-      client:send(page)
+      local page = Pages.getPath(call)
+      if page~=null then 
+        client:send(page) 
+        return
+      end
+      local code = call:match("/emu/trigger/(.*)")
+      if code then
+        loadstring(urldecode(code))()
+        client:send("HTTP/1.1 302 Found\nLocation: "..(ref or "/emu/triggers").."\n")
+        return
+      end
     end,
     function(client,call,args)  -- POST handler
       if _debugFlags.web then Log(LOG.LOG,"POST %s %s",call,args) end
-      client:send("HTTP/1.1 OK 200\r\n")
+      client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n")
+      for i=1,#gg do printf("%s",gg:byte(i)) end
       if call:match("^/api/") then api.post(call,json.decode(args)) return end
       local id = call:match("^/trigger/(%-?%d*)")
       if id then
         id=tonumber(id)
         if id then Event.post({type='other', _id=math.abs(id), _args=json.decode(args)}) 
         else Event.post(json.decode(args)) end
+        return
+      end
+      if call=='/trigger' then
+        e = json.decode(args)
+        Event.post(e)
         return
       end
     end,
@@ -320,7 +316,9 @@ function support()
 
   function YIELD(ms)
     local co = coroutine.running()
-    if _SceneContext[co] then BREAKIDLE=true; coroutine.yield(co,(ms and ms > 0 and ms or 100)/1000) end
+    if _SceneContext[co] then 
+      BREAKIDLE=true; coroutine.yield(co,(ms and ms > 0 and ms or 100)/1000) 
+    end
   end
 -- If we need to access local scene variables
   function Scene.global() return _SceneContext[coroutine.running()] end -- global().<var>
@@ -746,10 +744,10 @@ POST:/globalVariables/<var struct> -- Create variable
   function HC2.localRooms(args) setRsrcStatus(HC2.rsrc.rooms,args,true) end
   function HC2.localScenes(args) setRsrcStatus(HC2.rsrc.scenes,args,true) end
 
-  function HC2.globalDevices(args) setRsrcStatus(HC2.rsrc.devices,args) end
-  function HC2.globalGlobals(args) setRsrcStatus(HC2.rsrc.globalVariables,args) end
-  function HC2.globalRooms(args) setRsrcStatus(HC2.rsrc.rooms,args) end
-  function HC2.globalScenes(args) setRsrcStatus(HC2.rsrc.scenes,args) end
+  function HC2.remoteDevices(args) setRsrcStatus(HC2.rsrc.devices,args) end
+  function HC2.remoteGlobals(args) setRsrcStatus(HC2.rsrc.globalVariables,args) end
+  function HC2.remoteRooms(args) setRsrcStatus(HC2.rsrc.rooms,args) end
+  function HC2.remoteScenes(args) setRsrcStatus(HC2.rsrc.scenes,args) end
 
   function HC2.createGlobal(name,value)
     if value~=nil then value=tostring(value) end
@@ -899,10 +897,12 @@ POST:/globalVariables/<var struct> -- Create variable
     --["NORMAL"] = function(t) socket.sleep(t) _gTime=_gTime+t return false end,
     ["NORMAL"] = function(t) 
       local idle = _System.idleHandler
+      local ic,interval = 0,100
       BREAKIDLE=false
       local t2=os.clock()+t
       while os.clock() < t2 and not BREAKIDLE do 
-        if idle then idle() end
+        if idle and ic == 0 then idle() end
+        ic = (ic+1) % interval
       end
       _gTime=os.time()
       return false 
@@ -1006,32 +1006,38 @@ POST:/globalVariables/<var struct> -- Create variable
     local threads=nil
     local free=nil
 
-    function self.create(fun,...)
+    local function PP(p,t) printf("%sProcess:%s %s %s %s",p,t.name,t.thread,coroutine.status(t.thread),t.args[1]:getpeername()) end
+
+    function self.create(fun,name,...)
       local args={...}
       fun = coroutine.create(fun)
       local l=free; 
-      if free==nil then l={} else free=free.next; l.next=nil end
-      l.thread=fun; l.args=args; l.next=threads; threads=l; return l
+      if free==nil then l={} else free=free.next end
+      l.thread=fun; l.args=args; l.name=name; l.next=nil
+      if threads==nil then threads=l; return l end
+      local t=threads; while t.next do t=t.next end
+      t.next=l; 
+      return l;
     end
+
     local function dispose(t) t.next=free; free=t end
 
-    function resume(co,args) 
+    local function resume(co,args,name) 
       coroutine.resume(co,table.unpack(args))
-      local s = coroutine.status(co) 
-      return s
+      return coroutine.status(co) 
     end
 
     function self.idleHandler()
       while(threads) do
-        if resume(threads.thread,threads.args)=='dead' then
+        if resume(threads.thread,threads.args,threads.name)=='dead' then
           local l = threads; threads=threads.next; dispose(l) 
         else break end
       end
       local t = threads
       while(t and t.next) do 
-        if resume(t.next.thread,t.next.args)=='dead' then 
+        if resume(t.next.thread,t.next.args,t.name)=='dead' then
           local l = t.next; t.next=t.next.next; dispose(l) 
-        else t=t.next end
+        else t=t.next end 
       end
     end
 
@@ -1730,31 +1736,42 @@ Expected input:
     local function clientHandler(client,getHandler,postHandler,putHandler)
       client:settimeout(0,'b')
       client:setoption('keepalive',true)
+      local ip=client:getpeername()
+      printf("IP:%s",ip)
       while true do
-        local l,e,j = client:receive()
+        l,e,j = client:receive()
         if l then
           local method,call = l:match("^(%w+) (.*) HTTP/1.1")
           if method and call then
             if method=='POST' or method=='PUT' then
-              repeat
+              while true do
                 l,e,j = client:receive()
-              until e=='closed' or e=='timeout'
-              if j and j~="" then
-                if method=='POST' and postHandler then postHandler(client,call,j)
-                elseif method=='PUT' and putHandler then putHandler(client,call,j)
-                  client:close()
+                if j and j~="" then
+                  if method=='POST' and postHandler then postHandler(client,call,j)
+                  elseif method=='PUT' and putHandler then putHandler(client,call,j) end
+                  client:close() 
+                  return
                 end
+                if e=='closed' then return end
+                if e=='timeout' then coroutine.yield()  end
               end
             elseif method=="GET" and getHandler then
-              getHandler(client,call)
+              local ref=nil
+              repeat 
+                l,e,j = client:receive()
+                if l then
+                  local r2 = l:match("^[Rr]eferer:%s*(.*)")
+                  ref = ref or r2
+                end
+                --printf("GET: %s",tostring(l))
+              until e=='closed' or e=='timeout'
+              getHandler(client,call,ref)
               client:close()
             end
           end
         end
-        if e == 'closed' then 
-          return else 
-          coroutine.yield() 
-        end
+        if e == 'closed' then return 
+        else coroutine.yield() end
       end
     end
 
@@ -1764,7 +1781,7 @@ Expected input:
           client, err = server:accept()
           if err == 'timeout' then coroutine.yield() end
         until err ~= 'timeout'
-        ProcessManager.create(clientHandler,client,getHandler,postHandler,putHandler)
+        ProcessManager.create(clientHandler,"client",client,getHandler,postHandler,putHandler)
       end
     end
 
@@ -1776,7 +1793,7 @@ Expected input:
       --printf("http://%s:%s/test",ipAdress,port)
       server:settimeout(0,'b')
       server:setoption('keepalive',true)
-      ProcessManager.create(socketServer,server,getHandler,postHandler,putHandler)
+      ProcessManager.create(socketServer,"server",server,getHandler,postHandler,putHandler)
       Log(LOG.LOG,"Created %s at %s:%s",name,self.ipAdress,port)
     end
 
@@ -2364,9 +2381,175 @@ function libs()
   end
 end
 
+function pages()
+  local P_MAIN =
+[[HTTP/1.1 200 OK
+Content-Type: text/html
+Cache-Control: no-cache, no-store, must-revalidate
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta content="text/html; charset=ISO-8859-1" http-equiv="content-type">
+<title><<<return _format("%s v%s%s",_sceneName,_version,_fix~="" and " ,".._fix or "")>>></title></head>
+<body>
+<a href="devices">Devices</a>
+<a href="scenes">Scenes</a>
+<a href="triggers">Triggers</a>
+</body></html>
+
+]]
+
+  local P_DEVICES =
+[[HTTP/1.1 200 OK
+Content-Type: text/html
+Cache-Control: no-cache, no-store, must-revalidate
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta content="text/html; charset=ISO-8859-1" http-equiv="content-type">
+<title>Devices</title></head>
+<body>
+<<<
+local s = HC2.listDevices(true)
+local r1 = _format("<ul><li>%s</li></ul>",table.concat(s,"</li><li>"))
+return r1
+>>>
+</body></html>
+
+]]
+
+  local P_SCENES =
+[[HTTP/1.1 200 OK
+Content-Type: text/html
+Cache-Control: no-cache, no-store, must-revalidate
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta content="text/html; charset=ISO-8859-1" http-equiv="content-type">
+<title>Scenes</title></head>
+<body>
+<<<
+local s = HC2.listScenes(true)
+local r1 = _format("<ul><li>%s</li></ul>",table.concat(s,"</li><li>"))
+return r1
+>>>
+</body></html>
+
+]]
+
+  local P_TRIGGERS = 
+[[HTTP/1.1 200 OK
+Content-Type: text/html
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Triggers</title>
+    <meta charset="utf-8">
+</head>
+<body>
+<a href="trigger/<<<return urlencode("fibaro:call(99,'turnOn')")>>>">TurnOn 99</a>
+<a href="trigger/<<<return urlencode("fibaro:call(88,'turnOn')")>>>">TurnOn 88</a>
+</body>
+</html>
+
+]]
+
+  local P_POSTT =  -- experimental
+[[HTTP/1.1 200 OK
+Content-Type: text/html
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>POst trigger</title>
+    <meta charset="utf-8">
+</head>
+<body>
+
+<div id="response">
+    <pre></pre>
+</div>
+
+<form id="my-form">
+  <button type="submit">Submit</button>
+</form>
+
+<script src="//ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
+<script>
+    (function($){
+        function processForm( e ){
+            $.ajax({
+                url: 'trigger',
+                dataType: 'json',
+                type: 'post',
+                contentType: 'application/json',
+                data: JSON.stringify({"type" : "test"}),
+                processData: false,
+                success: function( data, textStatus, jQxhr ){
+                     $('#response pre').html( JSON.stringify( data ) );
+                },
+                error: function( jqXhr, textStatus, errorThrown ){
+                    console.log( errorThrown );
+                }
+            });
+
+            e.preventDefault();
+        }
+
+        $('#my-form').submit( processForm );
+    })(jQuery);
+</script>
+</body>
+</html>
+
+]]
+  Pages = { pages={} }
+  function Pages.register(path,page) Pages.pages[path]={page=page} end
+
+  function Pages.getPath(path)
+    local p = Pages.pages[path]
+    if p and not p.cpage then
+      Pages.compile(p)
+    end
+    if p then return Pages.render(p)
+    else return null end
+  end
+
+  function Pages.render(p)
+    return p.cpage:gsub("<<<(%d+)>>>",
+      function(i)
+        return p.funs[tonumber(i)]()
+      end)
+  end
+
+  function Pages.compile(p)
+    local funs={}
+    p.cpage=p.page:gsub("<<<(.-)>>>",
+      function(code)
+        local f = _format("do %s end",code)
+        f,m = loadstring(f)
+        funs[#funs+1]=f
+        return (_format("<<<%s>>>",#funs))
+      end)
+    p.funs=funs
+  end
+
+Pages.register("/emu/main",P_MAIN)
+Pages.register("/emu/scenes",P_SCENES)
+Pages.register("/emu/devices",P_DEVICES)
+Pages.register("/emu/triggers",P_TRIGGERS)
+
+--print(Pages.getPath("triggers"))
+end
+
 --------------------------------------------------
 -- Load code and start
 --------------------------------------------------
 libs()
 support()
+pages()
 startup()
