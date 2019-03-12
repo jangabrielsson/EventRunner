@@ -26,7 +26,7 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
 
-_version,_fix = "0.4","fix6"     
+_version,_fix = "0.4","fix7"     
 _sceneName = "HC2 emulator"
 
 _REMOTE=false                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
@@ -74,7 +74,6 @@ function main()
       "+/00:01:02;call(66,'turnOff')"})    -- safe after 1min and 2sec 
 
 --HC2.runTriggers{"+/00:00;startScene(".._EMBEDDED.id..")"}
- fibaro:call(88,"turnOff")
 --HC2.registerScene("P1",20,"PubSub1EM.lua")
 --HC2.registerScene("P2",21,"PubSub2EM.lua")
 
@@ -176,10 +175,20 @@ function startup()
         client:send(page) 
         return
       end
-      local code = call:match("/emu/trigger/(.*)")
+      local code = call:match("/emu/code/(.*)")
       if code then
         loadstring(urldecode(code))()
         client:send("HTTP/1.1 302 Found\nLocation: "..(ref or "/emu/triggers").."\n")
+        return
+      end
+      local method,id,action,args = call:match("/emu/fibaro/(%w+)/(%d+)/(.-)%?(.*)")
+      if args and args~="" then
+        args=args:match("value=(.*)")
+      else args = nil end
+      if method then
+        printf("Calling fibaro:%s(%s,'%s')",method,id,action,args and _format(", '%s'",args) or "")
+        fibaro[method](fibaro,tonumber(id),action,args)
+        client:send("HTTP/1.1 302 Found\nLocation: "..(ref or "/emu/main").."\n")
         return
       end
     end,
@@ -898,7 +907,7 @@ POST:/globalVariables/<var struct> -- Create variable
     --["NORMAL"] = function(t) socket.sleep(t) _gTime=_gTime+t return false end,
     ["NORMAL"] = function(t) 
       local idle = _System.idleHandler
-      local ic,interval = 0,100
+      local ic,interval = 0,10000
       BREAKIDLE=false
       local t2=os.clock()+t
       while os.clock() < t2 and not BREAKIDLE do 
@@ -2396,7 +2405,6 @@ Cache-Control: no-cache, no-store, must-revalidate
 <body>
 <a href="devices">Devices</a>
 <a href="scenes">Scenes</a>
-<a href="triggers">Triggers</a>
 </body></html>
 
 ]]
@@ -2427,33 +2435,7 @@ return table.concat(res)
 
 ]]
 
-  local P_DEVICES =
-[[HTTP/1.1 200 OK
-Content-Type: text/html
-Cache-Control: no-cache, no-store, must-revalidate
-
-<!DOCTYPE html>
-<html>
-<head>
-<meta content="text/html; charset=ISO-8859-1" http-equiv="content-type">
-<<<return _PAGE_STYLE>>>
-<title>Devices</title></head>
-<body>
-<table>
-<tr><th>deviceID</th><th>Name<th>Type</th><th>Value</th><th>Where</th></tr>
-<<<
-local res={}
-for id,dev in pairs(HC2.rsrc.devices) do
-   res[#res+1] = _format("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>",id,dev.name,dev.type,dev.properties.value,dev._local and "Local" or "Remote")
-end
-return table.concat(res)
->>>
-</table>
-</body></html>
-
-]]
-
-  local P_TRIGGERS = 
+  local P_DEVICES = 
 [[HTTP/1.1 200 OK
 Content-Type: text/html
 
@@ -2465,26 +2447,24 @@ Content-Type: text/html
 <<<return _PAGE_STYLE>>>
 </head>
 <body>
-<table>
+<table style="width:100%">
 <tr><th>deviceID</th><th>Name<th>Type</th><th>Value</th><th>Where</th><th>Actions</th></tr>
 <<<
 local res={}
 for id,dev in pairs(HC2.rsrc.devices) do
  if id > 3 and dev.type~="virtual_device" then
-   local function action(id,action)
-      local f = _format("fibaro:call(%s,'%s')",tonumber(id),action)
-      local s = _format("<a href=\"trigger/%s\">%s</a> / ",
-                        urlencode(f),action) 
-      return s
-      end
-  local function actions(id) 
+  local function actions(id,dev) 
       local res={}
-      for _,a in ipairs({'turnOn','turnOff'}) do res[#res+1]=action(id,a) end
-      return table.concat(res)
+      local val = dev.properties.value
+      val = val ~= nil and tostring(val) or false
+      res[#res+1]=Pages.renderAction(id,"call","turnOn",false)
+      res[#res+1]=Pages.renderAction(id,"call","turnOff",false)
+      if val then res[#res+1]=Pages.renderAction(id,"call","setValue",val) end
+      return "<div class=\"trigger-actions\">"..table.concat(res).."</div>"
       end
    res[#res+1] =     
          _format("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>",
-         id,dev.name,dev.type,dev.properties.value,dev._local and "Local" or "Remote",actions(id))
+         id,dev.name,dev.type,dev.properties.value,dev._local and "Local" or "Remote",actions(id,dev))
  end
 end
 return table.concat(res)
@@ -2495,10 +2475,24 @@ return table.concat(res)
 
 ]]
 
+  local P_ERROR1 =
+[[HTTP/1.1 200 OK
+Content-Type: text/html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Error</title>
+    <meta charset="utf-8">
+</head>
+<body>
+%s
+</body>
+</html>
+
+]]  
   local P_POSTT =  -- experimental
 [[HTTP/1.1 200 OK
 Content-Type: text/html
-
 <!DOCTYPE html>
 <html>
 <head>
@@ -2506,15 +2500,12 @@ Content-Type: text/html
     <meta charset="utf-8">
 </head>
 <body>
-
 <div id="response">
     <pre></pre>
 </div>
-
 <form id="my-form">
   <button type="submit">Submit</button>
 </form>
-
 <script src="//ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
 <script>
     (function($){
@@ -2564,9 +2555,18 @@ Content-Type: text/html
           end)
       end)
     if not stat then
-      printf("ERROR RENDERING PAGE %s, %s",p.path,res)
-      return res
+      return _format(P_ERROR1,res)
     else return res end
+  end
+
+  function Pages.renderAction(id,method,action,value)
+    local res
+    if not value then
+      res = _format([[<form action="/emu/fibaro/%s/%s/%s"><input type="submit" value="%s"></form>]],method,id,action,action)
+    else
+      res = _format([[<form action="/emu/fibaro/%s/%s/%s"><input type="submit" value="%s"><input type="text" name="value" value="%s"></form>]],method,id,action,action,value)
+    end
+    return res
   end
 
   function Pages.compile(p)
@@ -2585,13 +2585,20 @@ Content-Type: text/html
   Pages.register("/emu/main",P_MAIN)
   Pages.register("/emu/scenes",P_SCENES)
   Pages.register("/emu/devices",P_DEVICES)
-  Pages.register("/emu/triggers",P_TRIGGERS)
 
   _PAGE_STYLE=
 [[<style>
 table, th, td {
   border: 1px solid black;
   border-collapse: collapse;
+}
+form {
+  display: flex; /* 2. display flex to the rescue */
+  flex-direction: row;
+  display:inline-block;
+}
+label {
+  display: block; /* 1. oh noes, my inputs are styled as block... */
 }
 th, td {
   padding: 5px;
