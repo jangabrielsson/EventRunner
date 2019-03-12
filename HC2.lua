@@ -26,12 +26,12 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
 
-_version,_fix = "0.4","fix5"     
+_version,_fix = "0.4","fix6"     
 _sceneName = "HC2 emulator"
 
 _REMOTE=false                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
-_SPEEDTIME = 24*180          -- Speed through X hours, if set to false run in real time
+_SPEEDTIME = false--24*180          -- Speed through X hours, if set to false run in real time
 _BLOCK_PUT=true              -- Block http PUT commands to the HC2 - e.g. changing resources on the HC2
 _BLOCK_POST=true             -- Block http POST commands to the HC2 - e.g. creating resources on the HC2
 _AUTOCREATEGLOBALS=true      -- Will (silently) autocreate a local fibaro global if it doesn't exist
@@ -63,6 +63,7 @@ function main()
 
   --HC2.remoteDevices({66,88}) -- We still want to run local, except for deviceID 66,88 that will be controlled on the HC2
 
+  HC2.createDevice(99,"Test")
   HC2.loadEmbedded()
 
 --HC2.loadScenesFromDir("scenes") -- Load all files with name <ID>_<name>.lua from dir, Ex. 11_MyScene.lua
@@ -73,7 +74,7 @@ function main()
       "+/00:01:02;call(66,'turnOff')"})    -- safe after 1min and 2sec 
 
 --HC2.runTriggers{"+/00:00;startScene(".._EMBEDDED.id..")"}
-
+ fibaro:call(88,"turnOff")
 --HC2.registerScene("P1",20,"PubSub1EM.lua")
 --HC2.registerScene("P2",21,"PubSub2EM.lua")
 
@@ -2400,26 +2401,6 @@ Cache-Control: no-cache, no-store, must-revalidate
 
 ]]
 
-  local P_DEVICES =
-[[HTTP/1.1 200 OK
-Content-Type: text/html
-Cache-Control: no-cache, no-store, must-revalidate
-
-<!DOCTYPE html>
-<html>
-<head>
-<meta content="text/html; charset=ISO-8859-1" http-equiv="content-type">
-<title>Devices</title></head>
-<body>
-<<<
-local s = HC2.listDevices(true)
-local r1 = _format("<ul><li>%s</li></ul>",table.concat(s,"</li><li>"))
-return r1
->>>
-</body></html>
-
-]]
-
   local P_SCENES =
 [[HTTP/1.1 200 OK
 Content-Type: text/html
@@ -2429,13 +2410,45 @@ Cache-Control: no-cache, no-store, must-revalidate
 <html>
 <head>
 <meta content="text/html; charset=ISO-8859-1" http-equiv="content-type">
+<<<return _PAGE_STYLE>>>
 <title>Scenes</title></head>
 <body>
+<table>
+<tr><th>sceneID</th><th>Name<th>Where</th></tr>
 <<<
-local s = HC2.listScenes(true)
-local r1 = _format("<ul><li>%s</li></ul>",table.concat(s,"</li><li>"))
-return r1
+local res={}
+for id,dev in pairs(HC2.rsrc.scenes) do
+   res[#res+1] = _format("<tr><td>%s</td><td>%s</td><td>%s</td></tr>",id,dev.name,dev._local and "Local" or "Remote" )
+end
+return table.concat(res)
 >>>
+</table>
+</body></html>
+
+]]
+
+  local P_DEVICES =
+[[HTTP/1.1 200 OK
+Content-Type: text/html
+Cache-Control: no-cache, no-store, must-revalidate
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta content="text/html; charset=ISO-8859-1" http-equiv="content-type">
+<<<return _PAGE_STYLE>>>
+<title>Devices</title></head>
+<body>
+<table>
+<tr><th>deviceID</th><th>Name<th>Type</th><th>Value</th><th>Where</th></tr>
+<<<
+local res={}
+for id,dev in pairs(HC2.rsrc.devices) do
+   res[#res+1] = _format("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>",id,dev.name,dev.type,dev.properties.value,dev._local and "Local" or "Remote")
+end
+return table.concat(res)
+>>>
+</table>
 </body></html>
 
 ]]
@@ -2449,10 +2462,34 @@ Content-Type: text/html
 <head>
     <title>Triggers</title>
     <meta charset="utf-8">
+<<<return _PAGE_STYLE>>>
 </head>
 <body>
-<a href="trigger/<<<return urlencode("fibaro:call(99,'turnOn')")>>>">TurnOn 99</a>
-<a href="trigger/<<<return urlencode("fibaro:call(88,'turnOn')")>>>">TurnOn 88</a>
+<table>
+<tr><th>deviceID</th><th>Name<th>Type</th><th>Value</th><th>Where</th><th>Actions</th></tr>
+<<<
+local res={}
+for id,dev in pairs(HC2.rsrc.devices) do
+ if id > 3 and dev.type~="virtual_device" then
+   local function action(id,action)
+      local f = _format("fibaro:call(%s,'%s')",tonumber(id),action)
+      local s = _format("<a href=\"trigger/%s\">%s</a> / ",
+                        urlencode(f),action) 
+      return s
+      end
+  local function actions(id) 
+      local res={}
+      for _,a in ipairs({'turnOn','turnOff'}) do res[#res+1]=action(id,a) end
+      return table.concat(res)
+      end
+   res[#res+1] =     
+         _format("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>",
+         id,dev.name,dev.type,dev.properties.value,dev._local and "Local" or "Remote",actions(id))
+ end
+end
+return table.concat(res)
+>>>
+</table>
 </body>
 </html>
 
@@ -2465,7 +2502,7 @@ Content-Type: text/html
 <!DOCTYPE html>
 <html>
 <head>
-    <title>POst trigger</title>
+    <title>Post trigger</title>
     <meta charset="utf-8">
 </head>
 <body>
@@ -2508,7 +2545,7 @@ Content-Type: text/html
 
 ]]
   Pages = { pages={} }
-  function Pages.register(path,page) Pages.pages[path]={page=page} end
+  function Pages.register(path,page) Pages.pages[path]={page=page, path=path} end
 
   function Pages.getPath(path)
     local p = Pages.pages[path]
@@ -2520,10 +2557,16 @@ Content-Type: text/html
   end
 
   function Pages.render(p)
-    return p.cpage:gsub("<<<(%d+)>>>",
-      function(i)
-        return p.funs[tonumber(i)]()
+    local stat,res = pcall(function()
+        return p.cpage:gsub("<<<(%d+)>>>",
+          function(i)
+            return p.funs[tonumber(i)]()
+          end)
       end)
+    if not stat then
+      printf("ERROR RENDERING PAGE %s, %s",p.path,res)
+      return res
+    else return res end
   end
 
   function Pages.compile(p)
@@ -2532,16 +2575,32 @@ Content-Type: text/html
       function(code)
         local f = _format("do %s end",code)
         f,m = loadstring(f)
+        if m then printf("ERROR RENDERING PAGE %s, %s",p.path,m) end
         funs[#funs+1]=f
         return (_format("<<<%s>>>",#funs))
       end)
     p.funs=funs
   end
 
-Pages.register("/emu/main",P_MAIN)
-Pages.register("/emu/scenes",P_SCENES)
-Pages.register("/emu/devices",P_DEVICES)
-Pages.register("/emu/triggers",P_TRIGGERS)
+  Pages.register("/emu/main",P_MAIN)
+  Pages.register("/emu/scenes",P_SCENES)
+  Pages.register("/emu/devices",P_DEVICES)
+  Pages.register("/emu/triggers",P_TRIGGERS)
+
+  _PAGE_STYLE=
+[[<style>
+table, th, td {
+  border: 1px solid black;
+  border-collapse: collapse;
+}
+th, td {
+  padding: 5px;
+}
+th {
+  text-align: left;
+}
+</style>
+]]
 
 --print(Pages.getPath("triggers"))
 end
