@@ -203,7 +203,6 @@ function startup()
     function(client,call,args)  -- POST handler
       if _debugFlags.web then Log(LOG.LOG,"POST %s %s",call,args) end
       client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n")
-      for i=1,#gg do printf("%s",gg:byte(i)) end
       if call:match("^/api/") then api.post(call,json.decode(args)) return end
       local id = call:match("^/trigger/(%-?%d*)")
       if id then
@@ -1315,7 +1314,7 @@ POST:/globalVariables/<var struct> -- Create variable
   end
 
   fibaro.stopScene = fibaro.killScenes -- symetri and used by web GUI
-  
+
   function fibaro:startScene(sceneID,args) YIELD()
     local scene = HC2.getScene(sceneID,true)
     if not scene then return end
@@ -2431,8 +2430,10 @@ Cache-Control: no-cache, no-store, must-revalidate
 <meta content="text/html; charset=ISO-8859-1" http-equiv="content-type">
 <title><<<return _format("%s v%s%s",_sceneName,_version,_fix~="" and " ,".._fix or "")>>></title></head>
 <body>
-<a href="devices">Devices</a>
-<a href="scenes">Scenes</a>
+<ul>
+<li><a href="devices">Devices</a></li>
+<li><a href="scenes">Scenes</a></li>
+<ul>
 </body></html>
 
 ]]
@@ -2571,7 +2572,15 @@ Content-Type: text/html
 
 ]]
   Pages = { pages={} }
-  function Pages.register(path,page) Pages.pages[path]={page=page, path=path} end
+  function Pages.register(path,page)
+    local file = page:match("^file:(.*)")
+    if fd then
+      local f = io.open(file)
+      if not f then error("No such file:"..file) end
+      local page = f:read("*all")
+    end
+    Pages.pages[path]={page=page, path=path} 
+  end
 
   function Pages.getPath(path)
     local p = Pages.pages[path]
