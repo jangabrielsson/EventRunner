@@ -64,11 +64,11 @@ function main()
   --HC2.remoteDevices({66,88}) -- We still want to run local, except for deviceID 66,88 that will be controlled on the HC2
 
   HC2.createDevice(99,"Test")
-  HC2.loadEmbedded()
+  HC2.loadEmbedded()   -- If we are called from another scene (dofile...)
 
 --HC2.loadScenesFromDir("scenes") -- Load all files with name <ID>_<name>.lua from dir, Ex. 11_MyScene.lua
 --HC2.createDevice(77,"Test") -- Create local deviceID 77 with name "[[Test"
-  HC2.registerScene("ABC",100,"test.lua")
+
   HC2.registerScene("SceneTest",99,"sceneTest.lua",nil,
     {"+/00:00:02;call(66,'turnOn')",      -- breached after 2 sec
       "+/00:01:02;call(66,'turnOff')"})    -- safe after 1min and 2sec 
