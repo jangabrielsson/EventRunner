@@ -26,10 +26,10 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
 
-_version,_fix = "0.4","fix7"     
+_version,_fix = "0.4","fix8"     
 _sceneName = "HC2 emulator"
 
-_REMOTE=false                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
+_REMOTE=true                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
 _SPEEDTIME = false--24*180          -- Speed through X hours, if set to false run in real time
 _BLOCK_PUT=true              -- Block http PUT commands to the HC2 - e.g. changing resources on the HC2
@@ -68,7 +68,7 @@ function main()
 
 --HC2.loadScenesFromDir("scenes") -- Load all files with name <ID>_<name>.lua from dir, Ex. 11_MyScene.lua
 --HC2.createDevice(77,"Test") -- Create local deviceID 77 with name "[[Test"
-
+  HC2.registerScene("ABC",100,"test.lua")
   HC2.registerScene("SceneTest",99,"sceneTest.lua",nil,
     {"+/00:00:02;call(66,'turnOn')",      -- breached after 2 sec
       "+/00:01:02;call(66,'turnOff')"})    -- safe after 1min and 2sec 
@@ -167,7 +167,7 @@ function startup()
   local ipAddress = _System.getIPadress()
 
   wServer = makeWebserver(ipAddress)
-  wServer.createServer("Event server2",_EVENTSERVER,
+  wServer.createServer("Event server",_EVENTSERVER,
     function(client,call,ref) -- GET handler
       if _debugFlags.web then Log(LOG.LOG,"GET %s",call) end
       local page = Pages.getPath(call)
@@ -181,13 +181,21 @@ function startup()
         client:send("HTTP/1.1 302 Found\nLocation: "..(ref or "/emu/triggers").."\n")
         return
       end
-      local method,id,action,args = call:match("/emu/fibaro/(%w+)/(%d+)/(.-)%?(.*)")
+      local method,id,action,args = call:match("/emu/fibaro/(%w+)/(%d+)/?(.-)%?(.*)")
       if args and args~="" then
         args=args:match("value=(.*)")
       else args = nil end
       if method then
-        printf("Calling fibaro:%s(%s,'%s')",method,id,action,args and _format(", '%s'",args) or "")
-        fibaro[method](fibaro,tonumber(id),action,args)
+        if action=="" then 
+          if args == "" or args==nil then args=nil else 
+            args=json.decode(urldecode(args))
+          end
+          printf("Calling fibaro:%s(%s)",method,id)
+          fibaro[method](fibaro,tonumber(id),args)
+        else
+          printf("Calling fibaro:%s(%s,'%s')",method,id,action,args and _format(", '%s'",args) or "")
+          fibaro[method](fibaro,tonumber(id),action,args)
+        end
         client:send("HTTP/1.1 302 Found\nLocation: "..(ref or "/emu/main").."\n")
         return
       end
@@ -392,6 +400,11 @@ function support()
     if (not scene._startMsg) or (scene._startMsg and not scene._startMsg(scene.id,scene.runningInstances,env)) then
       Log(LOG.LOG,"Scene %s started (%s), trigger:%s %s(%s)",globals.__debugName,scene.name,tojson(event),args and tojson(args) or "",tr)
     end
+  end
+
+  function Scene.stop(scene)
+    _System.clearAllTimeoutFilter(function(t) return t.env.__fibaroSceneId==scene.id end)
+    Log(LOG.LOG,"Stopping scene %s (%s)",scene.id, scene.name) 
   end
 
   function Scene.checkValidCharsInFile(src,fileName)
@@ -907,12 +920,12 @@ POST:/globalVariables/<var struct> -- Create variable
     --["NORMAL"] = function(t) socket.sleep(t) _gTime=_gTime+t return false end,
     ["NORMAL"] = function(t) 
       local idle = _System.idleHandler
-      local ic,interval = 0,10000
+      local ic,interval = 0,100
       BREAKIDLE=false
       local t2=os.clock()+t
       while os.clock() < t2 and not BREAKIDLE do 
         if idle and ic == 0 then idle() end
-        ic = (ic+1) % interval
+        --ic = (ic+1) % interval
       end
       _gTime=os.time()
       return false 
@@ -1257,8 +1270,12 @@ POST:/globalVariables/<var struct> -- Create variable
     else return value end
   end
 
+  _DEV_PROP_MAP={["IPAddress"]='ip', ["TCPPort"]='port'}
   function __fibaro_get_device_property(deviceID ,propertyName, lcl)
     local d = HC2.getDevice(deviceID)
+    if d.type=='virtual_device' then
+      propertyName=_DEV_PROP_MAP[propertyName] or propertyName
+    end
     return d and {value=__convertToString(d.properties[propertyName] or false),modified=d.modified}
   end
 
@@ -1292,8 +1309,19 @@ POST:/globalVariables/<var struct> -- Create variable
     local scene = HC2.getScene(sceneID,true)
     if not scene then return end
     if scene._local then
-      error("local killScene not implemented yet")
+      Scene.stop(scene)
+      --error("local killScene not implemented yet")
     elseif _REMOTE then api._post(true,"/scenes/"..sceneID.."/action/stop") end
+  end
+
+  fibaro.stopScene = fibaro.killScenes -- symetri and used by web GUI
+  
+  function fibaro:startScene(sceneID,args) YIELD()
+    local scene = HC2.getScene(sceneID,true)
+    if not scene then return end
+    if scene._local then --Scene.start(scene,{type='other'},args) 
+      --Event.post({type='other',_id=scene.id,_args=args})
+    else api._post(true,"/scenes/"..sceneID.."/action/stop",args and {args=args} or nil)  end
   end
 
   function fibaro:startScene(sceneID,args) YIELD()
@@ -1747,7 +1775,7 @@ Expected input:
       client:settimeout(0,'b')
       client:setoption('keepalive',true)
       local ip=client:getpeername()
-      printf("IP:%s",ip)
+      --printf("IP:%s",ip)
       while true do
         l,e,j = client:receive()
         if l then
@@ -2422,11 +2450,18 @@ Cache-Control: no-cache, no-store, must-revalidate
 <title>Scenes</title></head>
 <body>
 <table>
-<tr><th>sceneID</th><th>Name<th>Where</th></tr>
+<tr><th>sceneID</th><th>Name<th>Instances</th><th>Where</th><th>Actions</th></tr>
 <<<
 local res={}
 for id,dev in pairs(HC2.rsrc.scenes) do
-   res[#res+1] = _format("<tr><td>%s</td><td>%s</td><td>%s</td></tr>",id,dev.name,dev._local and "Local" or "Remote" )
+  local function actions(id,dev) 
+      local res={}
+      res[#res+1]=Pages.renderStopScene(id)
+      res[#res+1]=Pages.renderStartScene(id)
+      return "<div class=\"trigger-actions\">"..table.concat(res).."</div>"
+      end
+   res[#res+1] = _format("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>",
+   id,dev.name,dev.runningInstances,dev._local and "Local" or "Remote",actions(id) )
 end
 return table.concat(res)
 >>>
@@ -2567,6 +2602,14 @@ Content-Type: text/html
       res = _format([[<form action="/emu/fibaro/%s/%s/%s"><input type="submit" value="%s"><input type="text" name="value" value="%s"></form>]],method,id,action,action,value)
     end
     return res
+  end
+
+  function Pages.renderStopScene(id)
+    return _format([[<form action="/emu/fibaro/stopScene/%s"><input type="submit" value="stopScene"></form>]],id)
+  end
+
+  function Pages.renderStartScene(id)
+    return _format([[<form action="/emu/fibaro/startScene/%s"><input type="submit" value="startScene"><input type="text" name="value" value=""></form>]],id)
   end
 
   function Pages.compile(p)
