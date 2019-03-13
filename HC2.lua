@@ -26,10 +26,10 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
 
-_version,_fix = "0.4","fix8"     
+_version,_fix = "0.5",""     
 _sceneName = "HC2 emulator"
 
-_REMOTE=true                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
+_REMOTE=false                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
 _SPEEDTIME = false--24*180          -- Speed through X hours, if set to false run in real time
 _BLOCK_PUT=true              -- Block http PUT commands to the HC2 - e.g. changing resources on the HC2
@@ -52,7 +52,7 @@ if creds then creds() end
 --------------------------------------------------------
 function main()
 
-  HC2.setupConfiguration(true,true) -- read in configuration from stored local file, or from remote HC2
+  HC2.setupConfiguration(true,false) -- read in configuration from stored local file, or from remote HC2
 
   if not _REMOTE or _RUNLOCAL then -- If we are remote don't try to access resources on the HC2
     HC2.localDevices(true) -- set all devices to local
@@ -66,6 +66,8 @@ function main()
   HC2.createDevice(99,"Test")
   HC2.loadEmbedded()   -- If we are called from another scene (dofile...)
 
+  fibaro:getRoomNameByDeviceID(17)
+  
 --HC2.loadScenesFromDir("scenes") -- Load all files with name <ID>_<name>.lua from dir, Ex. 11_MyScene.lua
 --HC2.createDevice(77,"Test") -- Create local deviceID 77 with name "[[Test"
 
@@ -167,59 +169,83 @@ function startup()
   local ipAddress = _System.getIPadress()
 
   wServer = makeWebserver(ipAddress)
-  wServer.createServer("Event server",_EVENTSERVER,
-    function(client,call,ref) -- GET handler
-      if _debugFlags.web then Log(LOG.LOG,"GET %s",call) end
-      local page = Pages.getPath(call)
-      if page~=null then 
-        client:send(page) 
-        return
-      end
-      local code = call:match("/emu/code/(.*)")
-      if code then
-        loadstring(urldecode(code))()
-        client:send("HTTP/1.1 302 Found\nLocation: "..(ref or "/emu/triggers").."\n")
-        return
-      end
-      local method,id,action,args = call:match("/emu/fibaro/(%w+)/(%d+)/?(.-)%?(.*)")
-      if args and args~="" then
-        args=args:match("value=(.*)")
-      else args = nil end
-      if method then
-        if action=="" then 
-          if args == "" or args==nil then args=nil else 
-            args=json.decode(urldecode(args))
+
+  local function whandler(method,client,call,args,ref) 
+    local stat,res = pcall(function()
+        for p,h in pairs(HANDLERS[method] or {}) do
+          local match = {call:match(p)}
+          if match and #match>0 then
+            if h(client,ref,table.unpack(match)) then return end
           end
-          printf("Calling fibaro:%s(%s)",method,id)
-          fibaro[method](fibaro,tonumber(id),args)
-        else
-          printf("Calling fibaro:%s(%s,'%s')",method,id,action,args and _format(", '%s'",args) or "")
-          fibaro[method](fibaro,tonumber(id),action,args)
         end
-        client:send("HTTP/1.1 302 Found\nLocation: "..(ref or "/emu/main").."\n")
-        return
+        client:send("HTTP/1.1 501 Not Implemented\nLocation: "..(ref or "/emu/triggers").."\n")
+      end)
+    if not stat then 
+      local p = Pages.renderError(res)
+      client:send(p) 
       end
-    end,
-    function(client,call,args)  -- POST handler
-      if _debugFlags.web then Log(LOG.LOG,"POST %s %s",call,args) end
-      client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n")
-      if call:match("^/api/") then api.post(call,json.decode(args)) return end
-      local id = call:match("^/trigger/(%-?%d*)")
-      if id then
-        id=tonumber(id)
-        if id then Event.post({type='other', _id=math.abs(id), _args=json.decode(args)}) 
-        else Event.post(json.decode(args)) end
-        return
-      end
-      if call=='/trigger' then
+  end
+
+  HANDLERS = {
+    ["GET"] = {
+      ["(.*)"] = function(client,ref,call)
+        local page = Pages.getPath(call)
+        if page~=null then client:send(page) return true
+        else return false end
+      end,
+      ["/emu/code/(.*)"]=function(client,ref,code)
+        if code then
+          loadstring(urldecode(code))()
+          client:send("HTTP/1.1 302 Found\nLocation: "..(ref or "/emu/triggers").."\n")
+          return true
+        end
+      end,
+      ["/emu/fibaro/(%w+)/(%d+)/?(.-)%?(.*)"]=function(client,ref,method,id,action,args)
+        args = args and args~="" and args:match("value=(.+)") or nil
+        if method and fibaro[method] then
+          barf(67)
+          if action=="" then 
+            if args ~= nil then args=json.decode(urldecode(args)) end
+            printf("Calling fibaro:%s(%s)",method,id)
+            fibaro[method](fibaro,tonumber(id),args)
+          else
+            printf("Calling fibaro:%s(%s,'%s')",method,id,action,args and _format(", '%s'",args) or "")
+            fibaro[method](fibaro,tonumber(id),action,args)
+          end
+          client:send("HTTP/1.1 302 Found\nLocation: "..(ref or "/emu/main").."\n")
+          return true
+        end
+        return false
+      end,
+    },
+    ["POST"] = {
+      ["^/api/"] = function(client,ref,method,id,action,args)
+        api.post(call,json.decode(args)) 
+        client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n")
+        return true
+      end,
+      ["^/trigger/(%-?%d+)"] = function(client,ref,method,id,action,args)
+        Event.post({type='other', _id=math.abs(tonumber(id)), _args=json.decode(args)}) 
+        client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n")
+        return true
+      end,
+      ["^/trigger$"] = function(client,ref,method,id,action,args)
         e = json.decode(args)
         Event.post(e)
-        return
-      end
-    end,
-    function(client,call,args) -- PUT handler
-      if _debugFlags.web then Log(LOG.LOG,"PUT %s %s",call,args) end
-    end)
+        client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n")
+        return true
+      end,
+    },
+    ["PUT"] = {
+      ["(.*)"] = function()
+        if _debugFlags.web then Log(LOG.LOG,"PUT %s %s",call,args) end
+        client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n")
+        return true
+      end,
+    }
+  }
+
+  wServer.createServer("Event server",_EVENTSERVER,whandler,whandler)
 
   Event.post({type='autostart'})     -- Post autostart to get things going
   for _,e in ipairs(_mainPosts) do Event.post(e[1],e[2]) end
@@ -402,8 +428,10 @@ function support()
   end
 
   function Scene.stop(scene)
-    _System.clearAllTimeoutFilter(function(t) return t.env.__fibaroSceneId==scene.id end)
-    Log(LOG.LOG,"Stopping scene %s (%s)",scene.id, scene.name) 
+    if scene.runningInstances>0 then
+      _System.clearAllTimeoutFilter(function(t) return t.env and t.env.__fibaroSceneId==scene.id end)
+      Log(LOG.LOG,"Stopping scene %s (%s)",scene.id, scene.name) 
+    else Log(LOG.LOG,"Scene %s not running (%s)",scene.id, scene.name) end
   end
 
   function Scene.checkValidCharsInFile(src,fileName)
@@ -917,13 +945,25 @@ POST:/globalVariables/<var struct> -- Create variable
   _System.waitFor={
     ["SPEED"] = function(t) _gTime=_gTime+t if _System.idleHandler then _System.idleHandler() end return false end,
     --["NORMAL"] = function(t) socket.sleep(t) _gTime=_gTime+t return false end,
-    ["NORMAL"] = function(t) 
+    ["NORMAL1"] = function(t) 
       local idle = _System.idleHandler
       local ic,interval = 0,100
       BREAKIDLE=false
       local t2=os.clock()+t
       while os.clock() < t2 and not BREAKIDLE do 
         if idle and ic == 0 then idle() end
+        --ic = (ic+1) % interval
+      end
+      _gTime=os.time()
+      return false 
+    end,
+    ["NORMAL"] = function(t) 
+      local idle = _System.idleHandler
+      BREAKIDLE=false
+      local t2=os.clock()+t
+      while os.clock() < t2 and not BREAKIDLE do 
+        if idle then idle() end
+        socket.sleep(0.01)
         --ic = (ic+1) % interval
       end
       _gTime=os.time()
@@ -1514,8 +1554,8 @@ POST:/globalVariables/<var struct> -- Create variable
     __assert_type(deviceID,'number') 
     local dev = HC2.getDevice(deviceID)
     if  dev == nil then return  nil end
-    local room =HC2.getRoom(dev.ROOMID)
-    return dev.ROOMID==0 and 'unassigned' or room and room.name
+    local room =HC2.getRoom(dev.roomID)
+    return dev.roomID==0 and 'unassigned' or room and room.name
   end
 
   function fibaro:wakeUpDeadDevice(deviceID ) 
@@ -1778,37 +1818,20 @@ Expected input:
       while true do
         l,e,j = client:receive()
         if l then
+          local body,referer
           local method,call = l:match("^(%w+) (.*) HTTP/1.1")
-          if method and call then
-            if method=='POST' or method=='PUT' then
-              while true do
-                l,e,j = client:receive()
-                if j and j~="" then
-                  if method=='POST' and postHandler then postHandler(client,call,j)
-                  elseif method=='PUT' and putHandler then putHandler(client,call,j) end
-                  client:close() 
-                  return
-                end
-                if e=='closed' then return end
-                if e=='timeout' then coroutine.yield()  end
-              end
-            elseif method=="GET" and getHandler then
-              local ref=nil
-              repeat 
-                l,e,j = client:receive()
-                if l then
-                  local r2 = l:match("^[Rr]eferer:%s*(.*)")
-                  ref = ref or r2
-                end
-                --printf("GET: %s",tostring(l))
-              until e=='closed' or e=='timeout'
-              getHandler(client,call,ref)
-              client:close()
-            end
-          end
+          repeat
+            header,e,b = client:receive()
+            if b and b~="" then body=b end
+            referer = header and header:match("^[Rr]eferer:%s*(.*)") or referer
+          until header == nil or e == 'closed'
+          if method=='POST' and postHandler then   postHandler(method,client,call,body,referer)
+          elseif method=='PUT' and putHandler then putHandler(method,client,call,body,referer) 
+          elseif method=='GET' and getHandler then getHandler(method,client,call,body,referer) end
+          client:close()
+          return
         end
-        if e == 'closed' then return 
-        else coroutine.yield() end
+        coroutine.yield()
       end
     end
 
@@ -2514,6 +2537,8 @@ return table.concat(res)
   local P_ERROR1 =
 [[HTTP/1.1 200 OK
 Content-Type: text/html
+Cache-Control: no-cache, no-store, must-revalidate
+
 <!DOCTYPE html>
 <html>
 <head>
@@ -2521,7 +2546,7 @@ Content-Type: text/html
     <meta charset="utf-8">
 </head>
 <body>
-%s
+<pre>%s</pre>
 </body>
 </html>
 
@@ -2591,6 +2616,10 @@ Content-Type: text/html
     else return null end
   end
 
+  function Pages.renderError(msg)
+    return _format(P_ERROR1,msg)
+  end
+
   function Pages.render(p)
     local stat,res = pcall(function()
         return p.cpage:gsub("<<<(%d+)>>>",
@@ -2598,8 +2627,7 @@ Content-Type: text/html
             return p.funs[tonumber(i)]()
           end)
       end)
-    if not stat then
-      return _format(P_ERROR1,res)
+    if not stat then return Pages.renderError(msg)
     else return res end
   end
 
