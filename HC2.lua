@@ -26,7 +26,7 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
 
-_version,_fix = "0.5","fix1"     
+_version,_fix = "0.5","fix2"     
 _sceneName = "HC2 emulator"
 
 _REMOTE=false                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
@@ -52,7 +52,7 @@ if creds then creds() end
 --------------------------------------------------------
 function main()
 
-  HC2.setupConfiguration(true,true) -- read in configuration from stored local file, or from remote HC2
+  HC2.setupConfiguration(true,false) -- read in configuration from stored local file, or from remote HC2
 
   if not _REMOTE or _RUNLOCAL then -- If we are remote don't try to access resources on the HC2
     HC2.localDevices(true) -- set all devices to local
@@ -65,8 +65,6 @@ function main()
 
   HC2.createDevice(99,"Test")
   HC2.loadEmbedded()   -- If we are called from another scene (dofile...)
-
-  fibaro:getRoomNameByDeviceID(17)
   
 --HC2.loadScenesFromDir("scenes") -- Load all files with name <ID>_<name>.lua from dir, Ex. 11_MyScene.lua
 --HC2.createDevice(77,"Test") -- Create local deviceID 77 with name "[[Test"
@@ -233,7 +231,7 @@ function startup()
     ["POST"] = {
       ["^/api/.*"] = function(client,ref,body,call)
         api.post(call,json.decode(body)) 
-        client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n")
+        client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n\n")
         return true
       end,
       ["^/trigger/(%-?%d+)"] = function(client,ref,body,id)
