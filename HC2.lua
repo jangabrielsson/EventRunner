@@ -26,7 +26,7 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
 
-_version,_fix = "0.5",""     
+_version,_fix = "0.5","fix1"     
 _sceneName = "HC2 emulator"
 
 _REMOTE=false                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
@@ -52,7 +52,7 @@ if creds then creds() end
 --------------------------------------------------------
 function main()
 
-  HC2.setupConfiguration(true,false) -- read in configuration from stored local file, or from remote HC2
+  HC2.setupConfiguration(true,true) -- read in configuration from stored local file, or from remote HC2
 
   if not _REMOTE or _RUNLOCAL then -- If we are remote don't try to access resources on the HC2
     HC2.localDevices(true) -- set all devices to local
@@ -74,6 +74,8 @@ function main()
   HC2.registerScene("SceneTest",99,"sceneTest.lua",nil,
     {"+/00:00:02;call(66,'turnOn')",      -- breached after 2 sec
       "+/00:01:02;call(66,'turnOff')"})    -- safe after 1min and 2sec 
+  
+ -- HC2.registerScene("SceneTest",99,"EventRunner.lua")
 
 --HC2.runTriggers{"+/00:00;startScene(".._EMBEDDED.id..")"}
 --HC2.registerScene("P1",20,"PubSub1EM.lua")
@@ -147,7 +149,9 @@ end
 -- Startup
 ------------------------------------------------------------------------------
 function startup()
-  Log(LOG.WELCOME,_format("HC2 SceneRunner v%s %s",_version,_fix))
+  Log(LOG.WELCOME,"HC2 SceneRunner v%s %s",_version,_fix)
+  if _SPEEDTIME then Log(LOG.WELCOME,"Running speedtime") end
+  if _REMOTE then Log(LOG.WELCOME,"Remote enabled, willaccess non-local resources on HC2") end
 
   _mainPosts={}
   function HC2.post(event,t) _mainPosts[#_mainPosts+1]={event,t} end
@@ -170,12 +174,12 @@ function startup()
 
   wServer = makeWebserver(ipAddress)
 
-  local function whandler(method,client,call,args,ref) 
+  local function whandler(method,client,call,body,ref) 
     local stat,res = pcall(function()
         for p,h in pairs(HANDLERS[method] or {}) do
           local match = {call:match(p)}
           if match and #match>0 then
-            if h(client,ref,table.unpack(match)) then return end
+            if h(client,ref,body,table.unpack(match)) then return end
           end
         end
         client:send("HTTP/1.1 501 Not Implemented\nLocation: "..(ref or "/emu/triggers").."\n")
@@ -188,22 +192,30 @@ function startup()
 
   HANDLERS = {
     ["GET"] = {
-      ["(.*)"] = function(client,ref,call)
+      ["(.*)"] = function(client,ref,body,call)
         local page = Pages.getPath(call)
         if page~=null then client:send(page) return true
         else return false end
       end,
-      ["/emu/code/(.*)"]=function(client,ref,code)
+      ["/emu/code/(.*)"]=function(client,ref,body,code)
         if code then
           loadstring(urldecode(code))()
           client:send("HTTP/1.1 302 Found\nLocation: "..(ref or "/emu/triggers").."\n")
           return true
         end
       end,
-      ["/emu/fibaro/(%w+)/(%d+)/?(.-)%?(.*)"]=function(client,ref,method,id,action,args)
+      ["/images/(.*)"]=function(client,ref,body,image) -- only small images, so we don't chunk it...
+        local f = io.open(image)
+        if not f then error("No such file:"..fileName) end
+        local src = f:read("*all")
+        local len = string.len(src)
+        client:send("HTTP/1.1 200 OK\nContent-Type: image/jpeg\nContent-Length: "..len.."\n\n")
+        client:send(src)
+        f:close()
+        end,
+      ["/emu/fibaro/(%w+)/(%d+)/?(.-)%?(.*)"]=function(client,ref,body,method,id,action,args)
         args = args and args~="" and args:match("value=(.+)") or nil
         if method and fibaro[method] then
-          barf(67)
           if action=="" then 
             if args ~= nil then args=json.decode(urldecode(args)) end
             printf("Calling fibaro:%s(%s)",method,id)
@@ -219,18 +231,18 @@ function startup()
       end,
     },
     ["POST"] = {
-      ["^/api/"] = function(client,ref,method,id,action,args)
-        api.post(call,json.decode(args)) 
+      ["^/api/.*"] = function(client,ref,body,call)
+        api.post(call,json.decode(body)) 
         client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n")
         return true
       end,
-      ["^/trigger/(%-?%d+)"] = function(client,ref,method,id,action,args)
-        Event.post({type='other', _id=math.abs(tonumber(id)), _args=json.decode(args)}) 
+      ["^/trigger/(%-?%d+)"] = function(client,ref,body,id)
+        Event.post({type='other', _id=math.abs(tonumber(id)), _args=json.decode(body)}) 
         client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n")
         return true
       end,
-      ["^/trigger$"] = function(client,ref,method,id,action,args)
-        e = json.decode(args)
+      ["^/trigger$"] = function(client,ref,body)
+        e = json.decode(body)
         Event.post(e)
         client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n")
         return true
@@ -1240,6 +1252,17 @@ POST:/globalVariables/<var struct> -- Create variable
 
   Event = newEventEngine()
 
+  Event.event({type='%%SPEED%%', value='$hours'},
+    function(env)
+      if not _SPEEDTIME then
+        WAITINDEX="SPEED"
+        BREAKIDLE=TRUE
+        setTimeout(function() 
+            WAITINDEX="NORMAL"
+            BREAKIDLE=true
+            end,hours*60*60*1000)
+      end
+  end)
 ------------------------------------------------------------------------------
 -- Fibaro functions
 --
@@ -2457,6 +2480,7 @@ Cache-Control: no-cache, no-store, must-revalidate
 <li><a href="devices">Devices</a></li>
 <li><a href="scenes">Scenes</a></li>
 <ul>
+<a href="">SPEED 1h</a>
 </body></html>
 
 ]]
