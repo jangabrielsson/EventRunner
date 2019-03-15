@@ -26,7 +26,7 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
 
-_version,_fix = "0.5","fix2"     
+_version,_fix = "0.5","fix3"     
 _sceneName = "HC2 emulator"
 
 _REMOTE=false                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
@@ -63,7 +63,7 @@ function main()
 
   --HC2.remoteDevices({66,88}) -- We still want to run local, except for deviceID 66,88 that will be controlled on the HC2
 
-  HC2.createDevice(99,"Test")
+  --HC2.createDevice(88,"Test")
   HC2.loadEmbedded()   -- If we are called from another scene (dofile...)
   
 --HC2.loadScenesFromDir("scenes") -- Load all files with name <ID>_<name>.lua from dir, Ex. 11_MyScene.lua
@@ -2478,7 +2478,6 @@ Cache-Control: no-cache, no-store, must-revalidate
 <li><a href="devices">Devices</a></li>
 <li><a href="scenes">Scenes</a></li>
 <ul>
-<a href="">SPEED 1h</a>
 </body></html>
 
 ]]
