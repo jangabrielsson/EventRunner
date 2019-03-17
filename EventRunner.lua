@@ -1,6 +1,6 @@
 --[[
 %% properties
-893 value
+17 value
 %% events
 %% globals
 myTimer
@@ -9,7 +9,7 @@ myTimer
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner",id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B3"  -- Mar 10, 2019 
+_version,_fix = "2.0","B5"  -- Mar 17, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -29,7 +29,6 @@ if dofile then dofile("credentials.lua") end -- To not accidently commit credent
 _debugFlags = { 
   post=true,invoke=false,triggers=true,dailys=true,timers=false,rule=false,ruleTrue=false,hue=false,msgTime=false
 }
-
 ---------------- Here you place rules and user code, called once --------------------
 function main()
   local rule,define = Rule.eval, Util.defvar
@@ -49,8 +48,8 @@ function main()
   Util.defvars(HT.dev)            -- Make HomeTable defs available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable names available for logger
   
-  rule("@@00:00:10 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 10 second
-
+  rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 10 second
+  
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
 end -- main()
 
@@ -1739,13 +1738,15 @@ Event._dir,Event._rScenes,Event._subs,Event._stats = {},{},{},{}
 Event.ANNOUNCE,Event.SUB = '%%ANNOUNCE%%','%%SUB%%' 
 Event.event({type=Event.PING},function(env) e=_copy(env.event);e.type=Event.PONG; Event.postRemote(e._from,e) end)
 
-function isRunning(id) return fibaro:countScenes(id)>0 end
+function isRunning(id) 
+  if _EMULATED then id = math.abs(id) end
+  return fibaro:countScenes(id)>0 end
 
 Event.event({{type='autostart'},{type='other'}},
   function(env)
     local event = {type=Event.ANNOUNCE, subs=#Event._subs>0 and Event._subs or nil}
     for _,id in ipairs(Util.findScenes(gEventRunnerKey)) do 
-      if isRunning(id) then 
+      if isRunning(id) then
         Debug(_debugFlags.pubsub,"Announce to ID:%s %s",id,tojson(env.event.subs)); Event._rScenes[id]=true; Event.postRemote(id,event) 
       end
     end
@@ -1753,6 +1754,7 @@ Event.event({{type='autostart'},{type='other'}},
 
 Event.event({type=Event.ANNOUNCE},function(env)
     local id = env.event._from
+    if _EMULATED then id = math.abs(id) end
     Debug(_debugFlags.pubsub,"Announce from ID:%s %s",id,tojson(env.event.subs))
     Event._rScenes[id]=true;
     if #Event._subs>0 then Event.postRemote(id,{type=Event.SUB, event=Event._subs}) end
@@ -1776,6 +1778,7 @@ end
 Event.event({type=Event.SUB},
   function(env)
     local id = env.event._from
+    if _EMULATED then id = math.abs(id) end
     Debug(_debugFlags.pubsub,"Subcribe from ID:%s %s",id,tojson(env.event.event))
     for _,event in ipairs(env.event.event[1] and env.event.event or {env.event.event}) do
       local seen = false
