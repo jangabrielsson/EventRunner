@@ -1,9 +1,7 @@
 --[[
 %% properties
-17 value
 %% events
 %% globals
-myTimer
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
