@@ -26,10 +26,11 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
 
-_version,_fix = "0.5","fix3"     
+_version,_fix = "0.5","fix5"     
 _sceneName = "HC2 emulator"
 
-_REMOTE=false                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
+_DEMO=true                   -- Load test scene and run
+_REMOTE=true                -- Run remote, fibaro:* calls functions on HC2, only non-local resources
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
 _SPEEDTIME = false--24*180          -- Speed through X hours, if set to false run in real time
 _BLOCK_PUT=true              -- Block http PUT commands to the HC2 - e.g. changing resources on the HC2
@@ -40,9 +41,9 @@ _VALIDATECHARS = true        -- Check rules for invalid characters (cut&paste, m
 _COLOR = true                -- Log with colors on ZBS Output console
 _HC2_FILE = "HC2.data"
 
-_HC2_IP="192.198.1.xx"       -- HC2 IP address
-_HC2_USER="xxx@yyy"          -- HC2 user name
-_HC2_PWD="xxxxxx"            -- HC2 password
+_HC2_IP=_HC2_IP or "192.198.1.xx"       -- HC2 IP address
+_HC2_USER=_HC2_USER or "xxx@yyy"        -- HC2 user name
+_HC2_PWD=_HC2_PWD or "xxxxxx"           -- HC2 password
 
 local creds = loadfile("credentials.lua") -- To not accidently commit credentials to Github...
 if creds then creds() end
@@ -52,7 +53,7 @@ if creds then creds() end
 --------------------------------------------------------
 function main()
 
-  HC2.setupConfiguration(true,false) -- read in configuration from stored local file, or from remote HC2
+  HC2.setupConfiguration(true,true) -- read in configuration from stored local file, or from remote HC2
 
   if not _REMOTE or _RUNLOCAL then -- If we are remote don't try to access resources on the HC2
     HC2.localDevices(true) -- set all devices to local
@@ -62,33 +63,28 @@ function main()
   end
 
   --HC2.remoteDevices({66,88}) -- We still want to run local, except for deviceID 66,88 that will be controlled on the HC2
-
   --HC2.createDevice(88,"Test")
   HC2.loadEmbedded()   -- If we are called from another scene (dofile...)
-  
+
 --HC2.loadScenesFromDir("scenes") -- Load all files with name <ID>_<name>.lua from dir, Ex. 11_MyScene.lua
 --HC2.createDevice(77,"Test") -- Create local deviceID 77 with name "[[Test"
 
-  HC2.registerScene("SceneTest",99,"sceneTest.lua",nil,
-    {"+/00:00:02;call(66,'turnOn')",      -- breached after 2 sec
-      "+/00:01:02;call(66,'turnOff')"})    -- safe after 1min and 2sec 
-  
- -- HC2.registerScene("SceneTest",99,"EventRunner.lua")
+  if _DEMO and not _EMBEDDED then
+    HC2.registerScene("SceneTest",99,"sceneTest.lua",nil,
+      {"+/00:00:02;call(66,'turnOn')",      -- breached after 2 sec
+        "+/00:01:02;call(66,'turnOff')"})    -- safe after 1min and 2sec 
+  end
 
 --HC2.runTriggers{"+/00:00;startScene(".._EMBEDDED.id..")"}
---HC2.registerScene("P1",20,"PubSub1EM.lua")
---HC2.registerScene("P2",21,"PubSub2EM.lua")
 
---HC2.registerScene("EventRunnerEM",10,"EventRunnerEM.lua")
 --HC2.registerScene("Supervisor",11,"SupervisorEM.lua")
 --HC2.registerScene("iosLocator",14,"IOSLOcatorEM.lua")
 
 --HC2.listDevices()
 --HC2.listScenes()
---HC2.registerScene("Scene1",55,"55_Simple.lua",nil,{"+/00:10;call(66,'turnOn')","+/00:20;call(66,'turnOff')"})
---HC2.registerScene("Scene1",11,"EventRunnerA.lua")
---HC2.registerScene("Scene1",12,"GEA 6.11.lua") 
---HC2.registerScene("Scene1",13,"Main scene FTBE v1.3.0.lua",{Darkness=0,TimeOfDay='Morning'})
+--HC2.registerScene("Scene1",21,"EventRunner.lua")
+--HC2.registerScene("Scene1",22,"GEA 6.11.lua") 
+--HC2.registerScene("Scene1",23,"Main scene FTBE v1.3.0.lua",{Darkness=0,TimeOfDay='Morning'})
 
 --Log fibaro:* calls
   HC2.logFibaroCalls()
@@ -100,7 +96,7 @@ function main()
 end
 
 _debugFlags = { 
-  threads=false, triggers=false, eventserver=false, hc2calls=true, globals=false, 
+  threads=false, triggers=true, eventserver=false, hc2calls=true, globals=false, 
   fibaro=true, fibaroSleep=false, fibaroSet=true, fibaroStart=false, web=true,
 }
 ------------------------------------------------------
@@ -185,7 +181,7 @@ function startup()
     if not stat then 
       local p = Pages.renderError(res)
       client:send(p) 
-      end
+    end
   end
 
   HANDLERS = {
@@ -210,7 +206,7 @@ function startup()
         client:send("HTTP/1.1 200 OK\nContent-Type: image/jpeg\nContent-Length: "..len.."\n\n")
         client:send(src)
         f:close()
-        end,
+      end,
       ["/emu/fibaro/(%w+)/(%d+)/?(.-)%?(.*)"]=function(client,ref,body,method,id,action,args)
         args = args and args~="" and args:match("value=(.+)") or nil
         if method and fibaro[method] then
@@ -605,18 +601,21 @@ function support()
   function HC2.getRsrc(name,id,f)
     local rsrcs=HC2.rsrc[name]
     local rsrc=rsrcs[id]
-    --if not _REMOTE and rsrc then rsrc._local = true end
-    if rsrc and rsrc._local or f then
-      -- found
-    elseif _REMOTE and rsrc then
-      local rsrc = api._get(false,"/"..name.."/"..id)
-      rsrcs[id] = rsrc
-    elseif not rsrc then-- rsrc doesn't exists
+
+    if not rsrc then-- rsrc doesn't exists
       if name=='globalVariables' and _AUTOCREATEGLOBALS then
         rsrc = HC2.createGlobal(id)
       elseif name=='devices' and _AUTOCREATEDEVICES then
         rsrc = HC2.createDevice(id,tostring(id))
       end
+    end
+
+    --if not _REMOTE and rsrc then rsrc._local = true end
+    if rsrc and rsrc._local or f then
+      -- found
+    elseif _REMOTE and rsrc then
+      local rsrc = api._get(false,"/"..name.."/"..id)
+      rsrcs[id] = rsrc -- cahce it
     end
     return rsrc
   end
@@ -663,6 +662,7 @@ GET:/sections
 GET:/sections/<sectionID>
 GET:/scenes
 GET:/scenes/<sceneID>
+GET:/scenes/action/<action>
 GET:/rooms
 GET:/rooms/<roomID>
 GET:/globalVariables              -- Get all variables
@@ -698,7 +698,11 @@ POST:/globalVariables/<var struct> -- Create variable
       return w
     end,
     iosDevice=function(arg) return stdGetRsrc('iosDevices',tonumber(arg)) end,
-    devices=function(arg) return stdGetRsrc('devices',tonumber(arg)) end,
+    devices=function(arg) 
+      --local id,prop=args:match("(%d+)(.*)")
+      --if prop then prop=prop:match("/properties/(.*)") end
+      return stdGetRsrc('devices',tonumber(arg)) 
+    end,
     sections=function(arg) return stdGetRsrc('sections',tonumber(arg)) end,
     scenes=function(arg) return stdGetRsrc('scenes',tonumber(arg)) end,
     rooms=function(arg) return stdGetRsrc('rooms',tonumber(arg)) end,
@@ -738,12 +742,12 @@ POST:/globalVariables/<var struct> -- Create variable
 
   _API_METHODS={
     GET=function(call,data,cType)
-      local m,r = call:match("/([^/]+)/?(%w*)$")
+      local m,r = call:match("/([^/]+)/?(.*)$")
       if m and HC2._getHandlers[m] then return HC2._getHandlers[m](r)
       else error("GET "..call.." not supported") end
     end,
     PUT=function(call,data,cType)
-      local m,r = call:match("/([^/]+)/?(%w*)$")
+      local m,r = call:match("/([^/]+)/?(.*)$")
       if m and HC2._putHandlers[m] then return HC2._putHandlers[m](r,data,cType)
       else error("PUT "..call.." not supported") end
     end,
@@ -882,10 +886,27 @@ POST:/globalVariables/<var struct> -- Create variable
       end
       local scene = HC2.registerScene(name,id,short_src)
     end
+    if _EMBEDDED and _EMBEDDED.time then _System.setTime(_EMBEDDED.time)  end
   end
 
   function HC2.logFibaroCalls() fibaro._logFibaroCalls() end
 
+  HC2._monitors={}
+  function HC2.monitorDevice(id,prop)
+    if HC2._monitors[id] then return end
+    HC2._monitors[id]=true
+    local val = nil
+    local function monitor()
+      local nv = fibaro:getValue(id,prop)
+      --printf("T:%s, VAL:%s, NVAL:%s",osDate("%c"),tostring(val),tostring(nv))
+      if nv ~= val then
+        val = nv
+        Event.post({type='property', deviceID=id, propertyName=prop})
+      end
+      _System.setTimeout(monitor,1000,"MON")
+    end
+    monitor()
+  end
 ------------------------------------------------------------------------------
 -- _System
 ------------------------------------------------------------------------------
@@ -901,6 +922,11 @@ POST:/globalVariables/<var struct> -- Create variable
 
   _System.createGlobal = HC2.createGlobal
   _System.createDevice = HC2.createDevice
+  _System.remoteDevice = HC2.remoteDevices
+  _System.remtoGlobals = HC2.remoteGlobals
+  _System.runTriggers  = HC2.runTriggers
+  _System.monitorDevice  = HC2.monitorDevice
+
   _System._Msg = _UserMsg
 
   function _System._getInstance(id,inst)
@@ -929,54 +955,32 @@ POST:/globalVariables/<var struct> -- Create variable
   end
 
   osOrgTime,osOrgDate = os.time,os.date
+  _gOffset=0
   function osTime(t) return math.floor(osTimeFrac(t)+0.5) end
-  function osTimeFrac(t) return t and osOrgTime(t) or _gTime end
+  function osTimeFrac(t) return t and osOrgTime(t) or _gTime + _gOffset end
   function osDate(f,t) return osOrgDate(f,t or osTime()) end
   _gTime = osOrgTime()
-  _gOrgTime = _gTime
 
-  function _System.setTime(start,stop)
-    if type(start)=='number' then 
-      stop = start
-      start = osOrgDate("%X")
-    elseif type(start)=='string' then
-      if type(stop)~='number' then stop=60*24*3600 end -- default to 2 month
-    end
+  function _System.setTime(start)
     local h,m,s = start:match("(%d+):(%d+):?(%d*)")
     local d = osOrgDate("*t")
     d.hour,d.min,d.sec=h,m,s and s~="" and s or 0
-    _gTime=osOrgTime(d)
-    _gOrgTime = _gTime
-    _eTime=_gTime+stop*3600
+    _gTime = osOrgTime()
+    _gOffset=osOrgTime(d)-osOrgTime()
   end
 
   WAITINDEX=_SPEEDTIME and "SPEED" or "NORMAL"
 
-  _System.waitFor={
-    ["SPEED"] = function(t) _gTime=_gTime+t if _System.idleHandler then _System.idleHandler() end return false end,
-    --["NORMAL"] = function(t) socket.sleep(t) _gTime=_gTime+t return false end,
-    ["NORMAL1"] = function(t) 
-      local idle = _System.idleHandler
-      local ic,interval = 0,100
-      BREAKIDLE=false
-      local t2=os.clock()+t
-      while os.clock() < t2 and not BREAKIDLE do 
-        if idle and ic == 0 then idle() end
-        --ic = (ic+1) % interval
-      end
-      _gTime=os.time()
-      return false 
-    end,
+  _System.waitUntil={
+    ["SPEED"] = function(t) _gTime=t-_gOffset if _System.idleHandler then _System.idleHandler() end return false end,
     ["NORMAL"] = function(t) 
       local idle = _System.idleHandler
+      local ct=os.clock()
       BREAKIDLE=false
-      local t2=os.clock()+t
-      while os.clock() < t2 and not BREAKIDLE do 
+      while _gTime+(os.clock()-ct) < t-_gOffset and not BREAKIDLE do 
         if idle then idle() end
-        socket.sleep(0.01)
-        --ic = (ic+1) % interval
       end
-      _gTime=os.time()
+      _gTime=_gTime+(os.clock()-ct)
       return false 
     end,
   }
@@ -986,7 +990,7 @@ POST:/globalVariables/<var struct> -- Create variable
       --_System.dumpTimers()
       ::REDO::
       local co,now = _gTimers,osTimeFrac()
-      if co.time > now then _System.waitFor[WAITINDEX](co.time-now) goto REDO end
+      if co.time > now then _System.waitUntil[WAITINDEX](co.time) goto REDO end
       _gTimers=_gTimers.next
       if co.env then setfenv(co.env.__sceneCode,co.env) end
       local stat,thread,time=coroutine.resume(co.co)
@@ -1258,9 +1262,9 @@ POST:/globalVariables/<var struct> -- Create variable
         setTimeout(function() 
             WAITINDEX="NORMAL"
             BREAKIDLE=true
-            end,hours*60*60*1000)
+          end,hours*60*60*1000)
       end
-  end)
+    end)
 ------------------------------------------------------------------------------
 -- Fibaro functions
 --
@@ -1331,12 +1335,16 @@ POST:/globalVariables/<var struct> -- Create variable
   end
 
   _DEV_PROP_MAP={["IPAddress"]='ip', ["TCPPort"]='port'}
-  function __fibaro_get_device_property(deviceID ,propertyName, lcl)
-    local d = HC2.getDevice(deviceID)
+  function __fibaro_get_device_property(deviceID ,propertyName)
+    local d,prop = HC2.getDevice(deviceID,true)
     if d.type=='virtual_device' then
       propertyName=_DEV_PROP_MAP[propertyName] or propertyName
     end
-    return d and {value=__convertToString(d.properties[propertyName] or false),modified=d.modified}
+    if d and d._local then
+      return d and {value=d.properties[propertyName],modified=d.modified}
+    else
+      return api._get(false,"/devices/"..deviceID.."/properties/"..propertyName) 
+    end
   end
 
   function fibaro:getSourceTrigger() return Scene.global().__fibaroSceneSourceTrigger end
@@ -1443,12 +1451,12 @@ POST:/globalVariables/<var struct> -- Create variable
   function fibaro:get(deviceID ,propertyName) YIELD() 
     local property = __fibaro_get_device_property(deviceID , propertyName)
     if property ==  nil then return  nil end
-    return property.value , property.modified
+    return __convertToString(property.value) , property.modified
   end
 
-  function fibaro:getValue(deviceID ,propertyName) YIELD() 
+  function fibaro:getValue(deviceID ,propertyName) --YIELD() 
     local property = __fibaro_get_device_property(deviceID , propertyName)
-    return property and property.value
+    return property and __convertToString(property.value)
   end
 
   function fibaro:getModificationTime(deviceID ,propertyName) 
@@ -1468,29 +1476,6 @@ POST:/globalVariables/<var struct> -- Create variable
   end
 
   function fibaro:getGlobalModificationTime(varName) return select(2,fibaro:getGlobal(varName)) end
-
-  function fibaro:setGlobalOld(varName ,value) 
-    __assert_type(varName ,"string")
-    local globalVar = HC2.getGlobal(varName,true)
-    if (not _REMOTE) or (globalVar and globalVar._local) then
-      if not globalVar and _AUTOCREATEGLOBALS then
-        HC2.rsrc.globalVariables[varName]={name=varName,_local=true}
-        globalVar=HC2.rsrc.globalVariables[varName]
-        --fibaro:setGlobal(varName,value)
-        --return
-      end
-      globalVar.value,globalVar.modified= tostring(value),osTime()
-      if _debugFlags.globals then Log(LOG.LOG,"Setting global %s='%s'",varName,value) end
-      Event.post({type='global',name=globalVar.name}) -- trigger
-    elseif _REMOTE then
-      api._put(true,"/globalVariables/"..varName ,{value=tostring(value), invokeScenes= true}) 
-    elseif _AUTOCREATEGLOBALS then
-      HC2.rsrc.globalVariables[varName]={name=varName,_local=true}
-      fibaro:setGlobal(varName,value)
-    else
-      error("Non existent fibaro global: "..varName)
-    end
-  end
 
   function fibaro:setGlobal(varName ,value) YIELD(10) 
     __assert_type(varName ,"string")
@@ -2472,12 +2457,14 @@ Cache-Control: no-cache, no-store, must-revalidate
 <html>
 <head>
 <meta content="text/html; charset=ISO-8859-1" http-equiv="content-type">
+<<<return _PAGE_STYLE>>>
 <title><<<return _format("%s v%s%s",_sceneName,_version,_fix~="" and " ,".._fix or "")>>></title></head>
 <body>
-<ul>
-<li><a href="devices">Devices</a></li>
-<li><a href="scenes">Scenes</a></li>
-<ul>
+<table><tr>
+<td><a href="/emu/main" class="button">Main</a></td>
+<td><a href="/emu/devices" class="button">Devices</a></td>
+<td><a href="/emu/scenes" class="button">Scenes</a></td>
+</tr></table>
 </body></html>
 
 ]]
@@ -2494,6 +2481,11 @@ Cache-Control: no-cache, no-store, must-revalidate
 <<<return _PAGE_STYLE>>>
 <title>Scenes</title></head>
 <body>
+<table><tr>
+<td><a href="/emu/main" class="button">Main</a></td>
+<td><a href="/emu/devices" class="button">Devices</a></td>
+<td><a href="/emu/scenes" class="button">Scenes</a></td>
+</tr></table>
 <table>
 <tr><th>sceneID</th><th>Name<th>Instances</th><th>Where</th><th>Actions</th></tr>
 <<<
@@ -2527,6 +2519,11 @@ Content-Type: text/html
 <<<return _PAGE_STYLE>>>
 </head>
 <body>
+<table><tr>
+<td><a href="/emu/main" class="button">Main</a></td>
+<td><a href="/emu/devices" class="button">Devices</a></td>
+<td><a href="/emu/scenes" class="button">Scenes</a></td>
+</tr></table>
 <table style="width:100%">
 <tr><th>deviceID</th><th>Name<th>Type</th><th>Value</th><th>Where</th><th>Actions</th></tr>
 <<<
@@ -2655,19 +2652,19 @@ Content-Type: text/html
   function Pages.renderAction(id,method,action,value)
     local res
     if not value then
-      res = _format([[<form action="/emu/fibaro/%s/%s/%s"><input type="submit" value="%s"></form>]],method,id,action,action)
+      res = _format([[<form action="/emu/fibaro/%s/%s/%s"><input type="submit" class="button" value="%s"></form>]],method,id,action,action)
     else
-      res = _format([[<form action="/emu/fibaro/%s/%s/%s"><input type="submit" value="%s"><input type="text" name="value" value="%s"></form>]],method,id,action,action,value)
+      res = _format([[<form action="/emu/fibaro/%s/%s/%s"><input type="submit" class="button" value="%s"><input type="text" name="value" value="%s"></form>]],method,id,action,action,value)
     end
     return res
   end
 
   function Pages.renderStopScene(id)
-    return _format([[<form action="/emu/fibaro/stopScene/%s"><input type="submit" value="stopScene"></form>]],id)
+    return _format([[<form action="/emu/fibaro/stopScene/%s"><input class="button" type="submit" value="stopScene"></form>]],id)
   end
 
   function Pages.renderStartScene(id)
-    return _format([[<form action="/emu/fibaro/startScene/%s"><input type="submit" value="startScene"><input type="text" name="value" value=""></form>]],id)
+    return _format([[<form action="/emu/fibaro/startScene/%s"><input type="submit" class="button" value="startScene"><input type="text" name="value" value=""></form>]],id)
   end
 
   function Pages.compile(p)
@@ -2697,6 +2694,16 @@ form {
   display: flex; /* 2. display flex to the rescue */
   flex-direction: row;
   display:inline-block;
+}
+.button {
+  background-color: #4CAF50; /* Green */
+  border: none;
+  color: white;
+  padding: 3px 16px;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+  font-size: 16px;
 }
 label {
   display: block; /* 1. oh noes, my inputs are styled as block... */
