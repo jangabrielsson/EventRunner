@@ -29,10 +29,10 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 _version,_fix = "0.5","fix6"     
 _sceneName = "HC2 emulator"
 
-_DEMO=true                   -- Load test scene and run
+_DEMO=false                  -- Load test scene and run
 _REMOTE=true                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
-_SPEEDTIME = false--24*180   -- Speed through X hours, if set to false run in real time
+_SPEEDTIME = false--24*30    -- Speed through X hours, if set to false run in real time
 _BLOCK_PUT=true              -- Block http PUT commands to the HC2 - e.g. changing resources on the HC2
 _BLOCK_POST=true             -- Block http POST commands to the HC2 - e.g. creating resources on the HC2
 _AUTOCREATEGLOBALS=true      -- Will (silently) autocreate a local fibaro global if it doesn't exist
@@ -743,6 +743,11 @@ POST:/globalVariables/  <var struct> -- Create variable
         end
       end
     end,
+    mobile=function(r,data,cType)
+      if r=='push' then
+        api.rawPost(true,'/mobile/push',data)
+      end
+    end
   }
 
   _API_METHODS={
