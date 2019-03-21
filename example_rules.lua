@@ -113,7 +113,7 @@ do Util.defvar(k,v) end
 
 if tExpr then -- test some standard expression
   local function test(expr) Log(LOG.LOG,"Eval %s = %s",expr,tojson(Rule.eval(expr))) end
-  _System.setTime("06:00",24*36)
+  --_System.setTime("06:00",24*36)
   test("5+(-3)")
   test("10/5+6*3")
   test("-3")
@@ -182,7 +182,7 @@ if tShell then -- run an interactive shell to try out commands
 end
 
 if tScheduler then
-  _System.setTime("06:00",24*20) -- start simulation at 06:00, run for 20 days
+  --_System.setTime("06:00",24*20) -- start simulation at 06:00, run for 20 days
   -- setup data we need
   local conf = [[{
    "kitchen":{"light":20,"lamp":21,"sensor":22},
@@ -288,7 +288,7 @@ if tScheduler then
 end
 
 if tGEA then
-  _System.setTime("06:00",24*20) -- start simulation at 06:00
+  --_System.setTime("06:00",24*20) -- start simulation at 06:00
   local devs = {
     Alicia = {Window = 36},
     Oliver = {Dimmer = 267},
@@ -382,7 +382,7 @@ if tEarth then -- Earth hour script. Saves values of lamps, turn them off at 20:
 end
 
 if tPresence then
-  _System.setTime("06:00",24*20) -- start simulation at 06:00
+  --_System.setTime("06:00",24*20) -- start simulation at 06:00
   local rule = Rule.eval
   rule("sensors={99,98,97}; door=88; home=true")
   rule("lamps={22,33,44,55}")
@@ -407,7 +407,7 @@ if tPresence then
 end
 
 if tHouse then
-  _System.setTime("08:00",48) -- Start simulation at 08:00, and run for 48 hours
+  --_System.setTime("08:00",48) -- Start simulation at 08:00, and run for 48 hours
 
   -- collect garbage every night
   Event.schedule("n/00:00",function() collectgarbage("collect") end,{name='GC'})
@@ -522,7 +522,7 @@ if tTest1 then
   Util.defvars(d)      -- define variables from device table
   Util.reverseMapDef(d)
 
-  _System.setTime("08:00",300)
+  --_System.setTime("08:00",300)
 
   Rule.eval("sunsetLamps={bed.lamp,garage.lamp}")
   Rule.eval("sunriseLamps={garage.lamp,bed.lamp}")
@@ -606,7 +606,7 @@ if tTest2 then
   for k,j in pairs(d) do Util.defvar(k,j) end -- define variables from device table
   Util.reverseMapDef(d)
 
-  _System.setTime("08:00",300)
+  --_System.setTime("08:00",300)
 
   Rule.eval("{2,3,4}[2]=5",{log=true}) -- {2,5,4}
   Rule.eval("foo={}",{log=true})  
