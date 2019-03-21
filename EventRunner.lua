@@ -4,10 +4,12 @@
 %% globals
 %% autostart
 --]]
+
+
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner",id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B5"  -- Mar 17, 2019  
+_version,_fix = "2.0","B6"  -- Mar 21, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -31,23 +33,24 @@ _debugFlags = {
 function main()
   local rule,define = Rule.eval, Util.defvar
 
-  HT =[[
+  HT =
   {
-  "dev":{"bedroom":{"lamp":88,"motion":99},
-         "phones":{"bob":121},
-         "kitchen":{"lamp":66,"motion":77}},
-  "other":"other"
- }
-  ]]
+    dev = 
+    { bedroom = {lamp = 88,motion = 99},
+      phones = {bob = 121},
+      kitchen = {lamp = 66, motion = 77}
+    },
+    other = "other"
+  }
 
   --or read in "HomeTable"
   --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
-  HT = json.decode(HT)
+  --HT = json.decode(HT)
   Util.defvars(HT.dev)            -- Make HomeTable defs available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable names available for logger
-  
+
   rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 10 second
-  
+
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
 end -- main()
 
@@ -1020,449 +1023,450 @@ function newScriptEngine()
   end
   instr['redaily'] = function(s,n,e,i) s.push(Rule.restartDaily(s.pop())) end
   instr['eventmatch'] = function(s,n,e,i) local ev,evp=i[3][2],i[3][3] 
-    s.push(e.event and Event._match(evp,e.event) and ev or false) end
-    instr['wait'] = function(s,n,e,i) local t,cp=s.pop(),e.cp 
-      if i[4] then s.push(false) -- Already 'waiting'
-      elseif i[5] then i[5]=false s.push(true) -- Timer expired, return true
-      else 
-        _assert(type(t)=='number',"Bad argument to wait '%s'",t~=nil and t or "nil")
-        if t<midnight() then t = osTime()+t end -- Allow both relative and absolute time... e.g '10:00'->midnight+10:00
-        i[4]=Event.post(function() i[4]=nil i[5]=true self.eval(e.code,e,e.stack,cp) end,t,e.rule) s.push(false) error({type='yield'})
-      end 
-    end
-    instr['repeat'] = function(s,n,e) 
-      local v,c = n>0 and s.pop() or math.huge
-      if not e.forR then s.push(0) 
-      elseif v > e.forR[2] then s.push(e.forR[1]()) else s.push(e.forR[2]) end 
-    end
-    instr['for'] = function(s,n,e,i) 
-      local val,time, stack, cp = s.pop(),s.pop(), e.stack, e.cp
-      local code = e.code
-      local rep = function() i[6] = true; i[5] = nil; self.eval(code,e) end
-      e.forR = nil -- Repeat function (see repeat())
-      --Log(LOG.LOG,"FOR")
-      if i[6] then -- true if timer has expired
-        --Log(LOG.LOG,"Timer expired")
-        i[6] = nil; 
-        if val then 
-          i[7] = (i[7] or 0)+1 -- Times we have repeated 
-          --print(string.format("REP:%s, TIME:%s",i[7],time))
-          e.forR={function() Event.post(rep,time+osTime(),e.rule) return i[7] end,i[7]}
-        end
-        s.push(val) 
-        return
-      end 
-      i[7] = 0
-      if i[5] and (not val) then i[5] = 
-        Event.cancel(i[5]) --Log(LOG.LOG,"Killing timer")-- Timer already running, and false, stop timer
-      elseif (not i[5]) and val then                        -- Timer not running, and true, start timer
-        i[5]=Event.post(rep,time+osTime(),e.rule) --Log(LOG.LOG,"Starting timer %s",tostring(i[5]))
-      end
-      s.push(false)
-    end
-
-    function self.addInstr(name,fun) _assert(instr[name] == nil,"Instr already defined: %s",name) instr[name] = fun end
-
-    function postTrace(i,args,stack,cp)
-      local f,n = i[1],i[2]
-      if not ({jmp=true,push=true,pop=true,addr=true,fn=true,table=true,})[f] then
-        local p0,p1=3,1; while i[p0] do table.insert(args,p1,i[p0]) p1=p1+1 p0=p0+1 end
-        args = _format("%s(%s)=%s",f,tojson(args):sub(2,-2),tojson(stack.ref(0)))
-        Log(LOG.LOG,"pc:%-3d sp:%-3d %s",cp,stack.size(),args)
-      else
-        Log(LOG.LOG,"pc:%-3d sp:%-3d [%s/%s%s]",cp,stack.size(),i[1],i[2],i[3] and ","..tojson(i[3]) or "")
-      end
-    end
-
-    function self.eval(code,env,stack,cp) 
-      stack = stack or Util.mkStack()
-      env = env or {}
-      env.context = env.context or {__instr={}}
-      env.cp,env.code,env.stack = cp or 1,code,stack
-      local i,args
-      local status, res = pcall(function()  
-          while env.cp <= #env.code do
-            i = env.code[env.cp]
-            if _traceInstrs then 
-              args = _copy(stack.liftc(i[2]))
-              instr[i[1]](stack,i[2],env,i)
-              postTrace(i,args,stack,env.cp) 
-            else instr[i[1]](stack,i[2],env,i) end
-            env.cp = env.cp+1
-          end
-          return stack.pop(),env,stack,1 
-        end)
-      if status then return res
-      else
-        if not instr[i[1]] then errThrow("eval",_format("undefined instruction '%s'",i[1])) end
-        if type(res) == 'table' and res.type == 'yield' then
-          if res.fun then res.fun(env,stack,env.cp+1,res) end
-          return "%YIELD%",env,stack,env.cp+1
-        end
-        error(res)
-      end
-    end
-    return self
+    s.push(e.event and Event._match(evp,e.event) and ev or false) 
   end
-  ScriptEngine = newScriptEngine()
+  instr['wait'] = function(s,n,e,i) local t,cp=s.pop(),e.cp 
+    if i[4] then s.push(false) -- Already 'waiting'
+    elseif i[5] then i[5]=false s.push(true) -- Timer expired, return true
+    else 
+      _assert(type(t)=='number',"Bad argument to wait '%s'",t~=nil and t or "nil")
+      if t<midnight() then t = osTime()+t end -- Allow both relative and absolute time... e.g '10:00'->midnight+10:00
+      i[4]=Event.post(function() i[4]=nil i[5]=true self.eval(e.code,e,e.stack,cp) end,t,e.rule) s.push(false) error({type='yield'})
+    end 
+  end
+  instr['repeat'] = function(s,n,e) 
+    local v,c = n>0 and s.pop() or math.huge
+    if not e.forR then s.push(0) 
+    elseif v > e.forR[2] then s.push(e.forR[1]()) else s.push(e.forR[2]) end 
+  end
+  instr['for'] = function(s,n,e,i) 
+    local val,time, stack, cp = s.pop(),s.pop(), e.stack, e.cp
+    local code = e.code
+    local rep = function() i[6] = true; i[5] = nil; self.eval(code,e) end
+    e.forR = nil -- Repeat function (see repeat())
+    --Log(LOG.LOG,"FOR")
+    if i[6] then -- true if timer has expired
+      --Log(LOG.LOG,"Timer expired")
+      i[6] = nil; 
+      if val then 
+        i[7] = (i[7] or 0)+1 -- Times we have repeated 
+        --print(string.format("REP:%s, TIME:%s",i[7],time))
+        e.forR={function() Event.post(rep,time+osTime(),e.rule) return i[7] end,i[7]}
+      end
+      s.push(val) 
+      return
+    end 
+    i[7] = 0
+    if i[5] and (not val) then i[5] = 
+      Event.cancel(i[5]) --Log(LOG.LOG,"Killing timer")-- Timer already running, and false, stop timer
+    elseif (not i[5]) and val then                        -- Timer not running, and true, start timer
+      i[5]=Event.post(rep,time+osTime(),e.rule) --Log(LOG.LOG,"Starting timer %s",tostring(i[5]))
+    end
+    s.push(false)
+  end
+
+  function self.addInstr(name,fun) _assert(instr[name] == nil,"Instr already defined: %s",name) instr[name] = fun end
+
+  function postTrace(i,args,stack,cp)
+    local f,n = i[1],i[2]
+    if not ({jmp=true,push=true,pop=true,addr=true,fn=true,table=true,})[f] then
+      local p0,p1=3,1; while i[p0] do table.insert(args,p1,i[p0]) p1=p1+1 p0=p0+1 end
+      args = _format("%s(%s)=%s",f,tojson(args):sub(2,-2),tojson(stack.ref(0)))
+      Log(LOG.LOG,"pc:%-3d sp:%-3d %s",cp,stack.size(),args)
+    else
+      Log(LOG.LOG,"pc:%-3d sp:%-3d [%s/%s%s]",cp,stack.size(),i[1],i[2],i[3] and ","..tojson(i[3]) or "")
+    end
+  end
+
+  function self.eval(code,env,stack,cp) 
+    stack = stack or Util.mkStack()
+    env = env or {}
+    env.context = env.context or {__instr={}}
+    env.cp,env.code,env.stack = cp or 1,code,stack
+    local i,args
+    local status, res = pcall(function()  
+        while env.cp <= #env.code do
+          i = env.code[env.cp]
+          if _traceInstrs then 
+            args = _copy(stack.liftc(i[2]))
+            instr[i[1]](stack,i[2],env,i)
+            postTrace(i,args,stack,env.cp) 
+          else instr[i[1]](stack,i[2],env,i) end
+          env.cp = env.cp+1
+        end
+        return stack.pop(),env,stack,1 
+      end)
+    if status then return res
+    else
+      if not instr[i[1]] then errThrow("eval",_format("undefined instruction '%s'",i[1])) end
+      if type(res) == 'table' and res.type == 'yield' then
+        if res.fun then res.fun(env,stack,env.cp+1,res) end
+        return "%YIELD%",env,stack,env.cp+1
+      end
+      error(res)
+    end
+  end
+  return self
+end
+ScriptEngine = newScriptEngine()
 
 ------------------------ ScriptCompiler --------------------
-  Rule = nil
-  function newScriptCompiler()
-    local self,gensym,preC = {},Util.gensym,{}
+Rule = nil
+function newScriptCompiler()
+  local self,gensym,preC = {},Util.gensym,{}
 
-    local function mkOp(o) return o end
-    local POP = {mkOp('pop'),0}
-    local function isVar(e) return type(e)=='table' and e[1]=='var' end
-    function isGlob(e) return type(e)=='table' and e[1]=='glob' end
-    function isTriggerVar(e) return isVar(e) and e[2]:sub(1,1)=='_' end
-    local function isNum(e) return type(e)=='number' end
-    local function isBuiltin(fun) return ScriptEngine.isInstr(fun) or preC[fun] end
-    local function isString(e) return type(e)=='string' end
-    local _comp = {}
-    function self._getComps() return _comp end
+  local function mkOp(o) return o end
+  local POP = {mkOp('pop'),0}
+  local function isVar(e) return type(e)=='table' and e[1]=='var' end
+  function isGlob(e) return type(e)=='table' and e[1]=='glob' end
+  function isTriggerVar(e) return isVar(e) and e[2]:sub(1,1)=='_' end
+  local function isNum(e) return type(e)=='number' end
+  local function isBuiltin(fun) return ScriptEngine.isInstr(fun) or preC[fun] end
+  local function isString(e) return type(e)=='string' end
+  local _comp = {}
+  function self._getComps() return _comp end
 
-    local symbol={['{}'] = {{'quote',{}}}, ['true'] = {true}, ['false'] = {false}, ['nil'] = {nil},
-      ['env'] = {{'env'}}, ['wnum'] = {{'%time','wnum'}},['now'] = {{'%time','now'}},['sunrise'] = {{'%time','sunrise','*'}}, ['sunset'] = {{'%time','sunset','*'}},
-      ['midnight'] = {{'%time','midnight'}}}
+  local symbol={['{}'] = {{'quote',{}}}, ['true'] = {true}, ['false'] = {false}, ['nil'] = {nil},
+    ['env'] = {{'env'}}, ['wnum'] = {{'%time','wnum'}},['now'] = {{'%time','now'}},['sunrise'] = {{'%time','sunrise','*'}}, ['sunset'] = {{'%time','sunset','*'}},
+    ['midnight'] = {{'%time','midnight'}}}
 
-    local function compT(e,ops)
-      if type(e) == 'table' then
-        local ef = e[1]
-        if _comp[ef] then _comp[ef](e,ops)
-        else for i=2,#e do compT(e[ i],ops) end ops[#ops+1] = {mkOp(e[1]),#e-1} end -- built-in fun
-      else 
-        ops[#ops+1]={mkOp('push'),0,e} -- constants etc
-      end
+  local function compT(e,ops)
+    if type(e) == 'table' then
+      local ef = e[1]
+      if _comp[ef] then _comp[ef](e,ops)
+      else for i=2,#e do compT(e[ i],ops) end ops[#ops+1] = {mkOp(e[1]),#e-1} end -- built-in fun
+    else 
+      ops[#ops+1]={mkOp('push'),0,e} -- constants etc
     end
+  end
 
-    _comp['%jmp'] = function(e,ops) ops[#ops+1] = {mkOp('jmp'),0,e[2],e[3]} end
-    _comp['%addr'] = function(e,ops) ops[#ops+1] = {mkOp('addr'),0,e[2]} end
-    _comp['%time'] = function(e,ops) ops[#ops+1] = {mkOp('time'),0,e[2],e[3]} end
-    _comp['%eventmatch'] = function(e,ops) ops[#ops+1] = {mkOp('eventmatch'),0,e[2]} end
-    _comp['quote'] = function(e,ops) ops[#ops+1] = {mkOp('push'),0,e[2]} end
-    _comp['glob'] = function(e,ops) ops[#ops+1] = {mkOp('glob'),0,e[2]} end
-    _comp['var'] = function(e,ops) ops[#ops+1] = {mkOp('var'),0,e[2]} end
-    _comp['prop'] = function(e,ops) 
-      _assert(isString(e[3]),"bad property field: '%s'",e[3])
-      compT(e[2],ops) ops[#ops+1]={mkOp('prop'),0,e[3]} 
+  _comp['%jmp'] = function(e,ops) ops[#ops+1] = {mkOp('jmp'),0,e[2],e[3]} end
+  _comp['%addr'] = function(e,ops) ops[#ops+1] = {mkOp('addr'),0,e[2]} end
+  _comp['%time'] = function(e,ops) ops[#ops+1] = {mkOp('time'),0,e[2],e[3]} end
+  _comp['%eventmatch'] = function(e,ops) ops[#ops+1] = {mkOp('eventmatch'),0,e[2]} end
+  _comp['quote'] = function(e,ops) ops[#ops+1] = {mkOp('push'),0,e[2]} end
+  _comp['glob'] = function(e,ops) ops[#ops+1] = {mkOp('glob'),0,e[2]} end
+  _comp['var'] = function(e,ops) ops[#ops+1] = {mkOp('var'),0,e[2]} end
+  _comp['prop'] = function(e,ops) 
+    _assert(isString(e[3]),"bad property field: '%s'",e[3])
+    compT(e[2],ops) ops[#ops+1]={mkOp('prop'),0,e[3]} 
+  end
+  _comp['apply'] = function(e,ops) for i=1,#e[3] do compT(e[3][i],ops) end compT(e[2],ops) ops[#ops+1] = {mkOp('apply'),#e[3],e[2][2]} end
+  _comp['%table'] = function(e,ops) local keys = {}
+    for key,val in pairs(e[2]) do keys[#keys+1] = key; compT(val,ops) end
+    ops[#ops+1]={mkOp('table'),#keys,keys}
+  end
+  _comp['inc'] = function(e,ops) -- {inc,var,val,op}
+    if isString(e[3]) or isNum(e[3]) then ops[#ops+1]= {mkOp('inc'..e[4]),0,e[2][2],e[3]}
+    else compT(e[3],ops) ops[#ops+1]= {mkOp('inc'..e[4]),1,e[2][2]} end
+  end
+  _comp['and'] = function(e,ops) 
+    compT(e[2],ops)
+    local o1,z = {mkOp('ifnskip'),0,0}
+    ops[#ops+1] = o1 -- true skip 
+    z = #ops; ops[#ops+1]= POP; compT(e[3],ops); o1[3] = #ops-z+1
+  end
+  _comp['or'] = function(e,ops)  
+    compT(e[2],ops)
+    local o1,z = {mkOp('ifskip'),0,0}
+    ops[#ops+1] = o1 -- true skip 
+    z = #ops; ops[#ops+1]= POP; compT(e[3],ops); o1[3] = #ops-z+1;
+  end
+  _comp['progn'] = function(e,ops)
+    if #e == 2 then compT(e[2],ops) 
+    elseif #e > 2 then
+      for i=2,#e-1 do compT(e[i],ops); ops[#ops+1]=POP end 
+      compT(e[#e],ops)
     end
-    _comp['apply'] = function(e,ops) for i=1,#e[3] do compT(e[3][i],ops) end compT(e[2],ops) ops[#ops+1] = {mkOp('apply'),#e[3],e[2][2]} end
-    _comp['%table'] = function(e,ops) local keys = {}
-      for key,val in pairs(e[2]) do keys[#keys+1] = key; compT(val,ops) end
-      ops[#ops+1]={mkOp('table'),#keys,keys}
-    end
-    _comp['inc'] = function(e,ops) -- {inc,var,val,op}
-      if isString(e[3]) or isNum(e[3]) then ops[#ops+1]= {mkOp('inc'..e[4]),0,e[2][2],e[3]}
-      else compT(e[3],ops) ops[#ops+1]= {mkOp('inc'..e[4]),1,e[2][2]} end
-    end
-    _comp['and'] = function(e,ops) 
-      compT(e[2],ops)
-      local o1,z = {mkOp('ifnskip'),0,0}
-      ops[#ops+1] = o1 -- true skip 
-      z = #ops; ops[#ops+1]= POP; compT(e[3],ops); o1[3] = #ops-z+1
-    end
-    _comp['or'] = function(e,ops)  
-      compT(e[2],ops)
-      local o1,z = {mkOp('ifskip'),0,0}
-      ops[#ops+1] = o1 -- true skip 
-      z = #ops; ops[#ops+1]= POP; compT(e[3],ops); o1[3] = #ops-z+1;
-    end
-    _comp['progn'] = function(e,ops)
-      if #e == 2 then compT(e[2],ops) 
-      elseif #e > 2 then
-        for i=2,#e-1 do compT(e[i],ops); ops[#ops+1]=POP end 
-        compT(e[#e],ops)
-      end
-    end
-    _comp['->'] = function(e,ops)
-      local h,body,vars,f,code = e[2],e[3],{},{'progn',true},{}
-      for i=1,#h do vars[i]=h[#h+1-i] end
-      code[#code+1]={mkOp('fn'),#vars,vars}
-      compT(body,code)
-      ops[#ops+1]={mkOp('push'),0,code}
-    end
-    _comp['aref'] = function(e,ops) 
-      compT(e[2],ops) 
-      if isNum(e[3]) or isString(e[3]) then ops[#ops+1]={mkOp('aref'),1,e[3]}
-      else compT(e[3],ops) ops[#ops+1]={mkOp('aref'),2} end
-    end
-    _comp['set'] = function(e,ops)
-      local ref,val=e[2],e[3]
-      local setF = type(ref)=='table' and ({var='setVar',glob='setGlob',aref='setRef',label='setLabel',slider='setSlider',prop='setProp'})[ref[1]]
-      if setF=='setRef' or setF=='setLabel' or setF=='setProp' or setF=='setSlider' then -- ["setRef,["var","foo"],"bar",5]
-        local expr,idx = ref[2],ref[3]
-        compT(val,ops) compT(expr,ops)
-        idx = setF=='setProp' and idx[2] or idx
-        if isString(idx) or isNum(idx) then ops[#ops+1]={mkOp(setF),2,idx}
-        else compT(idx,ops) ops[#ops+1]={mkOp(setF),3} end
-      elseif setF=='setVar' or setF=='setGlob' then
-        if isString(val) or isNum(val) then ops[#ops+1]={mkOp(setF),0,ref[2],val}
-        else compT(val,ops) ops[#ops+1]={mkOp(setF),1,ref[2]} end
-      else error({_format("trying to set illegal value '%s'",tojson(ref))}) end
-    end
-    _comp['%NULL'] = function(e,ops) compT(e[2],ops); ops[#ops+1]= POP; compT(e[3],ops) end
+  end
+  _comp['->'] = function(e,ops)
+    local h,body,vars,f,code = e[2],e[3],{},{'progn',true},{}
+    for i=1,#h do vars[i]=h[#h+1-i] end
+    code[#code+1]={mkOp('fn'),#vars,vars}
+    compT(body,code)
+    ops[#ops+1]={mkOp('push'),0,code}
+  end
+  _comp['aref'] = function(e,ops) 
+    compT(e[2],ops) 
+    if isNum(e[3]) or isString(e[3]) then ops[#ops+1]={mkOp('aref'),1,e[3]}
+    else compT(e[3],ops) ops[#ops+1]={mkOp('aref'),2} end
+  end
+  _comp['set'] = function(e,ops)
+    local ref,val=e[2],e[3]
+    local setF = type(ref)=='table' and ({var='setVar',glob='setGlob',aref='setRef',label='setLabel',slider='setSlider',prop='setProp'})[ref[1]]
+    if setF=='setRef' or setF=='setLabel' or setF=='setProp' or setF=='setSlider' then -- ["setRef,["var","foo"],"bar",5]
+      local expr,idx = ref[2],ref[3]
+      compT(val,ops) compT(expr,ops)
+      idx = setF=='setProp' and idx[2] or idx
+      if isString(idx) or isNum(idx) then ops[#ops+1]={mkOp(setF),2,idx}
+      else compT(idx,ops) ops[#ops+1]={mkOp(setF),3} end
+    elseif setF=='setVar' or setF=='setGlob' then
+      if isString(val) or isNum(val) then ops[#ops+1]={mkOp(setF),0,ref[2],val}
+      else compT(val,ops) ops[#ops+1]={mkOp(setF),1,ref[2]} end
+    else error({_format("trying to set illegal value '%s'",tojson(ref))}) end
+  end
+  _comp['%NULL'] = function(e,ops) compT(e[2],ops); ops[#ops+1]= POP; compT(e[3],ops) end
 
-    function self.dump(code)
-      code = code or {}
-      for p = 1,#code do
-        local i = code[p]
-        Log(LOG.LOG,"%-3d:[%s/%s%s%s]",p,i[1],i[2] ,i[3] and ","..tojson(i[3]) or "",i[4] and ","..tojson(i[4]) or "")
-      end
+  function self.dump(code)
+    code = code or {}
+    for p = 1,#code do
+      local i = code[p]
+      Log(LOG.LOG,"%-3d:[%s/%s%s%s]",p,i[1],i[2] ,i[3] and ","..tojson(i[3]) or "",i[4] and ","..tojson(i[4]) or "")
     end
+  end
 
-    preC['progn'] = function(e) local r={'progn'}
-      Util.map(function(p) 
-          if type(p)=='table' and p[1 ]=='progn' then for i=2,#p do r[#r+1 ] = p[i] end
-        else r[#r+1 ]=p end end
-        ,e,2)
-      return r
-    end
-    preC['if'] = function(e) local e1={'and',e[2],e[3]} return #e==4 and {'or',e1,e[4]} or e1 end
-    preC['dolist'] = function(e) local var,list,expr,idx,lvar,LBL=e[2],e[3],e[4],{'var',gensym('fi')},{'var',gensym('fl')},gensym('LBL')
-      e={'progn',{'set',idx,1},{'set',lvar,list},{'%addr',LBL}, -- dolist(var,list,expr)
-        {'set',var,{'aref',lvar,idx}},{'and',var,{'progn',expr,{'set',idx,{'+',idx,1}},{'%jmp',LBL,0}}},lvar}
-      return self.precompile(e)
-    end
-    preC['dotimes'] = function(e) local var,start,stop,step,body=e[2],e[3],e[4],e[5], e[6] -- dotimes(var,start,stop[,step],expr)
-      local LBL = gensym('LBL')
-      if body == nil then body,step = step,1 end
-      e={'progn',{'set',var,start},{'%addr',LBL},{'if',{'<=',var,stop},{'progn',body,{'+=',var,step},{'%jmp',LBL,0}}}}
-      return self.precompile(e)
-    end
+  preC['progn'] = function(e) local r={'progn'}
+    Util.map(function(p) 
+        if type(p)=='table' and p[1 ]=='progn' then for i=2,#p do r[#r+1 ] = p[i] end
+      else r[#r+1 ]=p end end
+      ,e,2)
+    return r
+  end
+  preC['if'] = function(e) local e1={'and',e[2],e[3]} return #e==4 and {'or',e1,e[4]} or e1 end
+  preC['dolist'] = function(e) local var,list,expr,idx,lvar,LBL=e[2],e[3],e[4],{'var',gensym('fi')},{'var',gensym('fl')},gensym('LBL')
+    e={'progn',{'set',idx,1},{'set',lvar,list},{'%addr',LBL}, -- dolist(var,list,expr)
+      {'set',var,{'aref',lvar,idx}},{'and',var,{'progn',expr,{'set',idx,{'+',idx,1}},{'%jmp',LBL,0}}},lvar}
+    return self.precompile(e)
+  end
+  preC['dotimes'] = function(e) local var,start,stop,step,body=e[2],e[3],e[4],e[5], e[6] -- dotimes(var,start,stop[,step],expr)
+    local LBL = gensym('LBL')
+    if body == nil then body,step = step,1 end
+    e={'progn',{'set',var,start},{'%addr',LBL},{'if',{'<=',var,stop},{'progn',body,{'+=',var,step},{'%jmp',LBL,0}}}}
+    return self.precompile(e)
+  end
 --  preC['>>'] = function(k,e) return self.precompile({'and',e[2],{'always',e[3]}}) end -- test >> expr |||| test >> expr ||| t >> expr
-    preC['||'] = function(e) local c = {'and',e[2],{'always',e[3]}} return self.precompile(#e==3 and c or {'or',c,e[4]}) end
-    preC['=>'] = function(e) return {'rule',{'quote',e[2]},{'quote',e[3]},{'quote',e[4]}} end
-    preC['.'] = function(e) return {'aref',e[2],e[3]} end
-    preC['neg'] = function(e) return isNum(e[2]) and -e[2] or e end
-    preC['+='] = function(e) return {'inc',e[2],e[3],'+'} end
-    preC['-='] = function(e) return {'inc',e[2],e[3],'-'} end
-    preC['*='] = function(e) return {'inc',e[2],e[3],'*'} end
-    preC['+'] = function(e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])+tonumber(e[3]) or e end
-    preC['-'] = function(e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])-tonumber(e[3]) or e end
-    preC['*'] = function(e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])*tonumber(e[3]) or e end
-    preC['/'] = function(e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])/tonumber(e[3]) or e end
-    preC['%'] = function(e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])%tonumber(e[3]) or e end
-    preC['time'] = function(e)
-      if type(e[2])~='string' then return e end
-      local tm,ts = e[2]:match("([tn%+]?)/?(.+)")
-      if tm == "" or tm==nil then tm = '*' end
-      if ts=='sunrise' or ts=='sunset' then return {'%time',ts,tm} end
-      local date,h,m,s = ts:match("([%d/]+)/(%d%d):(%d%d):?(%d*)") 
-      if date~=nil and date~="" then 
-        local year,month,day=date:match("(%d+)/(%d+)/(%d+)")
-        _assert(h and m and year and month and day,"malformed date constant '%s'",e[2])
-        local t = osDate("*t") 
-        t.year,t.month,t.day,t.hour,t.min,t.sec=year,month,day,h,m,((s~="" and s or 0) or 0)
-        return {'%time',tm,osTime(t)}
+  preC['||'] = function(e) local c = {'and',e[2],{'always',e[3]}} return self.precompile(#e==3 and c or {'or',c,e[4]}) end
+  preC['=>'] = function(e) return {'rule',{'quote',e[2]},{'quote',e[3]},{'quote',e[4]}} end
+  preC['.'] = function(e) return {'aref',e[2],e[3]} end
+  preC['neg'] = function(e) return isNum(e[2]) and -e[2] or e end
+  preC['+='] = function(e) return {'inc',e[2],e[3],'+'} end
+  preC['-='] = function(e) return {'inc',e[2],e[3],'-'} end
+  preC['*='] = function(e) return {'inc',e[2],e[3],'*'} end
+  preC['+'] = function(e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])+tonumber(e[3]) or e end
+  preC['-'] = function(e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])-tonumber(e[3]) or e end
+  preC['*'] = function(e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])*tonumber(e[3]) or e end
+  preC['/'] = function(e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])/tonumber(e[3]) or e end
+  preC['%'] = function(e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])%tonumber(e[3]) or e end
+  preC['time'] = function(e)
+    if type(e[2])~='string' then return e end
+    local tm,ts = e[2]:match("([tn%+]?)/?(.+)")
+    if tm == "" or tm==nil then tm = '*' end
+    if ts=='sunrise' or ts=='sunset' then return {'%time',ts,tm} end
+    local date,h,m,s = ts:match("([%d/]+)/(%d%d):(%d%d):?(%d*)") 
+    if date~=nil and date~="" then 
+      local year,month,day=date:match("(%d+)/(%d+)/(%d+)")
+      _assert(h and m and year and month and day,"malformed date constant '%s'",e[2])
+      local t = osDate("*t") 
+      t.year,t.month,t.day,t.hour,t.min,t.sec=year,month,day,h,m,((s~="" and s or 0) or 0)
+      return {'%time',tm,osTime(t)}
+    else
+      local sg
+      sg,h,m,s = ts:match("(%-?)(%d%d):(%d%d):?(%d*)")
+      _assert(h and m,"malformed time constant '%s'",e[2])
+      return {'%time',tm,(sg == '-' and -1 or 1)*(h*3600+m*60+(s~="" and s or 0))}
+    end
+  end 
+
+  function self.precompile(e)
+    local function traverse(e)
+      if type(e)=='table' then
+        if e[1]=='quote' then return e
+        else 
+          local pc = Util.mapkk(traverse,e)
+          return preC[pc[1]] and preC[pc[1]](pc) or pc
+        end
+      else return e end
+    end
+    return traverse(e)
+  end
+  function self.compile(expr) local code = {} local prc = self.precompile(expr) compT(prc,code) return code end
+
+  local _opMap = {['&']='and',['|']='or',['=']='set',[':']='prop',[';']='progn',['..']='betw', ['!']='not', ['@']='daily', ['@@']='schedule'}
+  local function mapOp(op) return _opMap[op] or op end
+
+  local function _binop(s,res) res.push({mapOp(s.pop().v),table.unpack(res.lift(2))}) end
+  local function _unnop(s,res) res.push({mapOp(s.pop().v),res.pop()}) end
+  local _prec = {
+    ['*'] = 10, ['/'] = 10, ['%'] = 10, ['.'] = 12.5, ['+'] = 9, ['-'] = 9, [':'] = 12.6, ['..'] = 8.5, ['=>'] = -2, ['neg'] = 13, ['!'] = 6.5, ['@']=8.5, ['@@']=8.5,
+    ['>']=7, ['<']=7, ['>=']=7, ['<=']=7, ['==']=7, ['~=']=7, ['&']=6, ['|']=5, ['=']=4, ['+=']=4, ['-=']=4, ['*=']=4, [';']=3.6, ['('] = 1, }
+
+  for i,j in pairs(_prec) do _prec[i]={j,_binop} end 
+  _prec['neg']={13,_unnop} _prec['!']={6.5,_unnop} _prec['@']={8.5,_unnop} _prec['@@']={8.5,_unnop}
+
+  local _tokens = {
+    {"^(%b'')",'string'},{'^(%b"")','string'},
+    {"^%#([0-9a-zA-Z]+{?)",'event'},
+    {"^({})",'symbol'},
+    {"^({)",'lbrack'},{"^(})",'rbrack'},{"^(,)",'token'},
+    {"^(%[)",'lsquare'},{"^(%])",'rsquare'},
+    {"^%$([_0-9a-zA-Z\\$]+)",'gvar'},
+    {"^([tn]/[sunriset]+)",'time'},
+    {"^([tn%+]/%d%d:%d%d:?%d*)",'time'},{"^([%d/]+/%d%d:%d%d:?%d*)",'time'},{"^(%d%d:%d%d:?%d*)",'time'},    
+    {"^:(%u+%d*)",'addr'},
+    {"^(fn%()",'fun'}, 
+    {"^(%()",'lpar'},{"^(%))",'rpar'},
+    {"^([;,])",'token'},{"^(end)",'token'},
+    {"^([_a-zA-Z\xC3\xA5\xA4\xB6\x85\x84\x96][_0-9a-zA-Z\xC3\xA5\xA4\xB6\x85\x84\x96]*)",'symbol'},
+    {"^(%.%.)",'op'},{"^(->)",'op'},    
+    {"^(%d+%.?%d*)",'num'},
+    {"^(%|%|)",'token'},{"^(>>)",'token'},{"^(=>)",'token'},{"^(@@)",'op'},{"^([%*%+~=><]+)",'op'},
+    {"^([%%%*%+/&%.:~=><%|!@]+)",'op'},{"^(%-%=)",'op'},{"^(-)",'op'},
+  }
+
+  local _specT={bracks={['{']='lbrack',['}']='rbrack',[',']='token',['[']='lsquare',[']']='rsquare'},
+    symbols={['end']='token'}}
+  local function _passert(test,pos,msg,...) if not test then msg = _format(msg,...) error({msg,'at char',pos},3) end end
+
+  local function tokenize(s) 
+    local i,tkns,cp,s1,tp,EOF,org = 1,{},1,'',1,{t='EOF',v='<eol>',cp=#s},s
+    repeat
+      s1,s = s,s:match("^[^%w%p]*(.*)") --"^[%s%c]*(.*)")
+      cp = cp+(#s1-#s)
+      s = s:gsub(_tokens[ i ][ 1 ],
+        function(m) local r,to = "",_tokens[i]
+          if to[2]=='num' and m:match("%.$") then m=m:sub(1,-2); r ='.' -- hack for e.g. '7.'
+          elseif m == '(' and #tkns>0 and tkns[#tkns ].t ~= 'fun' and tkns[#tkns ].v:match("^[%]%)%da-zA-Z]") then 
+            m='call' to={1,'call'} 
+          elseif m == '-' and (#tkns==0 or tkns[#tkns ].t=='call' or tkns[#tkns ].v:match("^[+%-*/({.><=&|;,@]")) then 
+            m='neg' to={1,'op'} 
+          end
+          tkns[#tkns+1 ] = {t=to[2], v=m, cp=cp} i = 1 return r
+        end
+      )
+      if s1 == s then i = i+1 _passert(i <= #_tokens,cp,"bad token '%s'",s) end
+      cp = cp+(#s1-#s)
+    until s:match("^[%s%c]*$")
+    return { peek = function() return tkns[tp] or EOF end, nxt = function() tp=tp+1 return tkns[tp-1] or EOF end, 
+      prev = function() return tkns[tp-2] end, push=function() tp=tp-1 end, str=org, atkns=tkns}
+  end
+
+  local function tmatch(str,t) _passert(t.peek().v==str,t.peek().cp,"expected '%s'",str) t.nxt() end
+  local function tpeek(str,t) if t.peek().v==str then return t.nxt() else return false end end
+
+  local pExpr = {}
+  pExpr['lbrack'] = function(t,tokens,it) 
+    local table,idx,tt=it or {},1
+    if tokens.peek().t =='rbrack' then tokens.nxt() return {'%table',table} end
+    repeat
+      local el,key,val = self.expr(tokens)
+      if type(el)=='table' and el[1]=='set' then key,val=el[2][2],el[3] else key,val=idx,el idx=idx+1 end
+      table[key]=val
+      local t = tokens.nxt() _passert(t.v==',' or t.v=='}',t and t.cp or tt.cp,"bad table")
+    until t.v=='}'
+    return {'%table',table}
+  end
+  pExpr['event'] = function(t,tokens) 
+    if t.v:sub(-1,-1) ~= '{' then return {'quote',{type=t.v}} 
+    else return pExpr['lbrack'](nil,tokens,{type=t.v:sub(1,-2)}) end
+  end
+  pExpr['fun'] = function(t,tokens) -- Fix!!!
+    local args = {}
+    if tokens.peek().t ~= 'rpar' then 
+      repeat
+        args[#args+1]=tokens.nxt().v 
+        local t = tokens.nxt() _passert(t.v==',' or t.t=='rpar',t.cp,"bad function definition")
+      until t.t=='rpar'
+    else tokens.nxt() end
+    local body = self.statements(tokens) tmatch("end",tokens)
+    return {'->',args,body}
+  end
+  pExpr['num']=function(t,tokens) return tonumber(t.v) end
+  pExpr['string']=function(t,tokens) return t.v:sub(2,-2) end
+  pExpr['symbol']=function(t,tokens) local p = tokens.prev(); 
+    if symbol[t.v] then return symbol[t.v][1] 
+    elseif p and (p.v=='.' or p.v == ':') and p.t=='op' then 
+      return t.v 
+    else return {'var',t.v} end 
+  end
+  pExpr['gvar'] = function(t,tokens) return {'glob',t.v} end
+  pExpr['addr'] = function(t,tokens) return {'%addr',t.v} end
+  pExpr['time'] = function(t,tokens) return {'time',t.v} end
+
+  function self._dtokens(tokens) for _,t in ipairs(tokens.atkns) do printf("%s, %s, %s",t.t,t.v,t.cp) end end
+
+  function self.expr(tokens)
+    local s,res = Util.mkStack(),Util.mkStack()
+    while true do
+      local t,tsq = tokens.peek(),nil
+      if t.t=='EOF' or t.t=='token' or t.v == '}' or t.v == ']' then
+        while not s.isEmpty() do _prec[s.peek().v][2](s,res) end
+        _passert(res.size()==1,t and t.cp or 1,"bad expression")
+        return res.pop()
+      end
+      tokens.nxt()
+      if t.t == 'lsquare' then 
+        tsq=self.expr(tokens) t = tokens.nxt()
+        _passert(t.t =='rsquare',t.cp,"bad index [] operator")
+        t = {t='op',v='.',cp=t.cp}
+      end
+      if t.t=='op' then
+        if s.isEmpty() then s.push(t); if tsq then res.push(tsq) end
       else
-        local sg
-        sg,h,m,s = ts:match("(%-?)(%d%d):(%d%d):?(%d*)")
-        _assert(h and m,"malformed time constant '%s'",e[2])
-        return {'%time',tm,(sg == '-' and -1 or 1)*(h*3600+m*60+(s~="" and s or 0))}
+        while (not s.isEmpty()) do
+          local p1,p2 = _prec[t.v][1], _prec[s.peek().v][1] p1 = t.v=='=' and 11 or p1
+          if s.peek().v=='.' then p2=p2+.2 end
+          if p2 >= p1 then _prec[s.peek().v][2](s,res) else break end
+        end
+        s.push(t); if tsq then res.push(tsq) end
       end
-    end 
-
-    function self.precompile(e)
-      local function traverse(e)
-        if type(e)=='table' then
-          if e[1]=='quote' then return e
-          else 
-            local pc = Util.mapkk(traverse,e)
-            return preC[pc[1]] and preC[pc[1]](pc) or pc
-          end
-        else return e end
-      end
-      return traverse(e)
-    end
-    function self.compile(expr) local code = {} local prc = self.precompile(expr) compT(prc,code) return code end
-
-    local _opMap = {['&']='and',['|']='or',['=']='set',[':']='prop',[';']='progn',['..']='betw', ['!']='not', ['@']='daily', ['@@']='schedule'}
-    local function mapOp(op) return _opMap[op] or op end
-
-    local function _binop(s,res) res.push({mapOp(s.pop().v),table.unpack(res.lift(2))}) end
-    local function _unnop(s,res) res.push({mapOp(s.pop().v),res.pop()}) end
-    local _prec = {
-      ['*'] = 10, ['/'] = 10, ['%'] = 10, ['.'] = 12.5, ['+'] = 9, ['-'] = 9, [':'] = 12.6, ['..'] = 8.5, ['=>'] = -2, ['neg'] = 13, ['!'] = 6.5, ['@']=8.5, ['@@']=8.5,
-      ['>']=7, ['<']=7, ['>=']=7, ['<=']=7, ['==']=7, ['~=']=7, ['&']=6, ['|']=5, ['=']=4, ['+=']=4, ['-=']=4, ['*=']=4, [';']=3.6, ['('] = 1, }
-
-    for i,j in pairs(_prec) do _prec[i]={j,_binop} end 
-    _prec['neg']={13,_unnop} _prec['!']={6.5,_unnop} _prec['@']={8.5,_unnop} _prec['@@']={8.5,_unnop}
-
-    local _tokens = {
-      {"^(%b'')",'string'},{'^(%b"")','string'},
-      {"^%#([0-9a-zA-Z]+{?)",'event'},
-      {"^({})",'symbol'},
-      {"^({)",'lbrack'},{"^(})",'rbrack'},{"^(,)",'token'},
-      {"^(%[)",'lsquare'},{"^(%])",'rsquare'},
-      {"^%$([_0-9a-zA-Z\\$]+)",'gvar'},
-      {"^([tn]/[sunriset]+)",'time'},
-      {"^([tn%+]/%d%d:%d%d:?%d*)",'time'},{"^([%d/]+/%d%d:%d%d:?%d*)",'time'},{"^(%d%d:%d%d:?%d*)",'time'},    
-      {"^:(%u+%d*)",'addr'},
-      {"^(fn%()",'fun'}, 
-      {"^(%()",'lpar'},{"^(%))",'rpar'},
-      {"^([;,])",'token'},{"^(end)",'token'},
-      {"^([_a-zA-Z][_0-9a-zA-Z]*)",'symbol'},
-      {"^(%.%.)",'op'},{"^(->)",'op'},    
-      {"^(%d+%.?%d*)",'num'},
-      {"^(%|%|)",'token'},{"^(>>)",'token'},{"^(=>)",'token'},{"^(@@)",'op'},{"^([%*%+~=><]+)",'op'},
-      {"^([%%%*%+/&%.:~=><%|!@]+)",'op'},{"^(%-%=)",'op'},{"^(-)",'op'},
-    }
-
-    local _specT={bracks={['{']='lbrack',['}']='rbrack',[',']='token',['[']='lsquare',[']']='rsquare'},
-      symbols={['end']='token'}}
-    local function _passert(test,pos,msg,...) if not test then msg = _format(msg,...) error({msg,'at char',pos},3) end end
-
-    local function tokenize(s) 
-      local i,tkns,cp,s1,tp,EOF,org = 1,{},1,'',1,{t='EOF',v='<eol>',cp=#s},s
-      repeat
-        s1,s = s,s:match("^[^%w%p]*(.*)") --"^[%s%c]*(.*)")
-        cp = cp+(#s1-#s)
-        s = s:gsub(_tokens[ i ][ 1 ],
-          function(m) local r,to = "",_tokens[i]
-            if to[2]=='num' and m:match("%.$") then m=m:sub(1,-2); r ='.' -- hack for e.g. '7.'
-            elseif m == '(' and #tkns>0 and tkns[#tkns ].t ~= 'fun' and tkns[#tkns ].v:match("^[%]%)%da-zA-Z]") then 
-              m='call' to={1,'call'} 
-            elseif m == '-' and (#tkns==0 or tkns[#tkns ].t=='call' or tkns[#tkns ].v:match("^[+%-*/({.><=&|;,@]")) then 
-              m='neg' to={1,'op'} 
-            end
-            tkns[#tkns+1 ] = {t=to[2], v=m, cp=cp} i = 1 return r
-          end
-        )
-        if s1 == s then i = i+1 _passert(i <= #_tokens,cp,"bad token '%s'",s) end
-        cp = cp+(#s1-#s)
-      until s:match("^[%s%c]*$")
-      return { peek = function() return tkns[tp] or EOF end, nxt = function() tp=tp+1 return tkns[tp-1] or EOF end, 
-        prev = function() return tkns[tp-2] end, push=function() tp=tp-1 end, str=org, atkns=tkns}
-    end
-
-    local function tmatch(str,t) _passert(t.peek().v==str,t.peek().cp,"expected '%s'",str) t.nxt() end
-    local function tpeek(str,t) if t.peek().v==str then return t.nxt() else return false end end
-
-    local pExpr = {}
-    pExpr['lbrack'] = function(t,tokens,it) 
-      local table,idx,tt=it or {},1
-      if tokens.peek().t =='rbrack' then tokens.nxt() return {'%table',table} end
-      repeat
-        local el,key,val = self.expr(tokens)
-        if type(el)=='table' and el[1]=='set' then key,val=el[2][2],el[3] else key,val=idx,el idx=idx+1 end
-        table[key]=val
-        local t = tokens.nxt() _passert(t.v==',' or t.v=='}',t and t.cp or tt.cp,"bad table")
-      until t.v=='}'
-      return {'%table',table}
-    end
-    pExpr['event'] = function(t,tokens) 
-      if t.v:sub(-1,-1) ~= '{' then return {'quote',{type=t.v}} 
-      else return pExpr['lbrack'](nil,tokens,{type=t.v:sub(1,-2)}) end
-    end
-    pExpr['fun'] = function(t,tokens) -- Fix!!!
-      local args = {}
+    elseif t.t == 'call' then
+      local args,fun = {}
       if tokens.peek().t ~= 'rpar' then 
         repeat
-          args[#args+1]=tokens.nxt().v 
-          local t = tokens.nxt() _passert(t.v==',' or t.t=='rpar',t.cp,"bad function definition")
+          args[#args+1]=self.expr(tokens)
+          local t = tokens.nxt() _passert(t.v==',' or t.t=='rpar',t.cp,"bad function call")
         until t.t=='rpar'
       else tokens.nxt() end
-      local body = self.statements(tokens) tmatch("end",tokens)
-      return {'->',args,body}
+      while (not s.isEmpty()) and _prec[s.peek().v][1] > 11 do _prec[s.peek().v][2](s,res) end
+      fun = res.pop()
+      if isVar(fun) and isBuiltin(fun[2]) then res.push({fun[2],table.unpack(args)})
+      else res.push({'apply',fun,args}) end
+    elseif t.t == 'lpar' then s.push(t)
+    elseif t.t== 'rpar' then
+      while not s.isEmpty() and s.peek().t ~= 'lpar' do _prec[s.peek().v][2](s,res) end
+      if s.isEmpty() then tokens.push(t) return res.pop() end
+      s.pop()
+    elseif pExpr[t.t] then res.push(pExpr[t.t](t,tokens))
+    else
+      res.push(t.v) -- symbols, constants etc
     end
-    pExpr['num']=function(t,tokens) return tonumber(t.v) end
-    pExpr['string']=function(t,tokens) return t.v:sub(2,-2) end
-    pExpr['symbol']=function(t,tokens) local p = tokens.prev(); 
-      if symbol[t.v] then return symbol[t.v][1] 
-      elseif p and (p.v=='.' or p.v == ':') and p.t=='op' then 
-        return t.v 
-      else return {'var',t.v} end 
-    end
-    pExpr['gvar'] = function(t,tokens) return {'glob',t.v} end
-    pExpr['addr'] = function(t,tokens) return {'%addr',t.v} end
-    pExpr['time'] = function(t,tokens) return {'time',t.v} end
+  end
+end
 
-    function self._dtokens(tokens) for _,t in ipairs(tokens.atkns) do printf("%s, %s, %s",t.t,t.v,t.cp) end end
-
-    function self.expr(tokens)
-      local s,res = Util.mkStack(),Util.mkStack()
-      while true do
-        local t,tsq = tokens.peek(),nil
-        if t.t=='EOF' or t.t=='token' or t.v == '}' or t.v == ']' then
-          while not s.isEmpty() do _prec[s.peek().v][2](s,res) end
-          _passert(res.size()==1,t and t.cp or 1,"bad expression")
-          return res.pop()
-        end
-        tokens.nxt()
-        if t.t == 'lsquare' then 
-          tsq=self.expr(tokens) t = tokens.nxt()
-          _passert(t.t =='rsquare',t.cp,"bad index [] operator")
-          t = {t='op',v='.',cp=t.cp}
-        end
-        if t.t=='op' then
-          if s.isEmpty() then s.push(t); if tsq then res.push(tsq) end
-        else
-          while (not s.isEmpty()) do
-            local p1,p2 = _prec[t.v][1], _prec[s.peek().v][1] p1 = t.v=='=' and 11 or p1
-            if s.peek().v=='.' then p2=p2+.2 end
-            if p2 >= p1 then _prec[s.peek().v][2](s,res) else break end
-          end
-          s.push(t); if tsq then res.push(tsq) end
-        end
-      elseif t.t == 'call' then
-        local args,fun = {}
-        if tokens.peek().t ~= 'rpar' then 
-          repeat
-            args[#args+1]=self.expr(tokens)
-            local t = tokens.nxt() _passert(t.v==',' or t.t=='rpar',t.cp,"bad function call")
-          until t.t=='rpar'
-        else tokens.nxt() end
-        while (not s.isEmpty()) and _prec[s.peek().v][1] > 11 do _prec[s.peek().v][2](s,res) end
-        fun = res.pop()
-        if isVar(fun) and isBuiltin(fun[2]) then res.push({fun[2],table.unpack(args)})
-        else res.push({'apply',fun,args}) end
-      elseif t.t == 'lpar' then s.push(t)
-      elseif t.t== 'rpar' then
-        while not s.isEmpty() and s.peek().t ~= 'lpar' do _prec[s.peek().v][2](s,res) end
-        if s.isEmpty() then tokens.push(t) return res.pop() end
-        s.pop()
-      elseif pExpr[t.t] then res.push(pExpr[t.t](t,tokens))
+function self.parse(s)
+  local t = tokenize(s)
+  local status,res = pcall(function()
+      if tpeek("def",t) then
+        _assert(false,"'def' not implemented yet")
       else
-        res.push(t.v) -- symbols, constants etc
+        if t.peek().v=='||' then return self.statements(t) end
+        local e = self.expr(t)
+        return tpeek("=>",t) and {"=>",e,self.statements(t),t.str} or self.statements(t,e)
       end
-    end
+    end)
+  if status then return res 
+  else 
+    res = type(res) == 'string' and {res} or res
+    errThrow(_format(" parsing '%s'",s),res)
   end
+end
 
-  function self.parse(s)
-    local t = tokenize(s)
-    local status,res = pcall(function()
-        if tpeek("def",t) then
-          _assert(false,"'def' not implemented yet")
-        else
-          if t.peek().v=='||' then return self.statements(t) end
-          local e = self.expr(t)
-          return tpeek("=>",t) and {"=>",e,self.statements(t),t.str} or self.statements(t,e)
-        end
-      end)
-    if status then return res 
-    else 
-      res = type(res) == 'string' and {res} or res
-      errThrow(_format(" parsing '%s'",s),res)
-    end
-  end
+function self.statements(t,ie)
+  local e = {'progn',ie or self.statement(t)}
+  while tpeek(";",t) and t.peek().v~=';' do e[#e+1]=self.statement(t) end
+  return #e>2 and e or e[2]
+end
 
-  function self.statements(t,ie)
-    local e = {'progn',ie or self.statement(t)}
-    while tpeek(";",t) and t.peek().v~=';' do e[#e+1]=self.statement(t) end
-    return #e>2 and e or e[2]
-  end
+function self.statement(t)
+  if tpeek('||',t) then 
+    local c,a=self.expr(t) 
+    tmatch(">>",t)
+    a=self.statements(t)
+    return {'||',c,a,t.peek().v=='||' and self.statement(t) or nil}
+  else return self.expr(t) end
+end
 
-  function self.statement(t)
-    if tpeek('||',t) then 
-      local c,a=self.expr(t) 
-      tmatch(">>",t)
-      a=self.statements(t)
-      return {'||',c,a,t.peek().v=='||' and self.statement(t) or nil}
-    else return self.expr(t) end
-  end
-
-  return self
+return self
 end
 ScriptCompiler = newScriptCompiler()
 
@@ -1740,213 +1744,213 @@ function isRunning(id)
   if _EMULATED then id = math.abs(id) end
   return fibaro:countScenes(id)>0 end
 
-Event.event({{type='autostart'},{type='other'}},
-  function(env)
-    local event = {type=Event.ANNOUNCE, subs=#Event._subs>0 and Event._subs or nil}
-    for _,id in ipairs(Util.findScenes(gEventRunnerKey)) do 
-      if isRunning(id) then
-        Debug(_debugFlags.pubsub,"Announce to ID:%s %s",id,tojson(env.event.subs)); Event._rScenes[id]=true; Event.postRemote(id,event) 
-      end
-    end
-  end)
-
-Event.event({type=Event.ANNOUNCE},function(env)
-    local id = env.event._from
-    if _EMULATED then id = math.abs(id) end
-    Debug(_debugFlags.pubsub,"Announce from ID:%s %s",id,tojson(env.event.subs))
-    Event._rScenes[id]=true;
-    if #Event._subs>0 then Event.postRemote(id,{type=Event.SUB, event=Event._subs}) end
-    for _,e in ipairs(Event._dir) do for i,id2 in ipairs(e.ids) do if id==id2 then table.remove(e.ids,i); break; end end end
-    if env.event.subs then Event.post({type=Event.SUB, event=env.event.subs, _from=id}) end
-  end)
-
-function Event.sendScene(id,event) if Event._rScenes[id] and isRunning(id) then Event.postRemote(id,event) else Event._rScenes[id]=false end end
-function Event.sendAllScenes(event) for id,s in pairs(Event._rScenes) do Event.sendScene(id,event) end end
-function Event.subscribe(event,h) 
-  Event._subs[#Event._subs+1]=event; Event.sendAllScenes({type=Event.SUB, event=event}) 
-  if h then Event.event(event,h) end
-end
-function Event.publish(event,stat)
-  if stat then Event._stats[#Event._stats+1]=event end
-  for _,e in ipairs(Event._dir) do
-    if Event._match(e.pattern,event) then for _,id in ipairs(e.ids) do Event.sendScene(id,event) end end
-  end
-end
-
-Event.event({type=Event.SUB},
-  function(env)
-    local id = env.event._from
-    if _EMULATED then id = math.abs(id) end
-    Debug(_debugFlags.pubsub,"Subcribe from ID:%s %s",id,tojson(env.event.event))
-    for _,event in ipairs(env.event.event[1] and env.event.event or {env.event.event}) do
-      local seen = false
-      for _,e in ipairs(Event._dir) do
-        if _equal(e.event,event) then seen=true; if not Util.member(id,e.ids) then e.ids[#e.ids+1]=id end; break; end
-      end
-      if not seen then
-        local pattern = _copy(event); Event._compilePattern(pattern)
-        Event._dir[#Event._dir+1]={event=event,ids={id},pattern=pattern}
-        for _,se in ipairs(Event._stats) do
-          if Event._match(pattern,se) then Event.sendScene(id,se) end
+  Event.event({{type='autostart'},{type='other'}},
+    function(env)
+      local event = {type=Event.ANNOUNCE, subs=#Event._subs>0 and Event._subs or nil}
+      for _,id in ipairs(Util.findScenes(gEventRunnerKey)) do 
+        if isRunning(id) then
+          Debug(_debugFlags.pubsub,"Announce to ID:%s %s",id,tojson(env.event.subs)); Event._rScenes[id]=true; Event.postRemote(id,event) 
         end
       end
-    end
-  end)
+    end)
 
-Event.event({type='%%EMU%%'},function(env)
-    e = env.event
-    local ids = {}
-    for _,id in ipairs(e.ids or {}) do ids[id]=true end
-    _emulator={ids=ids,adress=e.adress} 
-    if e.proxy then
-      local function proxy(trigger)
-        if not _emulator.address then return end
-        local req = net.HTTPClient()
-        req:request(_emulator.adress,{options = {method = 'PUT', data=json.encode(trigger), timeout=500},
-            error=function() Event.triggerProxy=Event.post; Log(LOG.LOG,"Resetting proxy") end}) -- reset handler if error
-      end
-      Event.triggerHandler=proxy
-    else Event.triggerHandler=Event.post end
-  end)
+  Event.event({type=Event.ANNOUNCE},function(env)
+      local id = env.event._from
+      if _EMULATED then id = math.abs(id) end
+      Debug(_debugFlags.pubsub,"Announce from ID:%s %s",id,tojson(env.event.subs))
+      Event._rScenes[id]=true;
+      if #Event._subs>0 then Event.postRemote(id,{type=Event.SUB, event=Event._subs}) end
+      for _,e in ipairs(Event._dir) do for i,id2 in ipairs(e.ids) do if id==id2 then table.remove(e.ids,i); break; end end end
+      if env.event.subs then Event.post({type=Event.SUB, event=env.event.subs, _from=id}) end
+    end)
 
----------------------- Hue support, can be removed if not needed -------------------------
-function hueSetup(cont)
-  local _defaultHubName = "Hue"
-  function makeHue()
-    local self, devMap, hueNames = { hubs={} }, {}, {}
-    local HTTP = net.HTTPClient()
-    function self.isHue(id) return devMap[id] and devMap[id].hue end
-    function self.name(n) return hueNames[n] end   
-    function self.connect(name,user,ip,cont)
-      self.hubs[name]=makeHueHub(name,user,ip,cont)
+  function Event.sendScene(id,event) if Event._rScenes[id] and isRunning(id) then Event.postRemote(id,event) else Event._rScenes[id]=false end end
+  function Event.sendAllScenes(event) for id,s in pairs(Event._rScenes) do Event.sendScene(id,event) end end
+  function Event.subscribe(event,h) 
+    Event._subs[#Event._subs+1]=event; Event.sendAllScenes({type=Event.SUB, event=event}) 
+    if h then Event.event(event,h) end
+  end
+  function Event.publish(event,stat)
+    if stat then Event._stats[#Event._stats+1]=event end
+    for _,e in ipairs(Event._dir) do
+      if Event._match(e.pattern,event) then for _,id in ipairs(e.ids) do Event.sendScene(id,event) end end
     end
-    function self.hueName(hue) --Hue1:SensorID=1
-      local name,t,id=hue:match("(%w+):(%a+)=(%d+)")
-      local dev = ({SensorID='sensors',LightID='lights',GroupID='groups'})[t]
-      return name..":"..self.hubs[name][dev][tonumber(id)].name 
-    end
-    function self.request(url,cont,op,payload)
-      op,payload = op or "GET", payload and json.encode(payload) or ""
-      Debug(_debugFlags.hue,"Hue req:%s Payload:%s",url,payload)
-      HTTP:request(url,{
-          options = {headers={['Accept']='application/json',['Content-Type']='application/json'},
-            data = payload, timeout=_HueTimeout or 2000, method = op},
-          error = function(status) error("Hue connection:"..tojson(status)..", "..url) end,
-          success = function(status) if cont then cont(json.decode(status.data)) end end
-        })
-    end
-
-    function self.dump() for _,h in pairs(self.hubs) do h.dump() end end
-    local function find(name) -- find a Hue device in any of the connected Hue hubs we have, name is <hub>:<name>
-      local hname,dname=name:match("(.*):(.*)")
-      local hub = self.hubs[hname]
-      return hub.lights[dname] or hub.groups[dname] or hub.sensors[dname],hname
-    end
-
-    local function hueCall(obj,id,...)
-      local val,params=({...})[1],{select(2,...)}
-      if Hue[val] then Hue[val](id,table.unpack(params)) end
-    end
-    local function hueGet(obj,id,...)
-      local val,res,dev,time=({...})[1],nil,Hue.isHue(id)
-      if val=='value' then 
-        if dev.state.on and (dev.state.reachable==nil or  dev.state.reachable==true) then 
-          res = dev.state.bri and tostring(math.floor((dev.state.bri/254)*99+0.5)) or '99' 
-        else res = '0' end 
-      elseif val=='values' then res = dev.state
-      else res =  dev.state[val] and tostring(dev.state[val]) or nil end
-      time=dev.state.lastupdate or 0
-      Debug(_debugFlags.hue,"Get ID:%s %s -> %s",id,val,res)
-      return res and res,time
-    end
-
-    local mapIndex=10000 -- start mapping at deviceID 10000
-    --devMap[deviceID] -> {hub, type, hue}
-    function self.define(name,var,id) -- optional var
-      if id ==nil then id = mapIndex; mapIndex=mapIndex+1 else id =tonumber(id) end
-      if not name:match(":") then name=_defaultHubName..":"..name end -- default to Hue:<name>
-      hueNames[name]=id
-      local hue,hub = find(name) 
-      if hue then devMap[id] = {type=hue.type,hue=hue,hub=self.hubs[hub]}; hue.fid=id    
-      else error("No Hue name:"..name) end
-      if Util and var then Util.defvar(var,id) end
-      Log(LOG.LOG,"Hue device '%s' assigned deviceID %s",name,id)
-      Event._registerID(id,hueCall,hueGet)
-      return id
-    end
-
-    function self.monitor(name,interval,filter)
-      if type(name)=='table' then Util.mapF(function(n) self.monitor(n,interval,filter) end, name) return end
-      if type(name) == 'string' and not name:match(":") then name = _defaultHubName..":"..name end
-      local id = hueNames[name] or name -- name could be deviceID
-      local sensor = devMap[id]
-      sensor.hub.monitor(sensor.hue,interval,filter)
-    end
-
-    function self.rgb2xy(r,g,b)
-      r,g,b = r/254,g/254,b/254
-      r = (r > 0.04045) and ((r + 0.055) / (1.0 + 0.055)) ^ 2.4 or (r / 12.92)
-      g = (g > 0.04045) and ((g + 0.055) / (1.0 + 0.055)) ^ 2.4 or (g / 12.92)
-      b = (b > 0.04045) and ((b + 0.055) / (1.0 + 0.055)) ^ 2.4 or (b / 12.92)
-      local X = r*0.649926+g*0.103455+b*0.197109
-      local Y = r*0.234327+g*0.743075+b*0.022598
-      local Z = r*0.0000000+g*0.053077+b*1.035763
-      return X/(X+Y+Z), Y/(X+Y+Z)
-    end
-
-    function self.turnOn(id) local d,h=devMap[id].hue,devMap[id].hub 
-      self.request(_format(d.url,d.id),h.updateState,"PUT",{on=true}) h._setState(d,'on',true) 
-    end
-    function self.turnOff(id) local d,h=devMap[id].hue, devMap[id].hub
-      self.request(_format(d.url,d.id),h.updateState,"PUT",{on=false}) h._setState(d,'on',false) 
-    end
-    function self.setColor(id,r,g,b,w) local d,h,x,y=devMap[id].hue,devMap[id].hub,self.rgb2xy(r,g,b); 
-      local pl={xy={x,y},bri=w and w/99*254}
-      self.request(_format(d.url,d.id),h.updateState,"PUT",pl) h._setState(d,pl) 
-    end
-    function self.setValue(id,val) local d,h,payload=devMap[id].hue, devMap[id].hub
-      if type(val)=='string' and not tonumber(val) then payload={scene=d.scenes[val] or val}
-      elseif tonumber(val)==0 then payload={on=false} 
-      elseif tonumber(val) then payload={on=true,bri=math.floor((val/99)*254)}
-      elseif type(val)=='table' then
-        if val.startup then
-          local lights = d.lights and #d.lights>0 and d.lights or {d.id}
-          for _,id in ipairs(lights) do
-            local d = h.lights[tonumber(id)]
-            local url = (d.url:match("(.*)/state")).."/config/startup/"
-            payload=val
-            self.request(_format(url,d.id),nil,"PUT",payload)
-          end
-          return
-        else payload=val end
-      end
-      if payload then self.request(_format(d.url,d.id),h.updateState,"PUT",payload) h._setState(d,payload)
-      else  error(_format("Hue setValue id:%s value:%s",id,val)) end
-    end
-
-    return self
   end
 
-  Hue=makeHue() -- create global Hue object
+  Event.event({type=Event.SUB},
+    function(env)
+      local id = env.event._from
+      if _EMULATED then id = math.abs(id) end
+      Debug(_debugFlags.pubsub,"Subcribe from ID:%s %s",id,tojson(env.event.event))
+      for _,event in ipairs(env.event.event[1] and env.event.event or {env.event.event}) do
+        local seen = false
+        for _,e in ipairs(Event._dir) do
+          if _equal(e.event,event) then seen=true; if not Util.member(id,e.ids) then e.ids[#e.ids+1]=id end; break; end
+        end
+        if not seen then
+          local pattern = _copy(event); Event._compilePattern(pattern)
+          Event._dir[#Event._dir+1]={event=event,ids={id},pattern=pattern}
+          for _,se in ipairs(Event._stats) do
+            if Event._match(pattern,se) then Event.sendScene(id,se) end
+          end
+        end
+      end
+    end)
+
+  Event.event({type='%%EMU%%'},function(env)
+      e = env.event
+      local ids = {}
+      for _,id in ipairs(e.ids or {}) do ids[id]=true end
+      _emulator={ids=ids,adress=e.adress} 
+      if e.proxy then
+        local function proxy(trigger)
+          if not _emulator.address then return end
+          local req = net.HTTPClient()
+          req:request(_emulator.adress,{options = {method = 'PUT', data=json.encode(trigger), timeout=500},
+              error=function() Event.triggerProxy=Event.post; Log(LOG.LOG,"Resetting proxy") end}) -- reset handler if error
+        end
+        Event.triggerHandler=proxy
+      else Event.triggerHandler=Event.post end
+    end)
+
+---------------------- Hue support, can be removed if not needed -------------------------
+  function hueSetup(cont)
+    local _defaultHubName = "Hue"
+    function makeHue()
+      local self, devMap, hueNames = { hubs={} }, {}, {}
+      local HTTP = net.HTTPClient()
+      function self.isHue(id) return devMap[id] and devMap[id].hue end
+      function self.name(n) return hueNames[n] end   
+      function self.connect(name,user,ip,cont)
+        self.hubs[name]=makeHueHub(name,user,ip,cont)
+      end
+      function self.hueName(hue) --Hue1:SensorID=1
+        local name,t,id=hue:match("(%w+):(%a+)=(%d+)")
+        local dev = ({SensorID='sensors',LightID='lights',GroupID='groups'})[t]
+        return name..":"..self.hubs[name][dev][tonumber(id)].name 
+      end
+      function self.request(url,cont,op,payload)
+        op,payload = op or "GET", payload and json.encode(payload) or ""
+        Debug(_debugFlags.hue,"Hue req:%s Payload:%s",url,payload)
+        HTTP:request(url,{
+            options = {headers={['Accept']='application/json',['Content-Type']='application/json'},
+              data = payload, timeout=_HueTimeout or 2000, method = op},
+            error = function(status) error("Hue connection:"..tojson(status)..", "..url) end,
+            success = function(status) if cont then cont(json.decode(status.data)) end end
+          })
+      end
+
+      function self.dump() for _,h in pairs(self.hubs) do h.dump() end end
+      local function find(name) -- find a Hue device in any of the connected Hue hubs we have, name is <hub>:<name>
+        local hname,dname=name:match("(.*):(.*)")
+        local hub = self.hubs[hname]
+        return hub.lights[dname] or hub.groups[dname] or hub.sensors[dname],hname
+      end
+
+      local function hueCall(obj,id,...)
+        local val,params=({...})[1],{select(2,...)}
+        if Hue[val] then Hue[val](id,table.unpack(params)) end
+      end
+      local function hueGet(obj,id,...)
+        local val,res,dev,time=({...})[1],nil,Hue.isHue(id)
+        if val=='value' then 
+          if dev.state.on and (dev.state.reachable==nil or  dev.state.reachable==true) then 
+            res = dev.state.bri and tostring(math.floor((dev.state.bri/254)*99+0.5)) or '99' 
+          else res = '0' end 
+        elseif val=='values' then res = dev.state
+        else res =  dev.state[val] and tostring(dev.state[val]) or nil end
+        time=dev.state.lastupdate or 0
+        Debug(_debugFlags.hue,"Get ID:%s %s -> %s",id,val,res)
+        return res and res,time
+      end
+
+      local mapIndex=10000 -- start mapping at deviceID 10000
+      --devMap[deviceID] -> {hub, type, hue}
+      function self.define(name,var,id) -- optional var
+        if id ==nil then id = mapIndex; mapIndex=mapIndex+1 else id =tonumber(id) end
+        if not name:match(":") then name=_defaultHubName..":"..name end -- default to Hue:<name>
+        hueNames[name]=id
+        local hue,hub = find(name) 
+        if hue then devMap[id] = {type=hue.type,hue=hue,hub=self.hubs[hub]}; hue.fid=id    
+        else error("No Hue name:"..name) end
+        if Util and var then Util.defvar(var,id) end
+        Log(LOG.LOG,"Hue device '%s' assigned deviceID %s",name,id)
+        Event._registerID(id,hueCall,hueGet)
+        return id
+      end
+
+      function self.monitor(name,interval,filter)
+        if type(name)=='table' then Util.mapF(function(n) self.monitor(n,interval,filter) end, name) return end
+        if type(name) == 'string' and not name:match(":") then name = _defaultHubName..":"..name end
+        local id = hueNames[name] or name -- name could be deviceID
+        local sensor = devMap[id]
+        sensor.hub.monitor(sensor.hue,interval,filter)
+      end
+
+      function self.rgb2xy(r,g,b)
+        r,g,b = r/254,g/254,b/254
+        r = (r > 0.04045) and ((r + 0.055) / (1.0 + 0.055)) ^ 2.4 or (r / 12.92)
+        g = (g > 0.04045) and ((g + 0.055) / (1.0 + 0.055)) ^ 2.4 or (g / 12.92)
+        b = (b > 0.04045) and ((b + 0.055) / (1.0 + 0.055)) ^ 2.4 or (b / 12.92)
+        local X = r*0.649926+g*0.103455+b*0.197109
+        local Y = r*0.234327+g*0.743075+b*0.022598
+        local Z = r*0.0000000+g*0.053077+b*1.035763
+        return X/(X+Y+Z), Y/(X+Y+Z)
+      end
+
+      function self.turnOn(id) local d,h=devMap[id].hue,devMap[id].hub 
+        self.request(_format(d.url,d.id),h.updateState,"PUT",{on=true}) h._setState(d,'on',true) 
+      end
+      function self.turnOff(id) local d,h=devMap[id].hue, devMap[id].hub
+        self.request(_format(d.url,d.id),h.updateState,"PUT",{on=false}) h._setState(d,'on',false) 
+      end
+      function self.setColor(id,r,g,b,w) local d,h,x,y=devMap[id].hue,devMap[id].hub,self.rgb2xy(r,g,b); 
+        local pl={xy={x,y},bri=w and w/99*254}
+        self.request(_format(d.url,d.id),h.updateState,"PUT",pl) h._setState(d,pl) 
+      end
+      function self.setValue(id,val) local d,h,payload=devMap[id].hue, devMap[id].hub
+        if type(val)=='string' and not tonumber(val) then payload={scene=d.scenes[val] or val}
+        elseif tonumber(val)==0 then payload={on=false} 
+        elseif tonumber(val) then payload={on=true,bri=math.floor((val/99)*254)}
+        elseif type(val)=='table' then
+          if val.startup then
+            local lights = d.lights and #d.lights>0 and d.lights or {d.id}
+            for _,id in ipairs(lights) do
+              local d = h.lights[tonumber(id)]
+              local url = (d.url:match("(.*)/state")).."/config/startup/"
+              payload=val
+              self.request(_format(url,d.id),nil,"PUT",payload)
+            end
+            return
+          else payload=val end
+        end
+        if payload then self.request(_format(d.url,d.id),h.updateState,"PUT",payload) h._setState(d,payload)
+        else  error(_format("Hue setValue id:%s value:%s",id,val)) end
+      end
+
+      return self
+    end
+
+    Hue=makeHue() -- create global Hue object
 --[[
   _HueHubs = {{name="Hub1",user="hghgjhT6TUG", ip="192.168.1.50"}}
   Hue.define("Hub1:my Light","light",890)
 --]]
-  if _HueHubs then
-    local c = cont
-    cont = function() Log(LOG.LOG,"Hue system inited (experimental)") c() end
-    if _HueHubs and #_HueHubs==1 then _defaultHubName=_HueHubs[1].name end
-    for _,hub in ipairs(_HueHubs or {}) do
-      local c,h = cont,hub
-      cont = function() Hue.connect(h.name,h.user,h.ip,c) end
+    if _HueHubs then
+      local c = cont
+      cont = function() Log(LOG.LOG,"Hue system inited (experimental)") c() end
+      if _HueHubs and #_HueHubs==1 then _defaultHubName=_HueHubs[1].name end
+      for _,hub in ipairs(_HueHubs or {}) do
+        local c,h = cont,hub
+        cont = function() Hue.connect(h.name,h.user,h.ip,c) end
+      end
     end
-  end
 
-  Event.event({type='property',propertyName='on',_hue=true},
-    function(env) -- transform 'on' events
-      local e=env.event
-      Event.post({type='property',deviceID=e.deviceID,propertyName='value',value=fibaro:getValue(e.deviceID,'value'),_sh=true})
-    end)
+    Event.event({type='property',propertyName='on',_hue=true},
+      function(env) -- transform 'on' events
+        local e=env.event
+        Event.post({type='property',deviceID=e.deviceID,propertyName='value',value=fibaro:getValue(e.deviceID,'value'),_sh=true})
+      end)
 --  Event.event({type='property', propertyName='buttonevent', value='$val', _hue=true},
 --    function(env) -- transform 'buttonevent' to CentralSceneEvents
 --      local e = env.event
@@ -1956,137 +1960,137 @@ function hueSetup(cont)
 --      local keyAttr = ({'Down','Hold','Down/Released','Released'})[env.p.val % 1000 + 1]
 --      Event.post({type='event',event={type='CentralSceneEvent',data={deviceId=e.deviceID,keyId=keyId,keyAttribute=keyAttr}}})
 --    end)
-  cont()
-end
+    cont()
+  end
 
-function makeHueHub(name,username,ip,cont)
-  local lights,groups,scenes,sensors = {},{},{},{},{}
-  local self = {lights=lights,groups=groups,scenes=scenes,sensors=sensors}
-  local hubName,baseURL=name,"http://"..ip..":80/api/"..username.."/"
-  local lightURL = baseURL.."lights/%s/state"
-  local groupURL = baseURL.."groups/%s/action"
-  local sensorURL = baseURL.."sensors/%s"
-  function self._setState(hue,prop,val,upd)
-    if type(prop)=='table' then 
-      for k,v in pairs(prop) do self._setState(hue,k,v,upd) end
-      return
-    end
-    local change,id = hue.state[prop]~=nil and hue.state[prop] ~= val, hue.fid
-    hue.state[prop],hue.state['lastupdate']=val,osTime()
-    local filter = id and hue._filter
-    if change and id and filter and filter[prop] then 
-      Event.post({type='property',deviceID=id,propertyName=prop,value=val,_hue=true,_sh=_debugFlags.hue}) 
-    end
-    --Log(LOG.LOG,"Name:%s, PROP:%s, VAL:%s",hue.name,tojson(prop),tojson(val))
-    if (not upd) and hue.lights then -- for groups
-      for _,id in ipairs(hue.lights) do self._setState(lights[tonumber(id)],prop,val,upd) end 
-    end
-  end
-  function self.updateState(state) -- partial state
-    for _,s in ipairs(state[1] and state or {}) do
-      if s.success then 
-        for p,v in pairs(s.success) do 
-          local tp,id,mt,prop = p:match("/(%a+)/(%d+)/(%a+)/(.*)")
-          if id then self._setState(self[tp][ tonumber(id) ],prop,v)
-          else Log(LOG.LOG,"Unknown Hue state %s %s",p,v) end
-        end --for 
-      end -- if
-    end --for
-  end --fun
-  local function setFullState(devices,id,d,state,t,url)
-    local dd = devices[d.name] or {name=d.name,id=tonumber(id), state={}, type=t, url=url,lights=d.lights, scenes={}}
-    devices[d.name],devices[tonumber(id)]=dd,dd
-    self._setState(dd,d[state],nil,true)
-  end
-  function match(t1,t2) if #t1~=#t2 then return false end; for i=1,#t1 do if t1[i]~=t2[i] then return false end end return true end
-  function self.getFullState(f)
-    Hue.request(baseURL,function(data)
-        for id,d in pairs(data.sensors) do setFullState(sensors,id,d,'state','sensor',sensorURL) end
-        for id,d in pairs(data.lights) do setFullState(lights,id,d,'state','light',lightURL) end
-        for id,d in pairs(data.groups) do table.sort(d.lights) setFullState(groups,id,d,'action','group',groupURL) end
-        for id,d in pairs(data.scenes) do if d.version>1 then 
-          scenes[d.name] = id; table.sort(d.lights)
-          for _,g in pairs(groups) do if match(g.lights,d.lights) then g.scenes[d.name]=id end end
-        end end
-        if f then f() end
-      end)
-  end
-  local _defFilter={buttonevent=true, on=true}
-  function self.monitor(sensor,interval,filter)
-    local url = sensor.url:sub(#baseURL+1)
-    url=baseURL.._format(url:match("(.-/)").."%s",sensor.id)
-    sensor._filter = filter or sensor._filter or _defFilter
-    if sensor._timer then clearTimeout(sensor._timer) sensor._timer=nil end
-    if interval>0 then 
-      Debug(_debugFlags.hue,"Monitoring URL:%s",url)
-      local function poll() 
-        Hue.request(url,function(state) self._setState(sensor,state.state) sensor._timer=setTimeout(poll,interval) end)
+  function makeHueHub(name,username,ip,cont)
+    local lights,groups,scenes,sensors = {},{},{},{},{}
+    local self = {lights=lights,groups=groups,scenes=scenes,sensors=sensors}
+    local hubName,baseURL=name,"http://"..ip..":80/api/"..username.."/"
+    local lightURL = baseURL.."lights/%s/state"
+    local groupURL = baseURL.."groups/%s/action"
+    local sensorURL = baseURL.."sensors/%s"
+    function self._setState(hue,prop,val,upd)
+      if type(prop)=='table' then 
+        for k,v in pairs(prop) do self._setState(hue,k,v,upd) end
+        return
       end
-      poll()
+      local change,id = hue.state[prop]~=nil and hue.state[prop] ~= val, hue.fid
+      hue.state[prop],hue.state['lastupdate']=val,osTime()
+      local filter = id and hue._filter
+      if change and id and filter and filter[prop] then 
+        Event.post({type='property',deviceID=id,propertyName=prop,value=val,_hue=true,_sh=_debugFlags.hue}) 
+      end
+      --Log(LOG.LOG,"Name:%s, PROP:%s, VAL:%s",hue.name,tojson(prop),tojson(val))
+      if (not upd) and hue.lights then -- for groups
+        for _,id in ipairs(hue.lights) do self._setState(lights[tonumber(id)],prop,val,upd) end 
+      end
     end
+    function self.updateState(state) -- partial state
+      for _,s in ipairs(state[1] and state or {}) do
+        if s.success then 
+          for p,v in pairs(s.success) do 
+            local tp,id,mt,prop = p:match("/(%a+)/(%d+)/(%a+)/(.*)")
+            if id then self._setState(self[tp][ tonumber(id) ],prop,v)
+            else Log(LOG.LOG,"Unknown Hue state %s %s",p,v) end
+          end --for 
+        end -- if
+      end --for
+    end --fun
+    local function setFullState(devices,id,d,state,t,url)
+      local dd = devices[d.name] or {name=d.name,id=tonumber(id), state={}, type=t, url=url,lights=d.lights, scenes={}}
+      devices[d.name],devices[tonumber(id)]=dd,dd
+      self._setState(dd,d[state],nil,true)
+    end
+    function match(t1,t2) if #t1~=#t2 then return false end; for i=1,#t1 do if t1[i]~=t2[i] then return false end end return true end
+    function self.getFullState(f)
+      Hue.request(baseURL,function(data)
+          for id,d in pairs(data.sensors) do setFullState(sensors,id,d,'state','sensor',sensorURL) end
+          for id,d in pairs(data.lights) do setFullState(lights,id,d,'state','light',lightURL) end
+          for id,d in pairs(data.groups) do table.sort(d.lights) setFullState(groups,id,d,'action','group',groupURL) end
+          for id,d in pairs(data.scenes) do if d.version>1 then 
+            scenes[d.name] = id; table.sort(d.lights)
+            for _,g in pairs(groups) do if match(g.lights,d.lights) then g.scenes[d.name]=id end end
+          end end
+          if f then f() end
+        end)
+    end
+    local _defFilter={buttonevent=true, on=true}
+    function self.monitor(sensor,interval,filter)
+      local url = sensor.url:sub(#baseURL+1)
+      url=baseURL.._format(url:match("(.-/)").."%s",sensor.id)
+      sensor._filter = filter or sensor._filter or _defFilter
+      if sensor._timer then clearTimeout(sensor._timer) sensor._timer=nil end
+      if interval>0 then 
+        Debug(_debugFlags.hue,"Monitoring URL:%s",url)
+        local function poll() 
+          Hue.request(url,function(state) self._setState(sensor,state.state) sensor._timer=setTimeout(poll,interval) end)
+        end
+        poll()
+      end
+    end
+    function self.dump()
+      Log(LOG.LOG,"%s------------ Hue Lights ---------------------",name)
+      for k,v in pairs(lights) do if not tonumber(k) then Log(LOG.LOG,"Light '%s' id=%s",k,json.encode(v.id)) end end
+      Log(LOG.LOG,"%s------------- Hue Groups ---------------------",name)
+      for k,v in pairs(groups) do if not tonumber(k) then Log(LOG.LOG,"Group '%s' id=%s",k,json.encode(v.id)) end end
+      Log(LOG.LOG,"%s------------- Hue Scenes ---------------------",name)
+      for k,v in pairs(scenes) do Log(LOG.LOG,"Scene '%s' id=%s",k,v) end
+      Log(LOG.LOG,"%s------------- Hue Sensors ---------------------",name)
+      for k,v in pairs(sensors) do if not tonumber(k) then Log(LOG.LOG,"Sensor '%s' id=%s",k,json.encode(v.id)) end end
+      Log(LOG.LOG,"----------------------------------------------")
+    end
+    Hue.hubs[name]=self -- hack
+    self.getFullState(cont)
+    return self
   end
-  function self.dump()
-    Log(LOG.LOG,"%s------------ Hue Lights ---------------------",name)
-    for k,v in pairs(lights) do if not tonumber(k) then Log(LOG.LOG,"Light '%s' id=%s",k,json.encode(v.id)) end end
-    Log(LOG.LOG,"%s------------- Hue Groups ---------------------",name)
-    for k,v in pairs(groups) do if not tonumber(k) then Log(LOG.LOG,"Group '%s' id=%s",k,json.encode(v.id)) end end
-    Log(LOG.LOG,"%s------------- Hue Scenes ---------------------",name)
-    for k,v in pairs(scenes) do Log(LOG.LOG,"Scene '%s' id=%s",k,v) end
-    Log(LOG.LOG,"%s------------- Hue Sensors ---------------------",name)
-    for k,v in pairs(sensors) do if not tonumber(k) then Log(LOG.LOG,"Sensor '%s' id=%s",k,json.encode(v.id)) end end
-    Log(LOG.LOG,"----------------------------------------------")
-  end
-  Hue.hubs[name]=self -- hack
-  self.getFullState(cont)
-  return self
-end
 
 ---------------------- Startup -----------------------------  
-if _type == 'other' and fibaro:countScenes() > 1 then 
-  Log(LOG.LOG,"Scene already started. Try again?") 
-  fibaro:abort()
-end
-if _type == 'autostart' or _type == 'other' then
-  Log(LOG.WELCOME,_format("%sEventRunner v%s %s",_sceneName and (_sceneName.." - " or ""),_version,_fix))
-
-  local info = api.get("/settings/info")
-  Log(LOG.LOG,"Fibaro software version: %s",info.currentVersion.version)
-  Log(LOG.LOG,"HC2 uptime: %s hours",math.floor((os.time()-info.serverStatus)/3600))
-  for i=1,_NUMBEROFBOXES do
-    local mailbox = _MAILBOX.."_"..tostring(i)
-    if not string.find(json.encode((api.get("/globalVariables/"))),"\""..mailbox.."\"") then
-      api.post("/globalVariables/",{name=mailbox})
-    end
-    _MAILBOXES[i]=mailbox
+  if _type == 'other' and fibaro:countScenes() > 1 then 
+    Log(LOG.LOG,"Scene already started. Try again?") 
+    fibaro:abort()
   end
+  if _type == 'autostart' or _type == 'other' then
+    Log(LOG.WELCOME,_format("%sEventRunner v%s %s",_sceneName and (_sceneName.." - " or ""),_version,_fix))
 
-  Log(LOG.LOG,"Sunrise %s, Sunset %s",fibaro:getValue(1,'sunriseHour'),fibaro:getValue(1,'sunsetHour'))
-  if _EMULATED and not _ANNOUNCEDTIME then 
-    Log(LOG.LOG,"Starting:%s %s",osDate("%x %X",osTime()),_SPEEDTIME and "(speeding)" or "") 
-  end
-
-  GC = 0
-  function setUp()
-    Log(LOG.SYSTEM,"") Log(LOG.SYSTEM,"Loading rules")
-    local status, res = pcall(function() return main() end)
-    if not status then 
-      Log(LOG.ERROR,"Error loading rules:%s",type(res)=='table' and table.concat(res,' ') or res) fibaro:abort() 
+    local info = api.get("/settings/info")
+    Log(LOG.LOG,"Fibaro software version: %s",info.currentVersion.version)
+    Log(LOG.LOG,"HC2 uptime: %s hours",math.floor((os.time()-info.serverStatus)/3600))
+    for i=1,_NUMBEROFBOXES do
+      local mailbox = _MAILBOX.."_"..tostring(i)
+      if not string.find(json.encode((api.get("/globalVariables/"))),"\""..mailbox.."\"") then
+        api.post("/globalVariables/",{name=mailbox})
+      end
+      _MAILBOXES[i]=mailbox
     end
 
-    _trigger._sh = true
-    Event.post(_trigger)
+    Log(LOG.LOG,"Sunrise %s, Sunset %s",fibaro:getValue(1,'sunriseHour'),fibaro:getValue(1,'sunsetHour'))
+    if _EMULATED and not _ANNOUNCEDTIME then 
+      Log(LOG.LOG,"Starting:%s %s",osDate("%x %X",osTime()),_SPEEDTIME and "(speeding)" or "") 
+    end
 
-    Log(LOG.SYSTEM,"") Log(LOG.SYSTEM,"Scene running")
-    collectgarbage("collect") GC=collectgarbage("count")
+    GC = 0
+    function setUp()
+      Log(LOG.SYSTEM,"") Log(LOG.SYSTEM,"Loading rules")
+      local status, res = pcall(function() return main() end)
+      if not status then 
+        Log(LOG.ERROR,"Error loading rules:%s",type(res)=='table' and table.concat(res,' ') or res) fibaro:abort() 
+      end
+
+      _trigger._sh = true
+      Event.post(_trigger)
+
+      Log(LOG.SYSTEM,"") Log(LOG.SYSTEM,"Scene running")
+      collectgarbage("collect") GC=collectgarbage("count")
+    end
+
+    local function chainStartup() if hueSetup then return hueSetup(setUp) else return setUp() end end
+
+    for _,mb in ipairs(_MAILBOXES) do 
+      fibaro:setGlobal(mb,"") 
+    end
+    _CXCST1=os.clock()
+    if not _EMULATED then _poll()  end -- start polling mailbox
+    chainStartup()
+
   end
-
-  local function chainStartup() if hueSetup then return hueSetup(setUp) else return setUp() end end
-
-  for _,mb in ipairs(_MAILBOXES) do 
-    fibaro:setGlobal(mb,"") 
-  end
-  _CXCST1=os.clock()
-  if not _EMULATED then _poll()  end -- start polling mailbox
-  chainStartup()
-
-end
