@@ -9,7 +9,7 @@
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner",id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B7"  -- Mar 23, 2019  
+_version,_fix = "2.0","B8"  -- Mar 23, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -48,7 +48,7 @@ function main()
   --HT = json.decode(HT)
   Util.defvars(HT.dev)            -- Make HomeTable defs available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable names available for logger
-  
+
   rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 10 second
 
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
@@ -886,30 +886,6 @@ function newScriptEngine()
     if isEvent(v) then doit(Util.mapF,function(id) Event.postRemote(ID(id,i),v) end,id) return v
     else doit(Util.mapF,function(id) fibaro:startScene(ID(id,i),v) end,id) return v end 
   end
-
-  do
-    local function gybdow(tm)
-      local ybdow = tonumber(os.date("%w",os.time{year=os.date("*t",tm).year,month=1,day=1}))
-      return ybdow == 0 and 7 or ybdow
-    end
-    local function getDayAdd(tm) local ybdow = gybdow(tm) return ybdow < 5 and (ybdow - 2) or (ybdow - 9) end
-    function getWeekNumber(tm)
-      local dayOfYear,dayAdd = os.date("%j",tm),getDayAdd(tm)
-      local doyc = dayOfYear + dayAdd
-      if(doyc < 0) then
-        dayAdd = getDayAdd(os.time{year=os.date("*t",tm).year-1,month=1,day=1})
-        dayOfYear = dayOfYear + os.date("%j",os.time{year=os.date("*t",tm).year-1,month=12,day=31})
-        doyc = dayOfYear + dayAdd
-      end  
-      weekNum = math.floor((doyc) / 7) + 1
-      if( (doyc > 0) and weekNum == 53) then
-        local ybdow = gybdow(os.time{year=os.date("*t",tm).year+1,month=1,day=1})
-        if(ybdow < 5 ) then weekNum = 1 end  
-      end  
-      return weekNum
-    end  
-  end
-
   local timeFs ={["*"]=function(t) return t end,
     t=function(t) return t+midnight() end,
     ['+']=function(t) return t+osTime() end,
@@ -917,7 +893,7 @@ function newScriptEngine()
     ['midnight']=function(t) return midnight() end,
     ['sunset']=function(t) if t=='*' then return hm2sec('sunset') else return toTime(t.."/sunset") end end,
     ['sunrise']=function(t) if t=='*' then return hm2sec('sunrise') else return toTime(t.."/sunrise") end end,
-    ['wnum']=function(t) return getWeekNumber(osTime()) end,
+    ['wnum']=function(t)  w = os.date("%V"); return tonumber(w) or os.date("%W",t)+1 end,
     ['now']=function(t) return osTime()-midnight() end}
   local function _coerce(x,y) local x1 = tonumber(x) if x1 then return x1,tonumber(y) else return x,y end end
   local function getVar(v,e) local vars = e.context 
@@ -1053,7 +1029,8 @@ function newScriptEngine()
     else 
       _assert(type(t)=='number',"Bad argument to wait '%s'",t~=nil and t or "nil")
       if t<midnight() then t = osTime()+t end -- Allow both relative and absolute time... e.g '10:00'->midnight+10:00
-      i[4]=Event.post(function() i[4]=nil i[5]=true self.eval(e.code,e,e.stack,cp) end,t,e.rule) s.push(false) error({type='yield'})
+      local code,stack = e.code,e.stack
+      i[4]=Event.post(function() i[4]=nil i[5]=true self.eval(code,e,stack,cp) end,t,e.rule) s.push(false) error({type='yield'})
     end 
   end
   instr['repeat'] = function(s,n,e) 
@@ -1779,7 +1756,7 @@ function isRunning(id)
   Event.event({type=Event.ANNOUNCE},function(env)
       local id = env.event._from
       if _EMULATED then id = math.abs(id) end
-      Debug(_debugFlags.pubsub,"Announce from ID:%s %s",id,tojson(env.event.subs))
+      Debug(_debugFlags.pubsub,"Announce from ID:%s %s",id,env.event.subs and tojson(env.event.subs) or "")
       Event._rScenes[id]=true;
       if #Event._subs>0 then Event.postRemote(id,{type=Event.SUB, event=Event._subs}) end
       for _,e in ipairs(Event._dir) do for i,id2 in ipairs(e.ids) do if id==id2 then table.remove(e.ids,i); break; end end end
