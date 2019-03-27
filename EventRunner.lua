@@ -9,7 +9,7 @@
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner",id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B8"  -- Mar 23, 2019  
+_version,_fix = "2.0","B9"  -- Mar 27, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -807,6 +807,29 @@ function Util.mkStack()
   return self
 end
 
+  do
+    local function gybdow(tm)
+      local ybdow = tonumber(os.date("%w",os.time{year=os.date("*t",tm).year,month=1,day=1}))
+      return ybdow == 0 and 7 or ybdow
+    end
+    local function getDayAdd(tm) local ybdow = gybdow(tm) return ybdow < 5 and (ybdow - 2) or (ybdow - 9) end
+    function Util.getWeekNumber(tm)
+      local dayOfYear,dayAdd,weekNum = os.date("%j",tm),getDayAdd(tm)
+      local doyc = dayOfYear + dayAdd
+      if(doyc < 0) then
+        dayAdd = getDayAdd(os.time{year=os.date("*t",tm).year-1,month=1,day=1})
+        dayOfYear = dayOfYear + os.date("%j",os.time{year=os.date("*t",tm).year-1,month=12,day=31})
+        doyc = dayOfYear + dayAdd
+      end  
+      weekNum = math.floor(doyc/7) + 1
+      if doyc > 0 and weekNum == 53 then
+        local ybdow = gybdow(os.time{year=os.date("*t",tm).year+1,month=1,day=1})
+        if ybdow < 5 then weekNum = 1 end  
+      end  
+      return weekNum
+    end  
+  end
+
 function Util.findScenes(str)
   local res = {}
   for _,s1 in ipairs(api.get("/scenes")) do
@@ -893,7 +916,7 @@ function newScriptEngine()
     ['midnight']=function(t) return midnight() end,
     ['sunset']=function(t) if t=='*' then return hm2sec('sunset') else return toTime(t.."/sunset") end end,
     ['sunrise']=function(t) if t=='*' then return hm2sec('sunrise') else return toTime(t.."/sunrise") end end,
-    ['wnum']=function(t)  w = osDate("%V"); return tonumber(w) or osDate("%W")+1 end,
+    ['wnum']=function(t)  return Util.getWeekNumber(osTime()) end,
     ['now']=function(t) return osTime()-midnight() end}
   local function _coerce(x,y) local x1 = tonumber(x) if x1 then return x1,tonumber(y) else return x,y end end
   local function getVar(v,e) local vars = e.context 
