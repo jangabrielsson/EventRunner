@@ -893,7 +893,7 @@ function newScriptEngine()
     ['midnight']=function(t) return midnight() end,
     ['sunset']=function(t) if t=='*' then return hm2sec('sunset') else return toTime(t.."/sunset") end end,
     ['sunrise']=function(t) if t=='*' then return hm2sec('sunrise') else return toTime(t.."/sunrise") end end,
-    ['wnum']=function(t)  w = os.date("%V"); return tonumber(w) or os.date("%W",t)+1 end,
+    ['wnum']=function(t)  w = osDate("%V"); return tonumber(w) or osDate("%W")+1 end,
     ['now']=function(t) return osTime()-midnight() end}
   local function _coerce(x,y) local x1 = tonumber(x) if x1 then return x1,tonumber(y) else return x,y end end
   local function getVar(v,e) local vars = e.context 
