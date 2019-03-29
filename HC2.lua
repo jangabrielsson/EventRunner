@@ -26,13 +26,13 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
 
-_version,_fix = "0.5","fix6"     
+_version,_fix = "0.5","fix9"     
 _sceneName = "HC2 emulator"
 
 _DEMO=false                  -- Load test scene and run
 _REMOTE=true                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
-_SPEEDTIME = false--24*30    -- Speed through X hours, if set to false run in real time
+_SPEEDTIME = 24*330           -- Speed through X hours, if set to false run in real time
 _BLOCK_PUT=true              -- Block http PUT commands to the HC2 - e.g. changing resources on the HC2
 _BLOCK_POST=true             -- Block http POST commands to the HC2 - e.g. creating resources on the HC2
 _AUTOCREATEGLOBALS=true      -- Will (silently) autocreate a local fibaro global if it doesn't exist
@@ -53,13 +53,13 @@ if creds then creds() end
 --------------------------------------------------------
 function main()
 
-  HC2.setupConfiguration(true,true) -- read in configuration from stored local file, or from remote HC2
+  HC2.setupConfiguration(true,false) -- read in configuration from stored local file, or from remote HC2
 
   if not _REMOTE or _RUNLOCAL then -- If we are remote don't try to access resources on the HC2
     HC2.localDevices(true) -- set all devices to local
     HC2.localGlobals(true) -- set all globals to local
     HC2.localRooms(true)   -- set all rooms to local
-    --HC2.localScenes(true)  -- set all scenes to local
+    HC2.localScenes(true)  -- set all scenes to local
   end
 
   --HC2.remoteDevices({66,88}) -- We still want to run local, except for deviceID 66,88 that will be controlled on the HC2
@@ -99,6 +99,10 @@ _debugFlags = {
   threads=false, triggers=true, eventserver=false, hc2calls=true, globals=false, 
   fibaro=true, fibaroSleep=false, fibaroSet=true, fibaroStart=false, web=true,
 }
+
+-- ToDo
+-- Remove _REMOTE
+-- Cache .remote resources and integrate HC2 polling
 ------------------------------------------------------
 -- Context, functions exported to scenes
 ------------------------------------------------------
@@ -113,6 +117,7 @@ function setupContext(id)  -- Table of functions and variables available for sce
     dofile=_System.dofile, -- Allow dofile for including code for testing, but use our version that sets context
     os={clock=os.clock,date=osDate,time=osTime,difftime=os.difftime},
     json=json,
+    print=print,
     net = net,
     api = api,
     setTimeout=_System.setTimeoutContext,
@@ -145,7 +150,7 @@ end
 function startup()
   Log(LOG.WELCOME,"HC2 SceneRunner v%s %s",_version,_fix)
   if _SPEEDTIME then Log(LOG.WELCOME,"Running speedtime") end
-  if _REMOTE then Log(LOG.WELCOME,"Remote enabled, willaccess non-local resources on HC2") end
+  if _REMOTE then Log(LOG.WELCOME,"Remote enabled, will access non-local resources on HC2") end
 
   _mainPosts={}
   function HC2.post(event,t) _mainPosts[#_mainPosts+1]={event,t} end
@@ -1323,6 +1328,8 @@ POST:/globalVariables/  <var struct> -- Create variable
 -- fibaro:getGlobalValue(varName)
 -- fibaro:getGlobalModificationTime(varName)
 -- fibaro:setGlobal(varName ,value) 
+-- fibaro:setLedBrightness -- not implemented yet
+-- fibaro:getLedBrightness -- not implemented yet
 -- HomeCenter -- only remote
 -- setTimeout(function,time)
 -- clearTimeout(ref)
@@ -1347,15 +1354,21 @@ POST:/globalVariables/  <var struct> -- Create variable
   _DEV_PROP_MAP={["IPAddress"]='ip', ["TCPPort"]='port'}
   function __fibaro_get_device_property(deviceID ,propertyName)
     local d,prop = HC2.getDevice(deviceID,true)
-    if d.type=='virtual_device' then
-      propertyName=_DEV_PROP_MAP[propertyName] or propertyName
-    end
     if d and d._local then
+      if d.type=='virtual_device' then
+        propertyName=_DEV_PROP_MAP[propertyName] or propertyName
+      end
       return d and {value=d.properties[propertyName],modified=d.modified}
     else
       return api.rawGet(false,"/devices/"..deviceID.."/properties/"..propertyName) 
     end
   end
+
+  function __fibaroSleep() end
+  function __fibaro_get_device() end
+  function __fibaro_get_scene() end
+  function __fibaro_get_global_variable() end
+  function __fibaro_get_room() end
 
   function fibaro:getSourceTrigger() return Scene.global().__fibaroSceneSourceTrigger end
   function fibaro:getSourceTriggerType() return Scene.global().__fibaroSceneSourceTrigger["type"] end
@@ -1736,7 +1749,7 @@ Expected input:
       if spec then 
         fibaro[name] = function(obj,...) 
           if _debugFlags[flag] then return spec(obj,fibaro._orgf[name],...) else return fibaro._orgf[name](obj,...)  end 
-        end 
+        end
       else 
         fibaro[name] = function(obj,id,...)
           local id2,args = type(id) == 'number' and Util and Util.reverseVar(id) or '"'..(id or "<ID>")..'"',{...}
