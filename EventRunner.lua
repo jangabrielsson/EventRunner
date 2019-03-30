@@ -1,5 +1,6 @@
 --[[
 %% properties
+99 value
 %% events
 %% globals
 %% autostart
@@ -50,7 +51,7 @@ function main()
   Util.reverseMapDef(HT.dev)      -- Make HomeTable names available for logger
 
   rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 10 second
-
+  
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
 end -- main()
 
@@ -65,9 +66,9 @@ local _trigger = fibaro:getSourceTrigger()
 local _type, _source = _trigger.type, _trigger
 local _MAILBOX = "MAILBOX"..__fibaroSceneId 
 function urldecode(str) return str:gsub('%%(%x%x)',function (x) return string.char(tonumber(x,16)) end) end
-function isRemoteEvent(e) return type(e)=='table' and type(e[1])=='string' end -- change in the future...
-function encodeRemoteEvent(e) return {urlencode(json.encode(e)),'%%ER%%'} end
-function decodeRemoteEvent(e) return (json.decode((urldecode(e[1])))) end
+local function isRemoteEvent(e) return type(e)=='table' and type(e[1])=='string' end -- change in the future...
+local function encodeRemoteEvent(e) return {urlencode(json.encode(e)),'%%ER%%'} end
+local function decodeRemoteEvent(e) return (json.decode((urldecode(e[1])))) end
 
 local args = fibaro:args()
 if _type == 'other' and args and isRemoteEvent(args) then
@@ -134,8 +135,8 @@ end
 LOG = {WELCOME = "orange",DEBUG = "white", SYSTEM = "Cyan", LOG = "green", ULOG="Khaki", ERROR = "Tomato"}
 _format = string.format
 _ruleLogLength = _ruleLogLength or 80   -- Log message cut-off, defaults to 80
-_getIdProp = function(id,prop) return fibaro:get(id,prop) end
-_getGlobal = function(id) return fibaro:getGlobal(id) end
+local _getIdProp = function(id,prop) return fibaro:get(id,prop) end
+local _getGlobal = function(id) return fibaro:getGlobal(id) end
 
 Util = Util or {}
 tojson = json.encode
@@ -145,7 +146,7 @@ gEventSupervisorKey="9t823239".."5ue734r327fh3"
 -- Patch possibly buggy setTimeout - what is 1ms between friends...
 setTimeout,oldSetTimeout = function(f,t) return oldSetTimeout(f, t and t < 1 and 1 or t) end,setTimeout
 
-function _Msg(color,message,...)
+local function _Msg(color,message,...)
   local args = type(... or 42) == 'function' and {(...)()} or {...}
   local tadj = _timeAdjust > 0 and osDate("(%X) ") or ""
   message = _format(message,table.unpack(args))
@@ -155,7 +156,7 @@ end
 
 if _System and _System._Msg then _Msg=_System._Msg end -- Get a better ZBS version of _Msg if running emulated 
 
-function protectMsg(...)
+local function protectMsg(...)
   local args = {...}
   local stat,res=pcall(function() return _Msg(table.unpack(args)) end)
   if not stat then error("Bad arguments to Log/Debug:"..tojson(args),2)
@@ -166,8 +167,8 @@ if not _timeAdjust then _timeAdjust = 0 end -- support for adjusting for hw time
 osTime = function(arg) return arg and os.time(arg) or os.time()+_timeAdjust end
 function Debug(flag,message,...) if flag then _Msg(LOG.DEBUG,message,...) end end
 function Log(color,message,...) return protectMsg(color,message,...) end
-function _LINEFORMAT(line) return "" end
-function _LINE() return nil end
+local function _LINEFORMAT(line) return "" end
+local function _LINE() return nil end
 function osDate(f,t) t = t or osTime() return os.date(f,t) end
 
 function errThrow(m,err) if type(err) == 'table' then table.insert(err,1,m) else err = {m,err} end error(err) end
@@ -359,6 +360,7 @@ function newEventEngine()
     local rm = {[self.RULE]=e, action=action, src=doc, subs=rl}
     rm.enable = function() Util.mapF(function(e) e.enable() end,rl) return rm end
     rm.disable = function() Util.mapF(function(e) e.disable() end,rl) return rm end
+    rm.start = function() self._invokeRule({rule=rm}) return rm end
     rm.print = function() Util.map(function(e) e.print() end,rl) end
     return rm
   end
@@ -409,6 +411,7 @@ function newEventEngine()
     if fn then rules[#rules+1] = {rule} end
     rule.enable = function() rule._disabled = nil return rule end
     rule.disable = function() rule._disabled = true return rule end
+    rule.start = function() self._invokeRule({rule=rule}) return rule end
     rule.print = function() Log(LOG.LOG,"Event(%s) => ..",tojson(e)) end
     if self.SECTION then
       local s = self._sections[self.SECTION] or {}
@@ -459,7 +462,7 @@ function newEventEngine()
     error("Unable to compile action:"..json.encode(a))
   end
 
-  local function _invokeRule(env)
+  function self._invokeRule(env)
     local t = osTime()
     env.last,env.rule.time = t-(env.rule.time or 0),t
     Debug(_debugFlags.invoke and not env.event._sh,"Invoking:%s",env.rule.src,_LINEFORMAT(env.rule.line))
@@ -482,7 +485,7 @@ function newEventEngine()
         if match then
           if next(match) then for k,v in pairs(match) do env.p[k]=v match[k]={v} end env.context = match end
           for _,rule in ipairs(rules) do 
-            if not rule._disabled then env.rule = rule _invokeRule(env) end
+            if not rule._disabled then env.rule = rule self._invokeRule(env) end
           end
         end
       end
@@ -807,28 +810,28 @@ function Util.mkStack()
   return self
 end
 
-  do
-    local function gybdow(tm)
-      local ybdow = tonumber(os.date("%w",os.time{year=os.date("*t",tm).year,month=1,day=1}))
-      return ybdow == 0 and 7 or ybdow
-    end
-    local function getDayAdd(tm) local ybdow = gybdow(tm) return ybdow < 5 and (ybdow - 2) or (ybdow - 9) end
-    function Util.getWeekNumber(tm)
-      local dayOfYear,dayAdd,weekNum = os.date("%j",tm),getDayAdd(tm)
-      local doyc = dayOfYear + dayAdd
-      if(doyc < 0) then
-        dayAdd = getDayAdd(os.time{year=os.date("*t",tm).year-1,month=1,day=1})
-        dayOfYear = dayOfYear + os.date("%j",os.time{year=os.date("*t",tm).year-1,month=12,day=31})
-        doyc = dayOfYear + dayAdd
-      end  
-      weekNum = math.floor(doyc/7) + 1
-      if doyc > 0 and weekNum == 53 then
-        local ybdow = gybdow(os.time{year=os.date("*t",tm).year+1,month=1,day=1})
-        if ybdow < 5 then weekNum = 1 end  
-      end  
-      return weekNum
-    end  
+do
+  local function gybdow(tm)
+    local ybdow = tonumber(os.date("%w",os.time{year=os.date("*t",tm).year,month=1,day=1}))
+    return ybdow == 0 and 7 or ybdow
   end
+  local function getDayAdd(tm) local ybdow = gybdow(tm) return ybdow < 5 and (ybdow - 2) or (ybdow - 9) end
+  function Util.getWeekNumber(tm)
+    local dayOfYear,dayAdd,weekNum = os.date("%j",tm),getDayAdd(tm)
+    local doyc = dayOfYear + dayAdd
+    if(doyc < 0) then
+      dayAdd = getDayAdd(os.time{year=os.date("*t",tm).year-1,month=1,day=1})
+      dayOfYear = dayOfYear + os.date("%j",os.time{year=os.date("*t",tm).year-1,month=12,day=31})
+      doyc = dayOfYear + dayAdd
+    end  
+    weekNum = math.floor(doyc/7) + 1
+    if doyc > 0 and weekNum == 53 then
+      local ybdow = gybdow(os.time{year=os.date("*t",tm).year+1,month=1,day=1})
+      if ybdow < 5 then weekNum = 1 end  
+    end  
+    return weekNum
+  end  
+end
 
 function Util.findScenes(str)
   local res = {}
@@ -853,7 +856,7 @@ _traceInstrs=false
 function newScriptEngine() 
   local self={}
 
-  function ID(id,i) _assert(tonumber(id),"bad deviceID '%s' for '%s' '%s'",id,i[1],i[3] or "") return id end
+  local function ID(id,i) _assert(tonumber(id),"bad deviceID '%s' for '%s' '%s'",id,i[1],i[3] or "") return id end
   local function doit(m,f,s) if type(s) == 'table' then return m(f,s) else return f(s) end end
 
   local function getIdFuns(s,i,prop) local id = s.pop() 
@@ -1089,7 +1092,7 @@ function newScriptEngine()
 
   function self.addInstr(name,fun) _assert(instr[name] == nil,"Instr already defined: %s",name) instr[name] = fun end
 
-  function postTrace(i,args,stack,cp)
+  local function postTrace(i,args,stack,cp)
     local f,n = i[1],i[2]
     if not ({jmp=true,push=true,pop=true,addr=true,fn=true,table=true,})[f] then
       local p0,p1=3,1; while i[p0] do table.insert(args,p1,i[p0]) p1=p1+1 p0=p0+1 end
@@ -1562,7 +1565,7 @@ function newRuleCompiler()
 
   -- #property{deviceID={6,7} & 6:isOn => .. generates 2 triggers for 6????
   -- #ev & 6:isOn
-  function _remapEvents(obj)
+  local function _remapEvents(obj)
     if isTEvent(obj) then 
       local ce = ScriptEngine.eval(ScriptCompiler.compile(obj))
       if isEvent(ce) then ---ce.type == 'property' and type(ce.deviceID)=='table' then
@@ -1762,217 +1765,218 @@ Event._dir,Event._rScenes,Event._subs,Event._stats = {},{},{},{}
 Event.ANNOUNCE,Event.SUB = '%%ANNOUNCE%%','%%SUB%%' 
 Event.event({type=Event.PING},function(env) e=_copy(env.event);e.type=Event.PONG; Event.postRemote(e._from,e) end)
 
-function isRunning(id) 
+local function isRunning(id) 
   if _EMULATED then id = math.abs(id) end
-  return fibaro:countScenes(id)>0 end
+  return fibaro:countScenes(id)>0 
+end
 
-  Event.event({{type='autostart'},{type='other'}},
-    function(env)
-      local event = {type=Event.ANNOUNCE, subs=#Event._subs>0 and Event._subs or nil}
-      for _,id in ipairs(Util.findScenes(gEventRunnerKey)) do 
-        if isRunning(id) then
-          Debug(_debugFlags.pubsub,"Announce to ID:%s %s",id,tojson(env.event.subs)); Event._rScenes[id]=true; Event.postRemote(id,event) 
-        end
+Event.event({{type='autostart'},{type='other'}},
+  function(env)
+    local event = {type=Event.ANNOUNCE, subs=#Event._subs>0 and Event._subs or nil}
+    for _,id in ipairs(Util.findScenes(gEventRunnerKey)) do 
+      if isRunning(id) then
+        Debug(_debugFlags.pubsub,"Announce to ID:%s %s",id,tojson(env.event.subs)); Event._rScenes[id]=true; Event.postRemote(id,event) 
       end
-    end)
-
-  Event.event({type=Event.ANNOUNCE},function(env)
-      local id = env.event._from
-      if _EMULATED then id = math.abs(id) end
-      Debug(_debugFlags.pubsub,"Announce from ID:%s %s",id,env.event.subs and tojson(env.event.subs) or "")
-      Event._rScenes[id]=true;
-      if #Event._subs>0 then Event.postRemote(id,{type=Event.SUB, event=Event._subs}) end
-      for _,e in ipairs(Event._dir) do for i,id2 in ipairs(e.ids) do if id==id2 then table.remove(e.ids,i); break; end end end
-      if env.event.subs then Event.post({type=Event.SUB, event=env.event.subs, _from=id}) end
-    end)
-
-  function Event.sendScene(id,event) if Event._rScenes[id] and isRunning(id) then Event.postRemote(id,event) else Event._rScenes[id]=false end end
-  function Event.sendAllScenes(event) for id,s in pairs(Event._rScenes) do Event.sendScene(id,event) end end
-  function Event.subscribe(event,h) 
-    Event._subs[#Event._subs+1]=event; Event.sendAllScenes({type=Event.SUB, event=event}) 
-    if h then Event.event(event,h) end
-  end
-  function Event.publish(event,stat)
-    if stat then Event._stats[#Event._stats+1]=event end
-    for _,e in ipairs(Event._dir) do
-      if Event._match(e.pattern,event) then for _,id in ipairs(e.ids) do Event.sendScene(id,event) end end
     end
-  end
+  end)
 
-  Event.event({type=Event.SUB},
-    function(env)
-      local id = env.event._from
-      if _EMULATED then id = math.abs(id) end
-      Debug(_debugFlags.pubsub,"Subcribe from ID:%s %s",id,tojson(env.event.event))
-      for _,event in ipairs(env.event.event[1] and env.event.event or {env.event.event}) do
-        local seen = false
-        for _,e in ipairs(Event._dir) do
-          if _equal(e.event,event) then seen=true; if not Util.member(id,e.ids) then e.ids[#e.ids+1]=id end; break; end
-        end
-        if not seen then
-          local pattern = _copy(event); Event._compilePattern(pattern)
-          Event._dir[#Event._dir+1]={event=event,ids={id},pattern=pattern}
-          for _,se in ipairs(Event._stats) do
-            if Event._match(pattern,se) then Event.sendScene(id,se) end
-          end
+Event.event({type=Event.ANNOUNCE},function(env)
+    local id = env.event._from
+    if _EMULATED then id = math.abs(id) end
+    Debug(_debugFlags.pubsub,"Announce from ID:%s %s",id,env.event.subs and tojson(env.event.subs) or "")
+    Event._rScenes[id]=true;
+    if #Event._subs>0 then Event.postRemote(id,{type=Event.SUB, event=Event._subs}) end
+    for _,e in ipairs(Event._dir) do for i,id2 in ipairs(e.ids) do if id==id2 then table.remove(e.ids,i); break; end end end
+    if env.event.subs then Event.post({type=Event.SUB, event=env.event.subs, _from=id}) end
+  end)
+
+function Event.sendScene(id,event) if Event._rScenes[id] and isRunning(id) then Event.postRemote(id,event) else Event._rScenes[id]=false end end
+function Event.sendAllScenes(event) for id,s in pairs(Event._rScenes) do Event.sendScene(id,event) end end
+function Event.subscribe(event,h) 
+  Event._subs[#Event._subs+1]=event; Event.sendAllScenes({type=Event.SUB, event=event}) 
+  if h then Event.event(event,h) end
+end
+function Event.publish(event,stat)
+  if stat then Event._stats[#Event._stats+1]=event end
+  for _,e in ipairs(Event._dir) do
+    if Event._match(e.pattern,event) then for _,id in ipairs(e.ids) do Event.sendScene(id,event) end end
+  end
+end
+
+Event.event({type=Event.SUB},
+  function(env)
+    local id = env.event._from
+    if _EMULATED then id = math.abs(id) end
+    Debug(_debugFlags.pubsub,"Subcribe from ID:%s %s",id,tojson(env.event.event))
+    for _,event in ipairs(env.event.event[1] and env.event.event or {env.event.event}) do
+      local seen = false
+      for _,e in ipairs(Event._dir) do
+        if _equal(e.event,event) then seen=true; if not Util.member(id,e.ids) then e.ids[#e.ids+1]=id end; break; end
+      end
+      if not seen then
+        local pattern = _copy(event); Event._compilePattern(pattern)
+        Event._dir[#Event._dir+1]={event=event,ids={id},pattern=pattern}
+        for _,se in ipairs(Event._stats) do
+          if Event._match(pattern,se) then Event.sendScene(id,se) end
         end
       end
-    end)
+    end
+  end)
 
-  Event.event({type='%%EMU%%'},function(env)
-      e = env.event
-      local ids = {}
-      for _,id in ipairs(e.ids or {}) do ids[id]=true end
-      _emulator={ids=ids,adress=e.adress} 
-      if e.proxy then
-        local function proxy(trigger)
-          if not _emulator.address then return end
-          local req = net.HTTPClient()
-          req:request(_emulator.adress,{options = {method = 'PUT', data=json.encode(trigger), timeout=500},
-              error=function() Event.triggerProxy=Event.post; Log(LOG.LOG,"Resetting proxy") end}) -- reset handler if error
-        end
-        Event.triggerHandler=proxy
-      else Event.triggerHandler=Event.post end
-    end)
+Event.event({type='%%EMU%%'},function(env)
+    e = env.event
+    local ids = {}
+    for _,id in ipairs(e.ids or {}) do ids[id]=true end
+    _emulator={ids=ids,adress=e.adress} 
+    if e.proxy then
+      local function proxy(trigger)
+        if not _emulator.address then return end
+        local req = net.HTTPClient()
+        req:request(_emulator.adress,{options = {method = 'PUT', data=json.encode(trigger), timeout=500},
+            error=function() Event.triggerProxy=Event.post; Log(LOG.LOG,"Resetting proxy") end}) -- reset handler if error
+      end
+      Event.triggerHandler=proxy
+    else Event.triggerHandler=Event.post end
+  end)
 
 ---------------------- Hue support, can be removed if not needed -------------------------
-  function hueSetup(cont)
-    local _defaultHubName = "Hue"
-    function makeHue()
-      local self, devMap, hueNames = { hubs={} }, {}, {}
-      local HTTP = net.HTTPClient()
-      function self.isHue(id) return devMap[id] and devMap[id].hue end
-      function self.name(n) return hueNames[n] end   
-      function self.connect(name,user,ip,cont)
-        self.hubs[name]=makeHueHub(name,user,ip,cont)
-      end
-      function self.hueName(hue) --Hue1:SensorID=1
-        local name,t,id=hue:match("(%w+):(%a+)=(%d+)")
-        local dev = ({SensorID='sensors',LightID='lights',GroupID='groups'})[t]
-        return name..":"..self.hubs[name][dev][tonumber(id)].name 
-      end
-      function self.request(url,cont,op,payload)
-        op,payload = op or "GET", payload and json.encode(payload) or ""
-        Debug(_debugFlags.hue,"Hue req:%s Payload:%s",url,payload)
-        HTTP:request(url,{
-            options = {headers={['Accept']='application/json',['Content-Type']='application/json'},
-              data = payload, timeout=_HueTimeout or 2000, method = op},
-            error = function(status) error("Hue connection:"..tojson(status)..", "..url) end,
-            success = function(status) if cont then cont(json.decode(status.data)) end end
-          })
-      end
-
-      function self.dump() for _,h in pairs(self.hubs) do h.dump() end end
-      local function find(name) -- find a Hue device in any of the connected Hue hubs we have, name is <hub>:<name>
-        local hname,dname=name:match("(.*):(.*)")
-        local hub = self.hubs[hname]
-        return hub.lights[dname] or hub.groups[dname] or hub.sensors[dname],hname
-      end
-
-      local function hueCall(obj,id,...)
-        local val,params=({...})[1],{select(2,...)}
-        if Hue[val] then Hue[val](id,table.unpack(params)) end
-      end
-      local function hueGet(obj,id,...)
-        local val,res,dev,time=({...})[1],nil,Hue.isHue(id)
-        if val=='value' then 
-          if dev.state.on and (dev.state.reachable==nil or  dev.state.reachable==true) then 
-            res = dev.state.bri and tostring(math.floor((dev.state.bri/254)*99+0.5)) or '99' 
-          else res = '0' end 
-        elseif val=='values' then res = dev.state
-        else res =  dev.state[val] and tostring(dev.state[val]) or nil end
-        time=dev.state.lastupdate or 0
-        Debug(_debugFlags.hue,"Get ID:%s %s -> %s",id,val,res)
-        return res and res,time
-      end
-
-      local mapIndex=10000 -- start mapping at deviceID 10000
-      --devMap[deviceID] -> {hub, type, hue}
-      function self.define(name,var,id) -- optional var
-        if id ==nil then id = mapIndex; mapIndex=mapIndex+1 else id =tonumber(id) end
-        if not name:match(":") then name=_defaultHubName..":"..name end -- default to Hue:<name>
-        hueNames[name]=id
-        local hue,hub = find(name) 
-        if hue then devMap[id] = {type=hue.type,hue=hue,hub=self.hubs[hub]}; hue.fid=id    
-        else error("No Hue name:"..name) end
-        if Util and var then Util.defvar(var,id) end
-        Log(LOG.LOG,"Hue device '%s' assigned deviceID %s",name,id)
-        Event._registerID(id,hueCall,hueGet)
-        return id
-      end
-
-      function self.monitor(name,interval,filter)
-        if type(name)=='table' then Util.mapF(function(n) self.monitor(n,interval,filter) end, name) return end
-        if type(name) == 'string' and not name:match(":") then name = _defaultHubName..":"..name end
-        local id = hueNames[name] or name -- name could be deviceID
-        local sensor = devMap[id]
-        sensor.hub.monitor(sensor.hue,interval,filter)
-      end
-
-      function self.rgb2xy(r,g,b)
-        r,g,b = r/254,g/254,b/254
-        r = (r > 0.04045) and ((r + 0.055) / (1.0 + 0.055)) ^ 2.4 or (r / 12.92)
-        g = (g > 0.04045) and ((g + 0.055) / (1.0 + 0.055)) ^ 2.4 or (g / 12.92)
-        b = (b > 0.04045) and ((b + 0.055) / (1.0 + 0.055)) ^ 2.4 or (b / 12.92)
-        local X = r*0.649926+g*0.103455+b*0.197109
-        local Y = r*0.234327+g*0.743075+b*0.022598
-        local Z = r*0.0000000+g*0.053077+b*1.035763
-        return X/(X+Y+Z), Y/(X+Y+Z)
-      end
-
-      function self.turnOn(id) local d,h=devMap[id].hue,devMap[id].hub 
-        self.request(_format(d.url,d.id),h.updateState,"PUT",{on=true}) h._setState(d,'on',true) 
-      end
-      function self.turnOff(id) local d,h=devMap[id].hue, devMap[id].hub
-        self.request(_format(d.url,d.id),h.updateState,"PUT",{on=false}) h._setState(d,'on',false) 
-      end
-      function self.setColor(id,r,g,b,w) local d,h,x,y=devMap[id].hue,devMap[id].hub,self.rgb2xy(r,g,b); 
-        local pl={xy={x,y},bri=w and w/99*254}
-        self.request(_format(d.url,d.id),h.updateState,"PUT",pl) h._setState(d,pl) 
-      end
-      function self.setValue(id,val) local d,h,payload=devMap[id].hue, devMap[id].hub
-        if type(val)=='string' and not tonumber(val) then payload={scene=d.scenes[val] or val}
-        elseif tonumber(val)==0 then payload={on=false} 
-        elseif tonumber(val) then payload={on=true,bri=math.floor((val/99)*254)}
-        elseif type(val)=='table' then
-          if val.startup then
-            local lights = d.lights and #d.lights>0 and d.lights or {d.id}
-            for _,id in ipairs(lights) do
-              local d = h.lights[tonumber(id)]
-              local url = (d.url:match("(.*)/state")).."/config/startup/"
-              payload=val
-              self.request(_format(url,d.id),nil,"PUT",payload)
-            end
-            return
-          else payload=val end
-        end
-        if payload then self.request(_format(d.url,d.id),h.updateState,"PUT",payload) h._setState(d,payload)
-        else  error(_format("Hue setValue id:%s value:%s",id,val)) end
-      end
-
-      return self
+function hueSetup(cont)
+  local _defaultHubName = "Hue"
+  function makeHue()
+    local self, devMap, hueNames = { hubs={} }, {}, {}
+    local HTTP = net.HTTPClient()
+    function self.isHue(id) return devMap[id] and devMap[id].hue end
+    function self.name(n) return hueNames[n] end   
+    function self.connect(name,user,ip,cont)
+      self.hubs[name]=makeHueHub(name,user,ip,cont)
+    end
+    function self.hueName(hue) --Hue1:SensorID=1
+      local name,t,id=hue:match("(%w+):(%a+)=(%d+)")
+      local dev = ({SensorID='sensors',LightID='lights',GroupID='groups'})[t]
+      return name..":"..self.hubs[name][dev][tonumber(id)].name 
+    end
+    function self.request(url,cont,op,payload)
+      op,payload = op or "GET", payload and json.encode(payload) or ""
+      Debug(_debugFlags.hue,"Hue req:%s Payload:%s",url,payload)
+      HTTP:request(url,{
+          options = {headers={['Accept']='application/json',['Content-Type']='application/json'},
+            data = payload, timeout=_HueTimeout or 2000, method = op},
+          error = function(status) error("Hue connection:"..tojson(status)..", "..url) end,
+          success = function(status) if cont then cont(json.decode(status.data)) end end
+        })
     end
 
-    Hue=makeHue() -- create global Hue object
+    function self.dump() for _,h in pairs(self.hubs) do h.dump() end end
+    local function find(name) -- find a Hue device in any of the connected Hue hubs we have, name is <hub>:<name>
+      local hname,dname=name:match("(.*):(.*)")
+      local hub = self.hubs[hname]
+      return hub.lights[dname] or hub.groups[dname] or hub.sensors[dname],hname
+    end
+
+    local function hueCall(obj,id,...)
+      local val,params=({...})[1],{select(2,...)}
+      if Hue[val] then Hue[val](id,table.unpack(params)) end
+    end
+    local function hueGet(obj,id,...)
+      local val,res,dev,time=({...})[1],nil,Hue.isHue(id)
+      if val=='value' then 
+        if dev.state.on and (dev.state.reachable==nil or  dev.state.reachable==true) then 
+          res = dev.state.bri and tostring(math.floor((dev.state.bri/254)*99+0.5)) or '99' 
+        else res = '0' end 
+      elseif val=='values' then res = dev.state
+      else res =  dev.state[val] and tostring(dev.state[val]) or nil end
+      time=dev.state.lastupdate or 0
+      Debug(_debugFlags.hue,"Get ID:%s %s -> %s",id,val,res)
+      return res and res,time
+    end
+
+    local mapIndex=10000 -- start mapping at deviceID 10000
+    --devMap[deviceID] -> {hub, type, hue}
+    function self.define(name,var,id) -- optional var
+      if id ==nil then id = mapIndex; mapIndex=mapIndex+1 else id =tonumber(id) end
+      if not name:match(":") then name=_defaultHubName..":"..name end -- default to Hue:<name>
+      hueNames[name]=id
+      local hue,hub = find(name) 
+      if hue then devMap[id] = {type=hue.type,hue=hue,hub=self.hubs[hub]}; hue.fid=id    
+      else error("No Hue name:"..name) end
+      if Util and var then Util.defvar(var,id) end
+      Log(LOG.LOG,"Hue device '%s' assigned deviceID %s",name,id)
+      Event._registerID(id,hueCall,hueGet)
+      return id
+    end
+
+    function self.monitor(name,interval,filter)
+      if type(name)=='table' then Util.mapF(function(n) self.monitor(n,interval,filter) end, name) return end
+      if type(name) == 'string' and not name:match(":") then name = _defaultHubName..":"..name end
+      local id = hueNames[name] or name -- name could be deviceID
+      local sensor = devMap[id]
+      sensor.hub.monitor(sensor.hue,interval,filter)
+    end
+
+    function self.rgb2xy(r,g,b)
+      r,g,b = r/254,g/254,b/254
+      r = (r > 0.04045) and ((r + 0.055) / (1.0 + 0.055)) ^ 2.4 or (r / 12.92)
+      g = (g > 0.04045) and ((g + 0.055) / (1.0 + 0.055)) ^ 2.4 or (g / 12.92)
+      b = (b > 0.04045) and ((b + 0.055) / (1.0 + 0.055)) ^ 2.4 or (b / 12.92)
+      local X = r*0.649926+g*0.103455+b*0.197109
+      local Y = r*0.234327+g*0.743075+b*0.022598
+      local Z = r*0.0000000+g*0.053077+b*1.035763
+      return X/(X+Y+Z), Y/(X+Y+Z)
+    end
+
+    function self.turnOn(id) local d,h=devMap[id].hue,devMap[id].hub 
+      self.request(_format(d.url,d.id),h.updateState,"PUT",{on=true}) h._setState(d,'on',true) 
+    end
+    function self.turnOff(id) local d,h=devMap[id].hue, devMap[id].hub
+      self.request(_format(d.url,d.id),h.updateState,"PUT",{on=false}) h._setState(d,'on',false) 
+    end
+    function self.setColor(id,r,g,b,w) local d,h,x,y=devMap[id].hue,devMap[id].hub,self.rgb2xy(r,g,b); 
+      local pl={xy={x,y},bri=w and w/99*254}
+      self.request(_format(d.url,d.id),h.updateState,"PUT",pl) h._setState(d,pl) 
+    end
+    function self.setValue(id,val) local d,h,payload=devMap[id].hue, devMap[id].hub
+      if type(val)=='string' and not tonumber(val) then payload={scene=d.scenes[val] or val}
+      elseif tonumber(val)==0 then payload={on=false} 
+      elseif tonumber(val) then payload={on=true,bri=math.floor((val/99)*254)}
+      elseif type(val)=='table' then
+        if val.startup then
+          local lights = d.lights and #d.lights>0 and d.lights or {d.id}
+          for _,id in ipairs(lights) do
+            local d = h.lights[tonumber(id)]
+            local url = (d.url:match("(.*)/state")).."/config/startup/"
+            payload=val
+            self.request(_format(url,d.id),nil,"PUT",payload)
+          end
+          return
+        else payload=val end
+      end
+      if payload then self.request(_format(d.url,d.id),h.updateState,"PUT",payload) h._setState(d,payload)
+      else  error(_format("Hue setValue id:%s value:%s",id,val)) end
+    end
+
+    return self
+  end
+
+  Hue=makeHue() -- create global Hue object
 --[[
   _HueHubs = {{name="Hub1",user="hghgjhT6TUG", ip="192.168.1.50"}}
   Hue.define("Hub1:my Light","light",890)
 --]]
-    if _HueHubs then
-      local c = cont
-      cont = function() Log(LOG.LOG,"Hue system inited (experimental)") c() end
-      if _HueHubs and #_HueHubs==1 then _defaultHubName=_HueHubs[1].name end
-      for _,hub in ipairs(_HueHubs or {}) do
-        local c,h = cont,hub
-        cont = function() Hue.connect(h.name,h.user,h.ip,c) end
-      end
+  if _HueHubs then
+    local c = cont
+    cont = function() Log(LOG.LOG,"Hue system inited (experimental)") c() end
+    if _HueHubs and #_HueHubs==1 then _defaultHubName=_HueHubs[1].name end
+    for _,hub in ipairs(_HueHubs or {}) do
+      local c,h = cont,hub
+      cont = function() Hue.connect(h.name,h.user,h.ip,c) end
     end
+  end
 
-    Event.event({type='property',propertyName='on',_hue=true},
-      function(env) -- transform 'on' events
-        local e=env.event
-        Event.post({type='property',deviceID=e.deviceID,propertyName='value',value=fibaro:getValue(e.deviceID,'value'),_sh=true})
-      end)
+  Event.event({type='property',propertyName='on',_hue=true},
+    function(env) -- transform 'on' events
+      local e=env.event
+      Event.post({type='property',deviceID=e.deviceID,propertyName='value',value=fibaro:getValue(e.deviceID,'value'),_sh=true})
+    end)
 --  Event.event({type='property', propertyName='buttonevent', value='$val', _hue=true},
 --    function(env) -- transform 'buttonevent' to CentralSceneEvents
 --      local e = env.event
@@ -1982,137 +1986,137 @@ function isRunning(id)
 --      local keyAttr = ({'Down','Hold','Down/Released','Released'})[env.p.val % 1000 + 1]
 --      Event.post({type='event',event={type='CentralSceneEvent',data={deviceId=e.deviceID,keyId=keyId,keyAttribute=keyAttr}}})
 --    end)
-    cont()
-  end
+  cont()
+end
 
-  function makeHueHub(name,username,ip,cont)
-    local lights,groups,scenes,sensors = {},{},{},{},{}
-    local self = {lights=lights,groups=groups,scenes=scenes,sensors=sensors}
-    local hubName,baseURL=name,"http://"..ip..":80/api/"..username.."/"
-    local lightURL = baseURL.."lights/%s/state"
-    local groupURL = baseURL.."groups/%s/action"
-    local sensorURL = baseURL.."sensors/%s"
-    function self._setState(hue,prop,val,upd)
-      if type(prop)=='table' then 
-        for k,v in pairs(prop) do self._setState(hue,k,v,upd) end
-        return
-      end
-      local change,id = hue.state[prop]~=nil and hue.state[prop] ~= val, hue.fid
-      hue.state[prop],hue.state['lastupdate']=val,osTime()
-      local filter = id and hue._filter
-      if change and id and filter and filter[prop] then 
-        Event.post({type='property',deviceID=id,propertyName=prop,value=val,_hue=true,_sh=_debugFlags.hue}) 
-      end
-      --Log(LOG.LOG,"Name:%s, PROP:%s, VAL:%s",hue.name,tojson(prop),tojson(val))
-      if (not upd) and hue.lights then -- for groups
-        for _,id in ipairs(hue.lights) do self._setState(lights[tonumber(id)],prop,val,upd) end 
-      end
+function makeHueHub(name,username,ip,cont)
+  local lights,groups,scenes,sensors = {},{},{},{},{}
+  local self = {lights=lights,groups=groups,scenes=scenes,sensors=sensors}
+  local hubName,baseURL=name,"http://"..ip..":80/api/"..username.."/"
+  local lightURL = baseURL.."lights/%s/state"
+  local groupURL = baseURL.."groups/%s/action"
+  local sensorURL = baseURL.."sensors/%s"
+  function self._setState(hue,prop,val,upd)
+    if type(prop)=='table' then 
+      for k,v in pairs(prop) do self._setState(hue,k,v,upd) end
+      return
     end
-    function self.updateState(state) -- partial state
-      for _,s in ipairs(state[1] and state or {}) do
-        if s.success then 
-          for p,v in pairs(s.success) do 
-            local tp,id,mt,prop = p:match("/(%a+)/(%d+)/(%a+)/(.*)")
-            if id then self._setState(self[tp][ tonumber(id) ],prop,v)
-            else Log(LOG.LOG,"Unknown Hue state %s %s",p,v) end
-          end --for 
-        end -- if
-      end --for
-    end --fun
-    local function setFullState(devices,id,d,state,t,url)
-      local dd = devices[d.name] or {name=d.name,id=tonumber(id), state={}, type=t, url=url,lights=d.lights, scenes={}}
-      devices[d.name],devices[tonumber(id)]=dd,dd
-      self._setState(dd,d[state],nil,true)
+    local change,id = hue.state[prop]~=nil and hue.state[prop] ~= val, hue.fid
+    hue.state[prop],hue.state['lastupdate']=val,osTime()
+    local filter = id and hue._filter
+    if change and id and filter and filter[prop] then 
+      Event.post({type='property',deviceID=id,propertyName=prop,value=val,_hue=true,_sh=_debugFlags.hue}) 
     end
-    function match(t1,t2) if #t1~=#t2 then return false end; for i=1,#t1 do if t1[i]~=t2[i] then return false end end return true end
-    function self.getFullState(f)
-      Hue.request(baseURL,function(data)
-          for id,d in pairs(data.sensors) do setFullState(sensors,id,d,'state','sensor',sensorURL) end
-          for id,d in pairs(data.lights) do setFullState(lights,id,d,'state','light',lightURL) end
-          for id,d in pairs(data.groups) do table.sort(d.lights) setFullState(groups,id,d,'action','group',groupURL) end
-          for id,d in pairs(data.scenes) do if d.version>1 then 
-            scenes[d.name] = id; table.sort(d.lights)
-            for _,g in pairs(groups) do if match(g.lights,d.lights) then g.scenes[d.name]=id end end
-          end end
-          if f then f() end
-        end)
+    --Log(LOG.LOG,"Name:%s, PROP:%s, VAL:%s",hue.name,tojson(prop),tojson(val))
+    if (not upd) and hue.lights then -- for groups
+      for _,id in ipairs(hue.lights) do self._setState(lights[tonumber(id)],prop,val,upd) end 
     end
-    local _defFilter={buttonevent=true, on=true}
-    function self.monitor(sensor,interval,filter)
-      local url = sensor.url:sub(#baseURL+1)
-      url=baseURL.._format(url:match("(.-/)").."%s",sensor.id)
-      sensor._filter = filter or sensor._filter or _defFilter
-      if sensor._timer then clearTimeout(sensor._timer) sensor._timer=nil end
-      if interval>0 then 
-        Debug(_debugFlags.hue,"Monitoring URL:%s",url)
-        local function poll() 
-          Hue.request(url,function(state) self._setState(sensor,state.state) sensor._timer=setTimeout(poll,interval) end)
-        end
-        poll()
-      end
-    end
-    function self.dump()
-      Log(LOG.LOG,"%s------------ Hue Lights ---------------------",name)
-      for k,v in pairs(lights) do if not tonumber(k) then Log(LOG.LOG,"Light '%s' id=%s",k,json.encode(v.id)) end end
-      Log(LOG.LOG,"%s------------- Hue Groups ---------------------",name)
-      for k,v in pairs(groups) do if not tonumber(k) then Log(LOG.LOG,"Group '%s' id=%s",k,json.encode(v.id)) end end
-      Log(LOG.LOG,"%s------------- Hue Scenes ---------------------",name)
-      for k,v in pairs(scenes) do Log(LOG.LOG,"Scene '%s' id=%s",k,v) end
-      Log(LOG.LOG,"%s------------- Hue Sensors ---------------------",name)
-      for k,v in pairs(sensors) do if not tonumber(k) then Log(LOG.LOG,"Sensor '%s' id=%s",k,json.encode(v.id)) end end
-      Log(LOG.LOG,"----------------------------------------------")
-    end
-    Hue.hubs[name]=self -- hack
-    self.getFullState(cont)
-    return self
   end
+  function self.updateState(state) -- partial state
+    for _,s in ipairs(state[1] and state or {}) do
+      if s.success then 
+        for p,v in pairs(s.success) do 
+          local tp,id,mt,prop = p:match("/(%a+)/(%d+)/(%a+)/(.*)")
+          if id then self._setState(self[tp][ tonumber(id) ],prop,v)
+          else Log(LOG.LOG,"Unknown Hue state %s %s",p,v) end
+        end --for 
+      end -- if
+    end --for
+  end --fun
+  local function setFullState(devices,id,d,state,t,url)
+    local dd = devices[d.name] or {name=d.name,id=tonumber(id), state={}, type=t, url=url,lights=d.lights, scenes={}}
+    devices[d.name],devices[tonumber(id)]=dd,dd
+    self._setState(dd,d[state],nil,true)
+  end
+  local function match(t1,t2) if #t1~=#t2 then return false end; for i=1,#t1 do if t1[i]~=t2[i] then return false end end return true end
+  function self.getFullState(f)
+    Hue.request(baseURL,function(data)
+        for id,d in pairs(data.sensors) do setFullState(sensors,id,d,'state','sensor',sensorURL) end
+        for id,d in pairs(data.lights) do setFullState(lights,id,d,'state','light',lightURL) end
+        for id,d in pairs(data.groups) do table.sort(d.lights) setFullState(groups,id,d,'action','group',groupURL) end
+        for id,d in pairs(data.scenes) do if d.version>1 then 
+          scenes[d.name] = id; table.sort(d.lights)
+          for _,g in pairs(groups) do if match(g.lights,d.lights) then g.scenes[d.name]=id end end
+        end end
+        if f then f() end
+      end)
+  end
+  local _defFilter={buttonevent=true, on=true}
+  function self.monitor(sensor,interval,filter)
+    local url = sensor.url:sub(#baseURL+1)
+    url=baseURL.._format(url:match("(.-/)").."%s",sensor.id)
+    sensor._filter = filter or sensor._filter or _defFilter
+    if sensor._timer then clearTimeout(sensor._timer) sensor._timer=nil end
+    if interval>0 then 
+      Debug(_debugFlags.hue,"Monitoring URL:%s",url)
+      local function poll() 
+        Hue.request(url,function(state) self._setState(sensor,state.state) sensor._timer=setTimeout(poll,interval) end)
+      end
+      poll()
+    end
+  end
+  function self.dump()
+    Log(LOG.LOG,"%s------------ Hue Lights ---------------------",name)
+    for k,v in pairs(lights) do if not tonumber(k) then Log(LOG.LOG,"Light '%s' id=%s",k,json.encode(v.id)) end end
+    Log(LOG.LOG,"%s------------- Hue Groups ---------------------",name)
+    for k,v in pairs(groups) do if not tonumber(k) then Log(LOG.LOG,"Group '%s' id=%s",k,json.encode(v.id)) end end
+    Log(LOG.LOG,"%s------------- Hue Scenes ---------------------",name)
+    for k,v in pairs(scenes) do Log(LOG.LOG,"Scene '%s' id=%s",k,v) end
+    Log(LOG.LOG,"%s------------- Hue Sensors ---------------------",name)
+    for k,v in pairs(sensors) do if not tonumber(k) then Log(LOG.LOG,"Sensor '%s' id=%s",k,json.encode(v.id)) end end
+    Log(LOG.LOG,"----------------------------------------------")
+  end
+  Hue.hubs[name]=self -- hack
+  self.getFullState(cont)
+  return self
+end
 
 ---------------------- Startup -----------------------------  
-  if _type == 'other' and fibaro:countScenes() > 1 then 
-    Log(LOG.LOG,"Scene already started. Try again?") 
-    fibaro:abort()
+if _type == 'other' and fibaro:countScenes() > 1 then 
+  Log(LOG.LOG,"Scene already started. Try again?") 
+  fibaro:abort()
+end
+if _type == 'autostart' or _type == 'other' then
+  Log(LOG.WELCOME,_format("%sEventRunner v%s %s",_sceneName and (_sceneName.." - " or ""),_version,_fix))
+
+  local info = api.get("/settings/info")
+  Log(LOG.LOG,"Fibaro software version: %s",info.currentVersion.version)
+  Log(LOG.LOG,"HC2 uptime: %s hours",math.floor((os.time()-info.serverStatus)/3600))
+  for i=1,_NUMBEROFBOXES do
+    local mailbox = _MAILBOX.."_"..tostring(i)
+    if not string.find(json.encode((api.get("/globalVariables/"))),"\""..mailbox.."\"") then
+      api.post("/globalVariables/",{name=mailbox})
+    end
+    _MAILBOXES[i]=mailbox
   end
-  if _type == 'autostart' or _type == 'other' then
-    Log(LOG.WELCOME,_format("%sEventRunner v%s %s",_sceneName and (_sceneName.." - " or ""),_version,_fix))
 
-    local info = api.get("/settings/info")
-    Log(LOG.LOG,"Fibaro software version: %s",info.currentVersion.version)
-    Log(LOG.LOG,"HC2 uptime: %s hours",math.floor((os.time()-info.serverStatus)/3600))
-    for i=1,_NUMBEROFBOXES do
-      local mailbox = _MAILBOX.."_"..tostring(i)
-      if not string.find(json.encode((api.get("/globalVariables/"))),"\""..mailbox.."\"") then
-        api.post("/globalVariables/",{name=mailbox})
-      end
-      _MAILBOXES[i]=mailbox
-    end
-
-    Log(LOG.LOG,"Sunrise %s, Sunset %s",fibaro:getValue(1,'sunriseHour'),fibaro:getValue(1,'sunsetHour'))
-    if _EMULATED and not _ANNOUNCEDTIME then 
-      Log(LOG.LOG,"Starting:%s %s",osDate("%x %X",osTime()),_SPEEDTIME and "(speeding)" or "") 
-    end
-
-    GC = 0
-    function setUp()
-      Log(LOG.SYSTEM,"") Log(LOG.SYSTEM,"Loading rules")
-      local status, res = pcall(function() return main() end)
-      if not status then 
-        Log(LOG.ERROR,"Error loading rules:%s",type(res)=='table' and table.concat(res,' ') or res) fibaro:abort() 
-      end
-
-      _trigger._sh = true
-      Event.post(_trigger)
-
-      Log(LOG.SYSTEM,"") Log(LOG.SYSTEM,"Scene running")
-      collectgarbage("collect") GC=collectgarbage("count")
-    end
-
-    local function chainStartup() if hueSetup then return hueSetup(setUp) else return setUp() end end
-
-    for _,mb in ipairs(_MAILBOXES) do 
-      fibaro:setGlobal(mb,"") 
-    end
-    _CXCST1=os.clock()
-    if not _EMULATED then _poll()  end -- start polling mailbox
-    chainStartup()
-
+  Log(LOG.LOG,"Sunrise %s, Sunset %s",fibaro:getValue(1,'sunriseHour'),fibaro:getValue(1,'sunsetHour'))
+  if _EMULATED and not _ANNOUNCEDTIME then 
+    Log(LOG.LOG,"Starting:%s %s",osDate("%x %X",osTime()),_SPEEDTIME and "(speeding)" or "") 
   end
+
+  GC = 0
+  local function setUp()
+    Log(LOG.SYSTEM,"") Log(LOG.SYSTEM,"Loading rules")
+    local status, res = pcall(function() return main() end)
+    if not status then 
+      Log(LOG.ERROR,"Error loading rules:%s",type(res)=='table' and table.concat(res,' ') or res) fibaro:abort() 
+    end
+
+    _trigger._sh = true
+    Event.post(_trigger)
+
+    Log(LOG.SYSTEM,"") Log(LOG.SYSTEM,"Scene running")
+    collectgarbage("collect") GC=collectgarbage("count")
+  end
+
+  local function chainStartup() if hueSetup then return hueSetup(setUp) else return setUp() end end
+
+  for _,mb in ipairs(_MAILBOXES) do 
+    fibaro:setGlobal(mb,"") 
+  end
+  _CXCST1=os.clock()
+  if not _EMULATED then _poll()  end -- start polling mailbox
+  chainStartup()
+
+end
