@@ -10,7 +10,7 @@
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B10"  -- Apr 4, 2019  
+_version,_fix = "2.0","B11"  -- Apr 4, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -493,12 +493,21 @@ function newEventEngine()
     end
   end
 
------- Log fibaro:* calls ------------
--- User defined device IDs, > 10000
+-- Extended fibaro:* commands, toggle, setValue, User defined device IDs, > 10000
   fibaro._idMap={}
   fibaro._call,fibaro._get,fibaro._getValue,fibaro._actions=fibaro.call,fibaro.get,fibaro.getValue,{}
+  local lastID,orgCall = {},fibaro.call
+  function self.lastManual(id)
+    lastID[id] = lastID[id] or {time=0}
+    if lastID[id].script then return -1 else return osTime()-lastID[id].time end
+  end
+  function self.trackManual(id,value)
+    lastID[id] = lastID[id] or {time=0}
+    if lastID[id].script==nil or osTime()-lastID[id].time>1 then lastID[id]={time=osTime()} end -- Update last manual
+  end
   function self._registerID(id,call,get) fibaro._idMap[id]={call=call,get=get} end
   fibaro.call=function(obj,id,call,...) id = tonumber(id)
+    if ({turnOff=true,turnOn=true,on=true,off=true,setValue=true})[call] then lastID[id]={script=true,time=osTime()} end
     if id < 10000 then
       if call=='toggle' then return fibaro._call(obj,id,fibaro:getValue(id,"value")>"0" and "turnOff" or "turnOn")
       elseif call=='setValue' then
@@ -515,23 +524,6 @@ function newEventEngine()
   end
   fibaro.getValue=function (obj,id,...) id = tonumber(id)
     if id < 10000 then return (fibaro._getValue(obj,id,...)) else return (fibaro._idMap[id].get(obj,id,...)) end
-  end
-
--- We intercept all fibaro:call so we can detect manual invocations of switches
-  do
-    local lastID,orgCall = {},fibaro.call
-    fibaro.call = function(obj,id,a1,...)
-      if ({turnOff=true,turnOn=true,on=true,off=true,setValue=true})[a1] then lastID[id]={script=true,time=osTime()} end
-      orgCall(obj,id,a1,...)
-    end
-    function self.lastManual(id)
-      lastID[id] = lastID[id] or {time=0}
-      if lastID[id].script then return -1 else return osTime()-lastID[id].time end
-    end
-    function self.trackManual(id,value)
-      lastID[id] = lastID[id] or {time=0}
-      if lastID[id].script==nil or osTime()-lastID[id].time>1 then lastID[id]={time=osTime()} end -- Update last manual
-    end
   end
 
 -- Logging of fibaro:* calls -------------
@@ -741,7 +733,7 @@ end
 
 Util._reverseVarTable = {}
 function Util.reverseMapDef(table) 
-  if _EMULATED then _System.reverseMapDef(table) end 
+  if _EMULATED and _System.reverseMapDef then _System.reverseMapDef(table) end 
   Util._reverseMap({},table) 
 end
 
