@@ -8,9 +8,9 @@
 
 
 -- Don't forget to declare triggers from devices in the header!!!
-if dofile and not _EMULATED then _EMBEDDED={name="EventRunner",id=20} dofile("HC2.lua") end
+if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B9"  -- Mar 27, 2019  
+_version,_fix = "2.0","B10"  -- Apr 4, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -23,12 +23,13 @@ _sceneName   = "Demo"      -- Set to scene/script name
 _homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
 _HueHubs     = {}          -- Hue bridges, Ex. {{name='Hue',user=_HueUserName,ip=_HueIP}}
 _myNodeRed   = "http://192.168.1.50:1880/eventrunner" -- Ex. used for Event.postRemote(_myNodeRed,{type='test'})
-if dofile then dofile("credentials.lua") end -- To not accidently commit credentials to Github, or post at forum :-)
+--if dofile then dofile("credentials.lua") end -- To not accidently commit credentials to Github, or post at forum :-)
 -- E.g. Hue user names, icloud passwords etc. HC2 credentials is set from HC2.lua, but can use same file.
 
 -- debug flags for various subsystems...
 _debugFlags = { 
-  post=true,invoke=false,triggers=true,dailys=true,timers=false,rule=false,ruleTrue=false,hue=false,msgTime=false
+  post=true,invoke=false,triggers=true,dailys=true,timers=false,rule=false,ruleTrue=false,hue=false,msgTime=false,
+  fcall=true, fglobal=false, fget=false, fother=true
 }
 ---------------- Here you place rules and user code, called once --------------------
 function main()
@@ -51,7 +52,7 @@ function main()
   Util.reverseMapDef(HT.dev)      -- Make HomeTable names available for logger
 
   rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 10 second
-  
+
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
 end -- main()
 
@@ -83,7 +84,7 @@ if _supportedEvents[_type] then
   if _debugFlags.msgTime then _trigger._timestamps={triggered={os.time(),time}} end
   if  cos == 1 then fibaro:debug("Aborting: Server not started yet"); fibaro:abort() end
   if _EMULATED then -- If running in emulated mode, use shortcut to pass event to main instance
-    local co,env = _System._getInstance(__fibaroSceneId,1) -- if we only could do this on the HC2...
+    local co,env = _System.getInstance(__fibaroSceneId,1) -- if we only could do this on the HC2...
     setTimeout(function() env.Event._handleEvent(_trigger) end,nil,"",env)
     fibaro:abort()
   end
@@ -135,8 +136,8 @@ end
 LOG = {WELCOME = "orange",DEBUG = "white", SYSTEM = "Cyan", LOG = "green", ULOG="Khaki", ERROR = "Tomato"}
 _format = string.format
 _ruleLogLength = _ruleLogLength or 80   -- Log message cut-off, defaults to 80
-local _getIdProp = function(id,prop) return fibaro:get(id,prop) end
-local _getGlobal = function(id) return fibaro:getGlobal(id) end
+local _getIdProp = function(id,prop) return fibaro:getValue(id,prop) end
+local _getGlobal = function(id) return fibaro:getGlobalValue(id) end
 
 Util = Util or {}
 tojson = json.encode
@@ -492,18 +493,28 @@ function newEventEngine()
     end
   end
 
+------ Log fibaro:* calls ------------
 -- User defined device IDs, > 10000
   fibaro._idMap={}
-  fibaro._call,fibaro._get=fibaro.call,fibaro.get
+  fibaro._call,fibaro._get,fibaro._getValue,fibaro._actions=fibaro.call,fibaro.get,fibaro.getValue,{}
   function self._registerID(id,call,get) fibaro._idMap[id]={call=call,get=get} end
-  fibaro.call=function(obj,id,...) id = tonumber(id)
-    if id < 10000 then return fibaro._call(obj,id,...) else return fibaro._idMap[id].call(obj,id,...) end
+  fibaro.call=function(obj,id,call,...) id = tonumber(id)
+    if id < 10000 then
+      if call=='toggle' then return fibaro._call(obj,id,fibaro:getValue(id,"value")>"0" and "turnOff" or "turnOn")
+      elseif call=='setValue' then
+        fibaro._actions[id] = fibaro._actions[id] or  api.get("/devices/"..id).actions
+        if (not fibaro._actions[id].setValue) and fibaro._actions[id].turnOn then
+          fibaro._call(obj,id,tonumber(({...})[1]) > 0 and "turnOn" or "turnOff")
+        end
+      end 
+      return fibaro._call(obj,id,call,...) 
+    else return fibaro._idMap[id].call(obj,id,call,...) end
   end
   fibaro.get=function(obj,id,...) id = tonumber(id)
     if id < 10000 then return fibaro._get(obj,id,...) else return fibaro._idMap[id].get(obj,id,...) end
   end
   fibaro.getValue=function (obj,id,...) id = tonumber(id)
-    if id < 10000 then return (fibaro._get(obj,id,...)) else return (fibaro._idMap[id].get(obj,id,...)) end
+    if id < 10000 then return (fibaro._getValue(obj,id,...)) else return (fibaro._idMap[id].get(obj,id,...)) end
   end
 
 -- We intercept all fibaro:call so we can detect manual invocations of switches
@@ -524,49 +535,43 @@ function newEventEngine()
   end
 
 -- Logging of fibaro:* calls -------------
-  fibaro._orgf={}
-  function interceptFib(fs,name,flag,spec)
-    local fun,fstr = fibaro[name],fs:match("r") and "fibaro:%s(%s%s%s) = %s" or "fibaro:%s(%s%s%s)"
-    fibaro._orgf[name]=fun
-    if spec then 
-      fibaro[name] = function(obj,...) 
-        if _debugFlags[flag] then return spec(obj,fibaro._orgf[name],...) else return fibaro._orgf[name](obj,...)  end 
-      end 
-    else 
-      fibaro[name] = function(obj,id,...)
-        local id2,args = type(id) == 'number' and Util.reverseVar(id) or '"'..(id or "<ID>")..'"',{...}
-        local status,res,r2 = pcall(function() return fibaro._orgf[name](obj,id,table.unpack(args)) end)
-        if status and _debugFlags[flag] then
-          Debug(true,fstr,name,id2,(#args>0 and "," or ""),json.encode(args):sub(2,-2),json.encode(res))
-        elseif not status then
-          error(string.format("Err:fibaro:%s(%s%s%s), %s",name,id2,(#args>0 and "," or ""),json.encode(args):sub(2,-2),res),3)
+  local function traceFibaro(name,flag,rt)
+    local orgFun=fibaro[name]
+    fibaro[name]=function(f,id,...)
+      if id then id=Util._reverseVarTable and Util._reverseVarTable[id] or id end
+      local args={...}
+      local stat,res = pcall(function() return {orgFun(f,id,table.unpack(args))} end)
+      if stat then
+        if _debugFlags[flag] then
+          if rt then rt(id,args,res)
+          else
+            local astr=(id~=nil and tostring(id).."," or "")..json.encode(args):sub(2,-2)
+            Debug(true,"fibaro:%s(%s)%s",name,astr,#res>0 and "="..json.encode(res):sub(2,-2) or "")
+          end
         end
-        if fs=="mr" then return res,r2 else return res end
+        return table.unpack(res)
+      else
+        error(_format("fibaro:%s(%s)",name,astr),3)
       end
     end
   end
-  function fibaro:sleep() error("Not allowed to use fibaro:sleep in EventRunner scenes!") end
 
-  if not _EMULATED then  -- Emulator logs fibaro:* calls
-    interceptFib("","call","fibaro")
-    interceptFib("","setGlobal","fibaroSet") 
-    interceptFib("mr","getGlobal","fibaroGet")
-    interceptFib("r","getGlobalValue","fibaroGet")
-    interceptFib("mr","get","fibaroGet")
-    interceptFib("r","getValue","fibaroGet")
-    interceptFib("","killScenes","fibaro")
-    interceptFib("","sleep","fibaro",
-      function(obj,fun,time) 
-        Debug(true,"fibaro:sleep(%s) until %s",time,osDate("%X",osTime()+math.floor(0.5+time/1000)))
-        fun(obj,time) 
-      end)
-    interceptFib("","startScene","fibaroStart",
-      function(obj,fun,id,args) 
-        local a = isRemoteEvent(args) and json.encode(decodeRemoteEvent(args)) or args and json.encode(args)
-        Debug(true,"fibaro:start(%s%s)",id,a and ","..a or "")
-        fun(obj,id, args) 
-      end)
+  if not _EMULATED then  -- Emulator logs fibaro:* calls for us
+    local maps = {
+      {"call","fcall"},{"setGlobal","fglobal"},{"getGlobal","fglobal"},{"getGlobalValue","fglobal"},
+      {"get","fget"},{"getValue","fget"},{"killScenes","fother"},{"abort","fother"},
+      {"sleep","fother",function(id,args,res) 
+          Debug(true,"fibaro:sleep(%s) until %s",id,osDate("%X",osTime()+math.floor(0.5+id/1000))) 
+        end},        
+      {"startScene","fother",function(id,args,res) 
+          local a = Util.isRemoteEvent(args[1]) and json.encode(Util.decodeRemoteEvent(args[1])) or args and json.encode(args)
+          Debug(true,"fibaro:startScene(%s%s)",id,a and ","..a or "") 
+        end},
+    }
+    for _,f in ipairs() do traceFibaro(f[1],f[2],f[3]) end
   end
+
+  function fibaro:sleep() error("Not allowed to use fibaro:sleep in EventRunner scenes!") end
 
   return self
 end
@@ -735,7 +740,10 @@ function Util.defvars(tab)
 end
 
 Util._reverseVarTable = {}
-function Util.reverseMapDef(table) Util._reverseMap({},table) end
+function Util.reverseMapDef(table) 
+  if _EMULATED then _System.reverseMapDef(table) end 
+  Util._reverseMap({},table) 
+end
 
 function Util._reverseMap(path,value)
   if type(value) == 'number' then
@@ -860,12 +868,12 @@ function newScriptEngine()
   local function doit(m,f,s) if type(s) == 'table' then return m(f,s) else return f(s) end end
 
   local function getIdFuns(s,i,prop) local id = s.pop() 
-    if type(id)=='table' then return Util.map(function(id) return fibaro:get(ID(id,i),prop) end,id) else return fibaro:get(ID(id,i),prop) end 
+    if type(id)=='table' then return Util.map(function(id) return fibaro:getValue(ID(id,i),prop) end,id) else return fibaro:get(ID(id,i),prop) end 
   end
   local getIdFun={}
-  getIdFun['isOn']=function(s,i) return doit(Util.mapOr2,function(id) return fibaro:get(ID(id,i),'value') > '0' end,s.pop()) end
+  getIdFun['isOn']=function(s,i) return doit(Util.mapOr2,function(id) return fibaro:getValue(ID(id,i),'value') > '0' end,s.pop()) end
   getIdFun['isOff']=function(s,i) return doit(Util.mapAnd2,function(id) return fibaro:getValue(ID(id,i),'value') == '0' end,s.pop()) end
-  getIdFun['isAllOn']=function(s,i) return doit(Util.mapAnd2,function(id) return fibaro:get(ID(id,i),'value') > '0' end,s.pop()) end
+  getIdFun['isAllOn']=function(s,i) return doit(Util.mapAnd2,function(id) return fibaro:getValue(ID(id,i),'value') > '0' end,s.pop()) end
   getIdFun['isAnyOff']=function(s,i) return doit(Util.mapOr2,function(id) return fibaro:getValue(ID(id,i),'value') == '0' end,s.pop()) end
   getIdFun['on']=function(s,i) doit(Util.mapF2,function(id) fibaro:call(ID(id,i),'turnOn') end,s.pop()) return true end
   getIdFun['off']=function(s,i) doit(Util.mapF2,function(id) fibaro:call(ID(id,i),'turnOff') end,s.pop()) return true end
@@ -892,9 +900,7 @@ function newScriptEngine()
   getIdFun['manual']=function(s,i) return doit(Util.map,function(id) return Event.lastManual(id) end,s.pop()) end
   getIdFun['start']=function(s,i) doit(Util.mapF,function(id) fibaro:startScene(ID(id,i)) end,s.pop()) return true end
   getIdFun['stop']=function(s,i) doit(Util.mapF,function(id) fibaro:killScenes(ID(id,i)) end,s.pop()) return true end  
-  getIdFun['toggle']=function(s,i)
-    return doit(Util.mapF,function(id) local t = fibaro:getValue(ID(id,i),'value') fibaro:call(id,t>'0' and 'turnOff' or 'turnOn') end,s.pop())
-  end
+  getIdFun['toggle']=function(s,i) return doit(Util.mapF,function(id) fibaro:call(id,"toggle") end,s.pop()) end
   local setIdFun={}
   local _propMap={R='setR',G='setG',B='setB', armed='setArmed',W='setW',value='setValue',time='setTime',power='setPower'}
   local function setIdFuns(s,i,prop,id,v) 
@@ -1026,7 +1032,7 @@ function newScriptEngine()
   instr['ostime'] = function(s,n) s.push(osTime()) end
   instr['frm'] = function(s,n) s.push(string.format(table.unpack(s.lift(n)))) end
   instr['idname'] = function(s,n) s.push(Util.reverseVar(s.pop())) end 
-  instr['label'] = function(s,n,e,i) local nm,id = s.pop(),s.pop() s.push(fibaro:get(ID(id,i),_format("ui.%s.value",nm))) end
+  instr['label'] = function(s,n,e,i) local nm,id = s.pop(),s.pop() s.push(fibaro:getValue(ID(id,i),_format("ui.%s.value",nm))) end
   instr['slider'] = instr['label']
   instr['once'] = function(s,n,e,i) local f; i[4],f = s.pop(),i[4]; s.push(not f and i[4]) end
   instr['always'] = function(s,n,e,i) s.pop(n) s.push(true) end
@@ -1283,6 +1289,7 @@ function newScriptCompiler()
       _assert(h and m and year and month and day,"malformed date constant '%s'",e[2])
       local t = osDate("*t") 
       t.year,t.month,t.day,t.hour,t.min,t.sec=year,month,day,h,m,((s~="" and s or 0) or 0)
+      t.isdst=nil
       return {'%time',tm,osTime(t)}
     else
       local sg
@@ -1642,7 +1649,7 @@ function newRuleCompiler()
       Util.map(function(tr) Log(LOG.LOG,"Trigger(%s) =>...",tojson(tr)) end,triggs)
     end
     rCounter=rCounter+1
-    Log(LOG.SYSTEM,RULEFORMAT,rCounter,ctx.src:match("([^%c]*)"))
+    res._name = Log(LOG.SYSTEM,RULEFORMAT,rCounter,ctx.src:match("([^%c]*)")):sub(1,40)..".."
     return res
   end
 
