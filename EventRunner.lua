@@ -10,7 +10,7 @@
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B12"  -- Apr 8, 2019  
+_version,_fix = "2.0","B13"  -- Apr 8, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -51,7 +51,8 @@ function main()
   Util.defvars(HT.dev)            -- Make HomeTable defs available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable names available for logger
 
-  rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 10 second
+  rule("77:unsecure => true")
+  --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 10 second
 
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
 end -- main()
@@ -556,11 +557,11 @@ function newEventEngine()
           Debug(true,"fibaro:sleep(%s) until %s",id,osDate("%X",osTime()+math.floor(0.5+id/1000))) 
         end},        
       {"startScene","fother",function(id,args,res) 
-          local a = Util.isRemoteEvent(args[1]) and json.encode(Util.decodeRemoteEvent(args[1])) or args and json.encode(args)
+          local a = isRemoteEvent(args[1]) and json.encode(decodeRemoteEvent(args[1])) or args and json.encode(args)
           Debug(true,"fibaro:startScene(%s%s)",id,a and ","..a or "") 
         end},
     }
-    for _,f in ipairs() do traceFibaro(f[1],f[2],f[3]) end
+    for _,f in ipairs(maps) do traceFibaro(f[1],f[2],f[3]) end
   end
 
   function fibaro:sleep() error("Not allowed to use fibaro:sleep in EventRunner scenes!") end
