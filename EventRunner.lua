@@ -10,7 +10,7 @@
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B11"  -- Apr 4, 2019  
+_version,_fix = "2.0","B12"  -- Apr 8, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -869,6 +869,8 @@ function newScriptEngine()
   getIdFun['isAnyOff']=function(s,i) return doit(Util.mapOr2,function(id) return fibaro:getValue(ID(id,i),'value') == '0' end,s.pop()) end
   getIdFun['on']=function(s,i) doit(Util.mapF2,function(id) fibaro:call(ID(id,i),'turnOn') end,s.pop()) return true end
   getIdFun['off']=function(s,i) doit(Util.mapF2,function(id) fibaro:call(ID(id,i),'turnOff') end,s.pop()) return true end
+  getIdFun['secure']=function(s,i) doit(Util.mapF2,function(id) fibaro:call(ID(id,i),'secure') end,s.pop()) return true end
+  getIdFun['unsecure']=function(s,i) doit(Util.mapF2,function(id) fibaro:call(ID(id,i),'unsecure') end,s.pop()) return true end
   getIdFun['last']=function(s,i) local t = osTime()
     return doit(Util.map2,function(id) return t-select(2,fibaro:get(ID(id,i),'value')) end, s.pop()) 
   end
