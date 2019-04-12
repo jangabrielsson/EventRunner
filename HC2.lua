@@ -26,13 +26,13 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
 
-_version,_fix = "0.5","fix9"     
+_version,_fix = "0.7","fix2" -- Apr 12, 2019    
 _sceneName = "HC2 emulator"
 
-_DEMO=false                  -- Load test scene and run
-_REMOTE=true                 -- Run remote, fibaro:* calls functions on HC2, only non-local resources
+_LOCAL=true                  -- set all resource to local in main(), i.e. no calls to HC2
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
-_SPEEDTIME = 24*330           -- Speed through X hours, if set to false run in real time
+_SPEEDTIME = false           -- Run faster than realtime, if set to false run in realtime
+_MAXTIME = 24*365            -- Max hours to run emulator
 _BLOCK_PUT=true              -- Block http PUT commands to the HC2 - e.g. changing resources on the HC2
 _BLOCK_POST=true             -- Block http POST commands to the HC2 - e.g. creating resources on the HC2
 _AUTOCREATEGLOBALS=true      -- Will (silently) autocreate a local fibaro global if it doesn't exist
@@ -45,64 +45,83 @@ _HC2_IP=_HC2_IP or "192.198.1.xx"       -- HC2 IP address
 _HC2_USER=_HC2_USER or "xxx@yyy"        -- HC2 user name
 _HC2_PWD=_HC2_PWD or "xxxxxx"           -- HC2 password
 
-local creds = loadfile("credentials.lua") -- To not accidently commit credentials to Github...
+_EVENTRUNNER_SUPPORT=true
+
+--local creds = loadfile("credentials.lua") -- To not accidently commit credentials to Github...
 if creds then creds() end
 
 --------------------------------------------------------
 -- Main, register scenes, create temporary deviceIDs, schedule triggers...
 --------------------------------------------------------
+EMBEDDED = EMULATED or EMBEDDED
 function main()
 
-  HC2.setupConfiguration(true,false) -- read in configuration from stored local file, or from remote HC2
-
-  if not _REMOTE or _RUNLOCAL then -- If we are remote don't try to access resources on the HC2
-    HC2.localDevices(true) -- set all devices to local
-    HC2.localGlobals(true) -- set all globals to local
-    HC2.localRooms(true)   -- set all rooms to local
-    HC2.localScenes(true)  -- set all scenes to local
+  if HC2.getIPadress():match("192%.168") then      -- only of we are on the local network
+    --  HC2.copyConfigFromHC2(_HC2_FILE)           -- read in configuration  HC2 and  write to file
   end
 
-  --HC2.remoteDevices({66,88}) -- We still want to run local, except for deviceID 66,88 that will be controlled on the HC2
+  HC2.loadConfigFromFile(_HC2_FILE)   -- read in HC2 configuration data from file
+
+  if _LOCAL then                -- Set all resources to local
+    HC2.setLocal("devices",true)         -- set all devices to local   /api/devices
+    HC2.setLocal("globalVariables",true)         -- set all globals to local   /api/globals
+    HC2.setLocal("rooms",true)           -- set all rooms to local     /api/rooms
+    HC2.setLocal("scenes",true)          -- set all scenes to local    /api/scenes
+    HC2.setLocal("info",true)            -- set info to local.         /api/settings/info
+    HC2.setLocal("location",true)        -- set location to local.     /api/settings/location
+    HC2.setLocal("weather",true)         -- set weather to local.      /api/weather
+    HC2.setLocal("users",true)           -- set users to local.        /api/users
+    HC2.setLocal("iosDevices",true)      -- set iPhones to local       /api/iosDevices
+  end
+
+  --HC2.setRemote("devices",{1,2})         -- sunset/sunrise/latitude/longitude etc.
+  --HC2.setRemote("devices",{66,88}) -- We still want to run local, except for deviceID 66,88 that will be controlled on the HC2
   --HC2.createDevice(88,"Test")
+
   HC2.loadEmbedded()   -- If we are called from another scene (dofile...)
 
---HC2.loadScenesFromDir("scenes") -- Load all files with name <ID>_<name>.lua from dir, Ex. 11_MyScene.lua
---HC2.createDevice(77,"Test") -- Create local deviceID 77 with name "[[Test"
+  --HC2.loadScenesFromDir("scenes") -- Load all files with name <ID>_<name>.lua from dir, Ex. 11_MyScene.lua
+  --HC2.createDevice(77,"Test")     -- Create local deviceID 77 with name "[[Test"
 
-  if _DEMO and not _EMBEDDED then
-    HC2.registerScene("SceneTest",99,"sceneTest.lua",nil,
-      {"+/00:00:02;call(66,'turnOn')",      -- breached after 2 sec
-        "+/00:01:02;call(66,'turnOff')"})    -- safe after 1min and 2sec 
-  end
+  -- Simple test scene
+  --[[
+  HC2.registerScene("SceneTest",99,"sceneTest.lua",nil,
+    {"+/00:00:02;call(66,'turnOn')",      -- breached after 2 sec
+      "+/00:01:02;call(66,'turnOff')"})    -- safe after 1min and 2sec 
+  --]]
 
---HC2.runTriggers{"+/00:00;startScene(".._EMBEDDED.id..")"}
+  --HC2.runTriggers{"+/00:00;startScene(".._EMBEDDED.id..")"} -- another way to autostart an embedded scene
 
---HC2.registerScene("Supervisor",11,"SupervisorEM.lua")
---HC2.registerScene("iosLocator",14,"IOSLOcatorEM.lua")
+  -- EventRunner test scenes
+  --HC2.registerScene("Supervisor",11,"SupervisorEM.lua")
+  --HC2.registerScene("iosLocator",14,"IOSLOcatorEM.lua")
 
---HC2.listDevices()
---HC2.listScenes()
---HC2.registerScene("Scene1",21,"EventRunner.lua")
---HC2.registerScene("Scene1",22,"GEA 6.11.lua") 
---HC2.registerScene("Scene1",23,"Main scene FTBE v1.3.0.lua",{Darkness=0,TimeOfDay='Morning'})
+  -- List known devices and scenes
+  --HC2.listDevices()
+  --HC2.listScenes()
 
---Log fibaro:* calls
+  -- Test scenes
+  --HC2.registerScene("Scene1",21,"EventRunner.lua")
+  --HC2.registerScene("Scene1",22,"GEA 6.11.lua") 
+  --HC2.registerScene("Scene1",23,"Main scene FTBE v1.3.0.lua",{Darkness=0,TimeOfDay='Morning'})
+
+  --Log fibaro:* calls
   HC2.logFibaroCalls()
---Debug filters can be used to trim debug output from noisy scenes...
---HC2.addDebugFilter("Memory used:",true) 
---HC2.addDebugFilter("GEA run since",true)
---HC2.addDebugFilter("%.%.%. check running",true)
+
+  --Debug filters can be used to trim debug output from noisy scenes...
+  --HC2.addDebugFilter("Memory used:",true) 
+  --HC2.addDebugFilter("GEA run since",true)
+  --HC2.addDebugFilter("%.%.%. check running",true)
   HC2.addDebugFilter("%b<>(.*)</.*>")
+
+  --dofile("HC2verify.lua")
 end
 
 _debugFlags = { 
-  threads=false, triggers=true, eventserver=false, hc2calls=true, globals=false, 
-  fibaro=true, fibaroSleep=false, fibaroSet=true, fibaroStart=false, web=true,
+  threads=false, triggers=true, eventserver=false, hc2calls=true, globals=false, web=true,
+  fcall=true, fglobal=true, fget=true, fother=true
 }
 
--- ToDo
--- Remove _REMOTE
--- Cache .remote resources and integrate HC2 polling
 ------------------------------------------------------
 -- Context, functions exported to scenes
 ------------------------------------------------------
@@ -112,19 +131,18 @@ function setupContext(id)  -- Table of functions and variables available for sce
     __fibaroSceneId=id,    -- Scene ID
     __threads=0,           -- Currently number of running threads
     _EMULATED=true,        -- Check if we run in emulated mode
-    fibaro=_copy(fibaro),  -- scenes may patch fibaro:*...
+    fibaro=Util.copy(fibaro),  -- scenes may patch fibaro:*...
     _System=_System,       -- Available for debugging tasks in emulated mode
-    dofile=_System.dofile, -- Allow dofile for including code for testing, but use our version that sets context
+    dofile=Runtime.dofile, -- Allow dofile for including code for testing, but use our version that sets context
     os={clock=os.clock,date=osDate,time=osTime,difftime=os.difftime},
     json=json,
     print=print,
     net = net,
     api = api,
-    setTimeout=_System.setTimeoutContext,
-    clearTimeout=_System.clearTimeout,
+    setTimeout=Runtime.setTimeoutContext,
+    clearTimeout=Runtime.clearTimeout,
     urlencode=urlencode,
     select=select,
-    --require=require,
     split=split,
     tostring=tostring,
     tonumber=tonumber,
@@ -148,48 +166,192 @@ end
 -- Startup
 ------------------------------------------------------------------------------
 function startup()
+  -- Intro
   Log(LOG.WELCOME,"HC2 SceneRunner v%s %s",_version,_fix)
   if _SPEEDTIME then Log(LOG.WELCOME,"Running speedtime") end
-  if _REMOTE then Log(LOG.WELCOME,"Remote enabled, will access non-local resources on HC2") end
+  if _LOCAL then Log(LOG.WELCOME,"Local mode, will not access resources on HC2") end                      
 
-  _mainPosts={}
-  function HC2.post(event,t) _mainPosts[#_mainPosts+1]={event,t} end
-  main()                             -- Call main to setup scenes
+  -- Setup watcher for end of time
+  local endTime= osTime()+_MAXTIME*3600
+  Runtime.speed(_SPEEDTIME)
 
-  local endTime= osTime()+(_SPEEDTIME or 365*24)*3600
   local function cloop()
     if osTime()>endTime then
-      Log(LOG.SYSTEM,"%s, End of time (%s hours) - exiting",osDate("%c"),_SPEEDTIME)
+      Log(LOG.SYSTEM,"%s, End of time (%s hours) - exiting",osDate("%c"),_MAXTIME)
       os.exit()
     end   
-    _System.setTimeout(cloop,1000*3600,"Speed watch")
+    Runtime.setTimeout(cloop,1000*3600,"Time watch")
   end
   cloop()
 
-  ProcessManager = _System.makeProcessManager()
-  _System.idleHandler = ProcessManager.idleHandler
+  Event.schedule("n/00:00",updateSun)
+  updateSun()
 
-  local ipAddress = _System.getIPadress()
+  -- Setup process manager (calls GUI etc)
+  ProcessManager = Runtime.makeProcessManager()
+  Runtime.idleHandler = ProcessManager.idleHandler
 
-  wServer = makeWebserver(ipAddress)
+  -- Setup webserver 
+  local ipAddress = HC2.getIPadress()
+  local GUIServer = createWebserver(ipAddress)
+  -- Create webserver
+  GUIServer.createServer("Event server",_EVENTSERVER,GUIhandler,GUIhandler)
+  Log(LOG.LOG,"Web GUI at http://%s:%s/emu/main",ipAddress,_EVENTSERVER)
 
-  local function whandler(method,client,call,body,ref) 
-    local stat,res = pcall(function()
-        for p,h in pairs(HANDLERS[method] or {}) do
-          local match = {call:match(p)}
-          if match and #match>0 then
-            if h(client,ref,body,table.unpack(match)) then return end
-          end
-        end
-        client:send("HTTP/1.1 501 Not Implemented\nLocation: "..(ref or "/emu/triggers").."\n")
-      end)
-    if not stat then 
-      local p = Pages.renderError(res)
-      client:send(p) 
-    end
+  -- Call main
+  local mainPosts={}
+  function HC2.post(event,t) mainPosts[#mainPosts+1]={event,t} end
+  main()  
+
+  -- Post autostart and posts done in main()
+  Event.post({type='autostart'})     -- Post autostart to get things going
+  for _,e in ipairs(mainPosts) do Event.post(e[1],e[2]) end
+
+  -- Announce to HC2 ER scenes that we are up and running
+  if _EVENTRUNNER_SUPPORT then ER.announceEmulator(ipAddress,_EVENTSERVER) end
+
+  -- Start running timers
+  Runtime.runTimers()                -- Run our simulated threads...
+  os.exit()
+end
+
+------------------------------------------------------------------------
+-- Support functions - don't touch
+-- requires
+------------------------------------------------------------------------
+function Support_functions()
+
+  require('mobdebug').coro()   -- Allow debugging of Lua coroutines
+
+--mime = require('mime')
+  https = require ("ssl.https")
+  ltn12 = require("ltn12")
+--json = require("json")
+  socket = require("socket")
+  http = require("socket.http")
+  lfs = require("lfs")
+
+  _ENV = _ENV or _G or {}         -- Environment
+
+  _HCPrompt="[HC2 ]"
+  function printf(...) print(string.format(...)) end -- Lazy printing - should use Log(...)
+  _format=string.format
+
+  LOG = {WELCOME = "orange",DEBUG = "white", SYSTEM = "Cyan", LOG = "green", ERROR = "Tomato"}
+-- ZBS colors, works best with dark color scheme http://bitstopixels.blogspot.com/2016/09/changing-color-theme-in-zerobrane-studio.html
+  if _COLOR=='Dark' then
+    _LOGMAP = {orange="\027[33m",white="\027[37m",Cyan="\027[1;43m",green="\027[32m",Tomato="\027[39m"} -- ANSI escape code, supported by ZBS
+  else
+    _LOGMAP = {orange="\027[33m",white="\027[34m",Cyan="\027[35m",green="\027[32m",Tomato="\027[31m"} -- ANSI escape code, supported by ZBS
+  end
+  _LOGEND = "\027[0m"
+--[[Available colors in Zerobrane
+for i = 0,8 do print(("%s \027[%dmXYZ\027[0m normal"):format(30+i, 30+i)) end
+for i = 0,8 do print(("%s \027[1;%dmXYZ\027[0m bright"):format(38+i, 30+i)) end
+--]]
+
+  Util = {}
+  function Util.Msg(color,message,...)
+    color = _COLOR and _LOGMAP[color] or ""
+    local args = type(... or 42) == 'function' and {(...)()} or {...}
+    message = _format(message,table.unpack(args))
+    local env,sceneid = Scene.global(),_HCPrompt
+    if env then sceneid = _format("[%s:%s]",env.__fibaroSceneId,env.__orgInstanceNumber) end
+    print(_format("%s%s%s %s%s",color,osOrgDate("%a/%b/%d,%H:%M:%S:",osTime()),sceneid,message,_COLOR and _LOGEND or "")) 
+    return message
   end
 
-  HANDLERS = {
+  function Util.isEvent(e) return type(e) == 'table' and e.type end
+
+  function Util.copy(obj) return Util.transform(obj, function(o) return o end) end
+  function Util.equal(e1,e2)
+    local t1,t2 = type(e1),type(e2)
+    if t1 ~= t2 then return false end
+    if t1 ~= 'table' and t2 ~= 'table' then return e1 == e2 end
+    for k1,v1 in pairs(e1) do if e2[k1] == nil or not Util.equal(v1,e2[k1]) then return false end end
+    for k2,v2 in pairs(e2) do if e1[k2] == nil or not Util.equal(e1[k2],v2) then return false end end
+    return true
+  end
+  function Util.transform(obj,tf)
+    if type(obj) == 'table' then
+      local res = {} for l,v in pairs(obj) do res[l] = Util.transform(v,tf) end 
+      return res
+    else return tf(obj) end
+  end
+  function Util.isRemoteEvent(e) return type(e)=='table' and type(e[1])=='string' end
+  function Util.encodeRemoteEvent(e) return {urlencode(json.encode(e)),'%%ER%%'} end
+  function Util.decodeRemoteEvent(e) return (json.decode((urldecode(e[1])))) end
+
+  function _assert(test,msg,...) 
+    if not test then 
+      msg = _format(msg,...) error(msg,3) 
+    end 
+  end
+  function _assertf(test,msg,fun) if not test then msg = _format(msg,fun and fun() or "") error(msg,3) end end
+  function Debug(flag,message,...) if flag then Util.Msg(LOG.DEBUG,message,...) end end
+  function Log(color,message,...) return Util.Msg(color,message,...) end
+end
+
+------------------------------------------------------------
+-- Webserver GUI
+---------------------------------------------------------------
+
+function Web_functions()
+
+  function createWebserver(ipAdress)
+    local self = { ipAdress = ipAdress }
+
+    local function clientHandler(client,getHandler,postHandler,putHandler)
+      client:settimeout(0,'b')
+      client:setoption('keepalive',true)
+      local ip=client:getpeername()
+      --printf("IP:%s",ip)
+      while true do
+        l,e,j = client:receive()
+        if l then
+          local body,referer
+          local method,call = l:match("^(%w+) (.*) HTTP/1.1")
+          repeat
+            header,e,b = client:receive()
+            if b and b~="" then body=b end
+            referer = header and header:match("^[Rr]eferer:%s*(.*)") or referer
+          until header == nil or e == 'closed'
+          if method=='POST' and postHandler then   postHandler(method,client,call,body,referer)
+          elseif method=='PUT' and putHandler then putHandler(method,client,call,body,referer) 
+          elseif method=='GET' and getHandler then getHandler(method,client,call,body,referer) end
+          client:close()
+          return
+        end
+        coroutine.yield()
+      end
+    end
+
+    local function socketServer(server,getHandler,postHandler,putHandler)
+      while true do
+        repeat
+          client, err = server:accept()
+          if err == 'timeout' then coroutine.yield() end
+        until err ~= 'timeout'
+        ProcessManager.create(clientHandler,"client",client,getHandler,postHandler,putHandler)
+      end
+    end
+
+    function self.createServer(name,port,getHandler,postHandler,putHandler)
+      local server,c,err=assert(socket.bind("*", port))
+      local i, p = server:getsockname()
+      local timeoutCounter = 0
+      assert(i, p)
+      --printf("http://%s:%s/test",ipAdress,port)
+      server:settimeout(0,'b')
+      server:setoption('keepalive',true)
+      ProcessManager.create(socketServer,"server",server,getHandler,postHandler,putHandler)
+      Log(LOG.LOG,"Created %s at %s:%s",name,self.ipAdress,port)
+    end
+
+    return self
+  end
+
+  local GUI_HANDLERS = {
     ["GET"] = {
       ["(.*)"] = function(client,ref,body,call)
         local page = Pages.getPath(call)
@@ -203,7 +365,7 @@ function startup()
           return true
         end
       end,
-      ["/images/(.*)"]=function(client,ref,body,image) -- only small images, so we don't chunk it...
+      ["/images/(.*)"]=function(client,ref,body,image) -- only small images, so we don't chunk it... move to getPages
         local f = io.open(image)
         if not f then error("No such file:"..fileName) end
         local src = f:read("*all")
@@ -230,7 +392,7 @@ function startup()
       end,
     },
     ["POST"] = {
-      ["^/api/.*"] = function(client,ref,body,call)
+      ["^/api(/.*)"] = function(client,ref,body,call)
         api.post(call,json.decode(body)) 
         client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n\n")
         return true
@@ -256,114 +418,32 @@ function startup()
     }
   }
 
-  wServer.createServer("Event server",_EVENTSERVER,whandler,whandler)
+  function GUIhandler(method,client,call,body,ref) 
+    local stat,res = pcall(function()
+        for p,h in pairs(GUI_HANDLERS[method] or {}) do
+          local match = {call:match(p)}
+          if match and #match>0 then
+            if h(client,ref,body,table.unpack(match)) then return end
+          end
+        end
+        client:send("HTTP/1.1 501 Not Implemented\nLocation: "..(ref or "/emu/triggers").."\n")
+      end)
+    if not stat then 
+      local p = Pages.renderError(res)
+      client:send(p) 
+    end
+  end
 
-  Event.post({type='autostart'})     -- Post autostart to get things going
-  for _,e in ipairs(_mainPosts) do Event.post(e[1],e[2]) end
-
-  if _REMOTE then ER.announceEmulator(ipAddress,_EVENTSERVER) end
-  Log(LOG.LOG,"Web GUI at http://%s:%s/emu/main",ipAddress,_EVENTSERVER)
-  _System.runTimers()                -- Run our simulated threads...
-  os.exit()
 end
-
-------------------------------------------------------------------------
--- Support functions - don't touch
-------------------------------------------------------------------------
-require('mobdebug').coro()   -- Allow debugging of Lua coroutines
-
---mime = require('mime')
-https = require ("ssl.https")
-ltn12 = require("ltn12")
---json = require("json")
-socket = require("socket")
-http = require("socket.http")
-lfs = require("lfs")
-
-_LOCAL= not _REMOTE
-_HCPrompt="[HC2]"
-function printf(...) print(string.format(...)) end -- Lazy printing - should use Log(...)
-
-_format=string.format
-LOG = {WELCOME = "orange",DEBUG = "white", SYSTEM = "Cyan", LOG = "green", ERROR = "Tomato"}
--- ZBS colors, works best with dark color scheme http://bitstopixels.blogspot.com/2016/09/changing-color-theme-in-zerobrane-studio.html
-if _COLOR=='Dark' then
-  _LOGMAP = {orange="\027[33m",white="\027[37m",Cyan="\027[1;43m",green="\027[32m",Tomato="\027[39m"} -- ANSI escape code, supported by ZBS
-else
-  _LOGMAP = {orange="\027[33m",white="\027[34m",Cyan="\027[35m",green="\027[32m",Tomato="\027[31m"} -- ANSI escape code, supported by ZBS
-end
-_LOGEND = "\027[0m"
---[[Available colors in Zerobrane
-for i = 0,8 do
-  print(("%s \027[%dmXYZ\027[0m normal"):format(30+i, 30+i))
-end
-for i = 0,8 do
-  print(("%s \027[1;%dmXYZ\027[0m bright"):format(38+i, 30+i))
-end
---]]
-function _UserMsg(color,message,...)
-  color = _COLOR and _LOGMAP[color] or ""
-  local args = type(... or 42) == 'function' and {(...)()} or {...}
-  message = string.format(message,table.unpack(args))
-  fibaro:debug(string.format("%s%s %s%s",color,osOrgDate("%a %b %d:",osTime()),message,_COLOR and _LOGEND or "")) 
-  return message
-end
-function _Msg(color,message,...)
-  color = _COLOR and _LOGMAP[color] or ""
-  local args = type(... or 42) == 'function' and {(...)()} or {...}
-  message = _format(message,table.unpack(args))
-  local env,sceneid = Scene.global(),_HCPrompt
-  if env then sceneid = _format("[%s:%s]",env.__fibaroSceneId,env.__orgInstanceNumber) end
-  print(string.format("%s#%s%s %s%s",color,sceneid,osOrgDate("%H:%M:%S, %a %b %d:",osTime()),message,_COLOR and _LOGEND or "")) 
-  return message
-end
-function Debug(flag,message,...) if flag then _Msg(LOG.DEBUG,message,...) end end
-function Log(color,message,...) return _Msg(color,message,...) end
-
-function _assert(test,msg,...) 
-  if not test then 
-    msg = _format(msg,...) error(msg,3) 
-  end 
-end
-function _assertf(test,msg,fun) if not test then msg = _format(msg,fun and fun() or "") error(msg,3) end end
-
-function isEvent(e) return type(e) == 'table' and e.type end
-
-function _copy(obj) return _transform(obj, function(o) return o end) end
-function _equal(e1,e2)
-  local t1,t2 = type(e1),type(e2)
-  if t1 ~= t2 then return false end
-  if t1 ~= 'table' and t2 ~= 'table' then return e1 == e2 end
-  for k1,v1 in pairs(e1) do if e2[k1] == nil or not _equal(v1,e2[k1]) then return false end end
-  for k2,v2 in pairs(e2) do if e1[k2] == nil or not _equal(e1[k2],v2) then return false end end
-  return true
-end
-function _transform(obj,tf)
-  if type(obj) == 'table' then
-    local res = {} for l,v in pairs(obj) do res[l] = _transform(v,tf) end 
-    return res
-  else return tf(obj) end
-end
-function isRemoteEvent(e) return type(e)=='table' and type(e[1])=='string' end
-function encodeRemoteEvent(e) return {urlencode(json.encode(e)),'%%ER%%'} end
-function decodeRemoteEvent(e) return (json.decode((urldecode(e[1])))) end
-------------------------------------------------------------------------------
--- SSupport functions
--- Scene
--- _System
--- HC2
-------------------------------------------------------------------------------
-
-function support()
 ------------------------------------------------------------------------------
 -- Scene support
 -- load
 -- start
 -- kill
 ------------------------------------------------------------------------------
+function Scene_functions()
   Scene={ scenes={} }
 
-  _ENV = _ENV or _G or {}         -- Environment
   _SceneContext = {}              -- Map from thread -> environment
   local mt = {}; mt.__mode = "k"; 
   setmetatable(_SceneContext,mt)  -- weak keys (keys are coroutines)
@@ -427,16 +507,16 @@ function support()
       end
       scene.runningInstances=scene.runningInstances-1 
     end
-    local tr = _System.setTimeoutContext(function() 
+    local tr = Runtime.setTimeoutContext(function() 
         scene.runningInstances=scene.runningInstances+1
         env.__orgInstanceNumber=scene.runningInstances
         setfenv(scene.code,env) 
         --require('mobdebug').on() 
-        scene.code() 
+        scene.code()
       end,
       0,scene.name,env)
     _SceneContext[tr]=env
-    if isRemoteEvent(args) then args=decodeRemoteEvent(args) end
+    if Util.isRemoteEvent(args) then args=Util.decodeRemoteEvent(args) end
     if (not scene._startMsg) or (scene._startMsg and not scene._startMsg(scene.id,scene.runningInstances,env)) then
       Log(LOG.LOG,"Scene %s started (%s), trigger:%s %s(%s)",globals.__debugName,scene.name,tojson(event),args and tojson(args) or "",tr)
     end
@@ -444,7 +524,7 @@ function support()
 
   function Scene.stop(scene)
     if scene.runningInstances>0 then
-      _System.clearAllTimeoutFilter(function(t) return t.env and t.env.__fibaroSceneId==scene.id end)
+      Runtime.clearAllTimeoutFilter(function(t) return t.env and t.env.__fibaroSceneId==scene.id end)
       Log(LOG.LOG,"Stopping scene %s (%s)",scene.id, scene.name) 
     else Log(LOG.LOG,"Scene %s not running (%s)",scene.id, scene.name) end
   end
@@ -505,11 +585,13 @@ function support()
     if headers['autostart'] then events[#events+1]={type='autostart'} end
     return events,src
   end
+end
 
 ------------------------------------------------------------------------
 -- HC2 functions
 -- Creating and managing HC2 resources
 ------------------------------------------------------------------------
+function HC2_functions()
   HC2 = { rsrc={} }
   HC2.rsrc.globalVariables = {}
   HC2.rsrc.devices = {}
@@ -518,8 +600,19 @@ function support()
   HC2.rsrc.scenes = {}
   HC2.rsrc.sections = {}
   HC2.rsrc.rooms = {}
-  HC2.rsrc.info = {}
-  HC2.rsrc.location = {}
+  HC2.rsrc.info = {} -- { 1 = info }
+  HC2.rsrc.location = {} -- { 1 = location }
+  HC2.rsrc.weather = {} -- { 1 = weather }
+  HC2.rsrc.count = {glob=0,dev=0,ios=0,users=0,scenes=0,sect=0,rooms=0}
+
+  function HC2.getIPadress()
+    local someRandomIP = "192.168.1.122" --This address you make up
+    local someRandomPort = "3102" --This port you make up  
+    local mySocket = socket.udp() --Create a UDP socket like normal
+    mySocket:setpeername(someRandomIP,someRandomPort) 
+    local myDevicesIpAddress, somePortChosenByTheOS = mySocket:getsockname()-- returns IP and Port 
+    return myDevicesIpAddress
+  end
 
   function HC2.runTriggers(tab)
     if type(tab)=='string' then tab={tab} end
@@ -552,60 +645,100 @@ function support()
 
   local function patchID(t) 
     local res,c={},0; 
-    for k,v in pairs(t) do 
-      if type(v)=='table' then res[tonumber(k)]=v c=c+1 end 
-    end 
+    for k,v in pairs(t) do if type(v)=='table' then res[tonumber(k)]=v c=c+1 end end 
     return res,c
   end
 
-  function HC2.setupConfiguration(file,copyFromHC2)
-    local file2 = type(file)=='string' and file or _HC2_FILE
-    local c1,c2,c3,c4=0,0,0,0
-    local rsrc = HC2.rsrc
-    if copyFromHC2 then
-      Log(LOG.SYSTEM,"Reading configuration from H2C...")
-      local vars = api.rawGet(false,"/globalVariables/")
-      for _,v in ipairs(vars) do rsrc.globalVariables[v.name] = v c1=c1+1 end
-      local s = api.rawGet(false,"/sections")
-      for _,v in ipairs(s) do rsrc.sections[v.id] = v end
-      s = api.rawGet(false,"/rooms")
-      for _,v in ipairs(s) do rsrc.rooms[v.id] = v c4=c4+1 end
-      s = api.rawGet(false,"/devices")
-      for _,v in ipairs(s) do rsrc.devices[v.id] = v c3=c3+1 end
-      s = api.rawGet(false,"/scenes") -- need to retrieve once more to get the Lua code
-      for _,v in ipairs(s) do 
-        local scene = api.rawGet(false,"/scenes/"..v.id)
-        rsrc.scenes[v.id] = scene; c2=c2+1 
-        scene.EventRunner = scene.lua and scene.lua:match(ER.gEventRunnerKey)
-      end
-      s = api.rawGet(false,"/iosDevices")
-      for _,v in ipairs(s) do rsrc.iosDevices[v.id] = v end
-      rsrc.info = api.rawGet(false,"/settings/info")
-      rsrc.location = api.rawGet(false,"/settings/location")
-      if file then HC2.writeConfigurationToFile(file2) end
-    else
-      local f = io.open(file2)
-      if f then
-        Log(LOG.SYSTEM,"Reading and decoding configuration from %s",file2)
-        --local data = f:read("*all")
-        --rsrc = json.decode(data)
-        rsrc=persistence.load(file2);
-        for n,_ in pairs(rsrc.globalVariables) do c1=c1+1 end
-        rsrc.devices,c3=patchID(rsrc.devices); rsrc.scenes,c2=patchID(rsrc.scenes); 
-        rsrc.rooms,c4=patchID(rsrc.rooms); rsrc.sections,_=patchID(rsrc.sections); 
-        rsrc.iosDevices,_=patchID(rsrc.iosDevices); 
-        HC2.rsrc=rsrc
-      else Log(LOG.SYSTEM,"No HC2 data file found (%s)'",file2) end
+  function HC2.copyConfigFromHC2(file)
+    file = file or _HC2_FILE
+    local rsrc,count = HC2.rsrc,HC2.rsrc.count
+    Log(LOG.SYSTEM,"Reading configuration from H2C...")
+    local vars = api.rawGet(false,"/globalVariables/")
+    for _,v in ipairs(vars) do rsrc.globalVariables[v.name] = v count.glob=count.glob+1 end
+    local s = api.rawGet(false,"/sections")
+    for _,v in ipairs(s) do rsrc.sections[v.id] = v count.sect=count.sect+1 end
+    s = api.rawGet(false,"/rooms")
+    for _,v in ipairs(s) do rsrc.rooms[v.id] = v count.rooms=count.rooms+1 end
+    s = api.rawGet(false,"/devices")
+    for _,v in ipairs(s) do rsrc.devices[v.id] = v count.dev=count.dev+1 end
+    s = api.rawGet(false,"/scenes") -- need to retrieve once more to get the Lua code
+    for _,v in ipairs(s) do 
+      local scene = api.rawGet(false,"/scenes/"..v.id)
+      rsrc.scenes[v.id] = scene; count.scenes=count.scenes+1
+      scene.EventRunner = scene.lua and scene.lua:match(ER.gEventRunnerKey)
     end
-    if not rsrc.info.serverStatus then
-      rsrc.info={serverStatus=os.time(), currentVersion={version="100.00"}}
-    end
-    Log(LOG.SYSTEM,"Configuration setup, Globals:%s, Scenes:%s, Device:%s, Rooms:%s",c1,c2,c3,c4)
+    s = api.rawGet(false,"/iosDevices")
+    for _,v in ipairs(s) do rsrc.iosDevices[v.id] = v count.ios=count.ios+1 end
+    rsrc.info[1] = api.rawGet(false,"/settings/info")
+    rsrc.location[1] = api.rawGet(false,"/settings/location")
+    rsrc.weather[1] = api.rawGet(false,"/weather")
+    HC2.writeConfigurationToFile(file) 
+    Log(LOG.SYSTEM,"Configuration from HC2, Globals:%s, Scenes:%s, Device:%s, Rooms:%s",count.glob,count.scenes,count.dev,count.rooms)
+  end
+
+  function HC2.loadConfigFromFile(file)
+    file = file or _HC2_FILE
+    local rsrc,count = HC2.rsrc,HC2.rsrc.count
+    local f = io.open(file)
+    if f then
+      count.glob=0
+      Log(LOG.SYSTEM,"Reading and decoding configuration from %s",file)
+      rsrc=persistence.load(file);
+      for n,_ in pairs(rsrc.globalVariables or {}) do count.glob=count.glob+1 end
+      rsrc.devices,count.dev=patchID(rsrc.devices or {}); 
+      rsrc.scenes,count.scenes=patchID(rsrc.scenes); 
+      rsrc.rooms,count.rooms=patchID(rsrc.rooms or {}); 
+      rsrc.sections,count.sect=patchID(rsrc.sections); 
+      rsrc.iosDevices,count.ios=patchID(rsrc.iosDevices or {}); 
+      rsrc["settings/info"] = rsrc["settings/info"]  or {}
+      if not rsrc["settings/info"][1] then rsrc["settings/info"] = {rsrc["settings/info"]} end 
+      rsrc["settings/location"] = rsrc["settings/location"] or {}
+      if not rsrc["settings/location"][1] then rsrc["settings/location"] = {rsrc["settings/location"]} end 
+      rsrc.weather = rsrc.weather or {}
+      if not rsrc.weather[1] then rsrc.weather = {rsrc.weather} end
+      HC2.rsrc=rsrc
+      HC2.rsrc.count = count
+    else Log(LOG.SYSTEM,"No HC2 data file found (%s)'",file) end
+    Log(LOG.SYSTEM,"Configuration from file, Globals:%s, Scenes:%s, Device:%s, Rooms:%s",count.glob,count.scenes,count.dev,count.rooms)
   end
 
   function HC2.writeConfigurationToFile(file)
     Log(LOG.SYSTEM,"Writing configuration data to '%s'",file)
     persistence.store(file, HC2.rsrc);
+  end
+
+  local function standardInfo()
+    local rsrc= 
+    [[{"serialNumber":"HC2-999999","hcName":"Home","mac":"00:22:4d:ab:83:46",
+       "zwaveVersion":"4.33","timeFormat":24,"zwaveRegion":"EU","serverStatus":1550914298,
+       "defaultLanguage":"en","sunsetHour":"18:20","sunriseHour":"05:27","hotelMode":false,
+       "temperatureUnit":"C","batteryLowNotification":false,"smsManagement":false,"date":"07:25 | 28.3.2019","softVersion":"4.530",
+       "beta":false,
+       "currentVersion":{"version":"4.530","type":"stable"},
+       "installVersion":{"version":"","type":"","status":"","progress":0},
+       "timestamp":1553754343,"online":true,"updateStableAvailable":false,
+       "updateBetaAvailable":true,"newestStableVersion":"4.530","newestBetaVersion":"4.532"}]]
+    return json.decode(rsrc)
+  end
+
+  local function standardLocation()
+    local rsrc= 
+    [[{"houseNumber":3,"timezone":"Europe/Stockholm","timezoneOffset":3600,"ntp":true,
+       "ntpServer":"pool.ntp.org","date":{"day":28,"month":3,"year":2019},"time":{"hour":7,"minute":27},
+       "latitude":61.33,"longitude":19.787,"city":"","temperatureUnit":"C","windUnit":"km/h",
+       "timeFormat":24,"dateFormat":"dd.mm.yy","decimalMark":"."}]]
+    return json.decode(rsrc)
+  end
+
+  local function standardWeather()
+    local rsrc= 
+    [[{"Temperature": 9.5,"TemperatureUnit": "C",
+       "Humidity": 91.8,
+       "Wind": 11.52,
+       "WindUnit": "km/h",
+       "WeatherCondition": "cloudy",
+       "ConditionCode": 26}]]
+    return json.decode(rsrc)
   end
 
   function HC2.getRsrc(name,id,f)
@@ -614,175 +747,179 @@ function support()
 
     if not rsrc then-- rsrc doesn't exists
       if name=='globalVariables' and _AUTOCREATEGLOBALS then
+        Debug(_debugFlags.autocreate,"Autocreating global '%s'",id)
         rsrc = HC2.createGlobal(id)
       elseif name=='devices' and _AUTOCREATEDEVICES then
+        Debug(_debugFlags.autocreate,"Autocreating deviceID:%s",id)
         rsrc = HC2.createDevice(id,tostring(id))
+      elseif name=="settings/info" then
+        rsrc = standardInfo()
+        rsrcs[id]=rsrc
+      elseif name=="settings/location" then
+        rsrc = standardLocation()
+        rsrcs[id]=rsrc
+      elseif name=="settings/weather" then
+        rsrc =  standardWeather()
+        rsrcs[id]=rsrc
       end
     end
 
-    --if not _REMOTE and rsrc then rsrc._local = true end
     if rsrc and rsrc._local or f then
       -- found
-    elseif _REMOTE and rsrc then
-      local rsrc = api.rawGet(false,"/"..name.."/"..id)
-      rsrcs[id] = rsrc -- cahce it
+    elseif rsrc then -- remote resource - get it from HC2
+      rsrc = api.rawGet(false,"/"..name.."/"..id)
+      rsrcs[id] = rsrc -- cache it
     end
     return rsrc
   end
 
-  local function _getId(n,r) return n=='globalVariables' and r.name or r.id end
-
-  function HC2.getAllRsrc(name)
-    local r2,res={},{}
-    if _REMOTE then 
-      r2 = api.rawGet(false,"/"..name) -- if remote connection, get fresh data
-      for _,r3 in ipairs(r2) do
-        local i = _getId(name,r3) -- only update non-local data
-        if HC2.rsrc[name][i] and not HC2.rsrc[name][i]._local then 
-          HC2.rsrc[name][i] = r3
-          if name=='scenes' then
-            HC2.rsrc[name][i] = api.rawGet(false,"/"..name.."/"..r3.id)
-          end
-        end
-      end
+  function HC2.getAllRsrc(name,filter)
+    local function getId(n,r) return n=='globalVariables' and r.name or r.id end
+    filter = filter or function() return true end
+    local res,rems,rm = {},{},0
+    for id,r in pairs(HC2.rsrc[name]) do
+      if r._local then
+        if filter(r) then res[#res+1]=r end
+      else rm=rm+1; rems[id]=r end
     end
-    for id,r in pairs(HC2.rsrc[name]) do res[#res+1]=r 
-      --r._local=(not _REMOTE) and true or r._local 
+    local rs={}
+    if rm > 8 then -- Over 5 items, do a get all...
+      rs = api.rawGet(false,"/"..name)
+    else 
+      for id,_ in pairs(rems) do res[#rs+1] = api.rawGet(false,"/"..name.."/"..id) end
+    end
+    for _,d in ipairs(rs) do
+      if HC2.rsrc[name][getId(name,d)] then res[#res+1]=d end
     end
     return res
   end
 
+  function updateSun()
+    local d = HC2.rsrc.devices[1]
+    if d and d._local then
+      local sunrise,sunset= SunCalc.sunCalc()
+      Log(LOG.SYSTEM,"Sunrise:%s Sunset:%s (local calc)",sunrise,sunset)
+      d.properties.sunsetHour=sunset; d.properties.sunriseHour=sunrise 
+    end
+  end
+
+  _DEV_PROP_MAP={["IPAddress"]='ip', ["TCPPort"]='port'}
+  function HC2.getDeviceProperty(deviceID,propertyName)
+    local d = HC2.getDevice(deviceID,true)
+    if not d then return nil end
+    if not d._local then 
+      return api.rawGet(false,"/devices/"..deviceID.."/properties/"..propertyName)
+    else
+      propertyName = d.type=='virtual_device' and _DEV_PROP_MAP[propertyName] or propertyName
+      return {value=d.properties[propertyName],modified=d.modified}
+    end
+  end
+
   function HC2.getDevice(id,f) return HC2.getRsrc('devices',id,f) end
+  function HC2.getVirtualDevice(id,f) return HC2.getRsrc('devices',id,f) end
   function HC2.getGlobal(id,f) return HC2.getRsrc('globalVariables',id,f) end
   function HC2.getScene(id,f) return HC2.getRsrc('scenes',id,f) end
   function HC2.getRoom(id,f) return HC2.getRsrc('rooms',id,f) end
   function HC2.getSection(id,f) return HC2.getRsrc('sections',id,f) end
   function HC2.getiosDevice(id,f) return HC2.getRsrc('iosDevices',id,f) end
+  function HC2.getWeather(id,f) return HC2.getRsrc('weather',1,f) end
+  function HC2.getInfo(id,f) return HC2.getRsrc('settings/info',1,f) end
+  function HC2.getLocation(id,f) return HC2.getRsrc('settings/location',1,f) end
 
--- ToDo, This should be cleaned up and functionality moved from fibaro:* to api.*
---[[
-GET:/settings/info
-GET:/settings/location
-GET:/iosDevices
-GET:/devices
-GET:/devices/<deviceID>
-POST:/devices/<deviceID/action/<actionName>
-POST:/devices/<deviceID/groupAction/<actionName>
-GET:/sections
-GET:/sections/<sectionID>
-GET:/scenes
-GET:/scenes/<sceneID>
-GET:/scenes/action/<action>
-GET:/rooms
-GET:/rooms/<roomID>
-GET:/globalVariables              -- Get all variables
-GET:/globalVariables/<varName>    -- Get variable
-PUT:/globalVariables/  <var struct> -- Modify variable
-PUT:/globalVariables/  <var struct> -- Modify variable
-POST:/globalVariables/  <var struct> -- Create variable
---]]
-
-  local function stdGetRsrc(name,id)
-    if id==nil or id=="" then return  HC2.getAllRsrc(name)
-    elseif id then return HC2.getRsrc(name,id)
-    else return null end
+  local function getResourceAPI(id,name,filter)
+    if id and id ~= "" then return HC2.getRsrc(name,id),200
+    else return HC2.getAllRsrc(name,filter),200 end
   end
 
-  HC2._getHandlers={
-    settings=function(arg)
-      if arg=='info' then return HC2.rsrc.info
-      elseif arg=='location' then return HC2.rsrc.location
-      else return null end
+  local vDevfilter = function(d) return d and d.type=='virtual_device' end
+  local URLMap = {
+    ["GET:settings"]=function(path)
+      if path=='info' then
+        return HC2.getRsrc("info",1),200
+      elseif path=='location' then
+        return HC2.getRsrc("location",1),200
+      else return nil,404 end
     end,
-    weather=function(arg)
-      local w = not _REMOTE and 
-      (json.decode(
-          [[{"Temperature": 9.5,"TemperatureUnit": "C",
-             "Humidity": 91.8,
-             "Wind": 11.52,
-             "WindUnit": "km/h",
-             "WeatherCondition": "cloudy",
-             "ConditionCode": 26}
-          ]]))
-      or api.rawGet(false,"/weather")
-      return w
-    end,
-    iosDevice=function(arg) return stdGetRsrc('iosDevices',tonumber(arg)) end,
-    devices=function(arg) 
-      --local id,prop=args:match("(%d+)(.*)")
-      --if prop then prop=prop:match("/properties/(.*)") end
-      return stdGetRsrc('devices',tonumber(arg)) 
-    end,
-    sections=function(arg) return stdGetRsrc('sections',tonumber(arg)) end,
-    scenes=function(arg) return stdGetRsrc('scenes',tonumber(arg)) end,
-    rooms=function(arg) return stdGetRsrc('rooms',tonumber(arg)) end,
-    globalVariables=function(arg) return stdGetRsrc('globalVariables',arg) end,
-  }
-
-  HC2._putHandlers={ -- update global variable
-    globalVariables=function(r,data,cType)
-      local v = HC2.getRsrc('globalVariables',r)
-      if v and v._local then HC2.rsrc.globalVariables[r]=data
-      elseif v and _REMOTE then -- update global remote
-        if _BLOCK_PUT then Log(LOG.LOG,"Updating HC2 global '%s'denied, set _BLOCK_PUT=false",r) return end
-        api.rawPut(false,"/globalVariables/"..r,data,cType)
-        HC2.rsrc.globalVariables[r]=data -- cache
+    ["GET:weather"]=function(path) return HC2.getRsrc("weather",1),200 end,
+    ["GET:devices"]=function(path) 
+      local id,prop=path:match("(%d+)/properties/(.*)$")
+      if tonumber(id) and prop then
+        return HC2.getDeviceProperty(tonumber(id),prop),200
       end
+      return getResourceAPI(tonumber(path),'devices') 
     end,
-  }
-
-  HC2._postHandlers={ -- create global variable, always local...?
-    globalVariables=function(r,data,cType) 
-      local v = HC2.rsrc.globalVariables[data.name]
-      if not v then data._local=true; HC2.rsrc.globalVariables[data.name]=data end
+    ["GET:virtualDevices"]=function(path)
+      return getResourceAPI(tonumber(path),'devices',vDevfilter) 
     end,
-    scenes=function(r,data,cType)
-      local sceneID,cmd=r:match("(%-?%d+)/action/(%w+)")
-      sceneID=math.abs(tonumber(sceneID))
-      if cmd=='start' then
-        local scene = HC2.getScene(sceneID,true)
+    ["GET:sections"]=function(path) return getResourceAPI(tonumber(path),'sections') end,
+    ["GET:rooms"]=function(path) return getResourceAPI(tonumber(path),'rooms') end,
+    ["GET:users"]=function(path) return getResourceAPI(tonumber(path),'users') end,
+    ["GET:globalVariables"]=function(path) return getResourceAPI(path,'globalVariables') end,
+    ["GET:scenes"]=function(path)
+      if tonumber(path) or path=="" then return getResourceAPI(tonumber(path),'scenes') end
+      local id = patch:match("(%d+)/debugMessages")
+      if tonumber(id) then
+        -- return debug messages
+      else return nil,404 end
+    end,
+    ["GET:iosDevices"]=function(path) return getResourceAPI(tonumber(path),'iosDevices') end,
+    ["GET:RGBPrograms"]=function(path)  return getResourceAPI(tonumber(path),'RGBPrograms') end,
+    ["POST:devices"]=function(path,data)
+      if path=="" then
+        -- create device
+      else return nil,404 end
+    end,
+    ["PUT:globalVariables"]=function(path,data)
+      if path~="" then
+        __fibaro_set_global_variable(path,data)
+        return 200
+      else return nil,404 end
+    end,
+    ["POST:globalVariables"]=function(path,data)
+      if path=="" then
+        HC2.createGlobal(data.name,data)
+        return 200
+      else return nil,404 end
+    end,
+    ["PUT:scenes"]=function(path,data)
+      local id = tonumber(path)
+      if id and HC2.getScene(id,true) then
+        HC2.rsrc['scenes'][id]=data
+      else return nil,404 end
+    end,
+    ["POST:scenes"]=function(path,data)
+      if path=="" then
+        local rsrcs=HC2.rsrc['scenes']
+        rsrcs[tonumber(data.id)]=data
+        return 200
+      end
+      local id,action=path:match("(%d+)/action/(%w+)$") -- start/stop
+      if not tonumber(id) then return nil,404 end
+      id=math.abs(tonumber(id))
+      if action=='start' then
+        local scene = HC2.getScene(id,true)
         if not scene then return end
         if scene._local then --Scene.start(scene,{type='other'},args) 
           Event.post({type='other',_id=scene.id,_args=data.args})
           BREAKIDLE=true
         end
+      elseif action=='stop' then
       end
+      return nil,404
     end,
-    mobile=function(r,data,cType)
-      if r=='push' then
+    ["POST:mobile"]=function(path)
+      if path=="push" then
         api.rawPost(true,'/mobile/push',data)
-      end
+        return 200
+      else return 404 end
     end
   }
 
-  _API_METHODS={
-    GET=function(call,data,cType)
-      local m,r = call:match("/([^/]+)/?(.*)$")
-      if m and HC2._getHandlers[m] then return HC2._getHandlers[m](r)
-      else error("GET "..call.." not supported") end
-    end,
-    PUT=function(call,data,cType)
-      local m,r = call:match("/([^/]+)/?(.*)$")
-      if m and HC2._putHandlers[m] then return HC2._putHandlers[m](r,data,cType)
-      else error("PUT "..call.." not supported") end
-    end,
-    POST=function(call,data,cType)
-      if call=="/" then
-        Event.post(data)
-        BREAKIDLE=true
-        return
-      end
-      local m,r = call:match("^/([^/]+)/?(.*)$")
-      if m and HC2._postHandlers[m] then return HC2._postHandlers[m](r,data,cType)
-      else error("POST "..call.." not supported") end
-    end,
-    DELETE=function(call,data,cType) error("DELETE not supported") end,
-  }
-
-  function HC2.apiCall(method,call,data,cType) 
-    call=call:match("^/api(.*)") or call
-    local mhandler = _API_METHODS[method]
-    if mhandler then return mhandler(call,data,cType) else return null end
+  function HC2.apiCall(method,call,data,cType)
+    local base,path = call:match("^/(%w+)/?(.*)$")
+    local p = URLMap[method..":"..base]
+    if p then return p(path,data)
+    else return nil,404 end
   end
 
   function HC2.listDevices(list)
@@ -806,31 +943,26 @@ POST:/globalVariables/  <var struct> -- Create variable
     return res
   end
 
-  local function setRsrcStatus(list,args,tp)
+  local function setRsrcStatus(list,args,tp,filter)
+    filter = filter or function(id) return true end
     if args==true then 
-      for _,d in pairs(list) do d._local=tp end
+      for _,d in pairs(list) do if filter(d) then d._local=tp end end
     elseif type(args)=='table' then 
-      for _,id in ipairs(args) do if list[id] then list[id]._local = tp end end 
+      for _,id in ipairs(args) do if filter(list[id]) then list[id]._local = tp end end 
     elseif type(args)=='number' then 
-      if list[args] then list[args]._local = tp end
+      if filter(list[args]) then list[args]._local = tp end
     elseif type(args)=='string' then 
       if list[id] then list[id]._local = tp end
     end
   end
 
-  function HC2.localDevices(args) setRsrcStatus(HC2.rsrc.devices,args,true) end
-  function HC2.localGlobals(args) setRsrcStatus(HC2.rsrc.globalVariables,args,true) end
-  function HC2.localRooms(args) setRsrcStatus(HC2.rsrc.rooms,args,true) end
-  function HC2.localScenes(args) setRsrcStatus(HC2.rsrc.scenes,args,true) end
-
-  function HC2.remoteDevices(args) setRsrcStatus(HC2.rsrc.devices,args) end
-  function HC2.remoteGlobals(args) setRsrcStatus(HC2.rsrc.globalVariables,args) end
-  function HC2.remoteRooms(args) setRsrcStatus(HC2.rsrc.rooms,args) end
-  function HC2.remoteScenes(args) setRsrcStatus(HC2.rsrc.scenes,args) end
+  function HC2.setLocal(t,args) setRsrcStatus(HC2.rsrc[t],args,true) end
+  function HC2.setRemote(t,args) setRsrcStatus(HC2.rsrc[t],args) end
 
   function HC2.createGlobal(name,value)
     if value~=nil then value=tostring(value) end
-    HC2.rsrc.globalVariables[name]={name=name, value=value,modified=osTime(),_local=true}
+    HC2.rsrc.globalVariables[name]={
+      name=name, value=value, readOnly=false, isEnum=false, created=osTime(), modified=osTime(), _local=true}
     return HC2.rsrc.globalVariables[name]
   end
 
@@ -889,11 +1021,17 @@ POST:/globalVariables/  <var struct> -- Create variable
   end
 
   function HC2.loadEmbedded()
+    local short_src = ""
+    for i=1,1000 do
+      local di = debug.getinfo(i)
+      if not di then break else short_src = di.short_src end
+    end
     if _EMBEDDED then
-      local short_src = _sceneFile or debug.getinfo(6).short_src
+      short_src=short_src:match("[\\/]?([%.%w_%-]+)$")
       local name,id
       if type(_EMBEDDED)=='table' then
         name,id = _EMBEDDED.name,_EMBEDDED.id
+        if _EMBEDDED.time then Runtime.setTime(_EMBEDDED.time)  end
       else 
         name,id = short_src:match("(%d+)_(%w+)%.[lL][uU][aA]$")
         if name then id=tonumber(id)
@@ -901,14 +1039,16 @@ POST:/globalVariables/  <var struct> -- Create variable
       end
       local scene = HC2.registerScene(name,id,short_src)
     end
-    if _EMBEDDED and _EMBEDDED.time then _System.setTime(_EMBEDDED.time)  end
   end
 
   function HC2.logFibaroCalls() fibaro._logFibaroCalls() end
 
   HC2._monitors={}
   function HC2.monitorDevice(id,prop)
-    if HC2._monitors[id] then return end
+    if HC2._monitors[id] then return end -- already monitoring
+    local d =  HC2.getDevice(id,true)
+    if not d then Log(LOG.WARNING,"Err: monitoring non-existant deviceID:%s",id) return end 
+    if d._local then Log(LOG.WARNING,"Err: can't monitor local deviceID:%s",id) return end 
     HC2._monitors[id]=true
     local val = nil
     local function monitor()
@@ -918,16 +1058,38 @@ POST:/globalVariables/  <var struct> -- Create variable
         val = nv
         Event.post({type='property', deviceID=id, propertyName=prop})
       end
-      _System.setTimeout(monitor,1000,"MON")
+      Runtime.setTimeout(monitor,1000,"MON") -- Check every second
     end
     monitor()
   end
-------------------------------------------------------------------------------
--- _System
-------------------------------------------------------------------------------
-  _System = {}
 
-  function _System.dofile(file)
+  function HC2.monitorGlobal(global)
+    if HC2._monitors[global] then return end -- already monitoring
+    local d =  HC2.getGlobal(global,true)
+    if not d then Log(LOG.WARNING,"Err: monitoring non-existant global:'%s'",global) return end 
+    if d._local then Log(LOG.WARNING,"Err: can't monitor local global:'%s'",global) return end 
+    HC2._monitors[global]=true
+    local val = nil
+    local function monitor()
+      local nv = fibaro:getGlobalValue(global)
+      --printf("T:%s, VAL:%s, NVAL:%s",osDate("%c"),tostring(val),tostring(nv))
+      if nv ~= val then
+        val = nv
+        Event.post({type='global', name=global})
+      end
+      Runtime.setTimeout(monitor,1000,"MON") -- Check every second
+    end
+    monitor()
+  end
+end
+
+------------------------------------------------------------------------------
+-- Runtime
+------------------------------------------------------------------------------
+function Runtime_functions()
+  Runtime = {}
+
+  function Runtime.dofile(file)
     local code = loadfile(file)
     if code then
       setfenv(code,_SceneContext[coroutine.running()])
@@ -935,16 +1097,7 @@ POST:/globalVariables/  <var struct> -- Create variable
     else Log(LOG.ERROR,"Missing file:%s",file) end
   end
 
-  _System.createGlobal = HC2.createGlobal
-  _System.createDevice = HC2.createDevice
-  _System.remoteDevice = HC2.remoteDevices
-  _System.remtoGlobals = HC2.remoteGlobals
-  _System.runTriggers  = HC2.runTriggers
-  _System.monitorDevice  = HC2.monitorDevice
-
-  _System._Msg = _UserMsg
-
-  function _System._getInstance(id,inst)
+  function Runtime.getInstance(id,inst)
     for co,env in pairs(_SceneContext) do
       if env.__fibaroSceneId==id and env.__orgInstanceNumber==inst then return co,env end
     end
@@ -952,7 +1105,7 @@ POST:/globalVariables/  <var struct> -- Create variable
 
   local _gTimers = nil
 
-  function _System.insertCoroutine(co)
+  function Runtime.insertCoroutine(co)
     if _gTimers == nil then _gTimers=co
     elseif co.time < _gTimers.time then
       _gTimers,co.next=co,_gTimers
@@ -964,7 +1117,7 @@ POST:/globalVariables/  <var struct> -- Create variable
     return co.co
   end
 
-  function _System.dumpTimers()
+  function Runtime.dumpTimers()
     local t = _gTimers
     while t do printf("Timer %s at %s",t.name,osOrgDate("%X",t.time)) t=t.next end
   end
@@ -976,7 +1129,7 @@ POST:/globalVariables/  <var struct> -- Create variable
   function osDate(f,t) return osOrgDate(f,t or osTime()) end
   _gTime = osOrgTime()
 
-  function _System.setTime(start)
+  function Runtime.setTime(start)
     local h,m,s = start:match("(%d+):(%d+):?(%d*)")
     local d = osOrgDate("*t")
     d.hour,d.min,d.sec=h,m,s and s~="" and s or 0
@@ -986,13 +1139,17 @@ POST:/globalVariables/  <var struct> -- Create variable
 
   WAITINDEX=_SPEEDTIME and "SPEED" or "NORMAL"
 
-  _System.waitUntil={
-    ["SPEED"] = function(t) _gTime=t-_gOffset if _System.idleHandler then _System.idleHandler() end return false end,
+  Runtime.waitUntil={
+    ["SPEED"] = function(t) _gTime=t-_gOffset if Runtime.idleHandler then Runtime.idleHandler() end return false end,
     ["NORMAL"] = function(t) 
-      local idle = _System.idleHandler
+      local idle = Runtime.idleHandler
       local ct=os.clock()
       BREAKIDLE=false
-      while _gTime+(os.clock()-ct) < t-_gOffset and not BREAKIDLE do 
+      while true do
+        local diff = (t-_gOffset)-(_gTime+(os.clock()-ct))
+        if diff < 0 or  BREAKIDLE then break end
+        --if diff > 0.01 then wx.wxMilliSleep(10) ct=ct-0.01 end
+        if diff > 0.01 then socket.sleep(0.01) ct=ct-0.01 end
         if idle then idle() end
       end
       _gTime=_gTime+(os.clock()-ct)
@@ -1000,12 +1157,26 @@ POST:/globalVariables/  <var struct> -- Create variable
     end,
   }
 
-  function _System.runTimers()
+  local speedTimer = nil
+
+  function Runtime.speed(flag)
+    flag = flag==false and 0 or flag==true and (_MAXTIME+1)*3600 or flag -- Convert flag to sec to speed, or 0
+    if type(flag)=='string' then 
+      flag=Event.str2time(flag)
+      if flag > osTime() then flag=flag-osTime() end
+    end
+    if speedTimer then Runtime.clearTimeout(speedTimer); speedTimer=nil end
+    if flag > 0 then Runtime.setTimeout(function() Runtime.speed(false) end,flag*1000) end
+    WAITINDEX= flag>0 and 'SPEED' or 'NORMAL'
+    BREAKIDLE=true
+  end
+
+  function Runtime.runTimers()
     while _gTimers ~= nil do
-      --_System.dumpTimers()
+      --Runtime.dumpTimers()
       ::REDO::
       local co,now = _gTimers,osTimeFrac()
-      if co.time > now then _System.waitUntil[WAITINDEX](co.time) goto REDO end
+      if co.time > now then Runtime.waitUntil[WAITINDEX](co.time) goto REDO end
       _gTimers=_gTimers.next
       if co.env then setfenv(co.env.__sceneCode,co.env) end
       local stat,thread,time=coroutine.resume(co.co)
@@ -1016,14 +1187,14 @@ POST:/globalVariables/  <var struct> -- Create variable
       end
       if time~='%%ABORT%%' and coroutine.status(co.co)=='suspended' then
         co.time,co.next=osTimeFrac()+time,nil
-        _System.insertCoroutine(co)
+        Runtime.insertCoroutine(co)
       elseif co.env then
         local t = co.env.__threads
         co.env.__threads=t-1
         t=t-1
         if _debugFlags.threads then Log(LOG.LOG,"Dead thread %s, %s, t=%s",co.name or "", co.co,t) end
         if time=='%%ABORT%%' then 
-          t0 = _System.clearAllTimeoutFilter(function(t) return t.env==co.env end)
+          t0 = Runtime.clearAllTimeoutFilter(function(t) return t.env==co.env end)
           if _debugFlags.scenes then Log(LOG.LOG,"Aborting, %s, %s, t=%s, t0=%s",co.name or "", co.co,t,t0) end
           t=0
         end
@@ -1034,7 +1205,7 @@ POST:/globalVariables/  <var struct> -- Create variable
     Log(LOG.SYSTEM,"%s:End of time(rs)",osOrgDate("%X",osTime()))
   end
 
-  function _System.setTimeoutContext(fun,time,name,env,cleanup)
+  function Runtime.setTimeoutContext(fun,time,name,env,cleanup)
     time = (time or 0)/1000+osTimeFrac()
     local co = coroutine.create(fun)
     local cco = coroutine.running()
@@ -1045,16 +1216,16 @@ POST:/globalVariables/  <var struct> -- Create variable
       if _debugFlags.threads then Log(LOG.LOG,"Starting thread %s, %s, t:%s",name or "", co,t) end
       env.__threads=t+1
     end
-    return _System.insertCoroutine({co=co,time=time,name=name,env=env,cleanup=cleanup})
+    return Runtime.insertCoroutine({co=co,time=time,name=name,env=env,cleanup=cleanup})
   end
 
-  function _System.setTimeout(fun,time,name,context,cleanup)
+  function Runtime.setTimeout(fun,time,name,context,cleanup)
     time = (time or 0)/1000+osTimeFrac()
     local co = coroutine.create(fun)
-    return _System.insertCoroutine({co=co,time=time,name=name,context=nil,cleanup=cleanup})
+    return Runtime.insertCoroutine({co=co,time=time,name=name,context=nil,cleanup=cleanup})
   end
 
-  function _System.clearTimeout(timer)
+  function Runtime.clearTimeout(timer)
     if timer==nil then return end
     if _gTimers.co == timer then
       _gTimers = _gTimers.next
@@ -1067,12 +1238,12 @@ POST:/globalVariables/  <var struct> -- Create variable
     end
   end
 
-  function _System.clearAllTimeoutFilter(filter,c)
+  function Runtime.clearAllTimeoutFilter(filter,c)
     c=c or 0
     if _gTimers==nil then return c end
     if filter(_gTimers) then
       _gTimers = _gTimers.next
-      return _System.clearAllTimeoutFilter(filter,c+1)
+      return Runtime.clearAllTimeoutFilter(filter,c+1)
     else
       local tp = _gTimers
       while tp and tp.next do
@@ -1083,16 +1254,7 @@ POST:/globalVariables/  <var struct> -- Create variable
     end
   end
 
-  function _System.getIPadress()
-    local someRandomIP = "192.168.1.122" --This address you make up
-    local someRandomPort = "3102" --This port you make up  
-    local mySocket = socket.udp() --Create a UDP socket like normal
-    mySocket:setpeername(someRandomIP,someRandomPort) 
-    local myDevicesIpAddress, somePortChosenByTheOS = mySocket:getsockname()-- returns IP and Port 
-    return myDevicesIpAddress
-  end
-
-  function _System.makeProcessManager()
+  function Runtime.makeProcessManager()
     self = {}
     local threads=nil
     local free=nil
@@ -1134,10 +1296,37 @@ POST:/globalVariables/  <var struct> -- Create variable
 
     return self
   end
+end
+
+------------------------------------------------------------------------------
+-- System
+------------------------------------------------------------------------------
+function System_functions()
+  _System = {}
+  _System.createGlobal = HC2.createGlobal
+  _System.createDevice = HC2.createDevice
+
+  _System.setLocal = HC2.setLocal
+  _System.setRemote = HC2.setRemote
+
+  _System.registerScene = HC2.registerScene
+  _System.runTriggers  = HC2.runTriggers
+  _System.monitorDevice  = HC2.monitorDevice
+  _System.monitorGlobal  = HC2.monitorGlobal
+
+  _System.getInstance = Runtime.getInstance
+  _System.reverseMapDef  = traceFibaroIDs
+
+  _System.speed = Runtime.speed
+
+  _System._Msg = Util.Msg
+end
+
 ------------------------------------------------------------------------------
 -- Event engine
 ------------------------------------------------------------------------------
-  function newEventEngine()
+function Event_functions()
+  function createEventEngine()
     local self,_handlers = { RULE='%%RULE%%' },{}
 
     local function _coerce(x,y)
@@ -1192,6 +1381,8 @@ POST:/globalVariables/  <var struct> -- Create variable
     toHash['property'] = function(e) return e.deviceID and 'property'..e.deviceID or 'property' end
     toHash['global'] = function(e) return e.name and 'global'..e.name or 'global' end
 
+    local equal,isEvent = Util.equal,Util.isEvent
+
     function self.event(e,action) -- define rules - event template + action
       _assertf(isEvent(e) or type(e)=='function', "bad event format '%s'",tojson(e))
       self._compilePattern(e)
@@ -1200,7 +1391,7 @@ POST:/globalVariables/  <var struct> -- Create variable
       local rules = _handlers[hashKey]
       local rule,fn = {[self.RULE]=e, action=action}, true
       for _,rs in ipairs(rules) do -- Collect handlers with identical patterns. {{e1,e2,e3},{e1,e2,e3}}
-        if _equal(e,rs[1][self.RULE]) then rs[#rs+1] = rule fn = false break end
+        if equal(e,rs[1][self.RULE]) then rs[#rs+1] = rule fn = false break end
       end
       if fn then rules[#rules+1] = {rule} end
       rule.enable = function() rule._disabled = nil return rule end
@@ -1260,14 +1451,24 @@ POST:/globalVariables/  <var struct> -- Create variable
         end
       end
       BREAKIDLE=true
-      if type(e)=='function' then return _System.setTimeout(e,1000*(time-osTime()),"Timer")
-      else return _System.setTimeout(function() self._handleEvent(e) end,1000*(time-osTime()),"Main") end
+      if type(e)=='function' then return Runtime.setTimeout(e,1000*(time-osTime()),"Timer")
+      else return Runtime.setTimeout(function() self._handleEvent(e) end,1000*(time-osTime()),"Main") end
     end
+
+    function self.schedule(time,fun)
+      local function loop()
+        fun()
+        Runtime.setTimeout(loop,1000*(toTime(time)-osTime()))
+      end
+      Runtime.setTimeout(loop,1000*(toTime(time)-osTime()))
+    end
+
+    self.str2time = toTime
 
     return self
   end
 
-  Event = newEventEngine()
+  Event = createEventEngine()
 
   Event.event({type='%%SPEED%%', value='$hours'},
     function(env)
@@ -1280,6 +1481,7 @@ POST:/globalVariables/  <var struct> -- Create variable
           end,hours*60*60*1000)
       end
     end)
+end
 ------------------------------------------------------------------------------
 -- Fibaro functions
 --
@@ -1338,6 +1540,8 @@ POST:/globalVariables/  <var struct> -- Create variable
 -- split(string,char)
 -- urlencode(string)
 ------------------------------------------------------------------------------
+function Fibaro_functions()
+
   fibaro={}
 
   function __assert_type(value ,typeOfValue) 
@@ -1351,27 +1555,31 @@ POST:/globalVariables/  <var struct> -- Create variable
     else return value end
   end
 
-  _DEV_PROP_MAP={["IPAddress"]='ip', ["TCPPort"]='port'}
-  function __fibaro_get_device_property(deviceID ,propertyName)
-    local d,prop = HC2.getDevice(deviceID,true)
-    if d and d._local then
-      if d.type=='virtual_device' then
-        propertyName=_DEV_PROP_MAP[propertyName] or propertyName
+  function __fibaroSleep(n) return coroutine.yield(coroutine.running(),n/1000) end
+  function __fibaro_get_device(deviceID,r) return HC2.getDevice(deviceID,r) end
+  function __fibaro_get_device_property(deviceID ,propertyName) return HC2.getDeviceProperty(deviceID,propertyName) end
+  function __fibaro_get_scene(sceneID,r) return HC2.getScene(sceneID,r) end
+  function __fibaro_get_global_variable(name,r) return HC2.getGlobal(name,r)  end
+  function __fibaro_get_room(roomID) return HC2.getRoom(roomID) end
+  function __fibaro_set_global_variable(varName,data)
+    local globalVar = __fibaro_get_global_variable(varName,true)
+    if globalVar and globalVar._local then -- we have a local
+      globalVar.value,globalVar.modified=data.value,osTime()
+      if data.invokeScenes then
+        Event.post({type='global',name=globalVar.name}) -- trigger
       end
-      return d and {value=d.properties[propertyName],modified=d.modified}
-    else
-      return api.rawGet(false,"/devices/"..deviceID.."/properties/"..propertyName) 
+    elseif globalVar then -- we have a remote global
+      if _BLOCK_PUT then
+        error(_format("Trying to update HC2 global %s, set _BLOCK_PUT=false to allow",varName))
+      else api.rawPut(true,"/globalVariables/"..varName ,data) end
+    else 
+      error("Non existent fibaro global: "..varName) -- should we throw an error?
     end
   end
 
-  function __fibaroSleep() end
-  function __fibaro_get_device() end
-  function __fibaro_get_scene() end
-  function __fibaro_get_global_variable() end
-  function __fibaro_get_room() end
-
   function fibaro:getSourceTrigger() return Scene.global().__fibaroSceneSourceTrigger end
   function fibaro:getSourceTriggerType() return Scene.global().__fibaroSceneSourceTrigger["type"] end
+
   function fibaro:debug(str)
     str=tostring(str)
     for _,f in ipairs(HC2._debugFilters) do
@@ -1379,38 +1587,35 @@ POST:/globalVariables/  <var struct> -- Create variable
       if m then if f.ret then return else str=m; break end end
     end 
     local env = Scene.global()
-    print(_format("%s%s %s",env.__debugName,osDate("[DEBUG] %H:%M:%S:"),str)) 
+    print(_format("%s%s %s",osDate("%a/%b/%d,%H:%M:%S:"),env.__debugName,str)) 
   end
-  function fibaro:sleep(n) return coroutine.yield(coroutine.running(),n/1000) end
+
+  function fibaro:sleep(n) __fibaroSleep(n) end
   function fibaro:abort() coroutine.yield(coroutine.running(),'%%ABORT%%') end
 
   function fibaro:countScenes(sceneID) YIELD()
-    sceneID = sceneID or Scene.global().__fibaroSceneId
-    local scene = HC2.getScene(sceneID) 
+    local scene = __fibaro_get_scene(sceneID or Scene.global().__fibaroSceneId) 
     return scene ==  nil and 0 or scene.runningInstances
   end
 
   function fibaro:isSceneEnabled(sceneID) YIELD() 
-    local scene = HC2.getScene(sceneID) 
-    if  scene ==  nil then return  nil end
-    return scene.runConfig == "TRIGGER_AND_MANUAL" or scene.runConfig == "MANUAL_ONLY"
+    local scene = __fibaro_get_scene(sceneID) 
+    return scene and (scene.runConfig == "TRIGGER_AND_MANUAL" or scene.runConfig == "MANUAL_ONLY")
   end
 
   function fibaro:killScenes(sceneID) YIELD()
-    local scene = HC2.getScene(sceneID,true)
+    local scene = __fibaro_get_scene(sceneID,true) 
     if not scene then return end
-    if scene._local then
-      Scene.stop(scene)
-      --error("local killScene not implemented yet")
-    elseif _REMOTE then api.rawPost(true,"/scenes/"..sceneID.."/action/stop") end
+    if scene._local then Scene.stop(scene)
+    else api.rawPost(true,"/scenes/"..sceneID.."/action/stop") end
   end
 
   fibaro.stopScene = fibaro.killScenes -- symetri and used by web GUI
 
   function fibaro:startScene(sceneID,args) YIELD()
-    local scene = HC2.getScene(sceneID,true)
+    local scene = __fibaro_get_scene(sceneID,true) 
     if not scene then return end
-    if scene._local then --Scene.start(scene,{type='other'},args) 
+    if scene._local then
       Event.post({type='other',_id=scene.id,_args=args})
     else api.rawPost(true,"/scenes/"..sceneID.."/action/start",args and {args=args} or nil)  end
   end
@@ -1420,45 +1625,53 @@ POST:/globalVariables/  <var struct> -- Create variable
   function fibaro:setSceneEnabled(sceneID , enabled) YIELD() 
     __assert_type(sceneID ,"number") 
     __assert_type(enabled ,"boolean")
-    local scene = HC2.getScene(sceneID,true)
-    local runConfig = enabled ==true and "TRIGGER_AND_MANUAL" or "DISABLED"
-    if (not _REMOTE) or (scene and scene._local) then
-      if scene then scene.runConfig = runConfig end
-    else api.rawPut(true,"/scenes/"..sceneID, {id = sceneID ,runConfig = runConfig}) end 
+    local scene = __fibaro_get_scene(sceneID,true)
+    if not scene then return end
+    local runConfig = enabled == true and "TRIGGER_AND_MANUAL" or "DISABLED"
+    if scene._local then scene.runConfig = runConfig 
+    else 
+      if _BLOCK_PUT then
+        error(_format("Trying to update HC2 scene %s, set _BLOCK_PUT=false to allow",sceneID))
+      else api.rawPut(true,"/scenes/"..sceneID, {id = sceneID ,runConfig = runConfig}) end
+    end 
   end
 
   function fibaro:getSceneRunConfig(sceneID) YIELD() 
-    local scene = HC2.getScene(sceneID) 
-    if scene ==  nil then return  nil end
+    local scene = __fibaro_get_scene(sceneID)    
+    if not scene then return nil end
     return scene.runConfig
   end
 
   function fibaro:setSceneRunConfig(sceneID ,runConfig) YIELD() 
     __assert_type(sceneID ,"number") 
-    __assert_type(runConfig ,"string")
-    local scene = HC2.getScene(sceneID,true)
-    if (not _REMOTE) or (scene and scene._local) then 
-      if scene then scene.runConfig = runConfig end
-    else api.rawPut(true,"/scenes/"..sceneID, {id = sceneID ,runConfig = runConfig}) end
+    __assert_type(enabled ,"boolean")
+    local scene = __fibaro_get_scene(sceneID,true)
+    if not scene then return end
+    if scene._local then scene.runConfig = runConfig 
+    else 
+      if _BLOCK_PUT then
+        error(_format("Trying to update HC2 scene %s, set _BLOCK_PUT=false to allow",sceneID))
+      else
+        api.rawPut(true,"/scenes/"..sceneID, {id = sceneID ,runConfig = runConfig}) 
+      end
+    end
   end
 
   function fibaro:getRoomID(deviceID) 
-    local dev = HC2.getDevice(deviceID)
+    local dev = __fibaro_get_device(deviceID)
     if  dev ==  nil then return  nil end
     return dev.roomID
   end
 
   function fibaro:getSectionID(deviceID) 
-    local dev = HC2.getDevice(deviceID)
+    local dev = __fibaro_get_device(deviceID)
     if  dev ==  nil then return  nil end
-    if  dev.ROOMID ~=  0  then 
-      return HC2.getRoom(dev.ROOMID).sectionID
-    end 
+    if dev.roomID ~=  0  then return HC2.getRoom(dev.roomID).sectionID end 
     return  0 
   end
 
   function fibaro:getType(deviceID) YIELD() 
-    local dev = HC2.getDevice(deviceID)
+    local dev = __fibaro_get_device(deviceID)
     if  dev == nil then return  nil end
     return dev.type
   end
@@ -1480,13 +1693,13 @@ POST:/globalVariables/  <var struct> -- Create variable
   end
 
   function fibaro:getGlobal(varName) YIELD(10) 
-    local globalVar = HC2.getGlobal(varName) 
+    local globalVar = __fibaro_get_global_variable(varName) 
     if globalVar ==  nil then return  nil end
     return globalVar.value ,globalVar.modified
   end
 
   function fibaro:getGlobalValue(varName) YIELD(10)
-    local globalVar = HC2.getGlobal(varName)
+    local globalVar = __fibaro_get_global_variable(varName)
     return globalVar and  globalVar.value 
   end
 
@@ -1494,18 +1707,7 @@ POST:/globalVariables/  <var struct> -- Create variable
 
   function fibaro:setGlobal(varName ,value) YIELD(10) 
     __assert_type(varName ,"string")
-    ::REDO::
-    local globalVar = HC2.getGlobal(varName,true)
-    if globalVar and globalVar._local then -- we have a local
-      globalVar.value,globalVar.modified= tostring(value),osTime()
-      if _debugFlags.globals then Log(LOG.LOG,"Setting global %s='%s'",varName,value) end
-      Event.post({type='global',name=globalVar.name}) -- trigger
-    elseif globalVar then -- we have a global
-      api.rawPut(true,"/globalVariables/"..varName ,{value=tostring(value), invokeScenes= true}) 
-    elseif _AUTOCREATEGLOBALS then -- we autocreate
-      _System.createGlobal(varName)
-      goto REDO
-    else error("Non existent fibaro global: "..varName) end
+    __fibaro_set_global_variable(varName,{value=tostring(value), invokeScenes= true})
   end
 
   function fibaro:calculateDistance(position1 , position2) 
@@ -1535,19 +1737,19 @@ POST:/globalVariables/  <var struct> -- Create variable
   end
 
   _specCalls={}
-  _specCalls['setProperty'] = function(id,prop,...) setAndPropagate(id,prop,({...})[1]) end 
-  _specCalls['setColor'] = function(id,R,G,B) setAndPropagate(id,"color","RGB") end
-  _specCalls['setArmed'] = function(id,value) setAndPropagate(id,"armed",value) end
-  _specCalls['sendPush'] = function(id,msg) end -- log to console?
-  _specCalls['pressButton'] = function(id,msg) end -- simulate VD?
-  _specCalls['setPower'] = function(id,value) setAndPropagate(id,"power",value) end
+  function _specCalls.setProperty(id,prop,...) setAndPropagate(id,prop,({...})[1]) end 
+  function _specCalls.setColor(id,R,G,B) setAndPropagate(id,"color","RGB") end
+  function _specCalls.setArmed(id,value) setAndPropagate(id,"armed",value) end
+  function _specCalls.sendPush(id,msg) end -- log to console?
+  function _specCalls.pressButton(id,msg) end -- simulate VD?
+  function _specCalls.setPower(id,value) setAndPropagate(id,"power",value) end
 
   function fibaro:call(deviceID ,actionName ,...)  YIELD(10)
     deviceID =  tonumber(deviceID) 
     __assert_type(actionName ,"string")
-    local dev = HC2.getDevice(deviceID)
+    local dev = __fibaro_get_device(deviceID,true)
     if dev and dev._local then
-      if _specCalls[prop] then _specCalls[actionName](deviceID,...) return end 
+      if _specCalls[actionName] then _specCalls[actionName](deviceID,...) return end 
       local value = ({turnOff=false,turnOn=true,open=true, on=true,close=false, off=false})[actionName] or 
       (actionName=='setValue' and tostring(({...})[1]))
       if value==nil then error(_format("fibaro:call(..,'%s',..) is not supported, fix it!",actionName)) end
@@ -1561,21 +1763,21 @@ POST:/globalVariables/  <var struct> -- Create variable
 
   function fibaro:getName(deviceID) 
     __assert_type(deviceID ,'number') 
-    local dev = HC2.getDevice(deviceID)
+    local dev = __fibaro_get_device(deviceID)
     return dev and dev.name
   end
 
   function fibaro:getRoomName(roomID) 
     __assert_type(roomID ,'number') 
-    local room = HC2.getRoom(roomID) 
+    local room = __fibaro_get_room(roomID) 
     return room and room.name 
   end
 
   function fibaro:getRoomNameByDeviceID(deviceID) 
     __assert_type(deviceID,'number') 
-    local dev = HC2.getDevice(deviceID)
+    local dev = __fibaro_get_device(deviceID)
     if  dev == nil then return  nil end
-    local room =HC2.getRoom(dev.roomID)
+    local room = __fibaro_get_room(dev.roomID)
     return dev.roomID==0 and 'unassigned' or room and room.name
   end
 
@@ -1615,15 +1817,7 @@ Expected input:
     return fibaro:getIds(api.get('/devices'..args))
   end
 
-  function fibaro:getAllDeviceIds()
-    if _REMOTE then
-      return api.get('/devices/')
-    else
-      local res={}
-      for id,_ in pairs(HC2.rsrc.devices) do res[#res+1]=id end
-      return res
-    end
-  end
+  function fibaro:getAllDeviceIds() return HC2.getAllRsrc("devices") end
 
   function fibaro:getIds(devices)
     local ids = {}
@@ -1633,14 +1827,6 @@ Expected input:
       end
     end
     return ids
-  end
-
-  function split(s, sep)
-    local fields = {}
-    sep = sep or " "
-    local pattern = string.format("([^%s]+)", sep)
-    string.gsub(s, pattern, function(c) fields[#fields + 1] = c end)
-    return fields
   end
 
   function urlencode(str)
@@ -1656,10 +1842,18 @@ Expected input:
 
   function urldecode(str) return str:gsub('%%(%x%x)',function (x) return string.char(tonumber(x,16)) end) end
 
+  function split(s, sep)
+    local fields = {}
+    sep = sep or " "
+    local pattern = string.format("([^%s]+)", sep)
+    string.gsub(s, pattern, function(c) fields[#fields + 1] = c end)
+    return fields
+  end
+
   net = {} -- An emulation of Fibaro's net.HTTPClient
+  local _HTTP = {}
 -- It is synchronous, but synchronous is a speciell case of asynchronous.. :-)
   function net.HTTPClient() return _HTTP end
-  _HTTP = {}
 -- Not sure I got all the options right..
   function _HTTP:request(url,options)
     local resp = {}
@@ -1687,8 +1881,8 @@ Expected input:
   end
 
   api={} -- Emulation of api.get/put/post
-  local function apiCall(flag,method,call,data,cType)
-    if flag and _debugFlags.hc2calls then Log(LOG.LOG,"HC2 call:%s:%s",method,call) end
+  local function rawCall(dbg,method,call,data,cType)
+    if dbg and _debugFlags.hc2calls then Log(LOG.LOG,"HC2 call:%s:%s",method,call) end
     local resp = {}
     local req={ method=method, timeout=5000,
       url = "http://".._HC2_IP.."/api"..call,sink = ltn12.sink.table(resp),
@@ -1718,10 +1912,10 @@ Expected input:
   function api.post(call, data) return HC2.apiCall("POST",call,data,"application/json") end
   function api.delete(call, data) return HC2.apiCall("DELETE",call,data,"application/json") end
 
-  function api.rawGet(l,call) return apiCall(l,"GET",call) end
-  function api.rawPut(l,call, data) return apiCall(l,"PUT",call,json.encode(data),"application/json") end
-  function api.rawPost(l,call, data) return apiCall(l,"POST",call,json.encode(data),"application/json") end
-  function api.rawDelete(l,call, data) return apiCall(l,"DELETE",call,json.encode(data),"application/json") end
+  function api.rawGet(l,call) return rawCall(l,"GET",call) end
+  function api.rawPut(l,call, data) rawCall(l,"PUT",call,json.encode(data),"application/json") end
+  function api.rawPost(l,call, data) rawCall(l,"POST",call,json.encode(data),"application/json") end
+  function api.rawDelete(l,call, data) rawCall(l,"DELETE",call,json.encode(data),"application/json") end
 
   HomeCenter = {
     PopupService = {
@@ -1732,62 +1926,79 @@ Expected input:
     },
     SystemService = {
       reboot = function()
+        Log(LOG.LOG,"SystemService.reboot() -- ignoring")
       end,
       shutdown = function()
+        Log(LOG.LOG,"SystemService.shutdown() -- ignoring")
       end
     }
   }
 
 -------- Fibaro log support --------------
 -- Logging of fibaro:* calls -------------
-  function fibaro._logFibaroCalls()
-    if fibaro._orgf then return end
-    fibaro._orgf={}
-    local function interceptFib(fs,name,flag,spec)
-      local fun,fstr = fibaro[name],fs:match("r") and "fibaro:%s(%s%s%s) = %s" or "fibaro:%s(%s%s%s)"
-      fibaro._orgf[name]=fun
-      if spec then 
-        fibaro[name] = function(obj,...) 
-          if _debugFlags[flag] then return spec(obj,fibaro._orgf[name],...) else return fibaro._orgf[name](obj,...)  end 
-        end
-      else 
-        fibaro[name] = function(obj,id,...)
-          local id2,args = type(id) == 'number' and Util and Util.reverseVar(id) or '"'..(id or "<ID>")..'"',{...}
-          local status,res,r2 = pcall(function() return fibaro._orgf[name](obj,id,table.unpack(args)) end)
-          if status and _debugFlags[flag] then
-            Debug(true,fstr,name,id2,(#args>0 and "," or ""),json.encode(args):sub(2,-2),json.encode(res))
-          elseif not status then
-            printf(debug.traceback())
-            error(string.format("Err:fibaro:%s(%s%s%s), %s",name,id2,(#args>0 and "," or ""),json.encode(args):sub(2,-2),res),3)
-          end
-          if fs=="mr" then return res,r2 else return res end
-        end
-      end
-    end
 
-    interceptFib("","call","fibaro")
-    interceptFib("","setGlobal","fibaroSet") 
-    interceptFib("mr","getGlobal","fibaroGet")
-    interceptFib("r","getGlobalValue","fibaroGet")
-    interceptFib("mr","get","fibaroGet")
-    interceptFib("r","getValue","fibaroGet")
-    interceptFib("","killScenes","fibaro")
-    interceptFib("","sleep","fibaroSleep",
-      function(obj,fun,time) 
-        Debug(true,"fibaro:sleep(%s) until %s",time,osDate("%X",osTime()+math.floor(0.5+time/1000)))
-        fun(obj,time) 
-      end)
-    interceptFib("","startScene","fibaroStart",
-      function(obj,fun,id,args) 
-        local a = isRemoteEvent(args) and json.encode(decodeRemoteEvent(args)) or args and json.encode(args)
-        Debug(true,"fibaro:start(%s%s)",id,a and ","..a or "")
-        fun(obj,id, args) 
-      end)
+  fibaro.mapTable = {}
+  function traceFibaroIDs(tb)
+    _assert(type(tb) == 'table',"traceFibaroIDs bad argument")
+    for id,p in pairs(tb) do if tonumber(id) then fibaro.mapTable[id]=p end end
+  end
+  if _System then _System.reverseMapDef  = traceFibaroIDs end
+
+  local function checkFlag(flag,def) 
+    local env = Scene.global()
+    if env and env._debugFlags then return env._debugFlags[flag] 
+    else return _debugFlags[flag] end
   end
 
+  function traceFibaro(name,flag,rt)
+    local orgFun=fibaro[name]
+    fibaro[name]=function(f,id,...)
+      if id then id=fibaro.mapTable and fibaro.mapTable[id] or id end
+      local args={...}
+      local stat,res = pcall(function() return {orgFun(f,id,table.unpack(args))} end)
+      if stat then
+        if checkFlag(flag) then
+          if rt then rt(id,args,res)
+          else
+            local astr=(id~=nil and tostring(id).."," or "")..json.encode(args):sub(2,-2)
+            Debug(true,"fibaro:%s(%s)%s",name,astr,#res>0 and "="..json.encode(res):sub(2,-2) or "")
+          end
+        end
+        return table.unpack(res)
+      else
+        error(_format("fibaro:%s(%s)",name,astr),3)
+      end
+    end
+  end
+
+  function fibaro._logFibaroCalls()
+    for _,f in ipairs({
+        {"call","fcall"},
+        {"setGlobal","fglobal"},
+        {"getGlobal","fglobal"},
+        {"getGlobalValue","fglobal"},
+        {"get","fget"},
+        {"getValue","fget"},
+        {"killScenes","fother"},
+        {"abort","fother"},
+        {"sleep","fother",function(id,args,res) 
+            Debug(true,"fibaro:sleep(%s) until %s",id,osDate("%X",osTime()+math.floor(0.5+id/1000))) 
+          end},        
+        {"startScene","fother",function(id,args,res) 
+            local a = Util.isRemoteEvent(args[1]) and json.encode(Util.decodeRemoteEvent(args[1 ])) or args and json.encode(args)
+            Debug(true,"fibaro:startScene(%s%s)",id,a and ","..a or "") 
+          end},
+        }) do 
+      traceFibaro(f[1],f[2],f[3]) 
+    end
+  end
+
+end
 --------------------------------------
 -- EventRunner support
 --------------------------------------
+function ER_functions()
+
   ER={ gEventRunnerKey="6w8562395ue734r437fg3" }
 
   function ER.checkForEventRunner(scene)
@@ -1813,7 +2024,7 @@ Expected input:
       local event = {type='%%EMU%%',ids=locals,adress="http://"..ipaddress..":"..port.."/"}
       local args=encodeRemoteEvent(event)
       for _,sceneID in ipairs(remotes) do
-        if _REMOTE then api.rawPost(true,"/scenes/"..sceneID.."/action/start",{args=args}) end
+        api.rawPost(true,"/scenes/"..sceneID.."/action/start",{args=args})
       end
     end
   end
@@ -1828,60 +2039,8 @@ Expected input:
     end
   end
 
-  function makeWebserver(ipAdress)
-    local self = { ipAdress = ipAdress }
-
-    local function clientHandler(client,getHandler,postHandler,putHandler)
-      client:settimeout(0,'b')
-      client:setoption('keepalive',true)
-      local ip=client:getpeername()
-      --printf("IP:%s",ip)
-      while true do
-        l,e,j = client:receive()
-        if l then
-          local body,referer
-          local method,call = l:match("^(%w+) (.*) HTTP/1.1")
-          repeat
-            header,e,b = client:receive()
-            if b and b~="" then body=b end
-            referer = header and header:match("^[Rr]eferer:%s*(.*)") or referer
-          until header == nil or e == 'closed'
-          if method=='POST' and postHandler then   postHandler(method,client,call,body,referer)
-          elseif method=='PUT' and putHandler then putHandler(method,client,call,body,referer) 
-          elseif method=='GET' and getHandler then getHandler(method,client,call,body,referer) end
-          client:close()
-          return
-        end
-        coroutine.yield()
-      end
-    end
-
-    local function socketServer(server,getHandler,postHandler,putHandler)
-      while true do
-        repeat
-          client, err = server:accept()
-          if err == 'timeout' then coroutine.yield() end
-        until err ~= 'timeout'
-        ProcessManager.create(clientHandler,"client",client,getHandler,postHandler,putHandler)
-      end
-    end
-
-    function self.createServer(name,port,getHandler,postHandler,putHandler)
-      local server,c,err=assert(socket.bind("*", port))
-      local i, p = server:getsockname()
-      local timeoutCounter = 0
-      assert(i, p)
-      --printf("http://%s:%s/test",ipAdress,port)
-      server:settimeout(0,'b')
-      server:setoption('keepalive',true)
-      ProcessManager.create(socketServer,"server",server,getHandler,postHandler,putHandler)
-      Log(LOG.LOG,"Created %s at %s:%s",name,self.ipAdress,port)
-    end
-
-    return self
-  end
-
 end
+
 -------------------------------------------------------------------------------
 -- Libs, json etc
 ---------------------------------------------------------------------------------
@@ -2460,7 +2619,105 @@ function libs()
       end;
     }
   end
+
+  ------------------- Sunset/Sunrise ---------------
+-- \fibaro\usr\share\lua\5.2\common\lustrous.lua ﻿based on the United States Naval Observatory
+
+  SunCalc={}
+  function SunCalc.sunturnTime(date, rising, latitude, longitude, zenith, local_offset)
+    local rad,deg,floor = math.rad,math.deg,math.floor
+    local frac = function(n) return n - floor(n) end
+    local cos = function(d) return math.cos(rad(d)) end
+    local acos = function(d) return deg(math.acos(d)) end
+    local sin = function(d) return math.sin(rad(d)) end
+    local asin = function(d) return deg(math.asin(d)) end
+    local tan = function(d) return math.tan(rad(d)) end
+    local atan = function(d) return deg(math.atan(d)) end
+
+    local function day_of_year(date)
+      local n1 = floor(275 * date.month / 9)
+      local n2 = floor((date.month + 9) / 12)
+      local n3 = (1 + floor((date.year - 4 * floor(date.year / 4) + 2) / 3))
+      return n1 - (n2 * n3) + date.day - 30
+    end
+
+    local function fit_into_range(val, min, max)
+      local range,count = max - min
+      if val < min then count = floor((min - val) / range) + 1; return val + count * range
+      elseif val >= max then count = floor((val - max) / range) + 1; return val - count * range
+      else return val end
+    end
+
+    -- Convert the longitude to hour value and calculate an approximate time
+    local n,lng_hour,t =  day_of_year(date), longitude / 15, nil
+    if rising then t = n + ((6 - lng_hour) / 24) -- Rising time is desired
+    else t = n + ((18 - lng_hour) / 24) end -- Setting time is desired
+    -- Calculate the Sun^s mean anomaly
+    local M = (0.9856 * t) - 3.289
+    -- Calculate the Sun^s true longitude
+    local L = fit_into_range(M + (1.916 * sin(M)) + (0.020 * sin(2 * M)) + 282.634, 0, 360)
+    -- Calculate the Sun^s right ascension
+    local RA = fit_into_range(atan(0.91764 * tan(L)), 0, 360)
+    -- Right ascension value needs to be in the same quadrant as L
+    local Lquadrant = floor(L / 90) * 90
+    local RAquadrant = floor(RA / 90) * 90
+    RA = RA + Lquadrant - RAquadrant
+    -- Right ascension value needs to be converted into hours
+    RA = RA / 15
+    -- Calculate the Sun's declination
+    local sinDec = 0.39782 * sin(L)
+    local cosDec = cos(asin(sinDec))
+    -- Calculate the Sun^s local hour angle
+    local cosH = (cos(zenith) - (sinDec * sin(latitude))) / (cosDec * cos(latitude))
+    if rising and cosH > 1 then
+      return "N/R" -- The sun never rises on this location on the specified date
+    elseif cosH < -1 then
+      return "N/S" -- The sun never sets on this location on the specified date
+    end
+
+    -- Finish calculating H and convert into hours
+    local H
+    if rising then H = 360 - acos(cosH)
+    else H = acos(cosH) end
+    H = H / 15
+    -- Calculate local mean time of rising/setting
+    local T = H + RA - (0.06571 * t) - 6.622
+    -- Adjust back to UTC
+    local UT = fit_into_range(T - lng_hour, 0, 24)
+    -- Convert UT value to local time zone of latitude/longitude
+    local LT = UT + local_offset
+    return osTime({day = date.day,month = date.month,year = date.year,hour = floor(LT),min = math.modf(frac(LT) * 60)})
+  end
+
+  function SunCalc.getTimezone()
+    local now = osTime()
+    return os.difftime(now, osTime(osDate("!*t", now)))
+  end
+
+  function SunCalc.sunCalc(time)
+    local lat = HC2.getDeviceProperty(2,"Latitude").value or _LATITUDE
+    local lon = HC2.getDeviceProperty(2,"Longitude").value or _LONGITUDE
+    local utc = SunCalc.getTimezone() / 3600
+    local zenith = 90.83 -- sunset/sunrise 90°50′
+    local zenith_twilight = 96.0 -- civil twilight 96°0′
+
+    local date = osDate("*t",time or osTime())
+    if date.isdst then utc = utc + 1 end
+    local rise_time = osDate("*t", SunCalc.sunturnTime(date, true, lat, lon, zenith, utc))
+    local set_time = osDate("*t", SunCalc.sunturnTime(date, false, lat, lon, zenith, utc))
+    local rise_time_t = osDate("*t", SunCalc.sunturnTime(date, true, lat, lon, zenith_twilight, utc))
+    local set_time_t = osDate("*t", SunCalc.sunturnTime(date, false, lat, lon, zenith_twilight, utc))
+    local sunrise = _format("%.2d:%.2d", rise_time.hour, rise_time.min)
+    local sunset = _format("%.2d:%.2d", set_time.hour, set_time.min)
+    local sunrise_t = _format("%.2d:%.2d", rise_time_t.hour, rise_time_t.min)
+    local sunset_t = _format("%.2d:%.2d", set_time_t.hour, set_time_t.min)
+    return sunrise, sunset, sunrise_t, sunset_t
+  end
 end
+
+---------------------------------------------------------------------------------
+---- Web GUI pages
+--------------------------------------------------------------------------------
 
 function pages()
   local P_MAIN =
@@ -2473,13 +2730,58 @@ Cache-Control: no-cache, no-store, must-revalidate
 <head>
 <meta content="text/html; charset=ISO-8859-1" http-equiv="content-type">
 <<<return _PAGE_STYLE>>>
+<style>
+   html,body { height: 100% }
+   .stockIframe {  width:100%; height:100%; }
+   .stockIframe iframe {  width:100%; height:100%; border:0;overflow:hidden }
+
+table, th, td {
+  border: 0px solid white;
+  border-collapse: collapse;
+}
+</style>
+<script>
+   function autoResize(i) {
+     var iframeHeight=
+     (i).contentWindow.document.body.scrollHeight;
+     (i).height=iframeHeight+20;
+   } 
+</script>
 <title><<<return _format("%s v%s%s",_sceneName,_version,_fix~="" and " ,".._fix or "")>>></title></head>
 <body>
-<table><tr>
-<td><a href="/emu/main" class="button">Main</a></td>
-<td><a href="/emu/devices" class="button">Devices</a></td>
-<td><a href="/emu/scenes" class="button">Scenes</a></td>
+<table style="border: none;"><tr>
+<td><a href="/emu/emu" class="button" target="iframe_a">Emulator</a></td>
+<td><a href="/emu/devices" class="button" target="iframe_a">Devices</a></td>
+<td><a href="/emu/scenes" class="button" target="iframe_a">Scenes</a></td>
+<td><a href="/emu/globals" class="button" target="iframe_a">Globals</a></td>
 </tr></table>
+<div class="stockIframe ">
+<iframe src="/emu/emu" style="border:0;" name="iframe_a"></iframe>
+</div>
+</body></html>
+
+
+]]
+
+  local P_EMU =
+[[HTTP/1.1 200 OK
+Content-Type: text/html
+Cache-Control: no-cache, no-store, must-revalidate
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta content="text/html; charset=ISO-8859-1" http-equiv="content-type">
+<<<return _PAGE_STYLE>>>
+<title><<<return _format("%s v%s%s",_sceneName,_version,_fix~="" and " ,".._fix or "")>>></title></head>
+<body>
+<h2>HC2 Emulator <<<return _format("v%s%s",_version,_fix~="" and " ".._fix or "")>>></h2>
+<<<local c = HC2.rsrc.count; 
+return _format("Scenes:%s</br>Globals:%s</br>Devices:%s</br>Rooms:%s</br>",c.scenes,c.glob,c.dev,c.rooms)>>>
+</br>
+<a href="/emu/code/<<<return urlencode("_System.speed(true)")>>>" class="button" style="background-color: #FFA500;">Speed>></a>
+<a href="/emu/code/<<<return urlencode("_System.speed(3600)")>>>" class="button" style="background-color: #FFA500;">1 hour>></a>
+<a href="/emu/code/<<<return urlencode("_System.speed(3600*24)")>>>" class="button" style="background-color: #FFA500;">24 hours>></a>
 </body></html>
 
 ]]
@@ -2496,13 +2798,8 @@ Cache-Control: no-cache, no-store, must-revalidate
 <<<return _PAGE_STYLE>>>
 <title>Scenes</title></head>
 <body>
-<table><tr>
-<td><a href="/emu/main" class="button">Main</a></td>
-<td><a href="/emu/devices" class="button">Devices</a></td>
-<td><a href="/emu/scenes" class="button">Scenes</a></td>
-</tr></table>
 <table>
-<tr><th>sceneID</th><th>Name<th>Instances</th><th>Where</th><th>Actions</th></tr>
+<tr><th>sceneID</th><th>Name</th><th>Instances</th><th>Where</th><th>Actions</th></tr>
 <<<
 local res={}
 for id,dev in pairs(HC2.rsrc.scenes) do
@@ -2534,13 +2831,8 @@ Content-Type: text/html
 <<<return _PAGE_STYLE>>>
 </head>
 <body>
-<table><tr>
-<td><a href="/emu/main" class="button">Main</a></td>
-<td><a href="/emu/devices" class="button">Devices</a></td>
-<td><a href="/emu/scenes" class="button">Scenes</a></td>
-</tr></table>
 <table style="width:100%">
-<tr><th>deviceID</th><th>Name<th>Type</th><th>Value</th><th>Where</th><th>Actions</th></tr>
+<tr><th>deviceID</th><th>Name</th><th>Type</th><th>Value</th><th>Where</th><th>Actions</th></tr>
 <<<
 local res={}
 for id,dev in pairs(HC2.rsrc.devices) do
@@ -2558,6 +2850,35 @@ for id,dev in pairs(HC2.rsrc.devices) do
          _format("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>",
          id,dev.name,dev.type,dev.properties.value,dev._local and "Local" or "Remote",actions(id,dev))
  end
+end
+return table.concat(res)
+>>>
+</table>
+</body>
+</html>
+
+]]
+
+  local P_GLOBALS = 
+[[HTTP/1.1 200 OK
+Content-Type: text/html
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Globals</title>
+    <meta charset="utf-8">
+<<<return _PAGE_STYLE>>>
+</head>
+<body>
+<table style="width:100%">
+<tr><th>Name</th><th>Value</th><th>Where</th></tr>
+<<<
+local res={}
+for name,gl in pairs(HC2.rsrc.globalVariables) do
+   res[#res+1] =     
+         _format("<tr><td>%s</td><td>%s</td><td>%s</td></tr>",
+         gl.name,gl.value,gl._local and "Local" or "Remote")
 end
 return table.concat(res)
 >>>
@@ -2638,6 +2959,7 @@ Content-Type: text/html
       local page = f:read("*all")
     end
     Pages.pages[path]={page=page, path=path} 
+    return Pages.pages[path]
   end
 
   function Pages.getPath(path)
@@ -2654,14 +2976,15 @@ Content-Type: text/html
   end
 
   function Pages.render(p)
+    if p.static and p.static~=true then return p.static end
     local stat,res = pcall(function()
         return p.cpage:gsub("<<<(%d+)>>>",
           function(i)
             return p.funs[tonumber(i)]()
           end)
       end)
-    if not stat then return Pages.renderError(msg)
-    else return res end
+    if not stat then return Pages.renderError(res)
+    else p.static=res return res end
   end
 
   function Pages.renderAction(id,method,action,value)
@@ -2695,9 +3018,11 @@ Content-Type: text/html
     p.funs=funs
   end
 
-  Pages.register("/emu/main",P_MAIN)
+  Pages.register("/emu/main",P_MAIN).static=true
+  Pages.register("/emu/emu",P_EMU)
   Pages.register("/emu/scenes",P_SCENES)
   Pages.register("/emu/devices",P_DEVICES)
+  Pages.register("/emu/globals",P_GLOBALS)
 
   _PAGE_STYLE=
 [[<style>
@@ -2739,6 +3064,14 @@ end
 -- Load code and start
 --------------------------------------------------
 libs()
-support()
 pages()
+Support_functions()
+Web_functions()
+Scene_functions()
+HC2_functions()
+Runtime_functions()
+System_functions()
+Event_functions()
+Fibaro_functions()
+ER_functions()
 startup()

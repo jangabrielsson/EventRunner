@@ -10,7 +10,7 @@
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B13"  -- Apr 8, 2019  
+_version,_fix = "2.0","B14"  -- Apr 12, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -50,10 +50,9 @@ function main()
   --HT = json.decode(HT)
   Util.defvars(HT.dev)            -- Make HomeTable defs available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable names available for logger
-
-  rule("77:unsecure => true")
-  --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 10 second
-
+        
+  rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 10 second
+  
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
 end -- main()
 
