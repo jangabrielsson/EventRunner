@@ -26,7 +26,7 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
 
-_version,_fix = "0.7","fix2" -- Apr 12, 2019    
+_version,_fix = "0.7","fix4" -- Apr 13, 2019    
 _sceneName = "HC2 emulator"
 
 _LOCAL=true                  -- set all resource to local in main(), i.e. no calls to HC2
@@ -374,13 +374,13 @@ function Web_functions()
         client:send(src)
         f:close()
       end,
-      ["/emu/fibaro/(%w+)/(%d+)/?(.-)%?(.*)"]=function(client,ref,body,method,id,action,args)
+      ["/emu/fibaro/(%w+)/(%w+)/?(.-)%?(.*)"]=function(client,ref,body,method,id,action,args)
         args = args and args~="" and args:match("value=(.+)") or nil
         if method and fibaro[method] then
           if action=="" then 
-            if args ~= nil then args=json.decode(urldecode(args)) end
+            if args ~= nil and method~="setGlobal" then args=json.decode(urldecode(args)) end
             printf("Calling fibaro:%s(%s)",method,id)
-            fibaro[method](fibaro,tonumber(id),args)
+            fibaro[method](fibaro,tonumber(id) and tonumber(id) or id,args)
           else
             printf("Calling fibaro:%s(%s,'%s')",method,id,action,args and _format(", '%s'",args) or "")
             fibaro[method](fibaro,tonumber(id),action,args)
@@ -467,6 +467,7 @@ function Scene_functions()
     local scene,msg = Scene.scenes[id]
     scene.name = name
     scene.id = id
+    scene.fromFile=true
     scene.runningInstances = 0
     scene._local = true
     scene.runConfig = "TRIGGER_AND_MANUAL"
@@ -585,6 +586,25 @@ function Scene_functions()
     if headers['autostart'] then events[#events+1]={type='autostart'} end
     return events,src
   end
+
+  function Scene.getAllLoadedTriggers()
+    if Scene.allLoadedTriggers then return Scene.allLoadedTriggers end
+    local ts={}
+    for id,scene in pairs(HC2.rsrc.scenes) do
+      if scene.fromFile then
+        for _,t in pairs(scene.triggers) do
+          if t.type=='property' or t.type=='global' then
+            local f=true
+            for _,t0 in pairs(ts) do if Util.equal(t0,t) then f= false break end end
+            if f then ts[#ts+1]=t
+            end
+          end
+        end
+      end
+    end
+    Scene.allLoadedTriggers = ts
+    return ts
+  end
 end
 
 ------------------------------------------------------------------------
@@ -681,24 +701,29 @@ function HC2_functions()
     local rsrc,count = HC2.rsrc,HC2.rsrc.count
     local f = io.open(file)
     if f then
-      count.glob=0
-      Log(LOG.SYSTEM,"Reading and decoding configuration from %s",file)
-      rsrc=persistence.load(file);
-      for n,_ in pairs(rsrc.globalVariables or {}) do count.glob=count.glob+1 end
-      rsrc.devices,count.dev=patchID(rsrc.devices or {}); 
-      rsrc.scenes,count.scenes=patchID(rsrc.scenes); 
-      rsrc.rooms,count.rooms=patchID(rsrc.rooms or {}); 
-      rsrc.sections,count.sect=patchID(rsrc.sections); 
-      rsrc.iosDevices,count.ios=patchID(rsrc.iosDevices or {}); 
-      rsrc["settings/info"] = rsrc["settings/info"]  or {}
-      if not rsrc["settings/info"][1] then rsrc["settings/info"] = {rsrc["settings/info"]} end 
-      rsrc["settings/location"] = rsrc["settings/location"] or {}
-      if not rsrc["settings/location"][1] then rsrc["settings/location"] = {rsrc["settings/location"]} end 
-      rsrc.weather = rsrc.weather or {}
-      if not rsrc.weather[1] then rsrc.weather = {rsrc.weather} end
-      HC2.rsrc=rsrc
-      HC2.rsrc.count = count
-    else Log(LOG.SYSTEM,"No HC2 data file found (%s)'",file) end
+      local stat,res = pcall(function()
+          count.glob=0
+          Log(LOG.SYSTEM,"Reading and decoding configuration from %s",file)
+          rsrc=persistence.load(file);
+          for n,_ in pairs(rsrc.globalVariables or {}) do count.glob=count.glob+1 end
+          rsrc.devices,count.dev=patchID(rsrc.devices or {}); 
+          rsrc.scenes,count.scenes=patchID(rsrc.scenes); 
+          rsrc.rooms,count.rooms=patchID(rsrc.rooms or {}); 
+          rsrc.sections,count.sect=patchID(rsrc.sections); 
+          rsrc.iosDevices,count.ios=patchID(rsrc.iosDevices or {}); 
+          rsrc["settings/info"] = rsrc["settings/info"]  or {}
+          if not rsrc["settings/info"][1] then rsrc["settings/info"] = {rsrc["settings/info"]} end 
+          rsrc["settings/location"] = rsrc["settings/location"] or {}
+          if not rsrc["settings/location"][1] then rsrc["settings/location"] = {rsrc["settings/location"]} end 
+          rsrc.weather = rsrc.weather or {}
+          if not rsrc.weather[1] then rsrc.weather = {rsrc.weather} end
+          HC2.rsrc=rsrc
+          HC2.rsrc.count = count
+        end)
+      if not stat then
+        Log(LOG.SYSTEM,"Bad format for HC2 data file (%s)(%s)",file,res)
+      end
+    else Log(LOG.SYSTEM,"No HC2 data file found (%s)",file) end
     Log(LOG.SYSTEM,"Configuration from file, Globals:%s, Scenes:%s, Device:%s, Rooms:%s",count.glob,count.scenes,count.dev,count.rooms)
   end
 
@@ -2773,6 +2798,16 @@ Cache-Control: no-cache, no-store, must-revalidate
 <head>
 <meta content="text/html; charset=ISO-8859-1" http-equiv="content-type">
 <<<return _PAGE_STYLE>>>
+<style>
+   html,body { height: 100% }
+   .stockIframe {  width:100%; height:100%; }
+   .stockIframe iframe {  width:100%; height:100%; border:0;overflow:hidden }
+
+table, th, td {
+  border: 0px solid white;
+  border-collapse: collapse;
+}
+</style>
 <title><<<return _format("%s v%s%s",_sceneName,_version,_fix~="" and " ,".._fix or "")>>></title></head>
 <body>
 <h2>HC2 Emulator <<<return _format("v%s%s",_version,_fix~="" and " ".._fix or "")>>></h2>
@@ -2782,6 +2817,20 @@ return _format("Scenes:%s</br>Globals:%s</br>Devices:%s</br>Rooms:%s</br>",c.sce
 <a href="/emu/code/<<<return urlencode("_System.speed(true)")>>>" class="button" style="background-color: #FFA500;">Speed>></a>
 <a href="/emu/code/<<<return urlencode("_System.speed(3600)")>>>" class="button" style="background-color: #FFA500;">1 hour>></a>
 <a href="/emu/code/<<<return urlencode("_System.speed(3600*24)")>>>" class="button" style="background-color: #FFA500;">24 hours>></a>
+<p>
+<<<
+  local ts,res=Scene.getAllLoadedTriggers(),{"<table>"}
+  for _,t in ipairs(ts) do 
+    if t.type=='property' then
+      res[#res+1]=_format("<tr><td>DeviceID:%s ",t.deviceID)..Pages.renderAction(t.deviceID,"call","setValue","setValue","").."</td></tr>"
+    else
+      res[#res+1]=_format("<tr><td>Global:'%s' ",t.name)..Pages.renderAction(t.name,"setGlobal","","setValue","").."</td></tr>"
+    end
+  end
+  res[#res+1]="</table>"
+  return table.concat(res)
+>>>
+</p>
 </body></html>
 
 ]]
@@ -2841,9 +2890,9 @@ for id,dev in pairs(HC2.rsrc.devices) do
       local res={}
       local val = dev.properties.value
       val = val ~= nil and tostring(val) or false
-      res[#res+1]=Pages.renderAction(id,"call","turnOn",false)
-      res[#res+1]=Pages.renderAction(id,"call","turnOff",false)
-      if val then res[#res+1]=Pages.renderAction(id,"call","setValue",val) end
+      res[#res+1]=Pages.renderAction(id,"call","turnOn","turnOn",false)
+      res[#res+1]=Pages.renderAction(id,"call","turnOff","turnOff",false)
+      if val then res[#res+1]=Pages.renderAction(id,"call","setValue","setValue",val) end
       return "<div class=\"trigger-actions\">"..table.concat(res).."</div>"
       end
    res[#res+1] =     
@@ -2987,12 +3036,12 @@ Content-Type: text/html
     else p.static=res return res end
   end
 
-  function Pages.renderAction(id,method,action,value)
+  function Pages.renderAction(id,method,action1,action2,value)
     local res
     if not value then
-      res = _format([[<form action="/emu/fibaro/%s/%s/%s"><input type="submit" class="button" value="%s"></form>]],method,id,action,action)
+      res = _format([[<form action="/emu/fibaro/%s/%s/%s"><input type="submit" class="button" value="%s"></form>]],method,id,action1,action2)
     else
-      res = _format([[<form action="/emu/fibaro/%s/%s/%s"><input type="submit" class="button" value="%s"><input type="text" name="value" value="%s"></form>]],method,id,action,action,value)
+      res = _format([[<form action="/emu/fibaro/%s/%s/%s"><input type="submit" class="button" value="%s"><input type="text" name="value" value="%s"></form>]],method,id,action1,action2,value)
     end
     return res
   end
