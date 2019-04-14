@@ -26,7 +26,7 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
 
-_version,_fix = "0.7","fix4" -- Apr 13, 2019    
+_version,_fix = "0.8","" -- Apr 14, 2019    
 _sceneName = "HC2 emulator"
 
 _LOCAL=true                  -- set all resource to local in main(), i.e. no calls to HC2
@@ -41,13 +41,13 @@ _VALIDATECHARS = true        -- Check rules for invalid characters (cut&paste, m
 _COLOR = true                -- Log with colors on ZBS Output console
 _HC2_FILE = "HC2.data"
 
-_HC2_IP=_HC2_IP or "192.198.1.xx"       -- HC2 IP address
+_HC2_IP=_HC2_IP or "192.198.1.84"       -- HC2 IP address
 _HC2_USER=_HC2_USER or "xxx@yyy"        -- HC2 user name
 _HC2_PWD=_HC2_PWD or "xxxxxx"           -- HC2 password
 
 _EVENTRUNNER_SUPPORT=true
 
---local creds = loadfile("credentials.lua") -- To not accidently commit credentials to Github...
+local creds = loadfile("credentials.lua") -- To not accidently commit credentials to Github...
 if creds then creds() end
 
 --------------------------------------------------------
@@ -2813,6 +2813,9 @@ table, th, td {
 <h2>HC2 Emulator <<<return _format("v%s%s",_version,_fix~="" and " ".._fix or "")>>></h2>
 <<<local c = HC2.rsrc.count; 
 return _format("Scenes:%s</br>Globals:%s</br>Devices:%s</br>Rooms:%s</br>",c.scenes,c.glob,c.dev,c.rooms)>>>
+</br>
+<a href="/emu/code/<<<return urlencode("HC2.copyConfigFromHC2(_HC2_FILE)")>>>" class="button" style="background-color: #FFA500;">Copy setup from HC2</a> Creates HC2.data file. Please restart emulator afterward.
+</br>
 </br>
 <a href="/emu/code/<<<return urlencode("_System.speed(true)")>>>" class="button" style="background-color: #FFA500;">Speed>></a>
 <a href="/emu/code/<<<return urlencode("_System.speed(3600)")>>>" class="button" style="background-color: #FFA500;">1 hour>></a>
