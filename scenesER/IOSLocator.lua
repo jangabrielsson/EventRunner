@@ -7,7 +7,7 @@
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner",id=10} dofile("HC2.lua") end
 
-_version,_fix  = "2.0","B2"  -- Mar 7, 2019 
+_version,_fix  = "2.0","B3"  -- Apr 14, 2019 
 _sceneName     = "iOSLocator"
 _deviceTable   = "devicemap" -- Name of your HomeTable variable
 _ruleLogLength = 80          -- Log message cut-off, defaults to 40
@@ -98,20 +98,23 @@ function main()
           Debug(true,"Error getting NextStage data:%s",status or "<unknown error>")
         end,
         success = function(status)
-          --Debug(true,"iCloud Response:%s",status.status)
-          if (status.status==200) then			
-            if (pollingextra==0) then
-              local output = json.decode(status.data)
-              Event.post({type='deviceMap', user=username, data=output.content, _sh=true})
-              --listDevices(output.content)
-              return
-            else
-              Debug(true,"Waiting for NextStage extra polling")
-              setTimeout(function() getIOSDeviceNextStage(nextStage,username,name,headers,0) end, extrapolling)
-              return
-            end
-          end
-          Debug(true,"Bad response from NextStage:%s",json.encode(status) )	
+          local stat,res = pcall(function()
+              --Debug(true,"iCloud Response:%s",status.status)
+              if (status.status==200) then			
+                if (pollingextra==0) then
+                  local output = json.decode(status.data)
+                  Event.post({type='deviceMap', user=username, data=output.content, _sh=true})
+                  --listDevices(output.content)
+                  return
+                else
+                  Debug(true,"Waiting for NextStage extra polling")
+                  setTimeout(function() getIOSDeviceNextStage(nextStage,username,name,headers,0) end, extrapolling)
+                  return
+                end
+              end
+              Debug(true,"Bad response from NextStage:%s",json.encode(status) )	
+            end)
+          if not stat then Debug(true,"Crash NextStage:%s",res )	end
         end})
   end
 
@@ -210,19 +213,23 @@ function main()
             Event.post({type='error', msg=_format("Failed calling FindMyiPhone service for %s",event.user)})
           end,
           success = function(status)
-            if (status.status==330) then
-              --Debug(true,"330 Resp:%s",json.encode(status))
-              local nextStage="fmipmobile.icloud.com"  
-              for k,ns in pairs(status.headers) do if string.lower(k)=="x-apple-mme-host" then nextStage=ns; break  end end
-              Debug(true,"NextStage:%s",nextStage)
-              getIOSDeviceNextStage(nextStage,event.user,event.name,headers,pollingextra)
-            elseif (status.status==200) then
-              --Debug(true,"Data:%s",json.encode(status.data))
-              Event.post({type='deviceMap', user=event.name, data=json.decode(status.data).content, _sh=true})
-            else
-              Event.post({type='error', msg=_format("Access denied for %s :%s",event.user,json.encode(status))})
-            end
-          end})
+            local stat,res = pcall(function()
+                if (status.status==330) then
+                  --Debug(true,"330 Resp:%s",json.encode(status))
+                  local nextStage="fmipmobile.icloud.com"  
+                  for k,ns in pairs(status.headers) do if string.lower(k)=="x-apple-mme-host" then nextStage=ns; break  end end
+                  Debug(true,"NextStage:%s",nextStage)
+                  getIOSDeviceNextStage(nextStage,event.user,event.name,headers,pollingextra)
+                elseif (status.status==200) then
+                  --Debug(true,"Data:%s",json.encode(status.data))
+                  Event.post({type='deviceMap', user=event.name, data=json.decode(status.data).content, _sh=true})
+                else
+                  Event.post({type='error', msg=_format("Access denied for %s :%s",event.user,json.encode(status))})
+                end
+              end)
+            if not stat then Debug(true,"Crash getIOSdevices:%s",res ) end
+          end
+        })
     end)
 
   Event.event({type='checkPresence'},
