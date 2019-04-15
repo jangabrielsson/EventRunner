@@ -3,6 +3,7 @@
 99 value
 %% events
 %% globals
+Test
 %% autostart
 --]]
 
@@ -10,7 +11,7 @@
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B14"  -- Apr 12, 2019  
+_version,_fix = "2.0","B15"  -- Apr 15, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -52,7 +53,7 @@ function main()
   Util.reverseMapDef(HT.dev)      -- Make HomeTable names available for logger
         
   rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 10 second
-  
+
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
 end -- main()
 
@@ -538,12 +539,13 @@ function newEventEngine()
           if rt then rt(id,args,res)
           else
             local astr=(id~=nil and tostring(id).."," or "")..json.encode(args):sub(2,-2)
-            Debug(true,"fibaro:%s(%s)%s",name,astr,#res>0 and "="..json.encode(res):sub(2,-2) or "")
+            Debug(true,"fibaro:%s(%s)%s",name,astr,#res>0 and "="..tojson(res):sub(2,-2) or "")
           end
         end
         return table.unpack(res)
       else
-        error(_format("fibaro:%s(%s)",name,astr),3)
+        local astr=(id~=nil and tostring(id).."," or "")..json.encode(args):sub(2,-2)
+        error(_format("fibaro:%s(%s),%s",name,astr,res),3)
       end
     end
   end
@@ -770,7 +772,7 @@ function Util.prettyJson(e) -- our own json encode, as we don't have 'pure' json
     elseif t == 'table' then
       if next(e)==nil then res[#res+1]='{}'
       elseif seen[e] then res[#res+1]="..rec.."
-      elseif e[1] then
+      elseif e[1] or #e>0 then
         seen[e]=true
         res[#res+1] = "[" pretty(e[1])
         for i=2,#e do res[#res+1] = "," pretty(e[i]) end

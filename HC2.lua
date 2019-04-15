@@ -26,7 +26,7 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
 
-_version,_fix = "0.8","" -- Apr 14, 2019    
+_version,_fix = "0.8","fix1" -- Apr 15, 2019    
 _sceneName = "HC2 emulator"
 
 _LOCAL=true                  -- set all resource to local in main(), i.e. no calls to HC2
@@ -64,6 +64,7 @@ function main()
 
   if _LOCAL then                -- Set all resources to local
     HC2.setLocal("devices",true)         -- set all devices to local   /api/devices
+    HC2.setLocal("virtualDevices",true)         -- set all devices to local   /api/devices
     HC2.setLocal("globalVariables",true)         -- set all globals to local   /api/globals
     HC2.setLocal("rooms",true)           -- set all rooms to local     /api/rooms
     HC2.setLocal("scenes",true)          -- set all scenes to local    /api/scenes
@@ -250,7 +251,7 @@ for i = 0,8 do print(("%s \027[%dmXYZ\027[0m normal"):format(30+i, 30+i)) end
 for i = 0,8 do print(("%s \027[1;%dmXYZ\027[0m bright"):format(38+i, 30+i)) end
 --]]
 
-  Util = {}
+  Util = Util or {}
   function Util.Msg(color,message,...)
     color = _COLOR and _LOGMAP[color] or ""
     local args = type(... or 42) == 'function' and {(...)()} or {...}
@@ -981,7 +982,10 @@ function HC2_functions()
     end
   end
 
-  function HC2.setLocal(t,args) setRsrcStatus(HC2.rsrc[t],args,true) end
+  function HC2.setLocal(t,args) 
+    local stat,res = pcall(function() setRsrcStatus(HC2.rsrc[t],args,true) end)
+    if not stat then Debug(true,"Err trying to setLocal(%s,%s) (%s)",t,tojson(args),res) end
+  end
   function HC2.setRemote(t,args) setRsrcStatus(HC2.rsrc[t],args) end
 
   function HC2.createGlobal(name,value)
@@ -1986,12 +1990,13 @@ Expected input:
           if rt then rt(id,args,res)
           else
             local astr=(id~=nil and tostring(id).."," or "")..json.encode(args):sub(2,-2)
-            Debug(true,"fibaro:%s(%s)%s",name,astr,#res>0 and "="..json.encode(res):sub(2,-2) or "")
+            Debug(true,"fibaro:%s(%s)%s",name,astr,#res>0 and "="..tojson(res):sub(2,-2) or "")
           end
         end
         return table.unpack(res)
       else
-        error(_format("fibaro:%s(%s)",name,astr),3)
+        local astr=(id~=nil and tostring(id).."," or "")..json.encode(args):sub(2,-2)
+        error(_format("fibaro:%s(%s),%s",name,astr,res),3)
       end
     end
   end
@@ -2467,6 +2472,50 @@ function libs()
 
   tojson = json.encode
 
+  Util = Util or {}
+  Util.gKeys = {type=1,deviceID=2,value=3,val=4,key=5,arg=6,event=7,events=8,msg=9,res=10}
+  Util.gKeysNext = 10
+  function Util._keyCompare(a,b)
+    local av,bv = Util.gKeys[a], Util.gKeys[b]
+    if av == nil then Util.gKeysNext = Util.gKeysNext+1 Util.gKeys[a] = Util.gKeysNext av = Util.gKeysNext end
+    if bv == nil then Util.gKeysNext = Util.gKeysNext+1 Util.gKeys[b] = Util.gKeysNext bv = Util.gKeysNext end
+    return av < bv
+  end
+
+  function Util.prettyJson(e) -- our own json encode, as we don't have 'pure' json structs, and sorts keys in order
+    local res,seen,t = {},{}
+    local function pretty(e)
+      local t = type(e)
+      if t == 'string' then res[#res+1] = '"' res[#res+1] = e res[#res+1] = '"' 
+      elseif t == 'number' then res[#res+1] = e
+      elseif t == 'boolean' or t == 'function' or t=='thread' then res[#res+1] = tostring(e)
+      elseif t == 'table' then
+        if next(e)==nil then res[#res+1]='{}'
+        elseif seen[e] then res[#res+1]="..rec.."
+        elseif e[1] or #e>0 then
+          seen[e]=true
+          res[#res+1] = "[" pretty(e[1])
+          for i=2,#e do res[#res+1] = "," pretty(e[i]) end
+          res[#res+1] = "]"
+        else
+          seen[e]=true
+          if e._var_  then res[#res+1] = _format('"%s"',e._str) return end
+          local k = {} for key,_ in pairs(e) do k[#k+1] = key end 
+          table.sort(k,Util._keyCompare)
+          if #k == 0 then res[#res+1] = "[]" return end
+          res[#res+1] = '{'; res[#res+1] = '"' res[#res+1] = k[1]; res[#res+1] = '":' t = k[1] pretty(e[t])
+          for i=2,#k do 
+            res[#res+1] = ',"' res[#res+1] = k[i]; res[#res+1] = '":' t = k[i] pretty(e[t]) 
+          end
+          res[#res+1] = '}'
+        end
+      elseif e == nil then res[#res+1]='null'
+      else error("bad json expr:"..tostring(e)) end
+    end
+    pretty(e)
+    return table.concat(res)
+  end
+  tojson = Util.prettyJson
 -----------------------------
 -- persistence
 -- Copyright (c) 2010 Gerhard Roethlin
