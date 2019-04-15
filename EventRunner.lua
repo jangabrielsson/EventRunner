@@ -862,7 +862,7 @@ function newScriptEngine()
   local function doit(m,f,s) if type(s) == 'table' then return m(f,s) else return f(s) end end
 
   local function getIdFuns(s,i,prop) local id = s.pop() 
-    if type(id)=='table' then return Util.map(function(id) return fibaro:getValue(ID(id,i),prop) end,id) else return fibaro:get(ID(id,i),prop) end 
+    if type(id)=='table' then return Util.map(function(id) return fibaro:getValue(ID(id,i),prop) end,id) else return fibaro:getValue(ID(id,i),prop) end 
   end
   local getIdFun={}
   getIdFun['isOn']=function(s,i) return doit(Util.mapOr2,function(id) return fibaro:getValue(ID(id,i),'value') > '0' end,s.pop()) end
