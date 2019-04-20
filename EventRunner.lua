@@ -11,7 +11,7 @@ Test
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B15"  -- Apr 15, 2019  
+_version,_fix = "2.0","B16"  -- Apr 15, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -30,7 +30,7 @@ _myNodeRed   = "http://192.168.1.50:1880/eventrunner" -- Ex. used for Event.post
 -- debug flags for various subsystems...
 _debugFlags = { 
   post=true,invoke=false,triggers=true,dailys=true,timers=false,rule=false,ruleTrue=false,hue=false,msgTime=false,
-  fcall=true, fglobal=false, fget=false, fother=true
+  fcall=true, fglobal=false, fget=true, fother=true
 }
 ---------------- Here you place rules and user code, called once --------------------
 function main()
@@ -51,7 +51,7 @@ function main()
   --HT = json.decode(HT)
   Util.defvars(HT.dev)            -- Make HomeTable defs available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable names available for logger
-        
+
   rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 10 second
 
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
@@ -146,7 +146,19 @@ gEventRunnerKey="6w8562395ue734r437fg3"
 gEventSupervisorKey="9t823239".."5ue734r327fh3"
 
 -- Patch possibly buggy setTimeout - what is 1ms between friends...
-setTimeout,oldSetTimeout = function(f,t) return oldSetTimeout(f, t and t < 1 and 1 or t) end,setTimeout
+clearTimeout,oldClearTimout=function(ref)
+  if type(ref)=='table' and ref[1]=='%EXT%' then ref=ref[2] end
+  oldClearTimout(ref)
+end,clearTimeout
+
+setTimeout,oldSetTimout=function(f,ms)
+  local ref={'%EXT%'}
+  ms = ms and ms < 1 and 1 or ms
+  if ms > 6442450943 then
+    ref[2]=oldSetTimout(function() ref[2 ]=setTimeout(f,ms-6442450943)[2] end,6442450943)
+  else ref[2 ]=oldSetTimout(f,ms) end
+  return ref
+end,setTimeout
 
 local function _Msg(color,message,...)
   local args = type(... or 42) == 'function' and {(...)()} or {...}
@@ -308,6 +320,7 @@ function newEventEngine()
       if _debugFlags.postTimers then Debug(true,"Posting timer %s at %s",ctx.src,osDate("%a %b %d %X",time)) end
       return {[self.TIMER]=setTimeout(function() self._callTimerFun(e,ctx) end, 1000*(time-osTime()))}
     end
+    ---Log(LOG.LOG,"DATE:%s",osDate("%c",time))
     ctx.src=ctx.src or tojson(e)
     if _debugFlags.post and not e._sh then Debug(true,"Posting %s at %s",tojson(e),osDate("%a %b %d %X",time)) end
     return {[self.TIMER]=setTimeout(function() self._handleEvent(e) end,1000*(time-osTime()))}
