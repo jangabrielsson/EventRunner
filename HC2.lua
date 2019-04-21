@@ -26,26 +26,26 @@ json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
 
-_version,_fix = "0.8","fix1" -- Apr 15, 2019    
+_version,_fix = "0.8","fix2" -- Apr 21, 2019    
 _sceneName = "HC2 emulator"
 
 _LOCAL=true                  -- set all resource to local in main(), i.e. no calls to HC2
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
 _SPEEDTIME = false           -- Run faster than realtime, if set to false run in realtime
-_MAXTIME = 24*365            -- Max hours to run emulator
+_MAXTIME = 24*(365+40)            -- Max hours to run emulator
 _BLOCK_PUT=true              -- Block http PUT commands to the HC2 - e.g. changing resources on the HC2
 _BLOCK_POST=true             -- Block http POST commands to the HC2 - e.g. creating resources on the HC2
 _AUTOCREATEGLOBALS=true      -- Will (silently) autocreate a local fibaro global if it doesn't exist
 _AUTOCREATEDEVICES=true      -- Will (silently) autocreate a local fibaro device if it doesn't exist
 _VALIDATECHARS = true        -- Check rules for invalid characters (cut&paste, multi-byte charqcters)
 _COLOR = true                -- Log with colors on ZBS Output console
-_HC2_FILE = "HC2.data"
+_HC2_FILE = "HC2.data"       -- Default name of data file
 
 _HC2_IP=_HC2_IP or "192.198.1.84"       -- HC2 IP address
 _HC2_USER=_HC2_USER or "xxx@yyy"        -- HC2 user name
 _HC2_PWD=_HC2_PWD or "xxxxxx"           -- HC2 password
 
-_EVENTRUNNER_SUPPORT=true
+_EVENTRUNNER_SUPPORT=true               -- Announce presence to HC2 and other ER scenes
 
 local creds = loadfile("credentials.lua") -- To not accidently commit credentials to Github...
 if creds then creds() end
@@ -64,8 +64,8 @@ function main()
 
   if _LOCAL then                -- Set all resources to local
     HC2.setLocal("devices",true)         -- set all devices to local   /api/devices
-    HC2.setLocal("virtualDevices",true)         -- set all devices to local   /api/devices
-    HC2.setLocal("globalVariables",true)         -- set all globals to local   /api/globals
+    HC2.setLocal("virtualDevices",true)  -- set all devices to local   /api/devices
+    HC2.setLocal("globalVariables",true) -- set all globals to local   /api/globals
     HC2.setLocal("rooms",true)           -- set all rooms to local     /api/rooms
     HC2.setLocal("scenes",true)          -- set all scenes to local    /api/scenes
     HC2.setLocal("info",true)            -- set info to local.         /api/settings/info
@@ -142,6 +142,8 @@ function setupContext(id)  -- Table of functions and variables available for sce
     api = api,
     setTimeout=Runtime.setTimeoutContext,
     clearTimeout=Runtime.clearTimeout,
+    setInterval=Runtime.setIntervalContext,
+    clearInterval=Runtime.clearInterval,
     urlencode=urlencode,
     select=select,
     split=split,
@@ -631,8 +633,8 @@ function HC2_functions()
     local someRandomPort = "3102" --This port you make up  
     local mySocket = socket.udp() --Create a UDP socket like normal
     mySocket:setpeername(someRandomIP,someRandomPort) 
-    local myDevicesIpAddress, somePortChosenByTheOS = mySocket:getsockname()-- returns IP and Port 
-    return myDevicesIpAddress
+    local myDevicesIpAddress, somePortChosenByTheOS = mySocket:getsockname()-- returns IP and Port
+    return myDevicesIpAddress == "0.0.0.0" and "127.0.0.1" or myDevicesIpAddress
   end
 
   function HC2.runTriggers(tab)
@@ -983,10 +985,17 @@ function HC2_functions()
   end
 
   function HC2.setLocal(t,args) 
-    local stat,res = pcall(function() setRsrcStatus(HC2.rsrc[t],args,true) end)
+    local f = t=='virtualDevices' and vDevfilter
+    if f then t="devices" end
+    local stat,res = pcall(function() setRsrcStatus(HC2.rsrc[t],args,true,f) end)
     if not stat then Debug(true,"Err trying to setLocal(%s,%s) (%s)",t,tojson(args),res) end
   end
-  function HC2.setRemote(t,args) setRsrcStatus(HC2.rsrc[t],args) end
+  function HC2.setRemote(t,args) 
+    local f = t=='virtualDevices' and vDevfilter
+    if f then t="devices" end
+    local stat,res = pcall(function() setRsrcStatus(HC2.rsrc[t],args,false,f) end)
+    if not stat then Debug(true,"Err trying to setRemote(%s,%s) (%s)",t,tojson(args),res) end
+  end
 
   function HC2.createGlobal(name,value)
     if value~=nil then value=tostring(value) end
@@ -1281,6 +1290,33 @@ function Runtime_functions()
       end
       return c
     end
+  end
+
+  function Runtime.setIntervalContext(fun,ms,...)
+    local t0,args,ref=osTime()*1000,{...},{'%%INTERV%%',nil}
+    local function loop() 
+      fun(table.unpack(args))
+      t0=t0+ms
+      ref[2]=Runtime.setTimeoutContext(loop,t0-1000*osTime())
+    end
+    loop()
+    return ref
+  end
+
+  function Runtime.setInterval(fun,ms,...)
+    local t0,args,ref=osTime()*1000,{...},{'%%INTERV%%',nil}
+    local function loop() 
+      fun(table.unpack(args))
+      t0=t0+ms
+      ref[2]=Runtime.setTimeout(loop,t0-1000*osTime())
+    end
+    loop()
+    return ref
+  end
+
+  function Runtime.clearInterval(ref)
+    _assert(type(ref)=='table' and ref[1]=='%%INTERV%%',"Bad interval reference")
+    if ref[2] then Runtime.clearTimeout(ref[2]) end
   end
 
   function Runtime.makeProcessManager()
@@ -3006,51 +3042,7 @@ Cache-Control: no-cache, no-store, must-revalidate
 </html>
 
 ]]  
-  local P_POSTT =  -- experimental
-[[HTTP/1.1 200 OK
-Content-Type: text/html
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Post trigger</title>
-    <meta charset="utf-8">
-</head>
-<body>
-<div id="response">
-    <pre></pre>
-</div>
-<form id="my-form">
-  <button type="submit">Submit</button>
-</form>
-<script src="//ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
-<script>
-    (function($){
-        function processForm( e ){
-            $.ajax({
-                url: 'trigger',
-                dataType: 'json',
-                type: 'post',
-                contentType: 'application/json',
-                data: JSON.stringify({"type" : "test"}),
-                processData: false,
-                success: function( data, textStatus, jQxhr ){
-                     $('#response pre').html( JSON.stringify( data ) );
-                },
-                error: function( jqXhr, textStatus, errorThrown ){
-                    console.log( errorThrown );
-                }
-            });
 
-            e.preventDefault();
-        }
-
-        $('#my-form').submit( processForm );
-    })(jQuery);
-</script>
-</body>
-</html>
-
-]]
   Pages = { pages={} }
   function Pages.register(path,page)
     local file = page:match("^file:(.*)")
@@ -3158,7 +3150,6 @@ th {
 </style>
 ]]
 
---print(Pages.getPath("triggers"))
 end
 
 --------------------------------------------------
