@@ -30,7 +30,7 @@ _myNodeRed   = "http://192.168.1.50:1880/eventrunner" -- Ex. used for Event.post
 -- debug flags for various subsystems...
 _debugFlags = { 
   post=true,invoke=false,triggers=true,dailys=true,timers=false,rule=false,ruleTrue=false,hue=false,msgTime=false,
-  fcall=true, fglobal=false, fget=true, fother=true
+  fcall=true, fglobal=false, fget=false, fother=true
 }
 ---------------- Here you place rules and user code, called once --------------------
 function main()
@@ -520,7 +520,7 @@ function newEventEngine()
     if lastID[id].script==nil or osTime()-lastID[id].time>1 then lastID[id]={time=osTime()} end -- Update last manual
   end
   function self._registerID(id,call,get) fibaro._idMap[id]={call=call,get=get} end
-  fibaro.call=function(obj,id,call,...) id = tonumber(id)
+  fibaro.call=function(obj,id,call,...) id = tonumber(id); if not id then error("deviceID not a number",2) end
     if ({turnOff=true,turnOn=true,on=true,off=true,setValue=true})[call] then lastID[id]={script=true,time=osTime()} end
     if id < 10000 then
       if call=='toggle' then return fibaro._call(obj,id,fibaro:getValue(id,"value")>"0" and "turnOff" or "turnOn")
@@ -533,10 +533,10 @@ function newEventEngine()
       return fibaro._call(obj,id,call,...) 
     else return fibaro._idMap[id].call(obj,id,call,...) end
   end
-  fibaro.get=function(obj,id,...) id = tonumber(id)
+  fibaro.get=function(obj,id,...) id = tonumber(id); if not id then error("deviceID not a number",2) end
     if id < 10000 then return fibaro._get(obj,id,...) else return fibaro._idMap[id].get(obj,id,...) end
   end
-  fibaro.getValue=function (obj,id,...) id = tonumber(id)
+  fibaro.getValue=function (obj,id,...) id = tonumber(id); if not id then error("deviceID not a number",2) end
     if id < 10000 then return (fibaro._getValue(obj,id,...)) else return (fibaro._idMap[id].get(obj,id,...)) end
   end
 
