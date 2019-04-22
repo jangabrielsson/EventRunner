@@ -11,7 +11,7 @@ Test
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B17"  -- Apr 21, 2019  
+_version,_fix = "2.0","B18"  -- Apr 22, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -52,8 +52,8 @@ function main()
   Util.defvars(HT.dev)            -- Make HomeTable defs available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable names available for logger
   
-  rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 10 second
-
+ rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 10 second
+ 
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
 end -- main()
 
@@ -921,6 +921,9 @@ function newScriptEngine()
   setIdFun['msg'] = function(s,i,id,v) local m = v doit(Util.mapF,function(id) fibaro:call(ID(id,i),'sendPush',m) end,id) return m end
   setIdFun['email'] = function(s,i,id,v) local h,m = v:match("(.-):(.*)") 
     doit(Util.mapF,function(id) fibaro:call(ID(id,i),'sendEmail',h,m) end,id) return v
+  end
+  setIdFun['defemail'] = function(s,i,id,v) 
+    doit(Util.mapF,function(id) fibaro:call(ID(id,i),'sendDefinedEmailNotification',v) end,id) return v
   end
   setIdFun['btn'] = function(s,i,id,v) local k = v doit(Util.mapF,function(id) fibaro:call(ID(id,i),'pressButton',k) end,id) return k end
   setIdFun['start'] = function(s,i,id,v) 
