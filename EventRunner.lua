@@ -11,7 +11,7 @@ Test
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B19"  -- Apr 23, 2019  
+_version,_fix = "2.0","B20"  -- Apr 23, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -522,8 +522,8 @@ function newEventEngine()
   function self._registerID(id,call,get) fibaro._idMap[id]={call=call,get=get} end
   fibaro.call=function(obj,id,call,...) id = tonumber(id); if not id then error("deviceID not a number",2) end
   if ({turnOff=true,turnOn=true,on=true,off=true,setValue=true})[call] then lastID[id]={script=true,time=osTime()} end
+  if call=='toggle' then return fibaro.call(obj,id,fibaro:getValue(id,"value")>"0" and "turnOff" or "turnOn")
   if id < 10000 then
-    if call=='toggle' then return fibaro._call(obj,id,fibaro:getValue(id,"value")>"0" and "turnOff" or "turnOn")
     elseif call=='setValue' then
       fibaro._actions[id] = fibaro._actions[id] or  api.get("/devices/"..id).actions
       if (not fibaro._actions[id].setValue) and fibaro._actions[id].turnOn then
