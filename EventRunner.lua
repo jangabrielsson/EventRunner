@@ -11,7 +11,7 @@ Test
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B20"  -- Apr 23, 2019  
+_version,_fix = "2.0","B21"  -- Apr 23, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -152,10 +152,10 @@ clearTimeout,oldClearTimout=function(ref)
 end,clearTimeout
 
 setTimeout,oldSetTimout=function(f,ms)
-  local ref={'%EXT%'}
+  local ref,maxt={'%EXT%'},2147483648-1
   ms = ms and ms < 1 and 1 or ms
-  if ms > 6442450943 then
-    ref[2]=oldSetTimout(function() ref[2 ]=setTimeout(f,ms-6442450943)[2] end,6442450943)
+  if ms > maxt then
+    ref[2]=oldSetTimout(function() ref[2 ]=setTimeout(f,ms-maxt)[2] end,maxt)
   else ref[2 ]=oldSetTimout(f,ms) end
   return ref
 end,setTimeout
