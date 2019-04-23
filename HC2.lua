@@ -25,7 +25,7 @@ SOFTWARE.
 json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
-_version,_fix = "0.8","fix5" -- Apr 23, 2019    
+_version,_fix = "0.8","fix6" -- Apr 23, 2019    
 _sceneName = "HC2 emulator"
 
 _LOCAL=true                  -- set all resource to local in main(), i.e. no calls to HC2
@@ -2106,7 +2106,7 @@ function ER_functions()
     end
     if #remotes>0 then
       local event = {type='%%EMU%%',ids=locals,adress="http://"..ipaddress..":"..port.."/"}
-      local args=encodeRemoteEvent(event)
+      local args=Util.encodeRemoteEvent(event)
       for _,sceneID in ipairs(remotes) do
         api.rawPost(true,"/scenes/"..sceneID.."/action/start",{args=args})
       end
@@ -2118,7 +2118,7 @@ function ER_functions()
     if s and s.EventRunner then
       enable = enable==nil and true or enable
       local event = {type='%%PROX%%',value=enable,adress="http://"..ipaddress..":"..port.."/"}
-      local args=encodeRemoteEvent(event)
+      local args=Util.encodeRemoteEvent(event)
       api.rawPost(true,"/scenes/"..remoteSceneID.."/action/start",{args=args})
     end
   end
