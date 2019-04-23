@@ -25,14 +25,13 @@ SOFTWARE.
 json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
-
-_version,_fix = "0.8","fix2" -- Apr 21, 2019    
+_version,_fix = "0.8","fix5" -- Apr 23, 2019    
 _sceneName = "HC2 emulator"
 
 _LOCAL=true                  -- set all resource to local in main(), i.e. no calls to HC2
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
 _SPEEDTIME = false           -- Run faster than realtime, if set to false run in realtime
-_MAXTIME = 24*(365+40)            -- Max hours to run emulator
+_MAXTIME = 24*35            -- Max hours to run emulator
 _BLOCK_PUT=true              -- Block http PUT commands to the HC2 - e.g. changing resources on the HC2
 _BLOCK_POST=true             -- Block http POST commands to the HC2 - e.g. creating resources on the HC2
 _AUTOCREATEGLOBALS=true      -- Will (silently) autocreate a local fibaro global if it doesn't exist
@@ -738,6 +737,7 @@ function HC2_functions()
   local function standardInfo()
     local rsrc= 
     [[{"serialNumber":"HC2-999999","hcName":"Home","mac":"00:22:4d:ab:83:46",
+           "_local":true,
        "zwaveVersion":"4.33","timeFormat":24,"zwaveRegion":"EU","serverStatus":1550914298,
        "defaultLanguage":"en","sunsetHour":"18:20","sunriseHour":"05:27","hotelMode":false,
        "temperatureUnit":"C","batteryLowNotification":false,"smsManagement":false,"date":"07:25 | 28.3.2019","softVersion":"4.530",
@@ -749,9 +749,17 @@ function HC2_functions()
     return json.decode(rsrc)
   end
 
+  local function standardOne()
+    local rsrc= 
+    [[{"properties":{"sunsetHour":"06:00","sunriseHour":"20:00"},
+      "_local":true}]]
+    return json.decode(rsrc)
+  end
+  
   local function standardLocation()
     local rsrc= 
     [[{"houseNumber":3,"timezone":"Europe/Stockholm","timezoneOffset":3600,"ntp":true,
+           "_local":true,
        "ntpServer":"pool.ntp.org","date":{"day":28,"month":3,"year":2019},"time":{"hour":7,"minute":27},
        "latitude":61.33,"longitude":19.787,"city":"","temperatureUnit":"C","windUnit":"km/h",
        "timeFormat":24,"dateFormat":"dd.mm.yy","decimalMark":"."}]]
@@ -761,6 +769,7 @@ function HC2_functions()
   local function standardWeather()
     local rsrc= 
     [[{"Temperature": 9.5,"TemperatureUnit": "C",
+       "_local":true,
        "Humidity": 91.8,
        "Wind": 11.52,
        "WindUnit": "km/h",
@@ -777,16 +786,19 @@ function HC2_functions()
       if name=='globalVariables' and _AUTOCREATEGLOBALS then
         Debug(_debugFlags.autocreate,"Autocreating global '%s'",id)
         rsrc = HC2.createGlobal(id)
+      elseif name=="devices" and id==1 then
+        rsrc = standardOne()
+        rsrcs[id]=rsrc
       elseif name=='devices' and _AUTOCREATEDEVICES then
         Debug(_debugFlags.autocreate,"Autocreating deviceID:%s",id)
         rsrc = HC2.createDevice(id,tostring(id))
-      elseif name=="settings/info" then
+      elseif name=="info" then
         rsrc = standardInfo()
         rsrcs[id]=rsrc
-      elseif name=="settings/location" then
+      elseif name=="location" then
         rsrc = standardLocation()
         rsrcs[id]=rsrc
-      elseif name=="settings/weather" then
+      elseif name=="weather" then
         rsrc =  standardWeather()
         rsrcs[id]=rsrc
       end
@@ -1030,6 +1042,7 @@ function HC2_functions()
         startUpdate = 1,
         turnOff = 0,
         turnOn = 0,
+        --setValue = 1,
         setArmed = 1,
         forceArm = 0,
         updateFirmware = 1
@@ -1074,6 +1087,11 @@ function HC2_functions()
         name,id = short_src:match("(%d+)_(%w+)%.[lL][uU][aA]$")
         if name then id=tonumber(id)
         else name,id="Test",99 end
+      end
+      local attr1, err1 = lfs.attributes("HC2.lua")
+      local attr2, err2 = lfs.attributes(short_src)
+      if err1 or err2 then 
+        error("File load error: "..(err1 or err2).." in "..lfs.currentdir())
       end
       local scene = HC2.registerScene(name,id,short_src)
     end
