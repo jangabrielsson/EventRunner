@@ -25,10 +25,10 @@ SOFTWARE.
 json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
-_version,_fix = "0.8","fix8" -- Apr 24, 2019    
+_version,_fix = "0.8","fix9" -- Apr 24, 2019    
 _sceneName = "HC2 emulator"
 
-_LOCAL=false                  -- set all resource to local in main(), i.e. no calls to HC2
+_LOCAL=true                -- set all resource to local in main(), i.e. no calls to HC2
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
 _SPEEDTIME = false           -- Run faster than realtime, if set to false run in realtime
 _MAXTIME = 24*35            -- Max hours to run emulator
@@ -73,8 +73,6 @@ function main()
     HC2.setLocal("users",true)           -- set users to local.        /api/users
     HC2.setLocal("iosDevices",true)      -- set iPhones to local       /api/iosDevices
   end
-
-  HC2.setRemote("info",true) 
 
   --HC2.setRemote("devices",{1,2})         -- sunset/sunrise/latitude/longitude etc.
   --HC2.setRemote("devices",{66,88}) -- We still want to run local, except for deviceID 66,88 that will be controlled on the HC2
@@ -624,9 +622,9 @@ function HC2_functions()
   HC2.rsrc.scenes = {}
   HC2.rsrc.sections = {}
   HC2.rsrc.rooms = {}
-  HC2.rsrc.info = {{}} -- { 1 = info }
-  HC2.rsrc.location = {{}} -- { 1 = location }
-  HC2.rsrc.weather = {{}} -- { 1 = weather }
+  HC2.rsrc.info = {{_local=false}} -- { 1 = info }
+  HC2.rsrc.location = {{_local=false}} -- { 1 = location }
+  HC2.rsrc.weather = {{_local=false}} -- { 1 = weather }
   HC2.rsrc.count = {glob=0,dev=0,ios=0,users=0,scenes=0,sect=0,rooms=0}
 
   function HC2.getIPadress()
@@ -739,7 +737,7 @@ function HC2_functions()
   local function standardInfo()
     local rsrc= 
     [[{"serialNumber":"HC2-999999","hcName":"Home","mac":"00:22:4d:ab:83:46",
-           "_local":true,
+       "_local":true,
        "zwaveVersion":"4.33","timeFormat":24,"zwaveRegion":"EU","serverStatus":1550914298,
        "defaultLanguage":"en","sunsetHour":"18:20","sunriseHour":"05:27","hotelMode":false,
        "temperatureUnit":"C","batteryLowNotification":false,"smsManagement":false,"date":"07:25 | 28.3.2019","softVersion":"4.530",
@@ -753,15 +751,14 @@ function HC2_functions()
 
   local function standardOne()
     local rsrc= 
-    [[{"properties":{"sunsetHour":"06:00","sunriseHour":"20:00"},
-      "_local":true}]]
+    [[{"properties":{"sunsetHour":"06:00","sunriseHour":"20:00"},"_local":true}]]
     return json.decode(rsrc)
   end
 
   local function standardLocation()
     local rsrc= 
     [[{"houseNumber":3,"timezone":"Europe/Stockholm","timezoneOffset":3600,"ntp":true,
-           "_local":true,
+       "_local":true,
        "ntpServer":"pool.ntp.org","date":{"day":28,"month":3,"year":2019},"time":{"hour":7,"minute":27},
        "latitude":61.33,"longitude":19.787,"city":"","temperatureUnit":"C","windUnit":"km/h",
        "timeFormat":24,"dateFormat":"dd.mm.yy","decimalMark":"."}]]
@@ -770,8 +767,7 @@ function HC2_functions()
 
   local function standardWeather()
     local rsrc= 
-    [[{"Temperature": 9.5,"TemperatureUnit": "C",
-       "_local":true,
+    [[{"Temperature": 9.5,"TemperatureUnit": "C","_local":true,
        "Humidity": 91.8,
        "Wind": 11.52,
        "WindUnit": "km/h",
@@ -780,11 +776,12 @@ function HC2_functions()
     return json.decode(rsrc)
   end
 
+  local function rLen(s) local l=0; for _,_ in pairs(s) do l=l+1 end return l end
   function HC2.getRsrc(name,id,f)
     local rsrcs=HC2.rsrc[name]
     local rsrc=rsrcs[id]
 
-    if not rsrc then-- rsrc doesn't exists
+    if not rsrc or (rLen(rsrc)==1 and rsrc._local) then-- rsrc doesn't exists
       if name=='globalVariables' and _AUTOCREATEGLOBALS then
         Debug(_debugFlags.autocreate,"Autocreating global '%s'",id)
         rsrc = HC2.createGlobal(id)
@@ -989,29 +986,32 @@ function HC2_functions()
     return res
   end
 
-  local function setRsrcStatus(list,args,tp,filter)
+  local function setRsrcStatus(t,list,args,tp,filter)
     filter = filter or function(id) return true end
     if args==true then 
       for _,d in pairs(list) do if filter(d) then d._local=tp end end
     elseif type(args)=='table' then 
-      for _,id in ipairs(args) do if filter(list[id]) then list[id]._local = tp end end 
-    elseif type(args)=='number' then 
-      if filter(list[args]) then list[args]._local = tp end
+      for _,id in ipairs(args) do if filter(list[id]) then HC2.getRsrc(t,id,true)._local= tp end end 
     elseif type(args)=='string' then 
       if list[id] then list[id]._local = tp end
     end
   end
 
+  local specResources={info=true,location=true,weather=true}
   function HC2.setLocal(t,args) 
     local f = t=='virtualDevices' and vDevfilter
     if f then t="devices" end
-    local stat,res = pcall(function() setRsrcStatus(HC2.rsrc[t],args,true,f) end)
+    if type(args)=='number' then args={args} end
+    if specResources[t] then args={1} end
+    local stat,res = pcall(function() setRsrcStatus(t,HC2.rsrc[t],args,true,f) end)
     if not stat then Debug(true,"Err trying to setLocal(%s,%s) (%s)",t,tojson(args),res) end
   end
   function HC2.setRemote(t,args) 
     local f = t=='virtualDevices' and vDevfilter
     if f then t="devices" end
-    local stat,res = pcall(function() setRsrcStatus(HC2.rsrc[t],args,false,f) end)
+    if type(args)=='number' then args={args} end
+    if specResources[t] then args={1} end
+    local stat,res = pcall(function() setRsrcStatus(t,HC2.rsrc[t],args,false,f) end)
     if not stat then Debug(true,"Err trying to setRemote(%s,%s) (%s)",t,tojson(args),res) end
   end
 
