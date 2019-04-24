@@ -25,10 +25,10 @@ SOFTWARE.
 json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
-_version,_fix = "0.8","fix6" -- Apr 23, 2019    
+_version,_fix = "0.8","fix8" -- Apr 24, 2019    
 _sceneName = "HC2 emulator"
 
-_LOCAL=true                  -- set all resource to local in main(), i.e. no calls to HC2
+_LOCAL=false                  -- set all resource to local in main(), i.e. no calls to HC2
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
 _SPEEDTIME = false           -- Run faster than realtime, if set to false run in realtime
 _MAXTIME = 24*35            -- Max hours to run emulator
@@ -73,6 +73,8 @@ function main()
     HC2.setLocal("users",true)           -- set users to local.        /api/users
     HC2.setLocal("iosDevices",true)      -- set iPhones to local       /api/iosDevices
   end
+
+  HC2.setRemote("info",true) 
 
   --HC2.setRemote("devices",{1,2})         -- sunset/sunrise/latitude/longitude etc.
   --HC2.setRemote("devices",{66,88}) -- We still want to run local, except for deviceID 66,88 that will be controlled on the HC2
@@ -381,10 +383,10 @@ function Web_functions()
         if method and fibaro[method] then
           if action=="" then 
             if args ~= nil and method~="setGlobal" then args=json.decode(urldecode(args)) end
-            printf("Calling fibaro:%s(%s)",method,id)
+            --printf("Calling fibaro:%s(%s)",method,id)
             fibaro[method](fibaro,tonumber(id) and tonumber(id) or id,args)
           else
-            printf("Calling fibaro:%s(%s,'%s')",method,id,action,args and _format(", '%s'",args) or "")
+            --printf("Calling fibaro:%s(%s,'%s')",method,id,action,args and _format(", '%s'",args) or "")
             fibaro[method](fibaro,tonumber(id),action,args)
           end
           client:send("HTTP/1.1 302 Found\nLocation: "..(ref or "/emu/main").."\n")
@@ -622,9 +624,9 @@ function HC2_functions()
   HC2.rsrc.scenes = {}
   HC2.rsrc.sections = {}
   HC2.rsrc.rooms = {}
-  HC2.rsrc.info = {} -- { 1 = info }
-  HC2.rsrc.location = {} -- { 1 = location }
-  HC2.rsrc.weather = {} -- { 1 = weather }
+  HC2.rsrc.info = {{}} -- { 1 = info }
+  HC2.rsrc.location = {{}} -- { 1 = location }
+  HC2.rsrc.weather = {{}} -- { 1 = weather }
   HC2.rsrc.count = {glob=0,dev=0,ios=0,users=0,scenes=0,sect=0,rooms=0}
 
   function HC2.getIPadress()
@@ -755,7 +757,7 @@ function HC2_functions()
       "_local":true}]]
     return json.decode(rsrc)
   end
-  
+
   local function standardLocation()
     local rsrc= 
     [[{"houseNumber":3,"timezone":"Europe/Stockholm","timezoneOffset":3600,"ntp":true,
@@ -807,7 +809,11 @@ function HC2_functions()
     if rsrc and rsrc._local or f then
       -- found
     elseif rsrc then -- remote resource - get it from HC2
-      rsrc = api.rawGet(false,"/"..name.."/"..id)
+      local url = "/"..name.."/"..id
+      if name=='info' then url="/settings/info"
+      elseif name=='location' then url="/settings/location"
+      elseif name=='weather' then url="/weather" end
+      rsrc = api.rawGet(false,url)
       rsrcs[id] = rsrc -- cache it
     end
     return rsrc
