@@ -25,7 +25,7 @@ SOFTWARE.
 json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
-_version,_fix = "0.8","fix9" -- Apr 24, 2019    
+_version,_fix = "0.8","fix10" -- Apr 24, 2019    
 _sceneName = "HC2 emulator"
 
 _LOCAL=true                -- set all resource to local in main(), i.e. no calls to HC2
@@ -755,6 +755,12 @@ function HC2_functions()
     return json.decode(rsrc)
   end
 
+  local function standardTwo()
+    local rsrc= 
+    [[{"properties":{"Longitude":19.787,"Latitude":61.33},"_local":true}]]
+    return json.decode(rsrc)
+  end
+
   local function standardLocation()
     local rsrc= 
     [[{"houseNumber":3,"timezone":"Europe/Stockholm","timezoneOffset":3600,"ntp":true,
@@ -787,6 +793,9 @@ function HC2_functions()
         rsrc = HC2.createGlobal(id)
       elseif name=="devices" and id==1 then
         rsrc = standardOne()
+        rsrcs[id]=rsrc
+      elseif name=="devices" and id==2 then
+        rsrc = standardTwo()
         rsrcs[id]=rsrc
       elseif name=='devices' and _AUTOCREATEDEVICES then
         Debug(_debugFlags.autocreate,"Autocreating deviceID:%s",id)
