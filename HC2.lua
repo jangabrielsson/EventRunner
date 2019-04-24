@@ -25,7 +25,7 @@ SOFTWARE.
 json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
-_version,_fix = "0.8","fix10" -- Apr 24, 2019    
+_version,_fix = "0.8","fix11" -- Apr 24, 2019    
 _sceneName = "HC2 emulator"
 
 _LOCAL=true                -- set all resource to local in main(), i.e. no calls to HC2
@@ -118,7 +118,7 @@ function main()
 end
 
 _debugFlags = { 
-  threads=false, triggers=true, eventserver=false, hc2calls=true, globals=false, web=true,
+  threads=false, triggers=false, eventserver=false, hc2calls=true, globals=false, web=true,
   fcall=true, fglobal=true, fget=true, fother=true
 }
 
@@ -1103,7 +1103,8 @@ function HC2_functions()
         if name then id=tonumber(id)
         else name,id="Test",99 end
       end
-      local attr1, err1 = lfs.attributes("HC2.lua")
+      local HC2file = debug.getinfo(1).short_src:match("[\\/]?([%.%w_%-]+)$")
+      local attr1, err1 = lfs.attributes(HC2file)
       local attr2, err2 = lfs.attributes(short_src)
       if err1 or err2 then 
         error("File load error: "..(err1 or err2).." in "..lfs.currentdir())
