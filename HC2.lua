@@ -25,7 +25,7 @@ SOFTWARE.
 json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
-_version,_fix = "0.8","fix11" -- Apr 24, 2019    
+_version,_fix = "0.8","fix12" -- Apr 25, 2019    
 _sceneName = "HC2 emulator"
 
 _LOCAL=true                -- set all resource to local in main(), i.e. no calls to HC2
@@ -45,6 +45,7 @@ _HC2_USER=_HC2_USER or "xxx@yyy"        -- HC2 user name
 _HC2_PWD=_HC2_PWD or "xxxxxx"           -- HC2 password
 
 _EVENTRUNNER_SUPPORT=true               -- Announce presence to HC2 and other ER scenes
+_DEBUGREMOTERSRC=true
 
 local creds = loadfile("credentials.lua") -- To not accidently commit credentials to Github...
 if creds then creds() end
@@ -67,8 +68,8 @@ function main()
     HC2.setLocal("globalVariables",true) -- set all globals to local   /api/globals
     HC2.setLocal("rooms",true)           -- set all rooms to local     /api/rooms
     HC2.setLocal("scenes",true)          -- set all scenes to local    /api/scenes
-    HC2.setLocal("info",true)            -- set info to local.         /api/settings/info
-    HC2.setLocal("location",true)        -- set location to local.     /api/settings/location
+    HC2.setLocal("settings","info")      -- set info to local.         /api/settings/info
+    HC2.setLocal("settings","location")  -- set location to local.     /api/settings/location
     HC2.setLocal("weather",true)         -- set weather to local.      /api/weather
     HC2.setLocal("users",true)           -- set users to local.        /api/users
     HC2.setLocal("iosDevices",true)      -- set iPhones to local       /api/iosDevices
@@ -163,7 +164,52 @@ function setupContext(id)  -- Table of functions and variables available for sce
     bit32=bit32,
   }
 end
+--[[
+  /devices
+  /globalVariables
+  /rooms
+  /scenes
+  /settings/info
+  /settings/location
+  /weather
+  /users
+  /iosDevices
 
+  HC2.rsrc.globalVariables = {}
+  HC2.rsrc.devices = {}
+  HC2.rsrc.iosDevices = {}
+  HC2.rsrc.users = {}
+  HC2.rsrc.scenes = {}
+  HC2.rsrc.sections = {}
+  HC2.rsrc.rooms = {}
+  HC2.rsrc["settings/info"] = {} -- { 1 = info }
+  HC2.rsrc["settings/location"] = {} -- { 1 = location }
+  HC2.rsrc.weather = {} -- { 1 = weather }
+
+
+  function setRemote(name,id)
+    HC2.getRsrc(name,id,true)._local=false
+  end
+  
+  function HC2.getRsrc(name,id,f)
+    local rsrcs = HC2.rsrc[name]
+    _assert(rsrcs,"Bad resource name")
+    local rsrc = rsrcs[id]
+    if not rsrc and autocreate[name] then
+      rsrc = autocreate[name](id)
+      rsrcs[id] = rsrc -- cache it
+    end
+    if rsrc and not rsrc._url then
+      if name == "weather" then rsrc._url = "/weather"
+      else rsrc._url = "/"..name.."/"..id end
+    end
+    if rsrc and not rsrc._local and not f then
+      rsrc = api.rawGet(false,rsrc._url)
+      rsrcs[id] = rsrc -- cache it
+    end
+    return rsrc
+  end
+--]]
 ------------------------------------------------------------------------------
 -- Startup
 ------------------------------------------------------------------------------
@@ -622,9 +668,8 @@ function HC2_functions()
   HC2.rsrc.scenes = {}
   HC2.rsrc.sections = {}
   HC2.rsrc.rooms = {}
-  HC2.rsrc.info = {{_local=false}} -- { 1 = info }
-  HC2.rsrc.location = {{_local=false}} -- { 1 = location }
-  HC2.rsrc.weather = {{_local=false}} -- { 1 = weather }
+  HC2.rsrc.settings ={} --
+  HC2.rsrc.weather = {} -- { 1 = weather }
   HC2.rsrc.count = {glob=0,dev=0,ios=0,users=0,scenes=0,sect=0,rooms=0}
 
   function HC2.getIPadress()
@@ -667,7 +712,7 @@ function HC2_functions()
 
   local function patchID(t) 
     local res,c={},0; 
-    for k,v in pairs(t) do if type(v)=='table' then res[tonumber(k)]=v c=c+1 end end 
+    for k,v in pairs(t) do if type(v)=='table' then res[tonumber(k)]=v; if v._local==nil then v._local=false end c=c+1 end end 
     return res,c
   end
 
@@ -676,24 +721,24 @@ function HC2_functions()
     local rsrc,count = HC2.rsrc,HC2.rsrc.count
     Log(LOG.SYSTEM,"Reading configuration from H2C...")
     local vars = api.rawGet(false,"/globalVariables/")
-    for _,v in ipairs(vars) do rsrc.globalVariables[v.name] = v count.glob=count.glob+1 end
+    for _,v in ipairs(vars) do rsrc.globalVariables[v.name] = v; v._local=false; count.glob=count.glob+1;  end
     local s = api.rawGet(false,"/sections")
-    for _,v in ipairs(s) do rsrc.sections[v.id] = v count.sect=count.sect+1 end
+    for _,v in ipairs(s) do rsrc.sections[v.id] = v; v._local=false; count.sect=count.sect+1 end
     s = api.rawGet(false,"/rooms")
-    for _,v in ipairs(s) do rsrc.rooms[v.id] = v count.rooms=count.rooms+1 end
+    for _,v in ipairs(s) do rsrc.rooms[v.id] = v; v._local=false; count.rooms=count.rooms+1 end
     s = api.rawGet(false,"/devices")
-    for _,v in ipairs(s) do rsrc.devices[v.id] = v count.dev=count.dev+1 end
+    for _,v in ipairs(s) do rsrc.devices[v.id] = v; v._local=false; count.dev=count.dev+1 end
     s = api.rawGet(false,"/scenes") -- need to retrieve once more to get the Lua code
     for _,v in ipairs(s) do 
       local scene = api.rawGet(false,"/scenes/"..v.id)
-      rsrc.scenes[v.id] = scene; count.scenes=count.scenes+1
+      rsrc.scenes[v.id] = scene; scene._local=false; count.scenes=count.scenes+1; 
       scene.EventRunner = scene.lua and scene.lua:match(ER.gEventRunnerKey)
     end
     s = api.rawGet(false,"/iosDevices")
-    for _,v in ipairs(s) do rsrc.iosDevices[v.id] = v count.ios=count.ios+1 end
-    rsrc.info[1] = api.rawGet(false,"/settings/info")
-    rsrc.location[1] = api.rawGet(false,"/settings/location")
-    rsrc.weather[1] = api.rawGet(false,"/weather")
+    for _,v in ipairs(s) do rsrc.iosDevices[v.id] = v; v._local=false; count.ios=count.ios+1 end
+    rsrc.settings.info = api.rawGet(false,"/settings/info"); rsrc.settings.info._local=false
+    rsrc.settings.location = api.rawGet(false,"/settings/location"); rsrc.settings.location._local=false
+    rsrc.weather[1] = api.rawGet(false,"/weather"); rsrc.weather[1]._local=false
     HC2.writeConfigurationToFile(file) 
     Log(LOG.SYSTEM,"Configuration from HC2, Globals:%s, Scenes:%s, Device:%s, Rooms:%s",count.glob,count.scenes,count.dev,count.rooms)
   end
@@ -707,23 +752,27 @@ function HC2_functions()
           count.glob=0
           Log(LOG.SYSTEM,"Reading and decoding configuration from %s",file)
           rsrc=persistence.load(file);
-          for n,_ in pairs(rsrc.globalVariables or {}) do count.glob=count.glob+1 end
+          for n,v in pairs(rsrc.globalVariables or {}) do if v._local==nil then v._local=false end; count.glob=count.glob+1 end
           rsrc.devices,count.dev=patchID(rsrc.devices or {}); 
           rsrc.scenes,count.scenes=patchID(rsrc.scenes); 
           rsrc.rooms,count.rooms=patchID(rsrc.rooms or {}); 
           rsrc.sections,count.sect=patchID(rsrc.sections); 
-          rsrc.iosDevices,count.ios=patchID(rsrc.iosDevices or {}); 
-          rsrc["settings/info"] = rsrc["settings/info"]  or {}
-          if not rsrc["settings/info"][1] then rsrc["settings/info"] = {rsrc["settings/info"]} end 
-          rsrc["settings/location"] = rsrc["settings/location"] or {}
-          if not rsrc["settings/location"][1] then rsrc["settings/location"] = {rsrc["settings/location"]} end 
+          rsrc.iosDevices,count.ios=patchID(rsrc.iosDevices or {});
+          if not rsrc.settings then rsrc.settings = {} end
+          rsrc.settings.info = rsrc.settings.info or rsrc["settings/info"] or rsrc.info[1]
+          if rsrc.settings.info and not next(rsrc.settings.info) then rsrc.settings.info = nil end
+          if rsrc.settings.info and rsrc.settings.info._local==nil then rsrc.settings.info._local=false end
+          rsrc.settings.location = rsrc.settings.location or rsrc["settings/location"] or rsrc.location[1]
+          if rsrc.settings.location and not next(rsrc.settings.location) then rsrc.settings.location = nil end
+          if rsrc.settings.location and rsrc.settings.location._local==nil then rsrc.settings.location._local=false end
           rsrc.weather = rsrc.weather or {}
           if not rsrc.weather[1] then rsrc.weather = {rsrc.weather} end
+          if rsrc.weather[1]._local==nil then rsrc.weather[1]._local=false end
           HC2.rsrc=rsrc
           HC2.rsrc.count = count
         end)
       if not stat then
-        Log(LOG.SYSTEM,"Bad format for HC2 data file (%s)(%s)",file,res)
+        Log(LOG.SYSTEM,"Bad format for HC2 data file (%s)(%s), please re-generate",file,res)
       end
     else Log(LOG.SYSTEM,"No HC2 data file found (%s)",file) end
     Log(LOG.SYSTEM,"Configuration from file, Globals:%s, Scenes:%s, Device:%s, Rooms:%s",count.glob,count.scenes,count.dev,count.rooms)
@@ -782,44 +831,39 @@ function HC2_functions()
     return json.decode(rsrc)
   end
 
-  local function rLen(s) local l=0; for _,_ in pairs(s) do l=l+1 end return l end
+  local autocreate = {
+    globalVariables = function(name) 
+      if not _AUTOCREATEGLOBALS then return end
+      Debug(_debugFlags.autocreate,"Autocreating global '%s'",name)
+      return HC2.createGlobal(name)
+    end,
+    devices = function(id) 
+      if id > 3 and not _AUTOCREATEDEVICES then return end
+      Debug(_debugFlags.autocreate,"Autocreating deviceID:%s",id)
+      if id==1 then return standardOne()
+      elseif id==2 then return standardTwo()
+      else return HC2.createDevice(id,tostring(id)) end
+    end,
+    settings = function(t) 
+      Debug(_debugFlags.autocreate,"Autocreating /settings/%s",t);
+      return t=='info' and standardInfo() or t=='location' and standardLocation()
+      end,
+    weather = function(id) Debug(_debugFlags.autocreate,"Autocreating /weather"); return standardWeather() end,
+  }
+
   function HC2.getRsrc(name,id,f)
     local rsrcs=HC2.rsrc[name]
     local rsrc=rsrcs[id]
 
-    if not rsrc or (rLen(rsrc)==1 and rsrc._local) then-- rsrc doesn't exists
-      if name=='globalVariables' and _AUTOCREATEGLOBALS then
-        Debug(_debugFlags.autocreate,"Autocreating global '%s'",id)
-        rsrc = HC2.createGlobal(id)
-      elseif name=="devices" and id==1 then
-        rsrc = standardOne()
-        rsrcs[id]=rsrc
-      elseif name=="devices" and id==2 then
-        rsrc = standardTwo()
-        rsrcs[id]=rsrc
-      elseif name=='devices' and _AUTOCREATEDEVICES then
-        Debug(_debugFlags.autocreate,"Autocreating deviceID:%s",id)
-        rsrc = HC2.createDevice(id,tostring(id))
-      elseif name=="info" then
-        rsrc = standardInfo()
-        rsrcs[id]=rsrc
-      elseif name=="location" then
-        rsrc = standardLocation()
-        rsrcs[id]=rsrc
-      elseif name=="weather" then
-        rsrc =  standardWeather()
-        rsrcs[id]=rsrc
-      end
+    if not rsrc and autocreate[name] then-- rsrc doesn't exists
+      rsrc = autocreate[name](id)
+      rsrcs[id]=rsrc
     end
 
-    if rsrc and rsrc._local or f then
-      -- found
-    elseif rsrc then -- remote resource - get it from HC2
+    if rsrc and rsrc._local==false and not f then -- remote resource - get it from HC2
       local url = "/"..name.."/"..id
-      if name=='info' then url="/settings/info"
-      elseif name=='location' then url="/settings/location"
-      elseif name=='weather' then url="/weather" end
-      rsrc = api.rawGet(false,url)
+      if name == "weather" then url="/weather" end
+      rsrc = api.rawGet(_DEBUGREMOTERSRC,url)
       rsrcs[id] = rsrc -- cache it
     end
     return rsrc
@@ -860,7 +904,7 @@ function HC2_functions()
     local d = HC2.getDevice(deviceID,true)
     if not d then return nil end
     if not d._local then 
-      return api.rawGet(false,"/devices/"..deviceID.."/properties/"..propertyName)
+      return api.rawGet(_DEBUGREMOTERSRC,"/devices/"..deviceID.."/properties/"..propertyName)
     else
       propertyName = d.type=='virtual_device' and _DEV_PROP_MAP[propertyName] or propertyName
       return {value=d.properties[propertyName],modified=d.modified}
@@ -875,8 +919,8 @@ function HC2_functions()
   function HC2.getSection(id,f) return HC2.getRsrc('sections',id,f) end
   function HC2.getiosDevice(id,f) return HC2.getRsrc('iosDevices',id,f) end
   function HC2.getWeather(id,f) return HC2.getRsrc('weather',1,f) end
-  function HC2.getInfo(id,f) return HC2.getRsrc('settings/info',1,f) end
-  function HC2.getLocation(id,f) return HC2.getRsrc('settings/location',1,f) end
+  function HC2.getInfo(id,f) return HC2.getRsrc('settings','info',f) end
+  function HC2.getLocation(id,f) return HC2.getRsrc('settings','location',1,f) end
 
   local function getResourceAPI(id,name,filter)
     if id and id ~= "" then return HC2.getRsrc(name,id),200
@@ -886,10 +930,8 @@ function HC2_functions()
   local vDevfilter = function(d) return d and d.type=='virtual_device' end
   local URLMap = {
     ["GET:settings"]=function(path)
-      if path=='info' then
-        return HC2.getRsrc("info",1),200
-      elseif path=='location' then
-        return HC2.getRsrc("location",1),200
+      if path=='location' or path=='info' then
+        return HC2.getRsrc("settings",path),200
       else return nil,404 end
     end,
     ["GET:weather"]=function(path) return HC2.getRsrc("weather",1),200 end,
@@ -1002,27 +1044,22 @@ function HC2_functions()
     elseif type(args)=='table' then 
       for _,id in ipairs(args) do if filter(list[id]) then HC2.getRsrc(t,id,true)._local= tp end end 
     elseif type(args)=='string' then 
-      if list[id] then list[id]._local = tp end
+      if list[args] then list[args]._local = tp end
     end
   end
 
-  local specResources={info=true,location=true,weather=true}
-  function HC2.setLocal(t,args) 
+  local specResources={weather={"weather",1},info={"settings","info"},location={"settings","location"}}
+  local function setRsrcStatus2(t,args,val,name) 
     local f = t=='virtualDevices' and vDevfilter
     if f then t="devices" end
+    if specResources[t] then t,args = table.unpack(specResources[t]) end
     if type(args)=='number' then args={args} end
-    if specResources[t] then args={1} end
-    local stat,res = pcall(function() setRsrcStatus(t,HC2.rsrc[t],args,true,f) end)
-    if not stat then Debug(true,"Err trying to setLocal(%s,%s) (%s)",t,tojson(args),res) end
+    local stat,res = pcall(function() setRsrcStatus(t,HC2.rsrc[t],args,val,f) end)
+    if not stat then Debug(true,"Err trying to %s(%s,%s) (%s)",name,t,tojson(args),res) end
   end
-  function HC2.setRemote(t,args) 
-    local f = t=='virtualDevices' and vDevfilter
-    if f then t="devices" end
-    if type(args)=='number' then args={args} end
-    if specResources[t] then args={1} end
-    local stat,res = pcall(function() setRsrcStatus(t,HC2.rsrc[t],args,false,f) end)
-    if not stat then Debug(true,"Err trying to setRemote(%s,%s) (%s)",t,tojson(args),res) end
-  end
+
+  function HC2.setLocal(t,args) setRsrcStatus2(t,args,true,"setLocal") end
+  function HC2.setRemote(t,args) setRsrcStatus2(t,args,false,"setRemote") end
 
   function HC2.createGlobal(name,value)
     if value~=nil then value=tostring(value) end
