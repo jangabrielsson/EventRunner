@@ -10,7 +10,7 @@ Test
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B23"  -- Apr 25, 2019  
+_version,_fix = "2.0","B24"  -- Apr 25, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -886,10 +886,14 @@ function newScriptEngine()
   local getIdFun={}
   getIdFun['isOn']=function(s,i) return doit(Util.mapOr2,function(id) return fibaro:getValue(ID(id,i),'value') > '0' end,s.pop()) end
   getIdFun['isOff']=function(s,i) return doit(Util.mapAnd2,function(id) return fibaro:getValue(ID(id,i),'value') == '0' end,s.pop()) end
+  getIdFun['isOpen']=function(s,i) return doit(Util.mapOr2,function(id) return fibaro:getValue(ID(id,i),'value') > '0' end,s.pop()) end
+  getIdFun['isClose']=function(s,i) return doit(Util.mapAnd2,function(id) return fibaro:getValue(ID(id,i),'value') == '0' end,s.pop()) end
   getIdFun['isAllOn']=function(s,i) return doit(Util.mapAnd2,function(id) return fibaro:getValue(ID(id,i),'value') > '0' end,s.pop()) end
   getIdFun['isAnyOff']=function(s,i) return doit(Util.mapOr2,function(id) return fibaro:getValue(ID(id,i),'value') == '0' end,s.pop()) end
   getIdFun['on']=function(s,i) doit(Util.mapF2,function(id) fibaro:call(ID(id,i),'turnOn') end,s.pop()) return true end
   getIdFun['off']=function(s,i) doit(Util.mapF2,function(id) fibaro:call(ID(id,i),'turnOff') end,s.pop()) return true end
+  getIdFun['open']=function(s,i) doit(Util.mapF2,function(id) fibaro:call(ID(id,i),'open') end,s.pop()) return true end
+  getIdFun['close']=function(s,i) doit(Util.mapF2,function(id) fibaro:call(ID(id,i),'close') end,s.pop()) return true end
   getIdFun['secure']=function(s,i) doit(Util.mapF2,function(id) fibaro:call(ID(id,i),'secure') end,s.pop()) return true end
   getIdFun['unsecure']=function(s,i) doit(Util.mapF2,function(id) fibaro:call(ID(id,i),'unsecure') end,s.pop()) return true end
   getIdFun['last']=function(s,i) local t = osTime()
@@ -1527,7 +1531,7 @@ function newRuleCompiler()
   local self = {}
   local map,mapkl=Util.map,Util.mapkl
   local _macros,_dailys,rCounter= {},{},0
-  local tProps ={value=1,isOn=1,isOff=1,isAnyOff=1,isAllOn=1,last=1,safe=1,breached=1,scene=2,power=3,bat=4,trigger=1,dID=7,toggle=1,lux=1,temp=1,manual=1,central=5,access=6}
+  local tProps ={value=1,isOn=1,isOff=1,open=1,close=1,isOpen=1,isClose=1,isAnyOff=1,isAllOn=1,last=1,safe=1,breached=1,scene=2,power=3,bat=4,trigger=1,dID=7,toggle=1,lux=1,temp=1,manual=1,central=5,access=6}
   local tPropsV = {[1]='value',[2]='sceneActivation',[3]='power',[4]='batteryLevel',[5]='CentralSceneEvent',[6]='AccessControlEvent',[7]='$prop'}
   local lblF=function(id,e) return {type='property', deviceID=id, propertyName=_format("ui.%s.value",e[3])} end
   local triggFuns={
