@@ -1,6 +1,7 @@
 --[[
 %% properties
-99 value
+88 value
+89 value
 %% events
 %% globals
 Test
@@ -10,7 +11,7 @@ Test
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B24"  -- Apr 25, 2019  
+_version,_fix = "2.0","B25"  -- Apr 25, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -28,7 +29,7 @@ _myNodeRed   = "http://192.168.1.50:1880/eventrunner" -- Ex. used for Event.post
 
 -- debug flags for various subsystems...
 _debugFlags = { 
-  post=true,invoke=false,triggers=true,dailys=true,rule=false,ruleTrue=false,hue=false,msgTime=false,
+  post=true,invoke=false,triggers=true,dailys=false,rule=false,ruleTrue=false,hue=false,msgTime=false,
   fcall=true, fglobal=false, fget=false, fother=true
 }
 ---------------- Here you place rules and user code, called once at startup --------------------
