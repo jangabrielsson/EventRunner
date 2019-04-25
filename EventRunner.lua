@@ -7,11 +7,10 @@ Test
 %% autostart
 --]]
 
-
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B22"  -- Apr 24, 2019  
+_version,_fix = "2.0","B23"  -- Apr 25, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -29,7 +28,7 @@ _myNodeRed   = "http://192.168.1.50:1880/eventrunner" -- Ex. used for Event.post
 
 -- debug flags for various subsystems...
 _debugFlags = { 
-  post=true,invoke=false,triggers=true,dailys=true,timers=false,rule=false,ruleTrue=false,hue=false,msgTime=false,
+  post=true,invoke=false,triggers=true,dailys=true,rule=false,ruleTrue=false,hue=false,msgTime=false,
   fcall=true, fglobal=false, fget=false, fother=true
 }
 ---------------- Here you place rules and user code, called once at startup --------------------
@@ -46,6 +45,11 @@ function main()
     other = "other"
   }
 
+  if _EMULATED then -- Things to do when we run in emulated mode
+    -- _System.speed(true) -- Set speeding
+    -- _System.setRemote("devices",11) -- setup device 11 for remote access
+  end
+  
   --or read in "HomeTable"
   --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
   --HT = json.decode(HT)
@@ -525,18 +529,18 @@ function newEventEngine()
   fibaro.call=function(obj,id,call,...) id = tonumber(id); if not id then error("deviceID not a number",2) end
   if ({turnOff=true,turnOn=true,on=true,off=true,setValue=true})[call] then lastID[id]={script=true,time=osTime()} end
   if call=='toggle' then return fibaro.call(obj,id,fibaro:getValue(id,"value")>"0" and "turnOff" or "turnOn") end
-    if id < 10000 then
-      if call=='setValue' then
-        fibaro._actions[id] = fibaro._actions[id] or  api.get("/devices/"..id).actions
-        if (not fibaro._actions[id].setValue) and fibaro._actions[id].turnOn then
-          fibaro._call(obj,id,tonumber(({...})[1]) > 0 and "turnOn" or "turnOff")
-        end
-      end 
-      return fibaro._call(obj,id,call,...) 
-    else return fibaro._idMap[id].call(obj,id,call,...) end
-  end
-  fibaro.get=function(obj,id,...) id = tonumber(id); if not id then error("deviceID not a number",2) end
-  if id < 10000 then return fibaro._get(obj,id,...) else return fibaro._idMap[id].get(obj,id,...) end
+  if id < 10000 then
+    if call=='setValue' then
+      fibaro._actions[id] = fibaro._actions[id] or  api.get("/devices/"..id).actions
+      if (not fibaro._actions[id].setValue) and fibaro._actions[id].turnOn then
+        fibaro._call(obj,id,tonumber(({...})[1]) > 0 and "turnOn" or "turnOff")
+      end
+    end 
+    return fibaro._call(obj,id,call,...) 
+  else return fibaro._idMap[id].call(obj,id,call,...) end
+end
+fibaro.get=function(obj,id,...) id = tonumber(id); if not id then error("deviceID not a number",2) end
+if id < 10000 then return fibaro._get(obj,id,...) else return fibaro._idMap[id].get(obj,id,...) end
 end
 fibaro.getValue=function (obj,id,...) id = tonumber(id); if not id then error("deviceID not a number",2) end
 if id < 10000 then return (fibaro._getValue(obj,id,...)) else return (fibaro._idMap[id].get(obj,id,...)) end
