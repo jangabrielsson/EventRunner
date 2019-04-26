@@ -11,7 +11,7 @@ Test
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B25"  -- Apr 25, 2019  
+_version,_fix = "2.0","B26"  -- Apr 26, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -54,11 +54,13 @@ function main()
   --or read in "HomeTable"
   --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
   --HT = json.decode(HT)
+  HT = {dev={allrum={uplight=88,vitrin=89},garage={fasadbak=90,portbelysning=91},altan={ljusslinga=92}}}
+  
   Util.defvars(HT.dev)            -- Make HomeTable defs available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable names available for logger
 
   rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 10 second
-
+  
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
 end -- main()
 
@@ -551,20 +553,19 @@ end
 local function traceFibaro(name,flag,rt)
   local orgFun=fibaro[name]
   fibaro[name]=function(f,id,...)
-    if id then id=Util._reverseVarTable and Util._reverseVarTable[id] or id end
     local args={...}
     local stat,res = pcall(function() return {orgFun(f,id,table.unpack(args))} end)
     if stat then
       if _debugFlags[flag] then
         if rt then rt(id,args,res)
         else
-          local astr=(id~=nil and tostring(id).."," or "")..json.encode(args):sub(2,-2)
+          local astr=(id~=nil and Util.reverseVar(id).."," or "")..json.encode(args):sub(2,-2)
           Debug(true,"fibaro:%s(%s)%s",name,astr,#res>0 and "="..tojson(res):sub(2,-2) or "")
         end
       end
       return table.unpack(res)
     else
-      local astr=(id~=nil and tostring(id).."," or "")..json.encode(args):sub(2,-2)
+      local astr=(id~=nil and Util.reverseVar(id).."," or "")..json.encode(args):sub(2,-2)
       error(_format("fibaro:%s(%s),%s",name,astr,res),3)
     end
   end
@@ -1540,7 +1541,9 @@ function newRuleCompiler()
   }
 
   local gtFuns = {
-    ['daily'] = function(e,s) s.dailys[#s.dailys+1 ]=ScriptCompiler.compile(e[2]) s.dailyFlag=true end,
+    ['daily'] = function(e,s) 
+      s.dailys[#s.dailys+1 ]=ScriptCompiler.compile(e[2]) 
+      s.dailyFlag=true end,
     ['schedule'] = function(e,s) s.scheds[#s.scheds+1 ] = ScriptCompiler.compile(e[2]) end,
     ['betw'] = function(e,s) 
       s.dailys[#s.dailys+1 ]=ScriptCompiler.compile(e[2])
@@ -1587,7 +1590,7 @@ function newRuleCompiler()
 
   local function compTimes(cs)
     local t1,t2=map(function(c) return ScriptEngine.eval(c) end,cs),{}
-    _transform(t1,function(t) t2[t]=true end)
+    _transform(t1[1],function(t) t2[t]=true end)
     return mapkl(function(k,v) return k end,t2)
   end
 
@@ -1653,7 +1656,7 @@ function newRuleCompiler()
             if t+m >= ot then dtimers[#dtimers+1]=Event.post(devent,t+m) else catchup1=true end
           else catchup2 = true end
         end
-        if catchup2 and catchup1 then Log(LOG.LOG,"Cathing up:%s",ctx.src); Event.post(devent) end
+        if catchup2 and catchup1 then Log(LOG.LOG,"Catching up:%s",ctx.src); Event.post(devent) end
       end
       if not dailyFlag and #triggs > 0 then -- id/glob trigger or events
         for _,tr in ipairs(triggs) do 

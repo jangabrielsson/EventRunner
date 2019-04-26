@@ -25,7 +25,7 @@ SOFTWARE.
 json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
-_version,_fix = "0.8","fix12" -- Apr 25, 2019    
+_version,_fix = "0.8","fix14" -- Apr 26, 2019    
 _sceneName = "HC2 emulator"
 
 _LOCAL=true                -- set all resource to local in main(), i.e. no calls to HC2
@@ -64,7 +64,7 @@ function main()
 
   if _LOCAL then                -- Set all resources to local
     HC2.setLocal("devices",true)         -- set all devices to local   /api/devices
-    HC2.setLocal("virtualDevices",true)  -- set all devices to local   /api/devices
+    HC2.setLocal("virtualDevices",true)  -- set all devices to local   /api/virtualDevices
     HC2.setLocal("globalVariables",true) -- set all globals to local   /api/globals
     HC2.setLocal("rooms",true)           -- set all rooms to local     /api/rooms
     HC2.setLocal("scenes",true)          -- set all scenes to local    /api/scenes
@@ -119,7 +119,7 @@ function main()
 end
 
 _debugFlags = { 
-  threads=false, triggers=false, eventserver=false, hc2calls=true, globals=false, web=true,
+  threads=false, triggers=true, eventserver=false, hc2calls=true, globals=false, web=true,
   fcall=true, fglobal=true, fget=true, fother=true
 }
 
@@ -847,7 +847,7 @@ function HC2_functions()
     settings = function(t) 
       Debug(_debugFlags.autocreate,"Autocreating /settings/%s",t);
       return t=='info' and standardInfo() or t=='location' and standardLocation()
-      end,
+    end,
     weather = function(id) Debug(_debugFlags.autocreate,"Autocreating /weather"); return standardWeather() end,
   }
 
@@ -1094,7 +1094,7 @@ function HC2_functions()
         startUpdate = 1,
         turnOff = 0,
         turnOn = 0,
-        --setValue = 1,
+        setValue = 1,
         setArmed = 1,
         forceArm = 0,
         updateFirmware = 1
@@ -1879,6 +1879,8 @@ function Fibaro_functions()
   function _specCalls.sendPush(id,msg) end -- log to console?
   function _specCalls.pressButton(id,msg) end -- simulate VD?
   function _specCalls.setPower(id,value) setAndPropagate(id,"power",value) end
+  function _specCalls.close(id,value) setAndPropagate(id,"value",0) end
+  function _specCalls.open(id,value) setAndPropagate(id,"value",100) end
 
   function fibaro:call(deviceID ,actionName ,...)  YIELD(10)
     deviceID =  tonumber(deviceID) 
@@ -2074,10 +2076,26 @@ Expected input:
 -- Logging of fibaro:* calls -------------
 
   fibaro.mapTable = {}
+
+  local function reverseMap(path,value)
+    if type(value) == 'number' then
+      fibaro.mapTable[tostring(value)] = table.concat(path,".")
+    elseif type(value) == 'table' and not value[1] then
+      for k,v in pairs(value) do
+        table.insert(path,k) 
+        reverseMap(path,v)
+        table.remove(path) 
+      end
+    end
+  end
+  
+  local function reverseVar(id) return fibaro.mapTable[tostring(id)] or id end
+  
   function traceFibaroIDs(tb)
     _assert(type(tb) == 'table',"traceFibaroIDs bad argument")
-    for id,p in pairs(tb) do if tonumber(id) then fibaro.mapTable[id]=p end end
+    reverseMap({},tb)
   end
+
   if _System then _System.reverseMapDef  = traceFibaroIDs end
 
   local function checkFlag(flag,def) 
@@ -2089,20 +2107,20 @@ Expected input:
   function traceFibaro(name,flag,rt)
     local orgFun=fibaro[name]
     fibaro[name]=function(f,id,...)
-      if id then id=fibaro.mapTable and fibaro.mapTable[id] or id end
+      --if id then id=reverseVar(id) end
       local args={...}
       local stat,res = pcall(function() return {orgFun(f,id,table.unpack(args))} end)
       if stat then
         if checkFlag(flag) then
           if rt then rt(id,args,res)
           else
-            local astr=(id~=nil and tostring(id).."," or "")..json.encode(args):sub(2,-2)
+            local astr=(id~=nil and reverseVar(id).."," or "")..json.encode(args):sub(2,-2)
             Debug(true,"fibaro:%s(%s)%s",name,astr,#res>0 and "="..tojson(res):sub(2,-2) or "")
           end
         end
         return table.unpack(res)
       else
-        local astr=(id~=nil and tostring(id).."," or "")..json.encode(args):sub(2,-2)
+        local astr=(id~=nil and Util.reverseVar(id).."," or "")..json.encode(args):sub(2,-2)
         error(_format("fibaro:%s(%s),%s",name,astr,res),3)
       end
     end
