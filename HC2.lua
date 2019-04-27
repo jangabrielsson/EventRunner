@@ -25,13 +25,13 @@ SOFTWARE.
 json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
-_version,_fix = "0.8","fix14" -- Apr 26, 2019    
+_version,_fix = "0.8","fix15" -- Apr 27, 2019    
 _sceneName = "HC2 emulator"
 
-_LOCAL=true                -- set all resource to local in main(), i.e. no calls to HC2
+_LOCAL=true                  -- set all resource to local in main(), i.e. no calls to HC2
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
 _SPEEDTIME = false           -- Run faster than realtime, if set to false run in realtime
-_MAXTIME = 24*35            -- Max hours to run emulator
+_MAXTIME = 24*35             -- Max hours to run emulator
 _BLOCK_PUT=true              -- Block http PUT commands to the HC2 - e.g. changing resources on the HC2
 _BLOCK_POST=true             -- Block http POST commands to the HC2 - e.g. creating resources on the HC2
 _AUTOCREATEGLOBALS=true      -- Will (silently) autocreate a local fibaro global if it doesn't exist
@@ -77,7 +77,7 @@ function main()
 
   --HC2.setRemote("devices",{1,2})         -- sunset/sunrise/latitude/longitude etc.
   --HC2.setRemote("devices",{66,88}) -- We still want to run local, except for deviceID 66,88 that will be controlled on the HC2
-  --HC2.createDevice(88,"Test")
+  HC2.createDevice(88,"Test")
 
   HC2.loadEmbedded()   -- If we are called from another scene (dofile...)
 
@@ -164,52 +164,7 @@ function setupContext(id)  -- Table of functions and variables available for sce
     bit32=bit32,
   }
 end
---[[
-  /devices
-  /globalVariables
-  /rooms
-  /scenes
-  /settings/info
-  /settings/location
-  /weather
-  /users
-  /iosDevices
 
-  HC2.rsrc.globalVariables = {}
-  HC2.rsrc.devices = {}
-  HC2.rsrc.iosDevices = {}
-  HC2.rsrc.users = {}
-  HC2.rsrc.scenes = {}
-  HC2.rsrc.sections = {}
-  HC2.rsrc.rooms = {}
-  HC2.rsrc["settings/info"] = {} -- { 1 = info }
-  HC2.rsrc["settings/location"] = {} -- { 1 = location }
-  HC2.rsrc.weather = {} -- { 1 = weather }
-
-
-  function setRemote(name,id)
-    HC2.getRsrc(name,id,true)._local=false
-  end
-  
-  function HC2.getRsrc(name,id,f)
-    local rsrcs = HC2.rsrc[name]
-    _assert(rsrcs,"Bad resource name")
-    local rsrc = rsrcs[id]
-    if not rsrc and autocreate[name] then
-      rsrc = autocreate[name](id)
-      rsrcs[id] = rsrc -- cache it
-    end
-    if rsrc and not rsrc._url then
-      if name == "weather" then rsrc._url = "/weather"
-      else rsrc._url = "/"..name.."/"..id end
-    end
-    if rsrc and not rsrc._local and not f then
-      rsrc = api.rawGet(false,rsrc._url)
-      rsrcs[id] = rsrc -- cache it
-    end
-    return rsrc
-  end
---]]
 ------------------------------------------------------------------------------
 -- Startup
 ------------------------------------------------------------------------------
@@ -842,7 +797,7 @@ function HC2_functions()
       Debug(_debugFlags.autocreate,"Autocreating deviceID:%s",id)
       if id==1 then return standardOne()
       elseif id==2 then return standardTwo()
-      else return HC2.createDevice(id,tostring(id)) end
+      else return HC2.createDevice(id) end
     end,
     settings = function(t) 
       Debug(_debugFlags.autocreate,"Autocreating /settings/%s",t);
@@ -928,6 +883,7 @@ function HC2_functions()
   end
 
   local vDevfilter = function(d) return d and d.type=='virtual_device' end
+  local vLoadedScenes = function(d) return d and Scene.scenes[d.id] end
   local URLMap = {
     ["GET:settings"]=function(path)
       if path=='location' or path=='info' then
@@ -950,7 +906,7 @@ function HC2_functions()
     ["GET:users"]=function(path) return getResourceAPI(tonumber(path),'users') end,
     ["GET:globalVariables"]=function(path) return getResourceAPI(path,'globalVariables') end,
     ["GET:scenes"]=function(path)
-      if tonumber(path) or path=="" then return getResourceAPI(tonumber(path),'scenes') end
+      if tonumber(path) or path=="" then return getResourceAPI(tonumber(path),'scenes',vLoadedScenes) end
       local id = patch:match("(%d+)/debugMessages")
       if tonumber(id) then
         -- return debug messages
@@ -1068,40 +1024,72 @@ function HC2_functions()
     return HC2.rsrc.globalVariables[name]
   end
 
--- lets make a vanilla device of type switch...
--- ToDo, make this more realistic, clone existing devices?
-  function HC2.createDevice(id,name,roomID,type,baseType,value)
-    local d = 
-    {
-      _local=true,
-      id=id,
-      name=name,
-      roomID = false,
-      type = type or "com.fibaro.FGWP101",
-      baseType = basType or "com.fibaro.FGWP",
-      enabled = true,
-      properties={
-        value=value or false,
-        armed = false,
-        lastBreached = osTime(),
-        deviceIcon = 42
-      },
-      actions = {
-        abortUpdate = 1,
-        reconfigure = 0,
-        reset = 0,
-        retryUpdate = 1,
-        startUpdate = 1,
-        turnOff = 0,
-        turnOn = 0,
-        setValue = 1,
-        setArmed = 1,
-        forceArm = 0,
-        updateFirmware = 1
-      },
-      created = osTime(),
-      modified = osTime(),
-    }
+-- Devices tamples for making fakse devices
+  simDevices = {
+    rollerShutter = 
+[[{"type":"com.fibaro.rollerShutter","baseType":"com.fibaro.actor",
+  "interfaces":["energy","levelChange","power","zwave","zwaveMultiChannelAssociation","zwaveSwitchAll"],
+  "properties":{"parameters":[],"categories":"[\"blinds\"]","configured":true,"dead":"false","energy":"0.00","power":"0.00","value":"99"},
+  "actions":{"close":0,"open":0,"reconfigure":0,"reset":0,"setValue":1,"startLevelDecrease":0,"startLevelIncrease":0,"stop": 0,"stopLevelChange":0},
+}]],
+
+    plug =
+[[{"type":"com.fibaro.FGWP102","baseType":"com.fibaro.FGWP","enabled":true,
+   "interfaces":["deviceGrouping","energy","power","zwave","zwaveAlarm","zwaveMultiChannelAssociation"],
+   "properties":{"color":"white","dead":"false","deadReason":"","energy":"264.49","markAsDead":"true","value":"true"},
+   "actions":{"turnOff":0,"turnOn":0}
+}]],
+
+    binarySwitch = 
+[[{"type":"com.fibaro.binarySwitch","baseType":﻿"com.fibaro.actor",
+   "interfaces":["deviceGrouping","light","zwave","zwaveMultiChannelAssociation"],
+   "properties":{"parameters":[],"dead":"false","deadReason":"","isLight":"true","markAsDead":"true","value":"false"},
+   "actions":{"abortUpdate":1,"reconfigure":0,"retryUpdate":1,"startUpdate":1,"turnOff":0,"turnOn":0,"updateFirmware":1},
+}]],
+
+    rgb =
+[[{"type":"com.fibaro.FGRGBW441M","baseType":"com.fibaro.colorController",
+  "interfaces":["deviceGrouping","energy","levelChange","light","power","zwave","zwaveConfiguration"],
+  "properties": {
+    "parameters":[],"buttonType": "0","dead": "false","markAsDead": "true",
+    "energy": "0.94","power": "0.00","isLight": "false",
+    "lastColorSet":"0,0,0,0","rememberColor":"true","favoriteProgram":"0","currentProgramID":"0","currentProgram":"0",
+    "r":"0","g":"0","b":"0","w": "0","brightness": "0","color": "0,0,0,0","mode": "0","value": "0",
+  },
+  "actions": {
+    "associationGet": 1,"associationSet": 2,"getParameter": 1,"reconfigure": 0,"reset": 0,
+    "setB": 1,"setG": 1,"setR": 1,"setW": 1,"setBrightness": 1,"setColor": 1,"setFavoriteProgram": 2,
+    "setParameter": 2,"setValue": 1,
+    "startProgram":1,"stopLevelChange":0,"startLevelDecrease":0,"startLevelIncrease":0,"turnOff":0,"turnOn":0}
+}]],
+  
+  dimmer = 
+[[{"type":"com.fibaro.multilevelSwitch","baseType":"com.fibaro.binarySwitch",
+   "interfaces":["deviceGrouping","levelChange","light","power","zwave","zwaveConfiguration","zwaveSceneActivation"],
+   "properties":{"parameters":[],"configured":"true","dead":"false","power":"0.00","powerConsumption":"42","sceneActivation":"0","value":"0"},
+   "actions":{
+      "associationGet":1,"associationSet":2,"getParameter":1,"setParameter":2,"setValue":1,
+      "startLevelDecrease":0,"startLevelIncrease":0,"stopLevelChange":0,"turnOff":0,"turnOn":0}
+}]]
+  }
+
+  function HC2.createDevice(id,name,t,roomID,value)
+    t = t or "dimmer"
+    _assert(id,"Can't create device with nil ID")
+    name = name or t..":"..id
+    local d = simDevices[t]
+    _assert(d,"Can't create device, "..tostring(t))
+    d = json.decode(d)
+    d.id=id
+    d.name=name
+    d.roomID = roomID or false
+    d.enabled=true
+    d.visible=true
+    d._local = true
+    if d.lastBreached then d.lastBreached = osTime() end
+    if d.properties.value~=nil and value~=nil then d.properties.value = value end
+    d.created = osTime()
+    d.modified = osTime()
     if HC2.rsrc.devices[id] then
       error(_format("deviceID:%s already exists!",id),3)
     else HC2.rsrc.devices[id]=d end
@@ -2088,9 +2076,9 @@ Expected input:
       end
     end
   end
-  
+
   local function reverseVar(id) return fibaro.mapTable[tostring(id)] or id end
-  
+
   function traceFibaroIDs(tb)
     _assert(type(tb) == 'table',"traceFibaroIDs bad argument")
     reverseMap({},tb)
