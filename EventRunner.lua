@@ -11,7 +11,7 @@ Test
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B26"  -- Apr 26, 2019  
+_version,_fix = "2.0","B27"  -- Apr 27, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -47,7 +47,7 @@ function main()
   }
 
   if _EMULATED then -- Things to do when we run in emulated mode
-    -- _System.speed(true) -- Set speeding
+    _System.speed(true) -- Set speeding
     -- _System.setRemote("devices",11) -- setup device 11 for remote access
   end
   
@@ -58,7 +58,7 @@ function main()
   
   Util.defvars(HT.dev)            -- Make HomeTable defs available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable names available for logger
-
+  
   rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 10 second
   
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
@@ -1635,9 +1635,10 @@ function newRuleCompiler()
       local sevent={type=Util.gensym("INTERV")}
       events[#events+1] = Event.event(sevent,action,nil,ctx); events[#events].ctx=ctx
       sevent._sh=true
-      local timeVal,skip = osTime(),ScriptEngine.eval(scheds[1])
-      if timeVal<0 then timeVal=-timeVal; skip = timeVal end
+      local timeVal,skip = nil,ScriptEngine.eval(scheds[1])
+      Log(LOG.LOG,'start')
       local function interval()
+        timeVal=timeVal or osTime()
         Event.post(sevent)
         timeVal = timeVal+math.abs(ScriptEngine.eval(scheds[1]))
         setTimeout(interval,1000*(timeVal-osTime()))
