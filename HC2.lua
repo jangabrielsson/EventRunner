@@ -25,7 +25,7 @@ SOFTWARE.
 json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
-_version,_fix = "0.8","fix16" -- Apr 27, 2019    
+_version,_fix = "0.8","fix17" -- Apr 27, 2019    
 _sceneName = "HC2 emulator"
 
 _LOCAL=true                  -- set all resource to local in main(), i.e. no calls to HC2
@@ -1977,7 +1977,8 @@ Expected input:
 -- Not sure I got all the options right..
   function _HTTP:request(url,options)
     local resp = {}
-    local req = options and options.options or {}
+    options = options or {}
+    local req = options.options or {}
     req.url = url
     req.headers = req.headers or {}
     req.sink = ltn12.sink.table(resp)
