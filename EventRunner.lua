@@ -17,7 +17,6 @@ _version,_fix = "2.0","B29"  -- Apr 27, 2019
 -- EventRunner. Event based scheduler/device trigger handler
 -- Copyright 2019 Jan Gabrielsson. All Rights Reserved.
 -- Email: jan@gabrielsson.com
--- Email: jan@gabrielsson.com
 --]]
 
 _sceneName   = "Demo"      -- Set to scene/script name
