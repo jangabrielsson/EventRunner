@@ -11,7 +11,7 @@ Test
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B28"  -- Apr 27, 2019  
+_version,_fix = "2.0","B29"  -- Apr 27, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -46,19 +46,19 @@ function main()
     other = "other"
   }
 
-  if _EMULATED then -- Things to do when we run in emulated mode
-    -- _System.speed(true) -- Set speeding
-    -- _System.setRemote("devices",11) -- setup device 11 for remote access
-  end
-
   --or read in "HomeTable"
   --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
   --HT = json.decode(HT)
 
+  if _EMULATED then -- Things to do when we run in emulated mode
+    -- _System.speed(true) -- Set speeding
+    -- _System.setRemote("devices",11) -- setup device 11 for remote access
+  end
+  
   Util.defvars(HT.dev)            -- Make HomeTable defs available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable names available for logger
-
-  rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 10 second
+  
+  rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
 
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
 end -- main()
