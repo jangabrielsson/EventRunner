@@ -883,7 +883,7 @@ function HC2_functions()
   end
 
   local vDevfilter = function(d) return d and d.type=='virtual_device' end
-  local vLoadedScenes = function(d) return d and Scene.scenes[d.id] end
+  local vLoadedScenes = function(d) return d and (d._local and Scene.scenes[d.id] or d._local==false) end
   local URLMap = {
     ["GET:settings"]=function(path)
       if path=='location' or path=='info' then
