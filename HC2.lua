@@ -25,7 +25,7 @@ SOFTWARE.
 json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
-_version,_fix = "0.8","fix15" -- Apr 27, 2019    
+_version,_fix = "0.8","fix16" -- Apr 27, 2019    
 _sceneName = "HC2 emulator"
 
 _LOCAL=true                  -- set all resource to local in main(), i.e. no calls to HC2
@@ -756,12 +756,6 @@ function HC2_functions()
   local function standardOne()
     local rsrc= 
     [[{"properties":{"sunsetHour":"06:00","sunriseHour":"20:00"},"_local":true}]]
-    return json.decode(rsrc)
-  end
-
-  local function standardTwo()
-    local rsrc= 
-    [[{"properties":{"Longitude":19.787,"Latitude":61.33},"_local":true}]]
     return json.decode(rsrc)
   end
 
@@ -1983,7 +1977,7 @@ Expected input:
 -- Not sure I got all the options right..
   function _HTTP:request(url,options)
     local resp = {}
-    local req = options.options
+    local req = options and options.options or {}
     req.url = url
     req.headers = req.headers or {}
     req.sink = ltn12.sink.table(resp)
@@ -2000,9 +1994,9 @@ Expected input:
     end
     http.TIMEOUT = timeout
     if response == 1 then 
-      options.success({status=status, headers=headers, data=table.concat(resp)})
+      if options.success then options.success({status=status, headers=headers, data=table.concat(resp)}) end
     else
-      options.error(status)
+      if options.error then options.error(status) end
     end
   end
 
@@ -2882,8 +2876,9 @@ function libs()
   end
 
   function SunCalc.sunCalc(time)
-    local lat = HC2.getDeviceProperty(2,"Latitude").value or _LATITUDE
-    local lon = HC2.getDeviceProperty(2,"Longitude").value or _LONGITUDE
+    local hc2Info = HC2.getLocation()
+    local lat = hc2Info.latitude or _LATITUDE
+    local lon = hc2Info.longitude or _LONGITUDE
     local utc = SunCalc.getTimezone() / 3600
     local zenith = 90.83 -- sunset/sunrise 90°50′
     local zenith_twilight = 96.0 -- civil twilight 96°0′
