@@ -65,7 +65,7 @@ end -- main()
 
 ------------------- EventModel - Don't change! --------------------  
 Event = Event or {}
-_STARTONTRIGGER = false
+_STARTONTRIGGER = _STARTONTRIGGER or false
 _NUMBEROFBOXES = _NUMBEROFBOXES or 1
 _MAILBOXES={}
 _emulator={ids={},adress=nil}
