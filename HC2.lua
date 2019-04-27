@@ -1137,6 +1137,7 @@ function HC2_functions()
   HC2._monitors={}
   function HC2.monitorDevice(id,prop)
     if HC2._monitors[id] then return end -- already monitoring
+    prop = prop or "value"
     local d =  HC2.getDevice(id,true)
     if not d then Log(LOG.WARNING,"Err: monitoring non-existant deviceID:%s",id) return end 
     if d._local then Log(LOG.WARNING,"Err: can't monitor local deviceID:%s",id) return end 

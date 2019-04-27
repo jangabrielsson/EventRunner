@@ -11,7 +11,7 @@ Test
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B29"  -- Apr 27, 2019  
+_version,_fix = "2.0","B31"  -- Apr 27, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -116,6 +116,7 @@ if _supportedEvents[_type] then
   if _debugFlags.msgTime then _trigger._timestamps.posted={os.time(),os.clock()} event=json.encode(_trigger) end
   fibaro:setGlobal(mb,event) -- write msg
   if count>1  then fibaro:abort() end -- and exit
+  _trigger.type,_type='other','other'
 end
 
 ---------- Consumer - re-posting incoming triggers as internal events --------------------
@@ -2120,7 +2121,7 @@ if _type == 'other' and fibaro:countScenes() > 1 then
   Log(LOG.LOG,"Scene already started. Try again?") 
   fibaro:abort()
 end
-if _type == 'autostart' or _type == 'other' or _STARTONTRIGGER then
+if _type == 'autostart' or _type == 'other' then
   Log(LOG.WELCOME,_format("%sEventRunner v%s %s",_sceneName and (_sceneName.." - " or ""),_version,_fix))
 
   local info = api.get("/settings/info")
