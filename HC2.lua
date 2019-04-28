@@ -25,7 +25,7 @@ SOFTWARE.
 json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
-_version,_fix = "0.8","fix17" -- Apr 27, 2019    
+_version,_fix = "0.8","fix18" -- Apr 28, 2019    
 _sceneName = "HC2 emulator"
 
 _LOCAL=true                  -- set all resource to local in main(), i.e. no calls to HC2
@@ -57,7 +57,7 @@ EMBEDDED = EMULATED or EMBEDDED
 function main()
 
   if HC2.getIPadress():match("192%.168") then      -- only of we are on the local network
-    --  HC2.copyConfigFromHC2(_HC2_FILE)           -- read in configuration  HC2 and  write to file
+    --HC2.copyConfigFromHC2(_HC2_FILE)           -- read in configuration  HC2 and  write to file
   end
 
   HC2.loadConfigFromFile(_HC2_FILE)   -- read in HC2 configuration data from file
@@ -77,9 +77,12 @@ function main()
 
   --HC2.setRemote("devices",{1,2})         -- sunset/sunrise/latitude/longitude etc.
   --HC2.setRemote("devices",{66,88}) -- We still want to run local, except for deviceID 66,88 that will be controlled on the HC2
-  HC2.createDevice(88,"Test")
-
+  --HC2.createDevice(88,"Test")
+  HC2.setRemote("devices",{5})
   HC2.loadEmbedded()   -- If we are called from another scene (dofile...)
+
+  --Proxy.installProxy()
+  --Proxy.removeProxy()
 
   --HC2.loadScenesFromDir("scenes") -- Load all files with name <ID>_<name>.lua from dir, Ex. 11_MyScene.lua
   --HC2.createDevice(77,"Test")     -- Create local deviceID 77 with name "[[Test"
@@ -293,6 +296,12 @@ for i = 0,8 do print(("%s \027[1;%dmXYZ\027[0m bright"):format(38+i, 30+i)) end
   function _assertf(test,msg,fun) if not test then msg = _format(msg,fun and fun() or "") error(msg,3) end end
   function Debug(flag,message,...) if flag then Util.Msg(LOG.DEBUG,message,...) end end
   function Log(color,message,...) return Util.Msg(color,message,...) end
+
+  Util.getIDfromEvent={ CentralSceneEvent=function(d) return d.deviceId end,AccessControlEvent=function(d) return d.id end }
+  Util.getIDfromTrigger={
+    property=function(e) return e.deviceID end,
+    event=function(e) return e.event and Util.getIDfromEvent[e.event.type or ""](e.event.data) end
+  }
 end
 
 ------------------------------------------------------------
@@ -438,6 +447,91 @@ function Web_functions()
   end
 
 end
+
+------------------------------------------------------------------------------
+-- Scene support
+-- load
+-- start
+-- kill
+------------------------------------------------------------------------------
+function Proxy_functions()
+
+  Proxy = {}
+
+  function Proxy.installProxy(name)
+    name = name or "_EMULATOR_PROXY"
+    local id,proxy
+    local nproxies=0
+    local scenes = api.rawGet(false,"/scenes")
+    for _,s in ipairs(scenes) do 
+      if s.name==name then id = s.id; proxy = s break end -- already exist, return ID
+    end
+    if not id then
+      proxy = {actions = {devices = {}, groups = {}, scenes = {}}, 
+        alexaProhibited = true, autostart = true, --iconID = 0, 
+        isLua = true, killOtherInstances = false, killable = true, 
+        lua = "", maxRunningInstances = 10, 
+        name = name,properties = "", protectedByPIN = false,runConfig = "TRIGGER_AND_MANUAL", 
+        triggers = {events = {}, globals = {}, properties = {}, weather = {}}, 
+        type = "com.fibaro.luaScene",visible = false}
+      local s2 = api.rawPost(false,"/scenes",proxy)
+      proxy = api.rawGet(false,"/scenes") -- find out what ID it got and return ID
+      id = proxy and type(proxy)=='table' and proxy.id
+    end
+    if id then
+      local trH = {autostart={},properties={},globals={},events={}}
+      for _,tr in ipairs(Scene.getAllLoadedTriggers()) do
+        if tr.type=='property' and HC2.getDevice(tr.deviceID,true)._local == false then 
+          trH.properties[#trH.properties+1]=_format("%d %s",tr.deviceID,tr.propertyName)
+        elseif tr.type=='global' and HC2.getGlobal(tr.name,true)._local == false then 
+          trH.globals[#trH.globals+1]=tr.name
+        elseif tr.type=='event' and HC2.getDevice(Util.getIDfromTrigger[tr.type](tr),true) then
+          local id = Util.getIDfromTrigger[tr.type](tr)
+          trH.events[#trH.events+1]=_format("%d %s",id,tr.event.type) 
+        end
+      end
+      local trH2 = {}
+      for h,v in pairs(trH) do
+        trH2[#trH2+1]="%% "..h
+        for _,t in ipairs(v) do nproxies=nproxies+1; trH2[#trH2+1]=t end
+      end
+      trH2=table.concat(trH2,"\n")
+      proxy.runConfig = "TRIGGER_AND_MANUAL"
+      proxy.maxRunningInstances = 10
+      proxy.lua = 
+"--[[".."\n"..trH2.."\n".."--]]\n"..[[
+  local host,port = "]]..HC2.getIPadress()..[[",6872 -- IP and port of emulator
+  local URL = string.format("http://%s:%s/trigger",host,port)
+  local trigger = fibaro:getSourceTrigger()
+  local data = json.encode(trigger)
+  fibaro:debug(data)
+  if trigger.type == 'autostart' or trigger.type=='other' then
+    fibaro:abort()
+  end
+  local req = net.HTTPClient()
+  req:request(URL,{options = {method = 'POST', data=data, timeout=500},
+    error = function(status) fibaro:debug(json.encode(status)) end}) 
+]]
+      api.rawPut(false,"/scenes/"..id,proxy)
+      Log(LOG.SYSTEM,"HC2 trigger proxy installed (%s)",nproxies)
+      return id
+    end
+  end
+
+  function Proxy.removeProxy(name)
+    name = name or "_EMULATOR_PROXY"
+    local scenes = api.rawGet(false,"/scenes")
+    for _,s in ipairs(scenes) do 
+      if s.name==name then
+        api.rawDelete(false,"/scenes/"..s.id)
+        Log(LOG.SYSTEM,"HC2 trigger proxy removed")
+        break;
+      end 
+    end
+  end
+end
+
+
 ------------------------------------------------------------------------------
 -- Scene support
 -- load
@@ -579,10 +673,10 @@ function Scene_functions()
       if name and name ~="" then events[#events+1]={type='global', name=name} end
     end
     for i=1,headers['events'] and #headers['events'] or 0 do
-      local id,t = headers['events'][i]:match("(%d+)%s+CentralSceneEvent")
+      local id,t = headers['events'][i]:match("(%d+)%s+(CentralSceneEvent)")
       if id and id~="" and t and t~="" then events[#events+1]={type='event',event={type='CentralSceneEvent',data={deviceId=tonumber(id)}}}
       else
-        id,t = headers['events'][i]:match("(%d+)%s+AccessControlEvent")
+        id,t = headers['events'][i]:match("(%d+)%s+(AccessControlEvent)")
         if id and id~="" and t and t~="" then events[#events+1]={type='event',event={type='AccessControlEvent',data={id=tonumber(id)}}} end 
       end
     end
@@ -591,12 +685,12 @@ function Scene_functions()
   end
 
   function Scene.getAllLoadedTriggers()
-    if Scene.allLoadedTriggers then return Scene.allLoadedTriggers end
+    Scene.allLoadedTriggers = {}
     local ts={}
     for id,scene in pairs(HC2.rsrc.scenes) do
       if scene.fromFile then
         for _,t in pairs(scene.triggers) do
-          if t.type=='property' or t.type=='global' then
+          if t.type=='property' or t.type=='global' or t.type=='event' then
             local f=true
             for _,t0 in pairs(ts) do if Util.equal(t0,t) then f= false break end end
             if f then ts[#ts+1]=t
@@ -616,24 +710,31 @@ end
 ------------------------------------------------------------------------
 function HC2_functions()
   HC2 = { rsrc={} }
-  HC2.rsrc.globalVariables = {}
-  HC2.rsrc.devices = {}
-  HC2.rsrc.iosDevices = {}
-  HC2.rsrc.users = {}
-  HC2.rsrc.scenes = {}
-  HC2.rsrc.sections = {}
-  HC2.rsrc.rooms = {}
-  HC2.rsrc.settings ={} --
-  HC2.rsrc.weather = {} -- { 1 = weather }
-  HC2.rsrc.count = {glob=0,dev=0,ios=0,users=0,scenes=0,sect=0,rooms=0}
+  local function initRsrcses()
+    HC2.rsrc.globalVariables = {}
+    HC2.rsrc.devices = {}
+    HC2.rsrc.iosDevices = {}
+    HC2.rsrc.users = {}
+    HC2.rsrc.scenes = {}
+    HC2.rsrc.sections = {}
+    HC2.rsrc.rooms = {}
+    HC2.rsrc.settings ={} --
+    HC2.rsrc.weather = {} -- { 1 = weather }
+    HC2.rsrc.count = {glob=0,dev=0,ios=0,users=0,scenes=0,sect=0,rooms=0}
+  end
 
+  initRsrcses()
+
+  _IPADDRESS = nil
   function HC2.getIPadress()
+    if _IPADDRESS then return _IPADDRESS end
     local someRandomIP = "192.168.1.122" --This address you make up
     local someRandomPort = "3102" --This port you make up  
     local mySocket = socket.udp() --Create a UDP socket like normal
     mySocket:setpeername(someRandomIP,someRandomPort) 
     local myDevicesIpAddress, somePortChosenByTheOS = mySocket:getsockname()-- returns IP and Port
-    return myDevicesIpAddress == "0.0.0.0" and "127.0.0.1" or myDevicesIpAddress
+    _IPADDRESS = myDevicesIpAddress == "0.0.0.0" and "127.0.0.1" or myDevicesIpAddress
+    return _IPADDRESS
   end
 
   function HC2.runTriggers(tab)
@@ -673,6 +774,7 @@ function HC2_functions()
 
   function HC2.copyConfigFromHC2(file)
     file = file or _HC2_FILE
+    initRsrcses()
     local rsrc,count = HC2.rsrc,HC2.rsrc.count
     Log(LOG.SYSTEM,"Reading configuration from H2C...")
     local vars = api.rawGet(false,"/globalVariables/")
@@ -1056,8 +1158,8 @@ function HC2_functions()
     "setParameter": 2,"setValue": 1,
     "startProgram":1,"stopLevelChange":0,"startLevelDecrease":0,"startLevelIncrease":0,"turnOff":0,"turnOn":0}
 }]],
-  
-  dimmer = 
+
+    dimmer = 
 [[{"type":"com.fibaro.multilevelSwitch","baseType":"com.fibaro.binarySwitch",
    "interfaces":["deviceGrouping","levelChange","light","power","zwave","zwaveConfiguration","zwaveSceneActivation"],
    "properties":{"parameters":[],"configured":"true","dead":"false","power":"0.00","powerConsumption":"42","sceneActivation":"0","value":"0"},
@@ -1432,6 +1534,9 @@ function System_functions()
   _System.runTriggers  = HC2.runTriggers
   _System.monitorDevice  = HC2.monitorDevice
   _System.monitorGlobal  = HC2.monitorGlobal
+  
+  _System.installProxy = Proxy.installProxy
+  _System.removeProxy = Proxy.removeProxy
 
   _System.getInstance = Runtime.getInstance
   _System.reverseMapDef  = traceFibaroIDs
@@ -2035,9 +2140,9 @@ Expected input:
   function api.delete(call, data) return HC2.apiCall("DELETE",call,data,"application/json") end
 
   function api.rawGet(l,call) return rawCall(l,"GET",call) end
-  function api.rawPut(l,call, data) rawCall(l,"PUT",call,json.encode(data),"application/json") end
-  function api.rawPost(l,call, data) rawCall(l,"POST",call,json.encode(data),"application/json") end
-  function api.rawDelete(l,call, data) rawCall(l,"DELETE",call,json.encode(data),"application/json") end
+  function api.rawPut(l,call, data) return rawCall(l,"PUT",call,json.encode(data),"application/json") end
+  function api.rawPost(l,call, data) return rawCall(l,"POST",call,json.encode(data),"application/json") end
+  function api.rawDelete(l,call, data) return rawCall(l,"DELETE",call,json.encode(data),"application/json") end
 
   HomeCenter = {
     PopupService = {
@@ -2979,14 +3084,21 @@ return _format("Scenes:%s</br>Globals:%s</br>Devices:%s</br>Rooms:%s</br>",c.sce
 <a href="/emu/code/<<<return urlencode("_System.speed(true)")>>>" class="button" style="background-color: #FFA500;">Speed>></a>
 <a href="/emu/code/<<<return urlencode("_System.speed(3600)")>>>" class="button" style="background-color: #FFA500;">1 hour>></a>
 <a href="/emu/code/<<<return urlencode("_System.speed(3600*24)")>>>" class="button" style="background-color: #FFA500;">24 hours>></a>
+</br>
+</br>
+<a href="/emu/code/<<<return urlencode("Proxy.installProxy()")>>>" class="button" style="background-color: #FFA500;">Install trigger proxy</a> Creates a scene on the HC2 that forwards triggers to the emulator, triggers listed below.</br>Will only install for trigger marked 'remote' [R].
 <p>
 <<<
   local ts,res=Scene.getAllLoadedTriggers(),{"<table>"}
   for _,t in ipairs(ts) do 
     if t.type=='property' then
-      res[#res+1]=_format("<tr><td>DeviceID:%s ",t.deviceID)..Pages.renderAction(t.deviceID,"call","setValue","setValue","").."</td></tr>"
-    else
-      res[#res+1]=_format("<tr><td>Global:'%s' ",t.name)..Pages.renderAction(t.name,"setGlobal","","setValue","").."</td></tr>"
+      local id = t.deviceID
+      res[#res+1]=_format("<tr><td>[%s]DeviceID:%s ",Pages.lr("devices",id),id)..Pages.renderAction(id,"call","setValue","setValue","").."</td></tr>"
+    elseif t.type=='global' then
+      res[#res+1]=_format("<tr><td>[%s]Global:'%s' ",Pages.lr("globalVariables",t.name),t.name)..Pages.renderAction(t.name,"setGlobal","","setValue","").."</td></tr>"
+    elseif t.type=='event' then
+      local id = Util.getIDfromTrigger[t.type](t)
+      res[#res+1]= _format("<tr><td>[%s]DeviceID:%s %s</td></tr>",Pages.lr("devices",id),id,t.event.type)
     end
   end
   res[#res+1]="</table>"
@@ -3118,6 +3230,10 @@ Cache-Control: no-cache, no-store, must-revalidate
 ]]  
 
   Pages = { pages={} }
+  function Pages.lr(t,id)
+    local r = HC2.getRsrc(t,id,true)
+    return r and r._local and "L" or "R"
+  end
   function Pages.register(path,page)
     local file = page:match("^file:(.*)")
     if fd then
@@ -3233,6 +3349,7 @@ libs()
 pages()
 Support_functions()
 Web_functions()
+Proxy_functions()
 Scene_functions()
 HC2_functions()
 Runtime_functions()
