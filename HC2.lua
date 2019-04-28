@@ -474,8 +474,7 @@ function Proxy_functions()
         name = name,properties = "", protectedByPIN = false,runConfig = "TRIGGER_AND_MANUAL", 
         triggers = {events = {}, globals = {}, properties = {}, weather = {}}, 
         type = "com.fibaro.luaScene",visible = false}
-      local s2 = api.rawPost(false,"/scenes",proxy)
-      proxy = api.rawGet(false,"/scenes") -- find out what ID it got and return ID
+      proxy = api.rawPost(false,"/scenes",proxy)
       id = proxy and type(proxy)=='table' and proxy.id
     end
     if id then
