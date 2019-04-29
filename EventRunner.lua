@@ -12,7 +12,7 @@ Test
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B33"  -- Apr 29, 2019  
+_version,_fix = "2.0","B34"  -- Apr 29, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -35,13 +35,13 @@ _debugFlags = {
 ---------------- Here you place rules and user code, called once at startup --------------------
 function main()
   local rule,define = Rule.eval, Util.defvar
- 
- if _EMULATED then
+
+  if _EMULATED then
     --_System.speed(true)               -- run emulator faster than real-time
     --_System.setRemote("devices",{5})  -- make device 5 remote (call HC2 with api)
     --_System.installProxy()            -- Install HC2 proxy sending sourcetriggers back to emulator
   end
-  
+
   HT =  -- Example of in-line "home table"
   {
     dev = 
@@ -56,9 +56,9 @@ function main()
   --HT = json.decode(HT)
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
-  
+
   rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
-  
+
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
 end -- main()
 
@@ -67,6 +67,7 @@ Event = Event or {}
 _STARTONTRIGGER = _STARTONTRIGGER or false
 _NUMBEROFBOXES = _NUMBEROFBOXES or 1
 _MAILBOXES={}
+_MIDNIGHTADJUST = _MIDNIGHTADJUST or false
 _emulator={ids={},adress=nil}
 --_STARTLINE = _EMULATED and debug.getinfo(1).currentline or nil
 local _supportedEvents = {property=true,global=true,event=true,remote=true}
@@ -1632,6 +1633,7 @@ function newRuleCompiler()
     else return obj end
   end
 
+  HOURS24 = 24*60*60
   function self.compRule(e,env)
     local h,body,events,res,ctx,times,sdaily = e[2],e[3],{},{},{src=env.src,line=env.line}
     h = _remapEvents(h)  -- fix #events in header
@@ -1664,6 +1666,7 @@ function newRuleCompiler()
         times = compTimes(dailys)
         for i,t in ipairs(times) do _assert(tonumber(t),"@time not a number:%s",t)
           if t ~= CATCHUP then
+            if _MIDNIGHTADJUST and t==HOURS24 then t=t-1 end
             if t+m >= ot then 
               --if _debugFlags.dailys then Debug(true,"Scheduling daily %s at %s",rCounter+1,osDate("%c",m+t)) end
               dtimers[#dtimers+1]=Event.post(devent,t+m) 
@@ -1739,6 +1742,7 @@ function newRuleCompiler()
     dailys.timers = dtimers
     local times,m,ot = compTimes(dailys.dailys),midnight(),osTime()
     for _,t in ipairs(times) do
+      if _MIDNIGHTADJUST and t==HOURS24 then t=t-1 end
       if t ~= CATCHUP and t+m >= ot then 
         Debug(_debugFlags.dailys,"Rescheduling daily %s at %s",r._name or "",osDate("%c",t+m)); 
         dtimers[#dtimers+1]=Event.post(dailys.event,t+m) 
@@ -1755,6 +1759,7 @@ function newRuleCompiler()
         for _,t in ipairs(times) do
           if t ~= CATCHUP then
             if _debugFlags.dailys then Debug(true,"Scheduling daily %s at %s",d.rule._name or "",osDate("%c",midnight+t)) end
+            if _MIDNIGHTADJUST and t==HOURS24 then t=t-1 end
             if t==0 then dt=Event.post(d.event) else dt=Event.post(d.event,midnight+t) end
             d.timers[#d.timers+1]=dt
           end
