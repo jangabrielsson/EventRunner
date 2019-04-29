@@ -3,6 +3,7 @@
 88 value
 89 value
 %% events
+5 CentralSceneEvent
 %% globals
 Test
 %% autostart
@@ -11,7 +12,7 @@ Test
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B31"  -- Apr 27, 2019  
+_version,_fix = "2.0","B33"  -- Apr 29, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -28,14 +29,20 @@ _myNodeRed   = "http://192.168.1.50:1880/eventrunner" -- Ex. used for Event.post
 
 -- debug flags for various subsystems...
 _debugFlags = { 
-  post=true,invoke=false,triggers=true,dailys=false,rule=false,ruleTrue=false,hue=false,msgTime=false,
+  post=true,invoke=false,triggers=true,dailys=true,rule=false,ruleTrue=false,hue=false,msgTime=false,
   fcall=true, fglobal=false, fget=false, fother=true
 }
 ---------------- Here you place rules and user code, called once at startup --------------------
 function main()
   local rule,define = Rule.eval, Util.defvar
-
-  HT =
+ 
+ if _EMULATED then
+    --_System.speed(true)               -- run emulator faster than real-time
+    --_System.setRemote("devices",{5})  -- make device 5 remote (call HC2 with api)
+    --_System.installProxy()            -- Install HC2 proxy sending sourcetriggers back to emulator
+  end
+  
+  HT =  -- Example of in-line "home table"
   {
     dev = 
     { bedroom = {lamp = 88,motion = 99},
@@ -44,21 +51,14 @@ function main()
     },
     other = "other"
   }
-
-  --or read in "HomeTable"
+  --or read in "HomeTable" from a fibaro global variable (or scene)
   --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
   --HT = json.decode(HT)
-
-  if _EMULATED then -- Things to do when we run in emulated mode
-    -- _System.speed(true) -- Set speeding
-    -- _System.setRemote("devices",11) -- setup device 11 for remote access
-  end
-  
-  Util.defvars(HT.dev)            -- Make HomeTable defs available in EventScript
-  Util.reverseMapDef(HT.dev)      -- Make HomeTable names available for logger
+  Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
+  Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
   
   rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
-
+  
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
 end -- main()
 
@@ -1664,7 +1664,10 @@ function newRuleCompiler()
         times = compTimes(dailys)
         for i,t in ipairs(times) do _assert(tonumber(t),"@time not a number:%s",t)
           if t ~= CATCHUP then
-            if t+m >= ot then dtimers[#dtimers+1]=Event.post(devent,t+m) else catchup1=true end
+            if t+m >= ot then 
+              --if _debugFlags.dailys then Debug(true,"Scheduling daily %s at %s",rCounter+1,osDate("%c",m+t)) end
+              dtimers[#dtimers+1]=Event.post(devent,t+m) 
+            else catchup1=true end
           else catchup2 = true end
         end
         if catchup2 and catchup1 then Log(LOG.LOG,"Catching up:%s",ctx.src); Event.post(devent) end

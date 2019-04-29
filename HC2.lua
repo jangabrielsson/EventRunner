@@ -1323,11 +1323,17 @@ function Runtime_functions()
   _gTime = osOrgTime()
 
   function Runtime.setTime(start)
-    local h,m,s = start:match("(%d+):(%d+):?(%d*)")
-    local d = osOrgDate("*t")
-    d.hour,d.min,d.sec=h,m,s and s~="" and s or 0
+    local offs=0
+    if type(start)=='string' then
+      local h,m,s = start:match("(%d+):(%d+):?(%d*)")
+      local d = osOrgDate("*t")
+      d.hour,d.min,d.sec=h,m,s and s~="" and s or 0
+      offs = osOrgTime(d)
+    elseif type(start)=='number' then
+      offs=osOrgTime()+start
+    end
     _gTime = osOrgTime()
-    _gOffset=osOrgTime(d)-osOrgTime()
+    _gOffset=offs-osOrgTime()
   end
 
   WAITINDEX=_SPEEDTIME and "SPEED" or "NORMAL"
@@ -1533,7 +1539,7 @@ function System_functions()
   _System.runTriggers  = HC2.runTriggers
   _System.monitorDevice  = HC2.monitorDevice
   _System.monitorGlobal  = HC2.monitorGlobal
-  
+
   _System.installProxy = Proxy.installProxy
   _System.removeProxy = Proxy.removeProxy
 
