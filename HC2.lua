@@ -47,7 +47,7 @@ _HC2_PWD=_HC2_PWD or "xxxxxx"           -- HC2 password
 _EVENTRUNNER_SUPPORT=true               -- Announce presence to HC2 and other ER scenes
 _DEBUGREMOTERSRC=true
 
-local creds = loadfile("credentials.lua") -- To not accidently commit credentials to Github...
+local creds = loadfile("HC2credentials.lua") -- To not accidently commit credentials to Github...
 if creds then creds() end
 
 --------------------------------------------------------
@@ -75,10 +75,13 @@ function main()
     HC2.setLocal("iosDevices",true)      -- set iPhones to local       /api/iosDevices
   end
 
+  local setup = loadfile("HC2setup.lua") -- To not accidently commit credentials to Github...
+  if setup then setup() end
+  
   --HC2.setRemote("devices",{1,2})         -- sunset/sunrise/latitude/longitude etc.
   --HC2.setRemote("devices",{66,88}) -- We still want to run local, except for deviceID 66,88 that will be controlled on the HC2
   --HC2.createDevice(88,"Test")
-  HC2.setRemote("devices",{5})
+  --HC2.setRemote("devices",{5})
   HC2.loadEmbedded()   -- If we are called from another scene (dofile...)
 
   --Proxy.installProxy()
