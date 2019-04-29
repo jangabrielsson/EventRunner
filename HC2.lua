@@ -25,7 +25,7 @@ SOFTWARE.
 json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
-_version,_fix = "0.8","fix18" -- Apr 28, 2019    
+_version,_fix = "0.8","fix19" -- Apr 29, 2019    
 _sceneName = "HC2 emulator"
 
 _LOCAL=true                  -- set all resource to local in main(), i.e. no calls to HC2
@@ -173,7 +173,7 @@ end
 ------------------------------------------------------------------------------
 function startup()
   -- Intro
-  Log(LOG.WELCOME,"HC2 SceneRunner v%s %s",_version,_fix)
+  Log(LOG.WELCOME,"HC2 %s v%s %s",_sceneName,_version,_fix)
   if _SPEEDTIME then Log(LOG.WELCOME,"Running speedtime") end
   if _LOCAL then Log(LOG.WELCOME,"Local mode, will not access resources on HC2") end                      
 
@@ -3091,7 +3091,9 @@ return _format("Scenes:%s</br>Globals:%s</br>Devices:%s</br>Rooms:%s</br>",c.sce
 <a href="/emu/code/<<<return urlencode("_System.speed(3600*24)")>>>" class="button" style="background-color: #FFA500;">24 hours>></a>
 </br>
 </br>
-<a href="/emu/code/<<<return urlencode("Proxy.installProxy()")>>>" class="button" style="background-color: #FFA500;">Install trigger proxy</a> Creates a scene on the HC2 that forwards triggers to the emulator, triggers listed below.</br>Will only install for trigger marked 'remote' [R].
+<a href="/emu/code/<<<return urlencode("Proxy.installProxy()")>>>" class="button" style="background-color: #FFA500;">Install trigger proxy</a> Creates a scene on the HC2 that forwards triggers to the emulator, triggers listed below. Will only install for trigger marked 'remote' [R].
+</br></br>
+<a href="/emu/code/<<<return urlencode("Proxy.removeProxy()")>>>" class="button" style="background-color: #FFA500;">Remove trigger proxy</a> 
 <p>
 <<<
   local ts,res=Scene.getAllLoadedTriggers(),{"<table>"}
