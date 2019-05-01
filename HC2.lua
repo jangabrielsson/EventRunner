@@ -25,7 +25,7 @@ SOFTWARE.
 json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
-_version,_fix = "0.8","fix19" -- Apr 29, 2019    
+_version,_fix = "0.9","fix1" -- May 1, 2019    
 _sceneName = "HC2 emulator"
 
 _LOCAL=true                  -- set all resource to local in main(), i.e. no calls to HC2
@@ -46,10 +46,10 @@ _HC2_PWD=_HC2_PWD or "xxxxxx"           -- HC2 password
 
 _EVENTRUNNER_SUPPORT=true               -- Announce presence to HC2 and other ER scenes
 _DEBUGREMOTERSRC=true
+_FORCERESOURCEUPDATE=true
 
 local creds = loadfile("HC2credentials.lua") -- To not accidently commit credentials to Github...
 if creds then creds() end
-
 --------------------------------------------------------
 -- Main, register scenes, create temporary deviceIDs, schedule triggers...
 --------------------------------------------------------
@@ -75,15 +75,15 @@ function main()
     HC2.setLocal("iosDevices",true)      -- set iPhones to local       /api/iosDevices
   end
 
-  local setup = loadfile("HC2setup.lua") -- To not accidently commit credentials to Github...
-  if setup then setup() end
-  
   --HC2.setRemote("devices",{1,2})         -- sunset/sunrise/latitude/longitude etc.
   --HC2.setRemote("devices",{66,88}) -- We still want to run local, except for deviceID 66,88 that will be controlled on the HC2
   --HC2.createDevice(88,"Test")
   --HC2.setRemote("devices",{5})
   HC2.loadEmbedded()   -- If we are called from another scene (dofile...)
 
+  local setup = loadfile("HC2setup.lua") -- To not accidently commit credentials to Github...
+  if setup then setup() end
+  
   --Proxy.installProxy()
   --Proxy.removeProxy()
 
@@ -715,6 +715,7 @@ function HC2_functions()
   local function initRsrcses()
     HC2.rsrc.globalVariables = {}
     HC2.rsrc.devices = {}
+    HC2.rsrc.virtualDevices = {}
     HC2.rsrc.iosDevices = {}
     HC2.rsrc.users = {}
     HC2.rsrc.scenes = {}
@@ -722,7 +723,7 @@ function HC2_functions()
     HC2.rsrc.rooms = {}
     HC2.rsrc.settings ={} --
     HC2.rsrc.weather = {} -- { 1 = weather }
-    HC2.rsrc.count = {glob=0,dev=0,ios=0,users=0,scenes=0,sect=0,rooms=0}
+    HC2.rsrc.count = {glob=0,dev=0,vdev=0,ios=0,users=0,scenes=0,sect=0,rooms=0}
   end
 
   initRsrcses()
@@ -787,6 +788,8 @@ function HC2_functions()
     for _,v in ipairs(s) do rsrc.rooms[v.id] = v; v._local=false; count.rooms=count.rooms+1 end
     s = api.rawGet(false,"/devices")
     for _,v in ipairs(s) do rsrc.devices[v.id] = v; v._local=false; count.dev=count.dev+1 end
+    s = api.rawGet(false,"/virtualDevices")
+    for _,v in ipairs(s) do rsrc.virtualDevices[v.id] = v; v._local=false; count.vdev=count.vdev+1 end
     s = api.rawGet(false,"/scenes") -- need to retrieve once more to get the Lua code
     for _,v in ipairs(s) do 
       local scene = api.rawGet(false,"/scenes/"..v.id)
@@ -799,7 +802,7 @@ function HC2_functions()
     rsrc.settings.location = api.rawGet(false,"/settings/location"); rsrc.settings.location._local=false
     rsrc.weather[1] = api.rawGet(false,"/weather"); rsrc.weather[1]._local=false
     HC2.writeConfigurationToFile(file) 
-    Log(LOG.SYSTEM,"Configuration from HC2, Globals:%s, Scenes:%s, Device:%s, Rooms:%s",count.glob,count.scenes,count.dev,count.rooms)
+    Log(LOG.SYSTEM,"Configuration from HC2, Globals:%s, Scenes:%s, Device:%s, virtualDevice:%s, Rooms:%s",count.glob,count.scenes,count.dev,count.vdev,count.rooms)
   end
 
   function HC2.loadConfigFromFile(file)
@@ -813,6 +816,7 @@ function HC2_functions()
           rsrc=persistence.load(file);
           for n,v in pairs(rsrc.globalVariables or {}) do if v._local==nil then v._local=false end; count.glob=count.glob+1 end
           rsrc.devices,count.dev=patchID(rsrc.devices or {}); 
+          rsrc.virtualDevices,count.vdev=patchID(rsrc.virtualDevices or {}); 
           rsrc.scenes,count.scenes=patchID(rsrc.scenes); 
           rsrc.rooms,count.rooms=patchID(rsrc.rooms or {}); 
           rsrc.sections,count.sect=patchID(rsrc.sections); 
@@ -925,6 +929,18 @@ function HC2_functions()
   function HC2.getAllRsrc(name,filter)
     local function getId(n,r) return n=='globalVariables' and r.name or r.id end
     filter = filter or function() return true end
+    if _FORCERESOURCEUPDATE then
+      local rrs = api.rawGet(false,"/"..name)
+      local lrs = HC2.rsrc[name]
+      for _,r in ipairs(rrs) do
+        local id2 = getId(name,r)
+        if lrs[id2] then r._local = lrs[id2]._local; lrs[id2] = r 
+        else lrs[id2]  = r; r._local = false end
+      end
+      local res = {}
+      for _,r in pairs(lrs) do res[#res+1]=r end
+      return res
+    end
     local res,rems,rm = {},{},0
     for id,r in pairs(HC2.rsrc[name]) do
       if r._local then
@@ -954,7 +970,7 @@ function HC2_functions()
 
   _DEV_PROP_MAP={["IPAddress"]='ip', ["TCPPort"]='port'}
   function HC2.getDeviceProperty(deviceID,propertyName)
-    local d = HC2.getDevice(deviceID,true)
+    local d = HC2.getVirtualDevice(deviceID,true) or HC2.getDevice(deviceID,true)
     if not d then return nil end
     if not d._local then 
       return api.rawGet(_DEBUGREMOTERSRC,"/devices/"..deviceID.."/properties/"..propertyName)
@@ -965,7 +981,7 @@ function HC2_functions()
   end
 
   function HC2.getDevice(id,f) return HC2.getRsrc('devices',id,f) end
-  function HC2.getVirtualDevice(id,f) return HC2.getRsrc('devices',id,f) end
+  function HC2.getVirtualDevice(id,f) return HC2.getRsrc('virtualDevices',id,f) end
   function HC2.getGlobal(id,f) return HC2.getRsrc('globalVariables',id,f) end
   function HC2.getScene(id,f) return HC2.getRsrc('scenes',id,f) end
   function HC2.getRoom(id,f) return HC2.getRsrc('rooms',id,f) end
@@ -980,7 +996,6 @@ function HC2_functions()
     else return HC2.getAllRsrc(name,filter),200 end
   end
 
-  local vDevfilter = function(d) return d and d.type=='virtual_device' end
   local vLoadedScenes = function(d) return d and (d._local and Scene.scenes[d.id] or d._local==false) end
   local URLMap = {
     ["GET:settings"]=function(path)
@@ -997,7 +1012,7 @@ function HC2_functions()
       return getResourceAPI(tonumber(path),'devices') 
     end,
     ["GET:virtualDevices"]=function(path)
-      return getResourceAPI(tonumber(path),'devices',vDevfilter) 
+      return getResourceAPI(tonumber(path),'virtualDevices') 
     end,
     ["GET:sections"]=function(path) return getResourceAPI(tonumber(path),'sections') end,
     ["GET:rooms"]=function(path) return getResourceAPI(tonumber(path),'rooms') end,
@@ -1017,6 +1032,29 @@ function HC2_functions()
         -- create device
       else return nil,404 end
     end,
+    ["POST:virtualDevices"]=function(path,data)
+      if path=="" then
+        local vd = api.rawPost(true,"/virtualDevices",data)
+        vd._local=false
+        HC2.rsrc.virtualDevices[vd.id]=vd
+        return vd
+      else return nil,404 end
+    end,
+    ["PUT:virtualDevices"]=function(path,data)
+      if path~="" and tonumber(path) then
+        local vd = api.rawPut(true,"/virtualDevices/"..path,data)
+        vd._local=false
+        HC2.rsrc.virtualDevices[vd.id]=vd
+        return vd
+      else return nil,404 end
+    end,
+    ["DELETE:virtualDevices"]=function(path,data)
+      if path~="" and tonumber(path) then
+        local vd = api.rawDelete(true,"/virtualDevices/"..path)
+        HC2.rsrc.virtualDevices[tonumber(path)]=nil
+        return 200
+      else return nil,404 end
+    end,
     ["PUT:globalVariables"]=function(path,data)
       if path~="" then
         __fibaro_set_global_variable(path,data)
@@ -1033,13 +1071,14 @@ function HC2_functions()
       local id = tonumber(path)
       if id and HC2.getScene(id,true) then
         HC2.rsrc['scenes'][id]=data
+        return data
       else return nil,404 end
     end,
     ["POST:scenes"]=function(path,data)
       if path=="" then
         local rsrcs=HC2.rsrc['scenes']
         rsrcs[tonumber(data.id)]=data
-        return 200
+        return data,200
       end
       local id,action=path:match("(%d+)/action/(%w+)$") -- start/stop
       if not tonumber(id) then return nil,404 end
@@ -1104,8 +1143,6 @@ function HC2_functions()
 
   local specResources={weather={"weather",1},info={"settings","info"},location={"settings","location"}}
   local function setRsrcStatus2(t,args,val,name) 
-    local f = t=='virtualDevices' and vDevfilter
-    if f then t="devices" end
     if specResources[t] then t,args = table.unpack(specResources[t]) end
     if type(args)=='number' then args={args} end
     local stat,res = pcall(function() setRsrcStatus(t,HC2.rsrc[t],args,val,f) end)
@@ -1549,6 +1586,9 @@ function System_functions()
   _System.getInstance = Runtime.getInstance
   _System.reverseMapDef  = traceFibaroIDs
 
+  _System.port = _EVENTSERVER
+  _System.ipAdress = HC2.getIPadress()
+  
   _System.speed = Runtime.speed
 
   _System._Msg = Util.Msg
@@ -1788,7 +1828,8 @@ function Fibaro_functions()
   end
 
   function __fibaroSleep(n) return coroutine.yield(coroutine.running(),n/1000) end
-  function __fibaro_get_device(deviceID,r) return HC2.getDevice(deviceID,r) end
+  function __fibaro_get_device(deviceID,r) 
+    return HC2.getVirtualDevice(deviceID,r) or HC2.getDevice(deviceID,r) end
   function __fibaro_get_device_property(deviceID ,propertyName) return HC2.getDeviceProperty(deviceID,propertyName) end
   function __fibaro_get_scene(sceneID,r) return HC2.getScene(sceneID,r) end
   function __fibaro_get_global_variable(name,r) return HC2.getGlobal(name,r)  end
@@ -3091,12 +3132,12 @@ return _format("Scenes:%s</br>Globals:%s</br>Devices:%s</br>Rooms:%s</br>",c.sce
 </br>
 <a href="/emu/code/<<<return urlencode("_System.speed(true)")>>>" class="button" style="background-color: #FFA500;">Speed>></a>
 <a href="/emu/code/<<<return urlencode("_System.speed(3600)")>>>" class="button" style="background-color: #FFA500;">1 hour>></a>
-<a href="/emu/code/<<<return urlencode("_System.speed(3600*24)")>>>" class="button" style="background-color: #FFA500;">24 hours>></a>
+<a href="/emu/code/<<<return urlencode("_System.speed(3600*24)")>>>" class="button" style="background-color: #FFA500;">24 hours>></a> Speed emulator.
 </br>
 </br>
 <a href="/emu/code/<<<return urlencode("Proxy.installProxy()")>>>" class="button" style="background-color: #FFA500;">Install trigger proxy</a> Creates a scene on the HC2 that forwards triggers to the emulator, triggers listed below. Will only install for trigger marked 'remote' [R].
 </br></br>
-<a href="/emu/code/<<<return urlencode("Proxy.removeProxy()")>>>" class="button" style="background-color: #FFA500;">Remove trigger proxy</a> 
+<a href="/emu/code/<<<return urlencode("Proxy.removeProxy()")>>>" class="button" style="background-color: #FFA500;">Remove trigger proxy</a> Remove trigger proxy if installed.
 <p>
 <<<
   local ts,res=Scene.getAllLoadedTriggers(),{"<table>"}

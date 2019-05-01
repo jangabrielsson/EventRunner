@@ -12,7 +12,7 @@ Test
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B34"  -- Apr 29, 2019  
+_version,_fix = "2.0","B35"  -- May 1, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -58,7 +58,7 @@ function main()
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
   rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
-
+  
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
 end -- main()
 
@@ -871,7 +871,7 @@ end
 function Util.findScenes(str)
   local res = {}
   for _,s1 in ipairs(api.get("/scenes")) do
-    if s1.isLua and s1.id~=__fibaroSceneId then
+    if s1.isLua and s1.id~=__fibaroSceneId and s1._local ~= true then
       local s2=api.get("/scenes/"..s1.id)
       if s2.lua:match(str) then res[#res+1]=s1.id end
     end
@@ -884,6 +884,101 @@ Util.getIDfromTrigger={
   property=function(e) return e.deviceID end,
   event=function(e) return e.event and Util.getIDfromEvent[e.event.type or ""](e.event.data) end
 }
+
+---------- VDev support --------------
+
+function makeVDev()
+  local self = {}
+  local function CODE(lbl) 
+    return string.format(
+[[local sceneID,label=%s,'%s'
+  local VDID=fibaro:getSelfId()
+  local val = fibaro:getValue(VDID,"ui.%s.value") or ""
+  local event = {type='VD', label=label,value=val}
+  local data = {urlencode(json.encode(event))}
+  if sceneID > 0 then
+   fibaro:debug("Calling scene "..sceneID)
+   fibaro:startScene(sceneID,data)
+else
+  local HC2 = Net.FHttp('%s',%s)
+  fibaro:debug("Calling emulator, sceneID "..sceneID)
+  data = json.encode(data)
+  local response ,status, err = HC2:POST('/trigger/'..sceneID,data);
+  if tonumber(status) == 200 or tonumber(status) == 201 then
+    fibaro:debug("success")
+  else
+    fibaro:debug("error "..err)
+  end
+end]],_EMULATED and -__fibaroSceneId or __fibaroSceneId,lbl,lbl,_System.ipAdress,_System.port)
+  end
+
+  local function makeElement(id,name,lbl) return {id=id,lua=false,waitForResponse=false,caption=name,name=lbl,favourite=false,main=false} end
+  local function makeButton(id,name,lbl) local b=makeElement(id,name,lbl); b.empty,b.lua,b.msg,b.buttonIcon=false,true,CODE(lbl),0; return b end 
+  local function makeSlider(id,name,lbl,def) local b=makeButton(id,name,lbl); b.empty,b.value=def,0; return b end 
+  local eCreate={button=makeButton,slider=makeSlider,label=makeElement}
+
+  local function createVD(vt,name,tag,rows)
+    local vp = vt.properties or {}
+    local vd = {id=vt.id or 42,name=name,roomID=vt.roomID or 0,type='virtual_device',visible=vt.visible or true,enabled=true,actions={pressButton=1,setSlider=2}}
+    local id,ui,props = 1,{},{deviceIcon=vp.deviceIcon or 0,ip="",port=80,currentIcon=vt.currentIcon or "0",log="",logTemp="",mainLoop="t='"..tag.."'",rows={}}
+    for _,row in ipairs(rows) do
+      local etype = row[1] -- type
+      local r = {type = etype, elements = {}}
+      for i=2,#row do 
+        local e = row[i]
+        r.elements[#r.elements+1]= eCreate[etype](id,e[1],e[2],e[3]); id=id+1
+        if etype~='button' then ui["ui."..e[2]..".value"] = e[3] or "" end
+      end
+      props.rows[#props.rows+1]=r
+    end
+    for k,v in pairs(ui) do props[k]=v end
+    vd.properties = props
+    return vd,ui
+  end
+
+  local function createVDObject(vd) 
+    local self = { id = vd.id, map={} }
+    for _,r in ipairs(vd.properties.rows) do for _,e in ipairs(r.elements) do self.map[e.name]=e.id end end
+    function self.idOf(lbl) return self.map[lbl] end
+    function self.setValue(lbl,val) return fibaro:call(self.id,"setProperty","ui."..lbl..".value",val) end
+    function self.getValue(lbl) return fibaro:getValue(self.id,"ui."..lbl..".value") end
+    return self
+  end
+
+  local function find(tag)
+    local tmatch="^t='("..tag.."):(%d+)'"
+    local vds = api.get("/virtualDevices")
+    for _,vd1 in ipairs(vds) do 
+      local tag,vers=(vd1.properties and vd1.properties.mainLoop or ""):match(tmatch)
+      if tag then return tag,vers,vd1 end
+    end
+    return nil
+  end
+
+  function self.remove(tag)
+    local tag1,vers,vd = find(tag)
+    if tag1 then api.delete("/virtualDevices/"..vd.id); Log(LOG.LOG,"VD %s deleted",vd.name) return vd 
+    else Log(LOG.LOG,"VD tag:%s not found",tag) end
+  end
+
+  function self.define(name,tag,version,rows)
+    version = tostring(version)
+    local tag1,vers,vd,ui = find(tag)
+    if tag1 then
+      if vers==version then 
+        Log(LOG.LOG,"VD %s already exist",name)
+        return createVDObject(vd)
+      end
+    end
+    if not vd then vd = api.post("/virtualDevices",{id=42,name=name}) Log(LOG.LOG,"VD %s created",name) else Log(LOG.LOG,"VD %s updated",name) end
+    vd,ui=createVD(vd,name,tag..":"..(version or 1),rows)
+    api.put("/virtualDevices/"..vd.id,vd)
+    for k,v in pairs(ui) do fibaro:call(vd.id,"setProperty",k,v) end
+    return createVDObject(vd)
+  end
+  return self
+end
+VDev = makeVDev()
 
 --------- ScriptEngine ------------------------------------------
 _traceInstrs=false
