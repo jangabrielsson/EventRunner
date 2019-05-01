@@ -6,13 +6,13 @@
 5 CentralSceneEvent
 %% globals
 Test
-%% autostart
---]]
+%% autostart 
+--]] 
 
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B35"  -- May 1, 2019  
+_version,_fix = "2.0","B36"  -- May 1, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -57,33 +57,7 @@ function main()
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
-  --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
-
-  _System.setRemote("virtualDevices",true)
-
-  calc = VDev.define("Calculator","calc",2,
-    {{'label',{">","Disp","0"}},
-      {'button',{"7","7"},{"8","8"},{"9","9"},{"+","+"}},
-      {'button',{"4","4"},{"5","5"},{"6","6"},{"-","-"}},
-      {'button',{"1","1"},{"2","2"},{"3","3"},{"*","*"}},
-      {'button',{"0","0"},{".",","},{"clr","clr"},{"/","/"}},
-      {'button',{"=","="}},
-    })
-
-  value1,value2=0,0
-  ops={sum=function(a,b) return a+b end, sub=function(a,b) return a-b end,
-    mul=function(a,b) return a*b end, div=function(a,b) return a/b end}
-
-  calc.setValue("Disp",value)
-  rule("#VD{label='$lbl', value='$val'} & tonumber(lbl) => value1=value1*10+tonumber(lbl) ; calc.setValue('Disp',value1)")
-  rule("#VD{label='clr'} => value1=0; value2=0; calc.setValue('Disp',value1)")
-  rule("#VD{label='+'} => value2=value1; value1=0; op=ops.sum")
-  rule("#VD{label='-'} => value2=value1; value1=0; op=ops.sub")
-  rule("#VD{label='*'} => value2=value1; value1=0; op=ops.mul")
-  rule("#VD{label='/'} => value2=value1; value1=0; op=ops.div")
-  rule("#VD{label='='} => value1=op(value2,value1); value2=0; calc.setValue('Disp',value1)")
-
-  rule("#VD{label='$lbl', value='$val'} => log('VD label:%s value:%s',lbl,val)")
+  rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
 
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
 end -- main()
@@ -955,6 +929,7 @@ end]],_EMULATED and -__fibaroSceneId or __fibaroSceneId,lbl,lbl,ip,port)
       for i=2,#row do 
         local e = row[i]
         r.elements[#r.elements+1]= eCreate[etype](id,e[1],e[2],e[3]); id=id+1
+        if etype=='label' then r.elements[#r.elements].favourite=e[4] or false end
         if etype~='button' then ui["ui."..e[2]..".value"] = e[3] or "" end
       end
       props.rows[#props.rows+1]=r
