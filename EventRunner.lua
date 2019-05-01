@@ -12,7 +12,7 @@ Test
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B36"  -- May 1, 2019  
+_version,_fix = "2.0","B37"  -- May 1, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -945,6 +945,15 @@ end]],_EMULATED and -__fibaroSceneId or __fibaroSceneId,lbl,lbl,ip,port)
     function self.idOf(lbl) return self.map[lbl] end
     function self.setValue(lbl,val) return fibaro:call(self.id,"setProperty","ui."..lbl..".value",val) end
     function self.getValue(lbl) return fibaro:getValue(self.id,"ui."..lbl..".value") end
+    function self.setIcon(icon)
+      local vd = api.get("/virtualDevices/"..self.id)
+      vd.properties.deviceIcon=icon
+      for _,row in pairs(vd.properties.rows) do 
+        for _,element in pairs(row.elements) do element.buttonIcon=icon end 
+      end 
+      api.put("/virtualDevices/"..self.id,vd)
+    end
+
     return self
   end
 
