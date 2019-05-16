@@ -32,7 +32,7 @@ _debugFlags = {
   post=true,invoke=false,triggers=true,dailys=true,rule=false,ruleTrue=false,hue=false,msgTime=false,
   fcall=true, fglobal=false, fget=false, fother=true
 }
-_MIDNIGHTSCHEDULE = "n/00:20"
+_MIDNIGHTSCHEDULE = "n/00:00"
 ---------------- Here you place rules and user code, called once at startup --------------------
 function main()
   local rule,define = Rule.eval, Util.defvar
