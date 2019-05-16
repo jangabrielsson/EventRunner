@@ -12,7 +12,7 @@ Test
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B37"  -- May 1, 2019  
+_version,_fix = "2.0","B40"  -- May 16, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -32,6 +32,7 @@ _debugFlags = {
   post=true,invoke=false,triggers=true,dailys=true,rule=false,ruleTrue=false,hue=false,msgTime=false,
   fcall=true, fglobal=false, fget=false, fother=true
 }
+_MIDNIGHTSCHEDULE = "n/00:20"
 ---------------- Here you place rules and user code, called once at startup --------------------
 function main()
   local rule,define = Rule.eval, Util.defvar
@@ -58,13 +59,14 @@ function main()
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
   rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
-
+  
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
 end -- main()
 
 ------------------- EventModel - Don't change! --------------------  
 Event = Event or {}
 _STARTONTRIGGER = _STARTONTRIGGER or false
+_MIDNIGHTSCHEDULE = _MIDNIGHTSCHEDULE or "n/00:00"
 _NUMBEROFBOXES = _NUMBEROFBOXES or 1
 _MAILBOXES={}
 _MIDNIGHTADJUST = _MIDNIGHTADJUST or false
@@ -86,7 +88,7 @@ end
 
 ---------- Producer(s) - Handing over incoming triggers to consumer --------------------
 local _MAXWAIT=5.0 -- seconds to wait
-if _supportedEvents[_type] then
+if _supportedEvents[_type] then 
   local _MBP = _MAILBOX.."_"
   local mbp,mb,time,cos,count = 1,nil,os.clock(),nil,fibaro:countScenes()
   if _debugFlags.msgTime then _trigger._timestamps={triggered={os.time(),time}} end
@@ -891,12 +893,12 @@ function makeVDev()
   local self = {}
   local ip, port = "127.0.0.1",80
   if _EMULATED then ip,port=_System.ipAdress,_System.port end
-  local function CODE(lbl) 
+  local function CODE(lbl,tag) 
     return string.format(
-[[local sceneID,label=%s,'%s'
+[[local sceneID,label,tag=%s,'%s','%s'
   local VDID=fibaro:getSelfId()
   local val = fibaro:getValue(VDID,"ui.%s.value") or ""
-  local event = {type='VD', label=label,value=val}
+  local event = {type='VD', label=label,value=val, tag=tag}
   local data = {urlencode(json.encode(event))}
   if sceneID > 0 then
    fibaro:debug("Calling scene "..sceneID)
@@ -911,24 +913,24 @@ else
   else
     fibaro:debug("error "..err)
   end
-end]],_EMULATED and -__fibaroSceneId or __fibaroSceneId,lbl,lbl,ip,port)
+end]],_EMULATED and -__fibaroSceneId or __fibaroSceneId,lbl,tag,lbl,ip,port)
   end
 
-  local function makeElement(id,name,lbl) return {id=id,lua=false,waitForResponse=false,caption=name,name=lbl,favourite=false,main=false} end
-  local function makeButton(id,name,lbl) local b=makeElement(id,name,lbl); b.empty,b.lua,b.msg,b.buttonIcon=false,true,CODE(lbl),0; return b end 
-  local function makeSlider(id,name,lbl,def) local b=makeButton(id,name,lbl); b.empty,b.value=def,0; return b end 
+  local function makeElement(tag,id,name,lbl) return {id=id,lua=false,waitForResponse=false,caption=name,name=lbl,favourite=false,main=false} end
+  local function makeButton(tag,id,name,lbl) local b=makeElement(tag,id,name,lbl); b.empty,b.lua,b.msg,b.buttonIcon=false,true,CODE(lbl,tag),0; return b end 
+  local function makeSlider(tag,id,name,lbl,def) local b=makeButton(tag,id,name,lbl); b.empty,b.value=def,0; return b end 
   local eCreate={button=makeButton,slider=makeSlider,label=makeElement}
 
-  local function createVD(vt,name,tag,rows)
-    local vp = vt.properties or {}
+  local function createVD(vt,name,tag,vers,rows)
+    local vp,tagv = vt.properties or {}, tag..":"..vers
     local vd = {id=vt.id or 42,name=name,roomID=vt.roomID or 0,type='virtual_device',visible=vt.visible or true,enabled=true,actions={pressButton=1,setSlider=2}}
-    local id,ui,props = 1,{},{deviceIcon=vp.deviceIcon or 0,ip="",port=80,currentIcon=vt.currentIcon or "0",log="",logTemp="",mainLoop="t='"..tag.."'",rows={}}
+    local id,ui,props = 1,{},{deviceIcon=vp.deviceIcon or 0,ip="",port=80,currentIcon=vt.currentIcon or "0",log="",logTemp="",mainLoop="t='"..tagv.."'",rows={}}
     for _,row in ipairs(rows) do
       local etype = row[1] -- type
       local r = {type = etype, elements = {}}
       for i=2,#row do 
         local e = row[i]
-        r.elements[#r.elements+1]= eCreate[etype](id,e[1],e[2],e[3]); id=id+1
+        r.elements[#r.elements+1]= eCreate[etype](tag,id,e[1],e[2],e[3]); id=id+1
         if etype=='label' then r.elements[#r.elements].favourite=e[4] or false end
         if etype~='button' then ui["ui."..e[2]..".value"] = e[3] or "" end
       end
@@ -937,7 +939,7 @@ end]],_EMULATED and -__fibaroSceneId or __fibaroSceneId,lbl,lbl,ip,port)
     for k,v in pairs(ui) do props[k]=v end
     vd.properties = props
     return vd,ui
-  end
+  end 
 
   local function createVDObject(vd) 
     local self = { id = vd.id, map={} }
@@ -957,15 +959,19 @@ end]],_EMULATED and -__fibaroSceneId or __fibaroSceneId,lbl,lbl,ip,port)
     return self
   end
 
+  local _CACHE_FIND_VIRTUALS = nil
   local function find(tag)
     local tmatch="^t='("..tag.."):(%d+)'"
-    local vds = api.get("/virtualDevices")
+    local vds = _CACHE_FIND_VIRTUALS or api.get("/virtualDevices")
+    _CACHE_FIND_VIRTUALS = vds
     for _,vd1 in ipairs(vds) do 
       local tag,vers=(vd1.properties and vd1.properties.mainLoop or ""):match(tmatch)
       if tag then return tag,vers,vd1 end
     end
     return nil
   end
+
+  function self.clearCache() _CACHE_FIND_VIRTUALS = nil end
 
   function self.remove(tag)
     local tag1,vers,vd = find(tag)
@@ -983,7 +989,7 @@ end]],_EMULATED and -__fibaroSceneId or __fibaroSceneId,lbl,lbl,ip,port)
       end
     end
     if not vd then vd = api.post("/virtualDevices",{id=42,name=name}) Log(LOG.LOG,"VD %s created",name) else Log(LOG.LOG,"VD %s updated",name) end
-    vd,ui=createVD(vd,name,tag..":"..(version or 1),rows)
+    vd,ui=createVD(vd,name,tag,(version or 1),rows)
     api.put("/virtualDevices/"..vd.id,vd)
     for k,v in pairs(ui) do fibaro:call(vd.id,"setProperty",k,v) end
     return createVDObject(vd)
@@ -997,7 +1003,7 @@ _traceInstrs=false
 
 function newScriptEngine() 
   local self={}
-
+ fibaro:debug()
   local function ID(id,i) _assert(tonumber(id),"bad deviceID '%s' for '%s' '%s'",id,i[1],i[3] or "") return id end
   local function doit(m,f,s) if type(s) == 'table' then return m(f,s) else return f(s) end end
 
@@ -1194,6 +1200,7 @@ function newScriptEngine()
   instr['remove'] = function(s,n) local v,t=s.pop(),s.pop() table.remove(t,v) s.push(t) end
   instr['betw'] = function(s,n) local t2,t1,now=s.pop(),s.pop(),osTime()-midnight()
     _assert(tonumber(t1) and tonumber(t2),"Bad arguments to between '...', '%s' '%s'",t1 or "nil", t2 or "nil")
+    --Log(LOG.LOG,"BETWEEN T1:%s - Now:%s - T2:%s",time2str(t1),time2str(now),time2str(t2))
     if t1<=t2 then s.push(t1 <= now and now <= t2) else s.push(now >= t1 or now <= t2) end 
   end
   instr['redaily'] = function(s,n,e,i) s.push(Rule.restartDaily(s.pop())) end
@@ -1708,7 +1715,7 @@ function newRuleCompiler()
 
   local function compTimes(cs)
     local t1,t2=map(function(c) return ScriptEngine.eval(c) end,cs),{}
-    _transform(t1[1],function(t) t2[t]=true end)
+    if #t1>0 then _transform(t1[1],function(t) t2[t]=true end) end
     return mapkl(function(k,v) return k end,t2)
   end
 
@@ -1857,7 +1864,7 @@ function newRuleCompiler()
     end
   end
 
-  Event.schedule("n/00:00",function(env)  -- Scheduler that every night posts 'daily' rules
+  Event.schedule(_MIDNIGHTSCHEDULE,function(env)  -- Scheduler that every night posts 'daily' rules
       _DSTadjust = os.date("*t").isdst and -60*60 or 0
       local midnight = midnight()
       for _,d in ipairs(_dailys) do
