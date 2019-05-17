@@ -12,7 +12,7 @@ Test
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B40"  -- May 16, 2019  
+_version,_fix = "2.0","B42"  -- May 17, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -32,7 +32,6 @@ _debugFlags = {
   post=true,invoke=false,triggers=true,dailys=true,rule=false,ruleTrue=false,hue=false,msgTime=false,
   fcall=true, fglobal=false, fget=false, fother=true
 }
-_MIDNIGHTSCHEDULE = "n/00:00"
 ---------------- Here you place rules and user code, called once at startup --------------------
 function main()
   local rule,define = Rule.eval, Util.defvar
@@ -59,14 +58,13 @@ function main()
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
   rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
-  
+
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
 end -- main()
 
 ------------------- EventModel - Don't change! --------------------  
 Event = Event or {}
 _STARTONTRIGGER = _STARTONTRIGGER or false
-_MIDNIGHTSCHEDULE = _MIDNIGHTSCHEDULE or "n/00:00"
 _NUMBEROFBOXES = _NUMBEROFBOXES or 1
 _MAILBOXES={}
 _MIDNIGHTADJUST = _MIDNIGHTADJUST or false
@@ -555,13 +553,27 @@ function newEventEngine()
 
   function fibaro.get(obj,id,...) 
     id = tonumber(id); if not id then error("deviceID not a number",2) end
-    if id < 10000 then return fibaro._get(obj,id,...) else return fibaro._idMap[id].get(obj,id,...) end
+    if fibaro._idMap[id] then return fibaro._idMap[id].get(obj,id,...) else return fibaro._get(obj,id,...) end
   end
 
   function fibaro.getValue(obj,id,...) 
     id = tonumber(id); if not id then error("deviceID not a number",2) end
-    if id < 10000 then return (fibaro._getValue(obj,id,...)) else return (fibaro._idMap[id].get(obj,id,...)) end
+    if fibaro._idMap[id] then return (fibaro._idMap[id].get(obj,id,...)) else return (fibaro._getValue(obj,id,...)) end
   end
+
+  local _SUNTIMEDAY = nil
+  local _SUNTIMEVALUES = {sunsetHour=nil,sunriseHour=nil}
+  SunCalc = {}
+  self._registerID(1,nil,function(obj,id,prop) 
+      if prop=='sunsetHour' or prop=='sunriseHour' then
+        local day = os.date("*t").day
+        if day ~= _SUNTIMEDAY then
+          _SUNTIMEDAY = day
+          _SUNTIMEVALUES.sunriseHour,_SUNTIMEVALUES.sunsetHour=SunCalc.sunCalc()
+        end
+        return _SUNTIMEVALUES[prop]
+      else return fibaro._get(obj,id,prop) end
+    end)
 
 -- Logging of fibaro:* calls -------------
   local function traceFibaro(name,flag,rt)
@@ -998,12 +1010,87 @@ end]],_EMULATED and -__fibaroSceneId or __fibaroSceneId,lbl,tag,lbl,ip,port)
 end
 VDev = makeVDev()
 
+---- SunCalc -----
+  SunCalc={}
+  function SunCalc.sunturnTime(date, rising, latitude, longitude, zenith, local_offset)
+    local rad,deg,floor = math.rad,math.deg,math.floor
+    local frac = function(n) return n - floor(n) end
+    local cos = function(d) return math.cos(rad(d)) end
+    local acos = function(d) return deg(math.acos(d)) end
+    local sin = function(d) return math.sin(rad(d)) end
+    local asin = function(d) return deg(math.asin(d)) end
+    local tan = function(d) return math.tan(rad(d)) end
+    local atan = function(d) return deg(math.atan(d)) end
+
+    local function day_of_year(date)
+      local n1 = floor(275 * date.month / 9)
+      local n2 = floor((date.month + 9) / 12)
+      local n3 = (1 + floor((date.year - 4 * floor(date.year / 4) + 2) / 3))
+      return n1 - (n2 * n3) + date.day - 30
+    end
+
+    local function fit_into_range(val, min, max)
+      local range,count = max - min
+      if val < min then count = floor((min - val) / range) + 1; return val + count * range
+      elseif val >= max then count = floor((val - max) / range) + 1; return val - count * range
+      else return val end
+    end
+
+    -- Convert the longitude to hour value and calculate an approximate time
+    local n,lng_hour,t =  day_of_year(date), longitude / 15, nil
+    if rising then t = n + ((6 - lng_hour) / 24) -- Rising time is desired
+    else t = n + ((18 - lng_hour) / 24) end -- Setting time is desired
+    local M = (0.9856 * t) - 3.289 -- Calculate the Sun^s mean anomaly
+    -- Calculate the Sun^s true longitude
+    local L = fit_into_range(M + (1.916 * sin(M)) + (0.020 * sin(2 * M)) + 282.634, 0, 360)
+    -- Calculate the Sun^s right ascension
+    local RA = fit_into_range(atan(0.91764 * tan(L)), 0, 360)
+    -- Right ascension value needs to be in the same quadrant as L
+    local Lquadrant = floor(L / 90) * 90
+    local RAquadrant = floor(RA / 90) * 90
+    RA = RA + Lquadrant - RAquadrant; RA = RA / 15 -- Right ascension value needs to be converted into hours
+    local sinDec = 0.39782 * sin(L) -- Calculate the Sun's declination
+    local cosDec = cos(asin(sinDec))
+    local cosH = (cos(zenith) - (sinDec * sin(latitude))) / (cosDec * cos(latitude)) -- Calculate the Sun^s local hour angle
+    if rising and cosH > 1 then return "N/R" -- The sun never rises on this location on the specified date
+    elseif cosH < -1 then return "N/S" end -- The sun never sets on this location on the specified date
+
+    local H -- Finish calculating H and convert into hours
+    if rising then H = 360 - acos(cosH)
+    else H = acos(cosH) end
+    H = H / 15
+    local T = H + RA - (0.06571 * t) - 6.622 -- Calculate local mean time of rising/setting
+    local UT = fit_into_range(T - lng_hour, 0, 24) -- Adjust back to UTC
+    local LT = UT + local_offset -- Convert UT value to local time zone of latitude/longitude
+    return osTime({day = date.day,month = date.month,year = date.year,hour = floor(LT),min = math.modf(frac(LT) * 60)})
+  end
+
+  function SunCalc.getTimezone() local now = osTime() return os.difftime(now, osTime(osDate("!*t", now))) end
+
+  function SunCalc.sunCalc(time)
+    local hc2Info = api.get("/settings/location") or {}
+    local lat = hc2Info.latitude or _LATITUDE
+    local lon = hc2Info.longitude or _LONGITUDE
+    local utc = SunCalc.getTimezone() / 3600
+    local zenith,zenith_twilight = 90.83, 96.0 -- sunset/sunrise 90°50′, civil twilight 96°0′
+
+    local date = osDate("*t",time or osTime())
+    if date.isdst then utc = utc + 1 end
+    local rise_time = osDate("*t", SunCalc.sunturnTime(date, true, lat, lon, zenith, utc))
+    local set_time = osDate("*t", SunCalc.sunturnTime(date, false, lat, lon, zenith, utc))
+    local rise_time_t = osDate("*t", SunCalc.sunturnTime(date, true, lat, lon, zenith_twilight, utc))
+    local set_time_t = osDate("*t", SunCalc.sunturnTime(date, false, lat, lon, zenith_twilight, utc))
+    local sunrise = _format("%.2d:%.2d", rise_time.hour, rise_time.min)
+    local sunset = _format("%.2d:%.2d", set_time.hour, set_time.min)
+    local sunrise_t = _format("%.2d:%.2d", rise_time_t.hour, rise_time_t.min)
+    local sunset_t = _format("%.2d:%.2d", set_time_t.hour, set_time_t.min)
+    return sunrise, sunset, sunrise_t, sunset_t
+  end
 --------- ScriptEngine ------------------------------------------
 _traceInstrs=false
 
 function newScriptEngine() 
   local self={}
- fibaro:debug()
   local function ID(id,i) _assert(tonumber(id),"bad deviceID '%s' for '%s' '%s'",id,i[1],i[3] or "") return id end
   local function doit(m,f,s) if type(s) == 'table' then return m(f,s) else return f(s) end end
 
@@ -1864,7 +1951,7 @@ function newRuleCompiler()
     end
   end
 
-  Event.schedule(_MIDNIGHTSCHEDULE,function(env)  -- Scheduler that every night posts 'daily' rules
+  Event.schedule("n/00:00",function(env)  -- Scheduler that every night posts 'daily' rules
       _DSTadjust = os.date("*t").isdst and -60*60 or 0
       local midnight = midnight()
       for _,d in ipairs(_dailys) do
