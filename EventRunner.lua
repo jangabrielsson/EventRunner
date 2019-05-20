@@ -1,7 +1,7 @@
 --[[
 %% properties
 88 value
-89 value
+99 value
 %% events
 5 CentralSceneEvent
 %% globals
@@ -12,7 +12,7 @@ Test
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B42"  -- May 17, 2019  
+_version,_fix = "2.0","B45"  -- May 20, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -29,7 +29,7 @@ _myNodeRed   = "http://192.168.1.50:1880/eventrunner" -- Ex. used for Event.post
 
 -- debug flags for various subsystems...
 _debugFlags = { 
-  post=true,invoke=false,triggers=true,dailys=true,rule=false,ruleTrue=false,hue=false,msgTime=false,
+  post=true,invoke=false,triggers=true,dailys=false,rule=false,ruleTrue=false,hue=false,msgTime=false,
   fcall=true, fglobal=false, fget=false, fother=true
 }
 ---------------- Here you place rules and user code, called once at startup --------------------
@@ -540,15 +540,15 @@ function newEventEngine()
       return fibaro.call(obj,id,fibaro:getValue(id,"value")>"0" and "turnOff" or "turnOn") 
     end
 
-    if id < 10000 then
+    if fibaro._idMap[id] then return fibaro._idMap[id].call(obj,id,call,...)
+    else
       if call=='setValue' then
         fibaro._actions[id] = fibaro._actions[id] or  api.get("/devices/"..id).actions
         if (not fibaro._actions[id].setValue) and fibaro._actions[id].turnOn then
           fibaro._call(obj,id,tonumber(({...})[1]) > 0 and "turnOn" or "turnOff")
-        end
+        else fibaro._call(obj,id,call,...) end
       end 
-      return fibaro._call(obj,id,call,...) 
-    else return fibaro._idMap[id].call(obj,id,call,...) end
+    end
   end 
 
   function fibaro.get(obj,id,...) 
@@ -560,20 +560,6 @@ function newEventEngine()
     id = tonumber(id); if not id then error("deviceID not a number",2) end
     if fibaro._idMap[id] then return (fibaro._idMap[id].get(obj,id,...)) else return (fibaro._getValue(obj,id,...)) end
   end
-
-  local _SUNTIMEDAY = nil
-  local _SUNTIMEVALUES = {sunsetHour=nil,sunriseHour=nil}
-  SunCalc = {}
-  self._registerID(1,nil,function(obj,id,prop) 
-      if prop=='sunsetHour' or prop=='sunriseHour' then
-        local day = os.date("*t").day
-        if day ~= _SUNTIMEDAY then
-          _SUNTIMEDAY = day
-          _SUNTIMEVALUES.sunriseHour,_SUNTIMEVALUES.sunsetHour=SunCalc.sunCalc()
-        end
-        return _SUNTIMEVALUES[prop]
-      else return fibaro._get(obj,id,prop) end
-    end)
 
 -- Logging of fibaro:* calls -------------
   local function traceFibaro(name,flag,rt)
@@ -859,28 +845,8 @@ function Util.mkStack()
   return self
 end
 
-do
-  local function gybdow(tm)
-    local ybdow = tonumber(os.date("%w",os.time{year=os.date("*t",tm).year,month=1,day=1}))
-    return ybdow == 0 and 7 or ybdow
-  end
-  local function getDayAdd(tm) local ybdow = gybdow(tm) return ybdow < 5 and (ybdow - 2) or (ybdow - 9) end
-  function Util.getWeekNumber(tm)
-    local dayOfYear,dayAdd,weekNum = os.date("%j",tm),getDayAdd(tm)
-    local doyc = dayOfYear + dayAdd
-    if(doyc < 0) then
-      dayAdd = getDayAdd(os.time{year=os.date("*t",tm).year-1,month=1,day=1})
-      dayOfYear = dayOfYear + os.date("%j",os.time{year=os.date("*t",tm).year-1,month=12,day=31})
-      doyc = dayOfYear + dayAdd
-    end  
-    weekNum = math.floor(doyc/7) + 1
-    if doyc > 0 and weekNum == 53 then
-      local ybdow = gybdow(os.time{year=os.date("*t",tm).year+1,month=1,day=1})
-      if ybdow < 5 then weekNum = 1 end  
-    end  
-    return weekNum
-  end  
-end
+if _EMULATED then Util.getWeekNumber = _System.getWeekNumber
+else Util.getWeekNumber = function(tm) return tonumber(os.date("%V",tm)) end end
 
 function Util.findScenes(str)
   local res = {}
@@ -1011,81 +977,81 @@ end
 VDev = makeVDev()
 
 ---- SunCalc -----
-  SunCalc={}
-  function SunCalc.sunturnTime(date, rising, latitude, longitude, zenith, local_offset)
-    local rad,deg,floor = math.rad,math.deg,math.floor
-    local frac = function(n) return n - floor(n) end
-    local cos = function(d) return math.cos(rad(d)) end
-    local acos = function(d) return deg(math.acos(d)) end
-    local sin = function(d) return math.sin(rad(d)) end
-    local asin = function(d) return deg(math.asin(d)) end
-    local tan = function(d) return math.tan(rad(d)) end
-    local atan = function(d) return deg(math.atan(d)) end
+SunCalc={}
+function SunCalc.sunturnTime(date, rising, latitude, longitude, zenith, local_offset)
+  local rad,deg,floor = math.rad,math.deg,math.floor
+  local frac = function(n) return n - floor(n) end
+  local cos = function(d) return math.cos(rad(d)) end
+  local acos = function(d) return deg(math.acos(d)) end
+  local sin = function(d) return math.sin(rad(d)) end
+  local asin = function(d) return deg(math.asin(d)) end
+  local tan = function(d) return math.tan(rad(d)) end
+  local atan = function(d) return deg(math.atan(d)) end
 
-    local function day_of_year(date)
-      local n1 = floor(275 * date.month / 9)
-      local n2 = floor((date.month + 9) / 12)
-      local n3 = (1 + floor((date.year - 4 * floor(date.year / 4) + 2) / 3))
-      return n1 - (n2 * n3) + date.day - 30
-    end
-
-    local function fit_into_range(val, min, max)
-      local range,count = max - min
-      if val < min then count = floor((min - val) / range) + 1; return val + count * range
-      elseif val >= max then count = floor((val - max) / range) + 1; return val - count * range
-      else return val end
-    end
-
-    -- Convert the longitude to hour value and calculate an approximate time
-    local n,lng_hour,t =  day_of_year(date), longitude / 15, nil
-    if rising then t = n + ((6 - lng_hour) / 24) -- Rising time is desired
-    else t = n + ((18 - lng_hour) / 24) end -- Setting time is desired
-    local M = (0.9856 * t) - 3.289 -- Calculate the Sun^s mean anomaly
-    -- Calculate the Sun^s true longitude
-    local L = fit_into_range(M + (1.916 * sin(M)) + (0.020 * sin(2 * M)) + 282.634, 0, 360)
-    -- Calculate the Sun^s right ascension
-    local RA = fit_into_range(atan(0.91764 * tan(L)), 0, 360)
-    -- Right ascension value needs to be in the same quadrant as L
-    local Lquadrant = floor(L / 90) * 90
-    local RAquadrant = floor(RA / 90) * 90
-    RA = RA + Lquadrant - RAquadrant; RA = RA / 15 -- Right ascension value needs to be converted into hours
-    local sinDec = 0.39782 * sin(L) -- Calculate the Sun's declination
-    local cosDec = cos(asin(sinDec))
-    local cosH = (cos(zenith) - (sinDec * sin(latitude))) / (cosDec * cos(latitude)) -- Calculate the Sun^s local hour angle
-    if rising and cosH > 1 then return "N/R" -- The sun never rises on this location on the specified date
-    elseif cosH < -1 then return "N/S" end -- The sun never sets on this location on the specified date
-
-    local H -- Finish calculating H and convert into hours
-    if rising then H = 360 - acos(cosH)
-    else H = acos(cosH) end
-    H = H / 15
-    local T = H + RA - (0.06571 * t) - 6.622 -- Calculate local mean time of rising/setting
-    local UT = fit_into_range(T - lng_hour, 0, 24) -- Adjust back to UTC
-    local LT = UT + local_offset -- Convert UT value to local time zone of latitude/longitude
-    return osTime({day = date.day,month = date.month,year = date.year,hour = floor(LT),min = math.modf(frac(LT) * 60)})
+  local function day_of_year(date)
+    local n1 = floor(275 * date.month / 9)
+    local n2 = floor((date.month + 9) / 12)
+    local n3 = (1 + floor((date.year - 4 * floor(date.year / 4) + 2) / 3))
+    return n1 - (n2 * n3) + date.day - 30
   end
 
-  function SunCalc.getTimezone() local now = osTime() return os.difftime(now, osTime(osDate("!*t", now))) end
-
-  function SunCalc.sunCalc(time)
-    local hc2Info = api.get("/settings/location") or {}
-    local lat = hc2Info.latitude or _LATITUDE
-    local lon = hc2Info.longitude or _LONGITUDE
-    local utc = SunCalc.getTimezone() / 3600
-    local zenith,zenith_twilight = 90.83, 96.0 -- sunset/sunrise 90°50′, civil twilight 96°0′
-
-    local date = osDate("*t",time or osTime())
-    if date.isdst then utc = utc + 1 end
-    local rise_time = osDate("*t", SunCalc.sunturnTime(date, true, lat, lon, zenith, utc))
-    local set_time = osDate("*t", SunCalc.sunturnTime(date, false, lat, lon, zenith, utc))
-    local rise_time_t = osDate("*t", SunCalc.sunturnTime(date, true, lat, lon, zenith_twilight, utc))
-    local set_time_t = osDate("*t", SunCalc.sunturnTime(date, false, lat, lon, zenith_twilight, utc))
-    local sunrise = _format("%.2d:%.2d", rise_time.hour, rise_time.min)
-    local sunset = _format("%.2d:%.2d", set_time.hour, set_time.min)
-    local sunrise_t = _format("%.2d:%.2d", rise_time_t.hour, rise_time_t.min)
-    local sunset_t = _format("%.2d:%.2d", set_time_t.hour, set_time_t.min)
-    return sunrise, sunset, sunrise_t, sunset_t
+  local function fit_into_range(val, min, max)
+    local range,count = max - min
+    if val < min then count = floor((min - val) / range) + 1; return val + count * range
+    elseif val >= max then count = floor((val - max) / range) + 1; return val - count * range
+    else return val end
   end
+
+  -- Convert the longitude to hour value and calculate an approximate time
+  local n,lng_hour,t =  day_of_year(date), longitude / 15, nil
+  if rising then t = n + ((6 - lng_hour) / 24) -- Rising time is desired
+  else t = n + ((18 - lng_hour) / 24) end -- Setting time is desired
+  local M = (0.9856 * t) - 3.289 -- Calculate the Sun^s mean anomaly
+  -- Calculate the Sun^s true longitude
+  local L = fit_into_range(M + (1.916 * sin(M)) + (0.020 * sin(2 * M)) + 282.634, 0, 360)
+  -- Calculate the Sun^s right ascension
+  local RA = fit_into_range(atan(0.91764 * tan(L)), 0, 360)
+  -- Right ascension value needs to be in the same quadrant as L
+  local Lquadrant = floor(L / 90) * 90
+  local RAquadrant = floor(RA / 90) * 90
+  RA = RA + Lquadrant - RAquadrant; RA = RA / 15 -- Right ascension value needs to be converted into hours
+  local sinDec = 0.39782 * sin(L) -- Calculate the Sun's declination
+  local cosDec = cos(asin(sinDec))
+  local cosH = (cos(zenith) - (sinDec * sin(latitude))) / (cosDec * cos(latitude)) -- Calculate the Sun^s local hour angle
+  if rising and cosH > 1 then return "N/R" -- The sun never rises on this location on the specified date
+  elseif cosH < -1 then return "N/S" end -- The sun never sets on this location on the specified date
+
+  local H -- Finish calculating H and convert into hours
+  if rising then H = 360 - acos(cosH)
+  else H = acos(cosH) end
+  H = H / 15
+  local T = H + RA - (0.06571 * t) - 6.622 -- Calculate local mean time of rising/setting
+  local UT = fit_into_range(T - lng_hour, 0, 24) -- Adjust back to UTC
+  local LT = UT + local_offset -- Convert UT value to local time zone of latitude/longitude
+  return osTime({day = date.day,month = date.month,year = date.year,hour = floor(LT),min = math.modf(frac(LT) * 60)})
+end
+
+function SunCalc.getTimezone() local now = osTime() return os.difftime(now, osTime(osDate("!*t", now))) end
+
+function SunCalc.sunCalc(time)
+  local hc2Info = api.get("/settings/location") or {}
+  local lat = hc2Info.latitude or _LATITUDE
+  local lon = hc2Info.longitude or _LONGITUDE
+  local utc = SunCalc.getTimezone() / 3600
+  local zenith,zenith_twilight = 90.83, 96.0 -- sunset/sunrise 90°50′, civil twilight 96°0′
+
+  local date = osDate("*t",time or osTime())
+  if date.isdst then utc = utc + 1 end
+  local rise_time = osDate("*t", SunCalc.sunturnTime(date, true, lat, lon, zenith, utc))
+  local set_time = osDate("*t", SunCalc.sunturnTime(date, false, lat, lon, zenith, utc))
+  local rise_time_t = osDate("*t", SunCalc.sunturnTime(date, true, lat, lon, zenith_twilight, utc))
+  local set_time_t = osDate("*t", SunCalc.sunturnTime(date, false, lat, lon, zenith_twilight, utc))
+  local sunrise = _format("%.2d:%.2d", rise_time.hour, rise_time.min)
+  local sunset = _format("%.2d:%.2d", set_time.hour, set_time.min)
+  local sunrise_t = _format("%.2d:%.2d", rise_time_t.hour, rise_time_t.min)
+  local sunset_t = _format("%.2d:%.2d", set_time_t.hour, set_time_t.min)
+  return sunrise, sunset, sunrise_t, sunset_t
+end
 --------- ScriptEngine ------------------------------------------
 _traceInstrs=false
 
@@ -2013,6 +1979,20 @@ Util.defvar('S2',Util.S2)
 Util.defvar('catch',math.huge)
 Util.defvar("defvars",Util.defvars)
 Util.defvar("mapvars",Util.reverseMapDef)
+
+-- Sunset/sunrise patch
+local _SUNTIMEDAY = nil
+local _SUNTIMEVALUES = {sunsetHour=nil,sunriseHour=nil}
+Event._registerID(1,nil,function(obj,id,prop) 
+    if prop=='sunsetHour' or prop=='sunriseHour' then
+      local day = os.date("*t").day
+      if day ~= _SUNTIMEDAY then
+        _SUNTIMEDAY = day
+        _SUNTIMEVALUES.sunriseHour,_SUNTIMEVALUES.sunsetHour=SunCalc.sunCalc()
+      end
+      return _SUNTIMEVALUES[prop]
+    else return fibaro._get(obj,id,prop) end
+  end)
 
 -- Ping / publish / subscribe / & emulator support
 Event._dir,Event._rScenes,Event._subs,Event._stats = {},{},{},{}
