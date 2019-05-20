@@ -12,7 +12,7 @@ Test
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B45"  -- May 20, 2019  
+_version,_fix = "2.0","B46"  -- May 20, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -541,66 +541,65 @@ function newEventEngine()
     end
 
     if fibaro._idMap[id] then return fibaro._idMap[id].call(obj,id,call,...)
-    else
-      if call=='setValue' then
-        fibaro._actions[id] = fibaro._actions[id] or  api.get("/devices/"..id).actions
-        if (not fibaro._actions[id].setValue) and fibaro._actions[id].turnOn then
-          fibaro._call(obj,id,tonumber(({...})[1]) > 0 and "turnOn" or "turnOff")
-        else fibaro._call(obj,id,call,...) end
-      end 
-    end
-  end 
+    elseif call=='setValue' then
+      fibaro._actions[id] = fibaro._actions[id] or  api.get("/devices/"..id).actions
+      if (not fibaro._actions[id].setValue) and fibaro._actions[id].turnOn then
+        return fibaro._call(obj,id,tonumber(({...})[1]) > 0 and "turnOn" or "turnOff")
+      end
+    end 
+    return fibaro._call(obj,id,call,...)
+end 
 
-  function fibaro.get(obj,id,...) 
-    id = tonumber(id); if not id then error("deviceID not a number",2) end
-    if fibaro._idMap[id] then return fibaro._idMap[id].get(obj,id,...) else return fibaro._get(obj,id,...) end
-  end
+function fibaro.get(obj,id,...) 
+  id = tonumber(id); if not id then error("deviceID not a number",2) end
+  if fibaro._idMap[id] then return fibaro._idMap[id].get(obj,id,...) else return fibaro._get(obj,id,...) end
+end
 
-  function fibaro.getValue(obj,id,...) 
-    id = tonumber(id); if not id then error("deviceID not a number",2) end
-    if fibaro._idMap[id] then return (fibaro._idMap[id].get(obj,id,...)) else return (fibaro._getValue(obj,id,...)) end
-  end
+function fibaro.getValue(obj,id,...) 
+  id = tonumber(id); if not id then error("deviceID not a number",2) end
+  if fibaro._idMap[id] then return (fibaro._idMap[id].get(obj,id,...)) else return (fibaro._getValue(obj,id,...)) end
+end
 
 -- Logging of fibaro:* calls -------------
-  local function traceFibaro(name,flag,rt)
-    local orgFun=fibaro[name]
-    fibaro[name]=function(f,id,...)
-      local args={...}
-      local stat,res = pcall(function() return {orgFun(f,id,table.unpack(args))} end)
-      if stat then
-        if _debugFlags[flag] then
-          if rt then rt(id,args,res)
-          else
-            local astr=(id~=nil and Util.reverseVar(id).."," or "")..json.encode(args):sub(2,-2)
-            Debug(true,"fibaro:%s(%s)%s",name,astr,#res>0 and "="..tojson(res):sub(2,-2) or "")
-          end
+local function traceFibaro(name,flag,rt)
+  local orgFun=fibaro[name]
+  fibaro[name]=function(f,id,...)
+    local args={...}
+    local stat,res = pcall(function() return {orgFun(f,id,table.unpack(args))} end)
+    if stat then
+      if _debugFlags[flag] then
+        if rt then rt(id,args,res)
+        else
+          local astr=(id~=nil and Util.reverseVar(id).."," or "")..json.encode(args):sub(2,-2)
+          Debug(true,"fibaro:%s(%s)%s",name,astr,#res>0 and "="..tojson(res):sub(2,-2) or "")
         end
-        return table.unpack(res)
-      else
-        local astr=(id~=nil and Util.reverseVar(id).."," or "")..json.encode(args):sub(2,-2)
-        error(_format("fibaro:%s(%s),%s",name,astr,res),3)
       end
+      return table.unpack(res)
+    else
+      local astr=(id~=nil and Util.reverseVar(id).."," or "")..json.encode(args):sub(2,-2)
+      error(_format("fibaro:%s(%s),%s",name,astr,res),3)
     end
   end
+end
 
-  if not _EMULATED then  -- Emulator logs fibaro:* calls for us
-    local maps = {
-      {"call","fcall"},{"setGlobal","fglobal"},{"getGlobal","fglobal"},{"getGlobalValue","fglobal"},
-      {"get","fget"},{"getValue","fget"},{"killScenes","fother"},{"abort","fother"},
-      {"sleep","fother",function(id,args,res) 
-          Debug(true,"fibaro:sleep(%s) until %s",id,osDate("%X",osTime()+math.floor(0.5+id/1000))) 
-        end},        
-      {"startScene","fother",function(id,args,res) 
-          local a = isRemoteEvent(args[1]) and json.encode(decodeRemoteEvent(args[1])) or args and json.encode(args)
-          Debug(true,"fibaro:startScene(%s%s)",id,a and ","..a or "") 
-        end},
-    }
-    for _,f in ipairs(maps) do traceFibaro(f[1],f[2],f[3]) end
-  end
+if not _EMULATED then  -- Emulator logs fibaro:* calls for us
+  local maps = {
+    {"call","fcall"},{"setGlobal","fglobal"},{"getGlobal","fglobal"},{"getGlobalValue","fglobal"},
+    {"get","fget"},{"getValue","fget"},{"killScenes","fother"},{"abort","fother"},
+    {"sleep","fother",function(id,args,res) 
+        Debug(true,"fibaro:sleep(%s) until %s",id,osDate("%X",osTime()+math.floor(0.5+id/1000))) 
+      end},        
+    {"startScene","fother",function(id,args,res) 
+        local a = isRemoteEvent(args[1]) and json.encode(decodeRemoteEvent(args[1])) or args and json.encode(args)
+        Debug(true,"fibaro:startScene(%s%s)",id,a and ","..a or "") 
+      end},
+  }
+  for _,f in ipairs(maps) do traceFibaro(f[1],f[2],f[3]) end
+end
 
-  function fibaro:sleep() error("Not allowed to use fibaro:sleep in EventRunner scenes!") end
+function fibaro:sleep() error("Not allowed to use fibaro:sleep in EventRunner scenes!") end
 
-  return self
+return self
 end
 
 Event = newEventEngine()
