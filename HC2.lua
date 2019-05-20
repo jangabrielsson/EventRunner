@@ -25,13 +25,13 @@ SOFTWARE.
 json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
-_version,_fix = "0.9","fix1" -- May 1, 2019    
+_version,_fix = "0.10","fix2" -- May 20, 2019    
 _sceneName = "HC2 emulator"
 
 _LOCAL=true                  -- set all resource to local in main(), i.e. no calls to HC2
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
 _SPEEDTIME = false           -- Run faster than realtime, if set to false run in realtime
-_MAXTIME = 24*35             -- Max hours to run emulator
+_MAXTIME = 24*135             -- Max hours to run emulator
 _BLOCK_PUT=true              -- Block http PUT commands to the HC2 - e.g. changing resources on the HC2
 _BLOCK_POST=true             -- Block http POST commands to the HC2 - e.g. creating resources on the HC2
 _AUTOCREATEGLOBALS=true      -- Will (silently) autocreate a local fibaro global if it doesn't exist
@@ -46,7 +46,7 @@ _HC2_PWD=_HC2_PWD or "xxxxxx"           -- HC2 password
 
 _EVENTRUNNER_SUPPORT=true               -- Announce presence to HC2 and other ER scenes
 _DEBUGREMOTERSRC=true
-_FORCERESOURCEUPDATE=true
+_FORCERESOURCEUPDATE=false
 
 local creds = loadfile("HC2credentials.lua") -- To not accidently commit credentials to Github...
 if creds then creds() end
@@ -83,7 +83,7 @@ function main()
 
   local setup = loadfile("HC2setup.lua") -- To not accidently commit credentials to Github...
   if setup then setup() end
-  
+
   --Proxy.installProxy()
   --Proxy.removeProxy()
 
@@ -652,6 +652,7 @@ function Scene_functions()
     Scene.checkValidCharsInFile(src,fileName)
     local c = src:match("--%[%[.-%-%-%]%]")
     local curr = nil
+    if c==nil or c=="" then c = "--%[%[\n%%%% autostart\n%]%]--" end
     if c and c~="" then
       c=c:gsub("([\r\n]+)","\n")
       c = split(c,'\n')
@@ -1588,10 +1589,32 @@ function System_functions()
 
   _System.port = _EVENTSERVER
   _System.ipAdress = HC2.getIPadress()
-  
+
   _System.speed = Runtime.speed
 
   _System._Msg = Util.Msg
+
+  local function gybdow(tm)
+    local ybdow = tonumber(os.date("%w",os.time{year=os.date("*t",tm).year,month=1,day=1}))
+    return ybdow == 0 and 7 or ybdow
+  end
+  local function getDayAdd(tm) local ybdow = gybdow(tm) return ybdow < 5 and (ybdow - 2) or (ybdow - 9) end
+  function _System.getWeekNumber(tm)
+    local dayOfYear,dayAdd,weekNum = os.date("%j",tm),getDayAdd(tm)
+    local doyc = dayOfYear + dayAdd
+    if(doyc < 0) then
+      dayAdd = getDayAdd(os.time{year=os.date("*t",tm).year-1,month=1,day=1})
+      dayOfYear = dayOfYear + os.date("%j",os.time{year=os.date("*t",tm).year-1,month=12,day=31})
+      doyc = dayOfYear + dayAdd
+    end  
+    weekNum = math.floor(doyc/7) + 1
+    if doyc > 0 and weekNum == 53 then
+      local ybdow = gybdow(os.time{year=os.date("*t",tm).year+1,month=1,day=1})
+      if ybdow < 5 then weekNum = 1 end  
+    end  
+    return weekNum
+  end  
+
 end
 
 ------------------------------------------------------------------------------
@@ -1830,236 +1853,236 @@ function Fibaro_functions()
   function __fibaroSleep(n) return coroutine.yield(coroutine.running(),n/1000) end
   function __fibaro_get_device(deviceID,r) 
     return HC2.getVirtualDevice(deviceID,r) or HC2.getDevice(deviceID,r) end
-  function __fibaro_get_device_property(deviceID ,propertyName) return HC2.getDeviceProperty(deviceID,propertyName) end
-  function __fibaro_get_scene(sceneID,r) return HC2.getScene(sceneID,r) end
-  function __fibaro_get_global_variable(name,r) return HC2.getGlobal(name,r)  end
-  function __fibaro_get_room(roomID) return HC2.getRoom(roomID) end
-  function __fibaro_set_global_variable(varName,data)
-    local globalVar = __fibaro_get_global_variable(varName,true)
-    if globalVar and globalVar._local then -- we have a local
-      globalVar.value,globalVar.modified=data.value,osTime()
-      if data.invokeScenes then
-        Event.post({type='global',name=globalVar.name}) -- trigger
-      end
-    elseif globalVar then -- we have a remote global
-      if _BLOCK_PUT then
-        error(_format("Trying to update HC2 global %s, set _BLOCK_PUT=false to allow",varName))
-      else api.rawPut(true,"/globalVariables/"..varName ,data) end
-    else 
-      error("Non existent fibaro global: "..varName) -- should we throw an error?
-    end
-  end
-
-  function fibaro:getSourceTrigger() return Scene.global().__fibaroSceneSourceTrigger end
-  function fibaro:getSourceTriggerType() return Scene.global().__fibaroSceneSourceTrigger["type"] end
-
-  function fibaro:debug(str)
-    str=tostring(str)
-    for _,f in ipairs(HC2._debugFilters) do
-      local m = str:match(f.str)
-      if m then if f.ret then return else str=m; break end end
-    end 
-    local env = Scene.global()
-    print(_format("%s%s %s",osDate("%a/%b/%d,%H:%M:%S:"),env.__debugName,str)) 
-  end
-
-  function fibaro:sleep(n) __fibaroSleep(n) end
-  function fibaro:abort() coroutine.yield(coroutine.running(),'%%ABORT%%') end
-
-  function fibaro:countScenes(sceneID) YIELD()
-    local scene = __fibaro_get_scene(sceneID or Scene.global().__fibaroSceneId) 
-    return scene ==  nil and 0 or scene.runningInstances
-  end
-
-  function fibaro:isSceneEnabled(sceneID) YIELD() 
-    local scene = __fibaro_get_scene(sceneID) 
-    return scene and (scene.runConfig == "TRIGGER_AND_MANUAL" or scene.runConfig == "MANUAL_ONLY")
-  end
-
-  function fibaro:killScenes(sceneID) YIELD()
-    local scene = __fibaro_get_scene(sceneID,true) 
-    if not scene then return end
-    if scene._local then Scene.stop(scene)
-    else api.rawPost(true,"/scenes/"..sceneID.."/action/stop") end
-  end
-
-  fibaro.stopScene = fibaro.killScenes -- symetri and used by web GUI
-
-  function fibaro:startScene(sceneID,args) YIELD()
-    local scene = __fibaro_get_scene(sceneID,true) 
-    if not scene then return end
-    if scene._local then
-      Event.post({type='other',_id=scene.id,_args=args})
-    else api.rawPost(true,"/scenes/"..sceneID.."/action/start",args and {args=args} or nil)  end
-  end
-
-  function fibaro:args() return Scene.global().__fibaroSceneArgs end
-
-  function fibaro:setSceneEnabled(sceneID , enabled) YIELD() 
-    __assert_type(sceneID ,"number") 
-    __assert_type(enabled ,"boolean")
-    local scene = __fibaro_get_scene(sceneID,true)
-    if not scene then return end
-    local runConfig = enabled == true and "TRIGGER_AND_MANUAL" or "DISABLED"
-    if scene._local then scene.runConfig = runConfig 
-    else 
-      if _BLOCK_PUT then
-        error(_format("Trying to update HC2 scene %s, set _BLOCK_PUT=false to allow",sceneID))
-      else api.rawPut(true,"/scenes/"..sceneID, {id = sceneID ,runConfig = runConfig}) end
-    end 
-  end
-
-  function fibaro:getSceneRunConfig(sceneID) YIELD() 
-    local scene = __fibaro_get_scene(sceneID)    
-    if not scene then return nil end
-    return scene.runConfig
-  end
-
-  function fibaro:setSceneRunConfig(sceneID ,runConfig) YIELD() 
-    __assert_type(sceneID ,"number") 
-    __assert_type(enabled ,"boolean")
-    local scene = __fibaro_get_scene(sceneID,true)
-    if not scene then return end
-    if scene._local then scene.runConfig = runConfig 
-    else 
-      if _BLOCK_PUT then
-        error(_format("Trying to update HC2 scene %s, set _BLOCK_PUT=false to allow",sceneID))
-      else
-        api.rawPut(true,"/scenes/"..sceneID, {id = sceneID ,runConfig = runConfig}) 
+    function __fibaro_get_device_property(deviceID ,propertyName) return HC2.getDeviceProperty(deviceID,propertyName) end
+    function __fibaro_get_scene(sceneID,r) return HC2.getScene(sceneID,r) end
+    function __fibaro_get_global_variable(name,r) return HC2.getGlobal(name,r)  end
+    function __fibaro_get_room(roomID) return HC2.getRoom(roomID) end
+    function __fibaro_set_global_variable(varName,data)
+      local globalVar = __fibaro_get_global_variable(varName,true)
+      if globalVar and globalVar._local then -- we have a local
+        globalVar.value,globalVar.modified=data.value,osTime()
+        if data.invokeScenes then
+          Event.post({type='global',name=globalVar.name}) -- trigger
+        end
+      elseif globalVar then -- we have a remote global
+        if _BLOCK_PUT then
+          error(_format("Trying to update HC2 global %s, set _BLOCK_PUT=false to allow",varName))
+        else api.rawPut(true,"/globalVariables/"..varName ,data) end
+      else 
+        error("Non existent fibaro global: "..varName) -- should we throw an error?
       end
     end
-  end
 
-  function fibaro:getRoomID(deviceID) 
-    local dev = __fibaro_get_device(deviceID)
-    if  dev ==  nil then return  nil end
-    return dev.roomID
-  end
+    function fibaro:getSourceTrigger() return Scene.global().__fibaroSceneSourceTrigger end
+    function fibaro:getSourceTriggerType() return Scene.global().__fibaroSceneSourceTrigger["type"] end
 
-  function fibaro:getSectionID(deviceID) 
-    local dev = __fibaro_get_device(deviceID)
-    if  dev ==  nil then return  nil end
-    if dev.roomID ~=  0  then return HC2.getRoom(dev.roomID).sectionID end 
-    return  0 
-  end
-
-  function fibaro:getType(deviceID) YIELD() 
-    local dev = __fibaro_get_device(deviceID)
-    if  dev == nil then return  nil end
-    return dev.type
-  end
-
-  function fibaro:get(deviceID ,propertyName) YIELD() 
-    local property = __fibaro_get_device_property(deviceID , propertyName)
-    if property ==  nil then return  nil end
-    return __convertToString(property.value) , property.modified
-  end
-
-  function fibaro:getValue(deviceID ,propertyName) --YIELD() 
-    local property = __fibaro_get_device_property(deviceID , propertyName)
-    return property and __convertToString(property.value)
-  end
-
-  function fibaro:getModificationTime(deviceID ,propertyName) 
-    local property = __fibaro_get_device_property(deviceID , propertyName)
-    return property and property.modified
-  end
-
-  function fibaro:getGlobal(varName) YIELD(10) 
-    local globalVar = __fibaro_get_global_variable(varName) 
-    if globalVar ==  nil then return  nil end
-    return globalVar.value ,globalVar.modified
-  end
-
-  function fibaro:getGlobalValue(varName) YIELD(10)
-    local globalVar = __fibaro_get_global_variable(varName)
-    return globalVar and  globalVar.value 
-  end
-
-  function fibaro:getGlobalModificationTime(varName) return select(2,fibaro:getGlobal(varName)) end
-
-  function fibaro:setGlobal(varName ,value) YIELD(10) 
-    __assert_type(varName ,"string")
-    __fibaro_set_global_variable(varName,{value=tostring(value), invokeScenes= true})
-  end
-
-  function fibaro:calculateDistance(position1 , position2) 
-    __assert_type(position1 ,"string") 
-    __assert_type(position2 ,"string") 
-    lat1,lon1=position1:match("(.*);(.*)")
-    lat2,lon3=position2:match("(.*);(.*)")
-    lat1,lon1,lat2,lon2=tonumber(lat1),tonumber(lon1),tonumber(lat2),tonumber(lon2)
-    _assert(lat1 and lon1 and lat2 and lon2,"Bad arguments to fibaro:calculateDistance")
-    local dlat = math.rad(lat2-lat1)
-    local dlon = math.rad(lon2-lon1)
-    local sin_dlat = math.sin(dlat/2)
-    local sin_dlon = math.sin(dlon/2)
-    local a = sin_dlat * sin_dlat + math.cos(math.rad(lat1)) * math.cos(math.rad(lat2)) * sin_dlon * sin_dlon
-    local c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-    local d = 6378 * c
-    return d
-  end
-
-  function setAndPropagate(id,key,value)
-    local d = HC2.rsrc.devices[id].properties
-    if d[key] ~= value then
-      d[key]=value
-      HC2.rsrc.devices[id].modified=osTime()
-      Event.post({type='property', deviceID=id, propertyName=key})
+    function fibaro:debug(str)
+      str=tostring(str)
+      for _,f in ipairs(HC2._debugFilters) do
+        local m = str:match(f.str)
+        if m then if f.ret then return else str=m; break end end
+      end 
+      local env = Scene.global()
+      print(_format("%s%s %s",osDate("%a/%b/%d,%H:%M:%S:"),env.__debugName,str)) 
     end
-  end
 
-  _specCalls={}
-  function _specCalls.setProperty(id,prop,...) setAndPropagate(id,prop,({...})[1]) end 
-  function _specCalls.setColor(id,R,G,B) setAndPropagate(id,"color","RGB") end
-  function _specCalls.setArmed(id,value) setAndPropagate(id,"armed",value) end
-  function _specCalls.sendPush(id,msg) end -- log to console?
-  function _specCalls.pressButton(id,msg) end -- simulate VD?
-  function _specCalls.setPower(id,value) setAndPropagate(id,"power",value) end
-  function _specCalls.close(id,value) setAndPropagate(id,"value",0) end
-  function _specCalls.open(id,value) setAndPropagate(id,"value",100) end
+    function fibaro:sleep(n) __fibaroSleep(n) end
+    function fibaro:abort() coroutine.yield(coroutine.running(),'%%ABORT%%') end
 
-  function fibaro:call(deviceID ,actionName ,...)  YIELD(10)
-    deviceID =  tonumber(deviceID) 
-    __assert_type(actionName ,"string")
-    local dev = __fibaro_get_device(deviceID,true)
-    if dev and dev._local then
-      if _specCalls[actionName] then _specCalls[actionName](deviceID,...) return end 
-      local value = ({turnOff=false,turnOn=true,open=true, on=true,close=false, off=false})[actionName] or 
-      (actionName=='setValue' and tostring(({...})[1]))
-      if value==nil then error(_format("fibaro:call(..,'%s',..) is not supported, fix it!",actionName)) end
-      setAndPropagate(deviceID,'value',value)
-    elseif dev then
-      local args = "" 
-      for i,v in  ipairs ({...})  do args = args.. '&arg'..tostring(i)..'='..urlencode(tostring(v)) end 
-      api.rawGet(true,"/callAction?deviceID="..deviceID.."&name="..actionName..args) 
+    function fibaro:countScenes(sceneID) YIELD()
+      local scene = __fibaro_get_scene(sceneID or Scene.global().__fibaroSceneId) 
+      return scene ==  nil and 0 or scene.runningInstances
     end
-  end
 
-  function fibaro:getName(deviceID) 
-    __assert_type(deviceID ,'number') 
-    local dev = __fibaro_get_device(deviceID)
-    return dev and dev.name
-  end
+    function fibaro:isSceneEnabled(sceneID) YIELD() 
+      local scene = __fibaro_get_scene(sceneID) 
+      return scene and (scene.runConfig == "TRIGGER_AND_MANUAL" or scene.runConfig == "MANUAL_ONLY")
+    end
 
-  function fibaro:getRoomName(roomID) 
-    __assert_type(roomID ,'number') 
-    local room = __fibaro_get_room(roomID) 
-    return room and room.name 
-  end
+    function fibaro:killScenes(sceneID) YIELD()
+      local scene = __fibaro_get_scene(sceneID,true) 
+      if not scene then return end
+      if scene._local then Scene.stop(scene)
+      else api.rawPost(true,"/scenes/"..sceneID.."/action/stop") end
+    end
 
-  function fibaro:getRoomNameByDeviceID(deviceID) 
-    __assert_type(deviceID,'number') 
-    local dev = __fibaro_get_device(deviceID)
-    if  dev == nil then return  nil end
-    local room = __fibaro_get_room(dev.roomID)
-    return dev.roomID==0 and 'unassigned' or room and room.name
-  end
+    fibaro.stopScene = fibaro.killScenes -- symetri and used by web GUI
 
-  function fibaro:wakeUpDeadDevice(deviceID ) 
-    __assert_type(deviceID ,'number') 
-    fibaro:call(1,'wakeUpDeadDevice',deviceID) 
-  end
+    function fibaro:startScene(sceneID,args) YIELD()
+      local scene = __fibaro_get_scene(sceneID,true) 
+      if not scene then return end
+      if scene._local then
+        Event.post({type='other',_id=scene.id,_args=args})
+      else api.rawPost(true,"/scenes/"..sceneID.."/action/start",args and {args=args} or nil)  end
+    end
+
+    function fibaro:args() return Scene.global().__fibaroSceneArgs end
+
+    function fibaro:setSceneEnabled(sceneID , enabled) YIELD() 
+      __assert_type(sceneID ,"number") 
+      __assert_type(enabled ,"boolean")
+      local scene = __fibaro_get_scene(sceneID,true)
+      if not scene then return end
+      local runConfig = enabled == true and "TRIGGER_AND_MANUAL" or "DISABLED"
+      if scene._local then scene.runConfig = runConfig 
+      else 
+        if _BLOCK_PUT then
+          error(_format("Trying to update HC2 scene %s, set _BLOCK_PUT=false to allow",sceneID))
+        else api.rawPut(true,"/scenes/"..sceneID, {id = sceneID ,runConfig = runConfig}) end
+      end 
+    end
+
+    function fibaro:getSceneRunConfig(sceneID) YIELD() 
+      local scene = __fibaro_get_scene(sceneID)    
+      if not scene then return nil end
+      return scene.runConfig
+    end
+
+    function fibaro:setSceneRunConfig(sceneID ,runConfig) YIELD() 
+      __assert_type(sceneID ,"number") 
+      __assert_type(enabled ,"boolean")
+      local scene = __fibaro_get_scene(sceneID,true)
+      if not scene then return end
+      if scene._local then scene.runConfig = runConfig 
+      else 
+        if _BLOCK_PUT then
+          error(_format("Trying to update HC2 scene %s, set _BLOCK_PUT=false to allow",sceneID))
+        else
+          api.rawPut(true,"/scenes/"..sceneID, {id = sceneID ,runConfig = runConfig}) 
+        end
+      end
+    end
+
+    function fibaro:getRoomID(deviceID) 
+      local dev = __fibaro_get_device(deviceID)
+      if  dev ==  nil then return  nil end
+      return dev.roomID
+    end
+
+    function fibaro:getSectionID(deviceID) 
+      local dev = __fibaro_get_device(deviceID)
+      if  dev ==  nil then return  nil end
+      if dev.roomID ~=  0  then return HC2.getRoom(dev.roomID).sectionID end 
+      return  0 
+    end
+
+    function fibaro:getType(deviceID) YIELD() 
+      local dev = __fibaro_get_device(deviceID)
+      if  dev == nil then return  nil end
+      return dev.type
+    end
+
+    function fibaro:get(deviceID ,propertyName) YIELD() 
+      local property = __fibaro_get_device_property(deviceID , propertyName)
+      if property ==  nil then return  nil end
+      return __convertToString(property.value) , property.modified
+    end
+
+    function fibaro:getValue(deviceID ,propertyName) --YIELD() 
+      local property = __fibaro_get_device_property(deviceID , propertyName)
+      return property and __convertToString(property.value)
+    end
+
+    function fibaro:getModificationTime(deviceID ,propertyName) 
+      local property = __fibaro_get_device_property(deviceID , propertyName)
+      return property and property.modified
+    end
+
+    function fibaro:getGlobal(varName) YIELD(10) 
+      local globalVar = __fibaro_get_global_variable(varName) 
+      if globalVar ==  nil then return  nil end
+      return globalVar.value ,globalVar.modified
+    end
+
+    function fibaro:getGlobalValue(varName) YIELD(10)
+      local globalVar = __fibaro_get_global_variable(varName)
+      return globalVar and  globalVar.value 
+    end
+
+    function fibaro:getGlobalModificationTime(varName) return select(2,fibaro:getGlobal(varName)) end
+
+    function fibaro:setGlobal(varName ,value) YIELD(10) 
+      __assert_type(varName ,"string")
+      __fibaro_set_global_variable(varName,{value=tostring(value), invokeScenes= true})
+    end
+
+    function fibaro:calculateDistance(position1 , position2) 
+      __assert_type(position1 ,"string") 
+      __assert_type(position2 ,"string") 
+      lat1,lon1=position1:match("(.*);(.*)")
+      lat2,lon3=position2:match("(.*);(.*)")
+      lat1,lon1,lat2,lon2=tonumber(lat1),tonumber(lon1),tonumber(lat2),tonumber(lon2)
+      _assert(lat1 and lon1 and lat2 and lon2,"Bad arguments to fibaro:calculateDistance")
+      local dlat = math.rad(lat2-lat1)
+      local dlon = math.rad(lon2-lon1)
+      local sin_dlat = math.sin(dlat/2)
+      local sin_dlon = math.sin(dlon/2)
+      local a = sin_dlat * sin_dlat + math.cos(math.rad(lat1)) * math.cos(math.rad(lat2)) * sin_dlon * sin_dlon
+      local c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+      local d = 6378 * c
+      return d
+    end
+
+    function setAndPropagate(id,key,value)
+      local d = HC2.rsrc.devices[id].properties
+      if d[key] ~= value then
+        d[key]=value
+        HC2.rsrc.devices[id].modified=osTime()
+        Event.post({type='property', deviceID=id, propertyName=key})
+      end
+    end
+
+    _specCalls={}
+    function _specCalls.setProperty(id,prop,...) setAndPropagate(id,prop,({...})[1]) end 
+    function _specCalls.setColor(id,R,G,B) setAndPropagate(id,"color","RGB") end
+    function _specCalls.setArmed(id,value) setAndPropagate(id,"armed",value) end
+    function _specCalls.sendPush(id,msg) end -- log to console?
+    function _specCalls.pressButton(id,msg) end -- simulate VD?
+    function _specCalls.setPower(id,value) setAndPropagate(id,"power",value) end
+    function _specCalls.close(id,value) setAndPropagate(id,"value",0) end
+    function _specCalls.open(id,value) setAndPropagate(id,"value",100) end
+
+    function fibaro:call(deviceID ,actionName ,...)  YIELD(10)
+      deviceID =  tonumber(deviceID) 
+      __assert_type(actionName ,"string")
+      local dev = __fibaro_get_device(deviceID,true)
+      if dev and dev._local then
+        if _specCalls[actionName] then _specCalls[actionName](deviceID,...) return end 
+        local value = ({turnOff=false,turnOn=true,open=true, on=true,close=false, off=false})[actionName] or 
+        (actionName=='setValue' and tostring(({...})[1]))
+        if value==nil then error(_format("fibaro:call(..,'%s',..) is not supported, fix it!",actionName)) end
+        setAndPropagate(deviceID,'value',value)
+      elseif dev then
+        local args = "" 
+        for i,v in  ipairs ({...})  do args = args.. '&arg'..tostring(i)..'='..urlencode(tostring(v)) end 
+        api.rawGet(true,"/callAction?deviceID="..deviceID.."&name="..actionName..args) 
+      end
+    end
+
+    function fibaro:getName(deviceID) 
+      __assert_type(deviceID ,'number') 
+      local dev = __fibaro_get_device(deviceID)
+      return dev and dev.name
+    end
+
+    function fibaro:getRoomName(roomID) 
+      __assert_type(roomID ,'number') 
+      local room = __fibaro_get_room(roomID) 
+      return room and room.name 
+    end
+
+    function fibaro:getRoomNameByDeviceID(deviceID) 
+      __assert_type(deviceID,'number') 
+      local dev = __fibaro_get_device(deviceID)
+      if  dev == nil then return  nil end
+      local room = __fibaro_get_room(dev.roomID)
+      return dev.roomID==0 and 'unassigned' or room and room.name
+    end
+
+    function fibaro:wakeUpDeadDevice(deviceID ) 
+      __assert_type(deviceID ,'number') 
+      fibaro:call(1,'wakeUpDeadDevice',deviceID) 
+    end
 
 --[[
 Expected input:
@@ -2073,992 +2096,976 @@ Expected input:
 
 }
 ]]--
-  function fibaro:getDevicesId(filter)
-    if type(filter) ~= 'table' or (type(filter) == 'table' and next(filter) == nil) then
-      return fibaro:getIds(fibaro:getAllDeviceIds())
+    function fibaro:getDevicesId(filter)
+      if type(filter) ~= 'table' or (type(filter) == 'table' and next(filter) == nil) then
+        return fibaro:getIds(fibaro:getAllDeviceIds())
+      end
+      local args = '/?'
+      for c, d in pairs(filter) do
+        if c == 'properties' and d ~= nil and type(d) == 'table' then
+          for a, b in pairs(d) do
+            if b == "nil" then args = args .. 'property=' .. tostring(a) .. '&'
+            else args = args .. 'property=[' .. tostring(a) .. ',' .. tostring(b) .. ']&' end
+          end
+        elseif c == 'interfaces' and d ~= nil and type(d) == 'table' then
+          for a, b in pairs(d) do args = args .. 'interface=' .. tostring(b) .. '&' end
+        else args = args .. tostring(c) .. "=" .. tostring(d) .. '&' end
+      end
+      args = string.sub(args, 1, -2)
+      return fibaro:getIds(api.get('/devices'..args))
     end
-    local args = '/?'
-    for c, d in pairs(filter) do
-      if c == 'properties' and d ~= nil and type(d) == 'table' then
-        for a, b in pairs(d) do
-          if b == "nil" then args = args .. 'property=' .. tostring(a) .. '&'
-          else args = args .. 'property=[' .. tostring(a) .. ',' .. tostring(b) .. ']&' end
+
+    function fibaro:getAllDeviceIds() return HC2.getAllRsrc("devices") end
+
+    function fibaro:getIds(devices)
+      local ids = {}
+      for _,a in pairs(devices) do
+        if a ~= nil and type(a) == 'table' and a['id'] ~= nil and a['id'] > 3 then
+          table.insert(ids, a['id'])
         end
-      elseif c == 'interfaces' and d ~= nil and type(d) == 'table' then
-        for a, b in pairs(d) do args = args .. 'interface=' .. tostring(b) .. '&' end
-      else args = args .. tostring(c) .. "=" .. tostring(d) .. '&' end
+      end
+      return ids
     end
-    args = string.sub(args, 1, -2)
-    return fibaro:getIds(api.get('/devices'..args))
-  end
 
-  function fibaro:getAllDeviceIds() return HC2.getAllRsrc("devices") end
+    function urlencode(str)
+      if str then
+        str = str:gsub("\n", "\r\n")
+        str = str:gsub("([^%w %-%_%.%~])", function(c)
+            return ("%%%02X"):format(string.byte(c))
+          end)
+        str = str:gsub(" ", "%%20")
+      end
+      return str	
+    end
 
-  function fibaro:getIds(devices)
-    local ids = {}
-    for _,a in pairs(devices) do
-      if a ~= nil and type(a) == 'table' and a['id'] ~= nil and a['id'] > 3 then
-        table.insert(ids, a['id'])
+    function urldecode(str) return str:gsub('%%(%x%x)',function (x) return string.char(tonumber(x,16)) end) end
+
+    function split(s, sep)
+      local fields = {}
+      sep = sep or " "
+      local pattern = string.format("([^%s]+)", sep)
+      string.gsub(s, pattern, function(c) fields[#fields + 1] = c end)
+      return fields
+    end
+
+    net = {} -- An emulation of Fibaro's net.HTTPClient
+    local _HTTP = {}
+-- It is synchronous, but synchronous is a speciell case of asynchronous.. :-)
+    function net.HTTPClient() return _HTTP end
+-- Not sure I got all the options right..
+    function _HTTP:request(url,options)
+      local resp = {}
+      options = options or {}
+      local req = options.options or {}
+      req.url = url
+      req.headers = req.headers or {}
+      req.sink = ltn12.sink.table(resp)
+      if req.data then
+        req.headers["Content-Length"] = #req.data
+        req.source = ltn12.source.string(req.data)
+      end
+      local response, status, headers, timeout
+      http.TIMEOUT,timeout=req.timeout and math.floor(req.timeout/1000) or http.TIMEOUT, http.TIMEOUT
+      if url:lower():match("^https") then
+        response, status, headers = https.request(req)
+      else 
+        response, status, headers = http.request(req)
+      end
+      http.TIMEOUT = timeout
+      if response == 1 then 
+        if options.success then options.success({status=status, headers=headers, data=table.concat(resp)}) end
+      else
+        if options.error then options.error(status) end
       end
     end
-    return ids
-  end
 
-  function urlencode(str)
-    if str then
-      str = str:gsub("\n", "\r\n")
-      str = str:gsub("([^%w %-%_%.%~])", function(c)
-          return ("%%%02X"):format(string.byte(c))
-        end)
-      str = str:gsub(" ", "%%20")
-    end
-    return str	
-  end
-
-  function urldecode(str) return str:gsub('%%(%x%x)',function (x) return string.char(tonumber(x,16)) end) end
-
-  function split(s, sep)
-    local fields = {}
-    sep = sep or " "
-    local pattern = string.format("([^%s]+)", sep)
-    string.gsub(s, pattern, function(c) fields[#fields + 1] = c end)
-    return fields
-  end
-
-  net = {} -- An emulation of Fibaro's net.HTTPClient
-  local _HTTP = {}
--- It is synchronous, but synchronous is a speciell case of asynchronous.. :-)
-  function net.HTTPClient() return _HTTP end
--- Not sure I got all the options right..
-  function _HTTP:request(url,options)
-    local resp = {}
-    options = options or {}
-    local req = options.options or {}
-    req.url = url
-    req.headers = req.headers or {}
-    req.sink = ltn12.sink.table(resp)
-    if req.data then
-      req.headers["Content-Length"] = #req.data
-      req.source = ltn12.source.string(req.data)
-    end
-    local response, status, headers, timeout
-    http.TIMEOUT,timeout=req.timeout and math.floor(req.timeout/1000) or http.TIMEOUT, http.TIMEOUT
-    if url:lower():match("^https") then
-      response, status, headers = https.request(req)
-    else 
-      response, status, headers = http.request(req)
-    end
-    http.TIMEOUT = timeout
-    if response == 1 then 
-      if options.success then options.success({status=status, headers=headers, data=table.concat(resp)}) end
-    else
-      if options.error then options.error(status) end
-    end
-  end
-
-  api={} -- Emulation of api.get/put/post
-  local function rawCall(dbg,method,call,data,cType)
-    if dbg and _debugFlags.hc2calls then Log(LOG.LOG,"HC2 call:%s:%s",method,call) end
-    local resp = {}
-    local req={ method=method, timeout=5000,
-      url = "http://".._HC2_IP.."/api"..call,sink = ltn12.sink.table(resp),
-      user=_HC2_USER,
-      password=_HC2_PWD,
-      headers={}
-    }
-    if data then
-      req.headers["Content-Type"] = cType
-      req.headers["Content-Length"] = #data
-      req.source = ltn12.source.string(data)
-    end
-    local r, c = http.request(req)
-    if not r then
-      Log(LOG.ERROR,"Error connnecting to HC2: '%s' - URL: '%s'.",c,req.url)
+    api={} -- Emulation of api.get/put/post
+    local function rawCall(dbg,method,call,data,cType)
+      if dbg and _debugFlags.hc2calls then Log(LOG.LOG,"HC2 call:%s:%s",method,call) end
+      local resp = {}
+      local req={ method=method, timeout=5000,
+        url = "http://".._HC2_IP.."/api"..call,sink = ltn12.sink.table(resp),
+        user=_HC2_USER,
+        password=_HC2_PWD,
+        headers={}
+      }
+      if data then
+        req.headers["Content-Type"] = cType
+        req.headers["Content-Length"] = #data
+        req.source = ltn12.source.string(data)
+      end
+      local r, c = http.request(req)
+      if not r then
+        Log(LOG.ERROR,"Error connnecting to HC2: '%s' - URL: '%s'.",c,req.url)
+        os.exit(1)
+      end
+      if c>=200 and c<300 then
+        return resp[1] and json.decode(table.concat(resp)) or nil
+      end
+      Log(LOG.ERROR,"HC2 returned error '%d %s' - URL: '%s'.",c,resp[1] or "",req.url)
       os.exit(1)
     end
-    if c>=200 and c<300 then
-      return resp[1] and json.decode(table.concat(resp)) or nil
-    end
-    Log(LOG.ERROR,"HC2 returned error '%d %s' - URL: '%s'.",c,resp[1] or "",req.url)
-    os.exit(1)
-  end
 
-  function api.get(call) return HC2.apiCall("GET",call) end
-  function api.put(call, data) return HC2.apiCall("PUT",call,data,"application/json") end
-  function api.post(call, data) return HC2.apiCall("POST",call,data,"application/json") end
-  function api.delete(call, data) return HC2.apiCall("DELETE",call,data,"application/json") end
+    function api.get(call) return HC2.apiCall("GET",call) end
+    function api.put(call, data) return HC2.apiCall("PUT",call,data,"application/json") end
+    function api.post(call, data) return HC2.apiCall("POST",call,data,"application/json") end
+    function api.delete(call, data) return HC2.apiCall("DELETE",call,data,"application/json") end
 
-  function api.rawGet(l,call) return rawCall(l,"GET",call) end
-  function api.rawPut(l,call, data) return rawCall(l,"PUT",call,json.encode(data),"application/json") end
-  function api.rawPost(l,call, data) return rawCall(l,"POST",call,json.encode(data),"application/json") end
-  function api.rawDelete(l,call, data) return rawCall(l,"DELETE",call,json.encode(data),"application/json") end
+    function api.rawGet(l,call) return rawCall(l,"GET",call) end
+    function api.rawPut(l,call, data) return rawCall(l,"PUT",call,json.encode(data),"application/json") end
+    function api.rawPost(l,call, data) return rawCall(l,"POST",call,json.encode(data),"application/json") end
+    function api.rawDelete(l,call, data) return rawCall(l,"DELETE",call,json.encode(data),"application/json") end
 
-  HomeCenter = {
-    PopupService = {
-      publish = function(request)
-        local response = api.post('/popups', request)
-        return response
-      end
-    },
-    SystemService = {
-      reboot = function()
-        Log(LOG.LOG,"SystemService.reboot() -- ignoring")
-      end,
-      shutdown = function()
-        Log(LOG.LOG,"SystemService.shutdown() -- ignoring")
-      end
+    HomeCenter = {
+      PopupService = {
+        publish = function(request)
+          local response = api.post('/popups', request)
+          return response
+        end
+      },
+      SystemService = {
+        reboot = function()
+          Log(LOG.LOG,"SystemService.reboot() -- ignoring")
+        end,
+        shutdown = function()
+          Log(LOG.LOG,"SystemService.shutdown() -- ignoring")
+        end
+      }
     }
-  }
 
 -------- Fibaro log support --------------
 -- Logging of fibaro:* calls -------------
 
-  fibaro.mapTable = {}
+    fibaro.mapTable = {}
 
-  local function reverseMap(path,value)
-    if type(value) == 'number' then
-      fibaro.mapTable[tostring(value)] = table.concat(path,".")
-    elseif type(value) == 'table' and not value[1] then
-      for k,v in pairs(value) do
-        table.insert(path,k) 
-        reverseMap(path,v)
-        table.remove(path) 
-      end
-    end
-  end
-
-  local function reverseVar(id) return fibaro.mapTable[tostring(id)] or id end
-
-  function traceFibaroIDs(tb)
-    _assert(type(tb) == 'table',"traceFibaroIDs bad argument")
-    reverseMap({},tb)
-  end
-
-  if _System then _System.reverseMapDef  = traceFibaroIDs end
-
-  local function checkFlag(flag,def) 
-    local env = Scene.global()
-    if env and env._debugFlags then return env._debugFlags[flag] 
-    else return _debugFlags[flag] end
-  end
-
-  function traceFibaro(name,flag,rt)
-    local orgFun=fibaro[name]
-    fibaro[name]=function(f,id,...)
-      --if id then id=reverseVar(id) end
-      local args={...}
-      local stat,res = pcall(function() return {orgFun(f,id,table.unpack(args))} end)
-      if stat then
-        if checkFlag(flag) then
-          if rt then rt(id,args,res)
-          else
-            local astr=(id~=nil and reverseVar(id).."," or "")..json.encode(args):sub(2,-2)
-            Debug(true,"fibaro:%s(%s)%s",name,astr,#res>0 and "="..tojson(res):sub(2,-2) or "")
-          end
+    local function reverseMap(path,value)
+      if type(value) == 'number' then
+        fibaro.mapTable[tostring(value)] = table.concat(path,".")
+      elseif type(value) == 'table' and not value[1] then
+        for k,v in pairs(value) do
+          table.insert(path,k) 
+          reverseMap(path,v)
+          table.remove(path) 
         end
-        return table.unpack(res)
-      else
-        local astr=(id~=nil and Util.reverseVar(id).."," or "")..json.encode(args):sub(2,-2)
-        error(_format("fibaro:%s(%s),%s",name,astr,res),3)
       end
     end
-  end
 
-  function fibaro._logFibaroCalls()
-    for _,f in ipairs({
-        {"call","fcall"},
-        {"setGlobal","fglobal"},
-        {"getGlobal","fglobal"},
-        {"getGlobalValue","fglobal"},
-        {"get","fget"},
-        {"getValue","fget"},
-        {"killScenes","fother"},
-        {"abort","fother"},
-        {"sleep","fother",function(id,args,res) 
-            Debug(true,"fibaro:sleep(%s) until %s",id,osDate("%X",osTime()+math.floor(0.5+id/1000))) 
-          end},        
-        {"startScene","fother",function(id,args,res) 
-            local a = Util.isRemoteEvent(args[1]) and json.encode(Util.decodeRemoteEvent(args[1 ])) or args and json.encode(args)
-            Debug(true,"fibaro:startScene(%s%s)",id,a and ","..a or "") 
-          end},
-        }) do 
-      traceFibaro(f[1],f[2],f[3]) 
+    local function reverseVar(id) return fibaro.mapTable[tostring(id)] or id end
+
+    function traceFibaroIDs(tb)
+      _assert(type(tb) == 'table',"traceFibaroIDs bad argument")
+      reverseMap({},tb)
     end
-  end
 
-end
+    if _System then _System.reverseMapDef  = traceFibaroIDs end
+
+    local function checkFlag(flag,def) 
+      local env = Scene.global()
+      if env and env._debugFlags then return env._debugFlags[flag] 
+      else return _debugFlags[flag] end
+    end
+
+    function traceFibaro(name,flag,rt)
+      local orgFun=fibaro[name]
+      fibaro[name]=function(f,id,...)
+        --if id then id=reverseVar(id) end
+        local args={...}
+        local stat,res = pcall(function() return {orgFun(f,id,table.unpack(args))} end)
+        if stat then
+          if checkFlag(flag) then
+            if rt then rt(id,args,res)
+            else
+              local astr=(id~=nil and reverseVar(id).."," or "")..json.encode(args):sub(2,-2)
+              Debug(true,"fibaro:%s(%s)%s",name,astr,#res>0 and "="..tojson(res):sub(2,-2) or "")
+            end
+          end
+          return table.unpack(res)
+        else
+          local astr=(id~=nil and Util.reverseVar(id).."," or "")..json.encode(args):sub(2,-2)
+          error(_format("fibaro:%s(%s),%s",name,astr,res),3)
+        end
+      end
+    end
+
+    function fibaro._logFibaroCalls()
+      for _,f in ipairs({
+          {"call","fcall"},
+          {"setGlobal","fglobal"},
+          {"getGlobal","fglobal"},
+          {"getGlobalValue","fglobal"},
+          {"get","fget"},
+          {"getValue","fget"},
+          {"killScenes","fother"},
+          {"abort","fother"},
+          {"sleep","fother",function(id,args,res) 
+              Debug(true,"fibaro:sleep(%s) until %s",id,osDate("%X",osTime()+math.floor(0.5+id/1000))) 
+            end},        
+          {"startScene","fother",function(id,args,res) 
+              local a = Util.isRemoteEvent(args[1]) and json.encode(Util.decodeRemoteEvent(args[1 ])) or args and json.encode(args)
+              Debug(true,"fibaro:startScene(%s%s)",id,a and ","..a or "") 
+            end},
+          }) do 
+        traceFibaro(f[1],f[2],f[3]) 
+      end
+    end
+
+  end
 --------------------------------------
 -- EventRunner support
 --------------------------------------
-function ER_functions()
+  function ER_functions()
 
-  ER={ gEventRunnerKey="6w8562395ue734r437fg3" }
+    ER={ gEventRunnerKey="6w8562395ue734r437fg3" }
 
-  function ER.checkForEventRunner(scene)
-    scene.EventRunner = scene.lua:match(ER.gEventRunnerKey)
-    if scene.EventRunner then
-      scene._startMsg = function(id,inst,env) return inst > 0 end
-      scene._terminateMsg = function(id,inst,env) return inst > 1 end
-    end
-  end
-
-  function ER.announceEmulator(ipaddress,port)
-    -- Tell HC2 what local scenes we have.
-    local locals,remotes={},{}
-    for id,scene in pairs(HC2.rsrc.scenes) do
-      if scene._local then 
-        locals[#locals+1]=id  
-      elseif scene.EventRunner then
-        -- Should we check that they are active too?
-        remotes[#remotes+1]=id
+    function ER.checkForEventRunner(scene)
+      scene.EventRunner = scene.lua:match(ER.gEventRunnerKey)
+      if scene.EventRunner then
+        scene._startMsg = function(id,inst,env) return inst > 0 end
+        scene._terminateMsg = function(id,inst,env) return inst > 1 end
       end
     end
-    if #remotes>0 then
-      local event = {type='%%EMU%%',ids=locals,adress="http://"..ipaddress..":"..port.."/"}
-      local args=Util.encodeRemoteEvent(event)
-      for _,sceneID in ipairs(remotes) do
-        api.rawPost(true,"/scenes/"..sceneID.."/action/start",{args=args})
+
+    function ER.announceEmulator(ipaddress,port)
+      -- Tell HC2 what local scenes we have.
+      local locals,remotes={},{}
+      for id,scene in pairs(HC2.rsrc.scenes) do
+        if scene._local then 
+          locals[#locals+1]=id  
+        elseif scene.EventRunner then
+          -- Should we check that they are active too?
+          remotes[#remotes+1]=id
+        end
+      end
+      if #remotes>0 then
+        local event = {type='%%EMU%%',ids=locals,adress="http://"..ipaddress..":"..port.."/"}
+        local args=Util.encodeRemoteEvent(event)
+        for _,sceneID in ipairs(remotes) do
+          api.rawPost(true,"/scenes/"..sceneID.."/action/start",{args=args})
+        end
       end
     end
-  end
 
-  function ER.makeProxy(remoteSceneID,enable)
-    local s = HC2.rsrc.scenes[remoteSceneID]
-    if s and s.EventRunner then
-      enable = enable==nil and true or enable
-      local event = {type='%%PROX%%',value=enable,adress="http://"..ipaddress..":"..port.."/"}
-      local args=Util.encodeRemoteEvent(event)
-      api.rawPost(true,"/scenes/"..remoteSceneID.."/action/start",{args=args})
+    function ER.makeProxy(remoteSceneID,enable)
+      local s = HC2.rsrc.scenes[remoteSceneID]
+      if s and s.EventRunner then
+        enable = enable==nil and true or enable
+        local event = {type='%%PROX%%',value=enable,adress="http://"..ipaddress..":"..port.."/"}
+        local args=Util.encodeRemoteEvent(event)
+        api.rawPost(true,"/scenes/"..remoteSceneID.."/action/start",{args=args})
+      end
     end
-  end
 
-end
+  end
 
 -------------------------------------------------------------------------------
 -- Libs, json etc
 ---------------------------------------------------------------------------------
-function libs()
+  function libs()
 
-  if not _VERSION:match("5%.1") then
-    loadstring = load
-    function setfenv(fn, env)
-      local i = 1
-      while true do
-        local name = debug.getupvalue(fn, i)
-        if name == "_ENV" then debug.upvaluejoin(fn, i, (function() return env end), 1) break
-        elseif not name then break end
-        i = i + 1
+    if not _VERSION:match("5%.1") then
+      loadstring = load
+      function setfenv(fn, env)
+        local i = 1
+        while true do
+          local name = debug.getupvalue(fn, i)
+          if name == "_ENV" then debug.upvaluejoin(fn, i, (function() return env end), 1) break
+          elseif not name then break end
+          i = i + 1
+        end
+        return fn
       end
-      return fn
-    end
 
-    function getfenv(fn)
-      local i = 1
-      while true do
-        local name, val = debug.getupvalue(fn, i)
-        if name == "_ENV" then return val
-        elseif not name then break end
-        i = i + 1
+      function getfenv(fn)
+        local i = 1
+        while true do
+          local name, val = debug.getupvalue(fn, i)
+          if name == "_ENV" then return val
+          elseif not name then break end
+          i = i + 1
+        end
       end
     end
-  end
 
 --------------------------------------------------------------------------------
 -- json support
 -- json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 -----------------------------------------------------------------------------
-  json = { _version = "0.1.1" }
+    json = { _version = "0.1.1" }
 
 -------------------------------------------------------------------------------
 -- Encode
 -------------------------------------------------------------------------------
-  do
-    local encode
+    do
+      local encode
 
-    local escape_char_map = {
-      [ "\\" ] = "\\\\",
-      [ "\"" ] = "\\\"",
-      [ "\b" ] = "\\b",
-      [ "\f" ] = "\\f",
-      [ "\n" ] = "\\n",
-      [ "\r" ] = "\\r",
-      [ "\t" ] = "\\t",
-    }
+      local escape_char_map = {
+        [ "\\" ] = "\\\\",
+        [ "\"" ] = "\\\"",
+        [ "\b" ] = "\\b",
+        [ "\f" ] = "\\f",
+        [ "\n" ] = "\\n",
+        [ "\r" ] = "\\r",
+        [ "\t" ] = "\\t",
+      }
 
-    local escape_char_map_inv = { [ "\\/" ] = "/" }
-    for k, v in pairs(escape_char_map) do
-      escape_char_map_inv[v] = k
-    end
-
-
-    local function escape_char(c)
-      return escape_char_map[c] or string.format("\\u%04x", c:byte())
-    end
+      local escape_char_map_inv = { [ "\\/" ] = "/" }
+      for k, v in pairs(escape_char_map) do
+        escape_char_map_inv[v] = k
+      end
 
 
-    local function encode_nil(val)
-      return "null"
-    end
+      local function escape_char(c)
+        return escape_char_map[c] or string.format("\\u%04x", c:byte())
+      end
 
 
-    local function encode_table(val, stack)
-      local res = {}
-      stack = stack or {}
+      local function encode_nil(val)
+        return "null"
+      end
 
-      -- Circular reference?
-      if stack[val] then error("circular reference") end
 
-      stack[val] = true
+      local function encode_table(val, stack)
+        local res = {}
+        stack = stack or {}
 
-      if val[1] ~= nil or next(val) == nil then
-        -- Treat as array -- check keys are valid and it is not sparse
-        local n = 0
-        for k in pairs(val) do
-          if type(k) ~= "number" then
-            error("invalid table: mixed or invalid key types")
+        -- Circular reference?
+        if stack[val] then error("circular reference") end
+
+        stack[val] = true
+
+        if val[1] ~= nil or next(val) == nil then
+          -- Treat as array -- check keys are valid and it is not sparse
+          local n = 0
+          for k in pairs(val) do
+            if type(k) ~= "number" then
+              error("invalid table: mixed or invalid key types")
+            end
+            n = n + 1
           end
-          n = n + 1
-        end
-        if n ~= #val then
-          error("invalid table: sparse array")
-        end
-        -- Encode
-        for i, v in ipairs(val) do
-          table.insert(res, encode(v, stack))
-        end
-        stack[val] = nil
-        return "[" .. table.concat(res, ",") .. "]"
-
-      else
-        -- Treat as an object
-        for k, v in pairs(val) do
-          if type(k) ~= "string" then
-            error("invalid table: mixed or invalid key types")
+          if n ~= #val then
+            error("invalid table: sparse array")
           end
-          table.insert(res, encode(k, stack) .. ":" .. encode(v, stack))
+          -- Encode
+          for i, v in ipairs(val) do
+            table.insert(res, encode(v, stack))
+          end
+          stack[val] = nil
+          return "[" .. table.concat(res, ",") .. "]"
+
+        else
+          -- Treat as an object
+          for k, v in pairs(val) do
+            if type(k) ~= "string" then
+              error("invalid table: mixed or invalid key types")
+            end
+            table.insert(res, encode(k, stack) .. ":" .. encode(v, stack))
+          end
+          stack[val] = nil
+          return "{" .. table.concat(res, ",") .. "}"
         end
-        stack[val] = nil
-        return "{" .. table.concat(res, ",") .. "}"
       end
-    end
 
 
-    local function encode_string(val)
-      return '"' .. val:gsub('[%z\1-\31\\"]', escape_char) .. '"'
-    end
-
-
-    local function encode_number(val)
-      -- Check for NaN, -inf and inf
-      if val ~= val or val <= -math.huge or val >= math.huge then
-        error("unexpected number value '" .. tostring(val) .. "'")
+      local function encode_string(val)
+        return '"' .. val:gsub('[%z\1-\31\\"]', escape_char) .. '"'
       end
-      return string.format("%.14g", val)
-    end
 
 
-    local type_func_map = {
-      [ "nil"     ] = encode_nil,
-      [ "table"   ] = encode_table,
-      [ "string"  ] = encode_string,
-      [ "number"  ] = encode_number,
-      [ "boolean" ] = tostring,
-    }
-
-
-    encode = function(val, stack)
-      local t = type(val)
-      local f = type_func_map[t]
-      if f then
-        return f(val, stack)
+      local function encode_number(val)
+        -- Check for NaN, -inf and inf
+        if val ~= val or val <= -math.huge or val >= math.huge then
+          error("unexpected number value '" .. tostring(val) .. "'")
+        end
+        return string.format("%.14g", val)
       end
-      error("unexpected type '" .. t .. "'")
-    end
 
 
-    function json.encode(val)
-      return ( encode(val) )
-    end
+      local type_func_map = {
+        [ "nil"     ] = encode_nil,
+        [ "table"   ] = encode_table,
+        [ "string"  ] = encode_string,
+        [ "number"  ] = encode_number,
+        [ "boolean" ] = tostring,
+      }
+
+
+      encode = function(val, stack)
+        local t = type(val)
+        local f = type_func_map[t]
+        if f then
+          return f(val, stack)
+        end
+        error("unexpected type '" .. t .. "'")
+      end
+
+
+      function json.encode(val)
+        return ( encode(val) )
+      end
 
 
 -------------------------------------------------------------------------------
 -- Decode
 -------------------------------------------------------------------------------
-    local parse
-    local function create_set(...)
-      local res = {}
-      for i = 1, select("#", ...) do
-        res[ select(i, ...) ] = true
+      local parse
+      local function create_set(...)
+        local res = {}
+        for i = 1, select("#", ...) do
+          res[ select(i, ...) ] = true
+        end
+        return res
       end
-      return res
-    end
 
-    local space_chars   = create_set(" ", "\t", "\r", "\n")
-    local delim_chars   = create_set(" ", "\t", "\r", "\n", "]", "}", ",")
-    local escape_chars  = create_set("\\", "/", '"', "b", "f", "n", "r", "t", "u")
-    local literals      = create_set("true", "false", "null")
+      local space_chars   = create_set(" ", "\t", "\r", "\n")
+      local delim_chars   = create_set(" ", "\t", "\r", "\n", "]", "}", ",")
+      local escape_chars  = create_set("\\", "/", '"', "b", "f", "n", "r", "t", "u")
+      local literals      = create_set("true", "false", "null")
 
-    local literal_map = {
-      [ "true"  ] = true,
-      [ "false" ] = false,
-      [ "null"  ] = nil,
-    }
+      local literal_map = {
+        [ "true"  ] = true,
+        [ "false" ] = false,
+        [ "null"  ] = nil,
+      }
 
-    local function next_char(str, idx, set, negate)
-      for i = idx, #str do
-        if set[str:sub(i, i)] ~= negate then
-          return i
+      local function next_char(str, idx, set, negate)
+        for i = idx, #str do
+          if set[str:sub(i, i)] ~= negate then
+            return i
+          end
+        end
+        return #str + 1
+      end
+
+      local function decode_error(str, idx, msg)
+        local line_count = 1
+        local col_count = 1
+        for i = 1, idx - 1 do
+          col_count = col_count + 1
+          if str:sub(i, i) == "\n" then
+            line_count = line_count + 1
+            col_count = 1
+          end
+        end
+        error( string.format("%s at line %d col %d", msg, line_count, col_count) )
+      end
+
+      local function codepoint_to_utf8(n)
+        -- http://scripts.sil.org/cms/scripts/page.php?site_id=nrsi&id=iws-appendixa
+        local f = math.floor
+        if n <= 0x7f then
+          return string.char(n)
+        elseif n <= 0x7ff then
+          return string.char(f(n / 64) + 192, n % 64 + 128)
+        elseif n <= 0xffff then
+          return string.char(f(n / 4096) + 224, f(n % 4096 / 64) + 128, n % 64 + 128)
+        elseif n <= 0x10ffff then
+          return string.char(f(n / 262144) + 240, f(n % 262144 / 4096) + 128,
+            f(n % 4096 / 64) + 128, n % 64 + 128)
+        end
+        error( string.format("invalid unicode codepoint '%x'", n) )
+      end
+
+      local function parse_unicode_escape(s)
+        local n1 = tonumber( s:sub(3, 6),  16 )
+        local n2 = tonumber( s:sub(9, 12), 16 )
+        -- Surrogate pair?
+        if n2 then
+          return codepoint_to_utf8((n1 - 0xd800) * 0x400 + (n2 - 0xdc00) + 0x10000)
+        else
+          return codepoint_to_utf8(n1)
         end
       end
-      return #str + 1
-    end
 
-    local function decode_error(str, idx, msg)
-      local line_count = 1
-      local col_count = 1
-      for i = 1, idx - 1 do
-        col_count = col_count + 1
-        if str:sub(i, i) == "\n" then
-          line_count = line_count + 1
-          col_count = 1
-        end
-      end
-      error( string.format("%s at line %d col %d", msg, line_count, col_count) )
-    end
+      local function parse_string(str, i)
+        local has_unicode_escape = false
+        local has_surrogate_escape = false
+        local has_escape = false
+        local last
+        for j = i + 1, #str do
+          local x = str:byte(j)
 
-    local function codepoint_to_utf8(n)
-      -- http://scripts.sil.org/cms/scripts/page.php?site_id=nrsi&id=iws-appendixa
-      local f = math.floor
-      if n <= 0x7f then
-        return string.char(n)
-      elseif n <= 0x7ff then
-        return string.char(f(n / 64) + 192, n % 64 + 128)
-      elseif n <= 0xffff then
-        return string.char(f(n / 4096) + 224, f(n % 4096 / 64) + 128, n % 64 + 128)
-      elseif n <= 0x10ffff then
-        return string.char(f(n / 262144) + 240, f(n % 262144 / 4096) + 128,
-          f(n % 4096 / 64) + 128, n % 64 + 128)
-      end
-      error( string.format("invalid unicode codepoint '%x'", n) )
-    end
+          if x < 32 then
+            decode_error(str, j, "control character in string")
+          end
 
-    local function parse_unicode_escape(s)
-      local n1 = tonumber( s:sub(3, 6),  16 )
-      local n2 = tonumber( s:sub(9, 12), 16 )
-      -- Surrogate pair?
-      if n2 then
-        return codepoint_to_utf8((n1 - 0xd800) * 0x400 + (n2 - 0xdc00) + 0x10000)
-      else
-        return codepoint_to_utf8(n1)
-      end
-    end
-
-    local function parse_string(str, i)
-      local has_unicode_escape = false
-      local has_surrogate_escape = false
-      local has_escape = false
-      local last
-      for j = i + 1, #str do
-        local x = str:byte(j)
-
-        if x < 32 then
-          decode_error(str, j, "control character in string")
-        end
-
-        if last == 92 then -- "\\" (escape char)
-          if x == 117 then -- "u" (unicode escape sequence)
-            local hex = str:sub(j + 1, j + 5)
-            if not hex:find("%x%x%x%x") then
-              decode_error(str, j, "invalid unicode escape in string")
-            end
-            if hex:find("^[dD][89aAbB]") then
-              has_surrogate_escape = true
+          if last == 92 then -- "\\" (escape char)
+            if x == 117 then -- "u" (unicode escape sequence)
+              local hex = str:sub(j + 1, j + 5)
+              if not hex:find("%x%x%x%x") then
+                decode_error(str, j, "invalid unicode escape in string")
+              end
+              if hex:find("^[dD][89aAbB]") then
+                has_surrogate_escape = true
+              else
+                has_unicode_escape = true
+              end
             else
-              has_unicode_escape = true
+              local c = string.char(x)
+              if not escape_chars[c] then
+                decode_error(str, j, "invalid escape char '" .. c .. "' in string")
+              end
+              has_escape = true
             end
+            last = nil
+
+          elseif x == 34 then -- '"' (end of string)
+            local s = str:sub(i + 1, j - 1)
+            if has_surrogate_escape then
+              s = s:gsub("\\u[dD][89aAbB]..\\u....", parse_unicode_escape)
+            end
+            if has_unicode_escape then
+              s = s:gsub("\\u....", parse_unicode_escape)
+            end
+            if has_escape then
+              s = s:gsub("\\.", escape_char_map_inv)
+            end
+            return s, j + 1
+
           else
-            local c = string.char(x)
-            if not escape_chars[c] then
-              decode_error(str, j, "invalid escape char '" .. c .. "' in string")
+            last = x
+          end
+        end
+        decode_error(str, i, "expected closing quote for string")
+      end
+
+      local function parse_number(str, i)
+        local x = next_char(str, i, delim_chars)
+        local s = str:sub(i, x - 1)
+        local n = tonumber(s)
+        if not n then
+          decode_error(str, i, "invalid number '" .. s .. "'")
+        end
+        return n, x
+      end
+
+      local function parse_literal(str, i)
+        local x = next_char(str, i, delim_chars)
+        local word = str:sub(i, x - 1)
+        if not literals[word] then
+          decode_error(str, i, "invalid literal '" .. word .. "'")
+        end
+        return literal_map[word], x
+      end
+
+      local function parse_array(str, i)
+        local res = {}
+        local n = 1
+        i = i + 1
+        while 1 do
+          local x
+          i = next_char(str, i, space_chars, true)
+          -- Empty / end of array?
+          if str:sub(i, i) == "]" then
+            i = i + 1
+            break
+          end
+          -- Read token
+          x, i = parse(str, i)
+          res[n] = x
+          n = n + 1
+          -- Next token
+          i = next_char(str, i, space_chars, true)
+          local chr = str:sub(i, i)
+          i = i + 1
+          if chr == "]" then break end
+          if chr ~= "," then decode_error(str, i, "expected ']' or ','") end
+        end
+        return res, i
+      end
+
+      local function parse_object(str, i)
+        local res = {}
+        i = i + 1
+        while 1 do
+          local key, val
+          i = next_char(str, i, space_chars, true)
+          -- Empty / end of object?
+          if str:sub(i, i) == "}" then
+            i = i + 1
+            break
+          end
+          -- Read key
+          if str:sub(i, i) ~= '"' then
+            decode_error(str, i, "expected string for key")
+          end
+          key, i = parse(str, i)
+          -- Read ':' delimiter
+          i = next_char(str, i, space_chars, true)
+          if str:sub(i, i) ~= ":" then
+            decode_error(str, i, "expected ':' after key")
+          end
+          i = next_char(str, i + 1, space_chars, true)
+          -- Read value
+          val, i = parse(str, i)
+          -- Set
+          res[key] = val
+          -- Next token
+          i = next_char(str, i, space_chars, true)
+          local chr = str:sub(i, i)
+          i = i + 1
+          if chr == "}" then break end
+          if chr ~= "," then decode_error(str, i, "expected '}' or ','") end
+        end
+        return res, i
+      end
+
+      local char_func_map = {
+        [ '"' ] = parse_string,
+        [ "0" ] = parse_number,
+        [ "1" ] = parse_number,
+        [ "2" ] = parse_number,
+        [ "3" ] = parse_number,
+        [ "4" ] = parse_number,
+        [ "5" ] = parse_number,
+        [ "6" ] = parse_number,
+        [ "7" ] = parse_number,
+        [ "8" ] = parse_number,
+        [ "9" ] = parse_number,
+        [ "-" ] = parse_number,
+        [ "t" ] = parse_literal,
+        [ "f" ] = parse_literal,
+        [ "n" ] = parse_literal,
+        [ "[" ] = parse_array,
+        [ "{" ] = parse_object,
+      }
+
+      parse = function(str, idx)
+        local chr = str:sub(idx, idx)
+        local f = char_func_map[chr]
+        if f then
+          return f(str, idx)
+        end
+        decode_error(str, idx, "unexpected character '" .. chr .. "'")
+      end
+
+      function json.decode(str)
+        if type(str) ~= "string" then
+          error("expected argument of type string, got " .. type(str),2)
+        end
+        local stat,res = pcall(function()
+            local res, idx = parse(str, next_char(str, 1, space_chars, true))
+            idx = next_char(str, idx, space_chars, true)
+            if idx <= #str then
+              decode_error(str, idx, "trailing garbage")
             end
-            has_escape = true
+            return res
+          end)
+        if not stat then
+          error(res,2)
+        else return res end
+      end
+    end
+
+    tojson = json.encode
+
+    Util = Util or {}
+    Util.gKeys = {type=1,deviceID=2,value=3,val=4,key=5,arg=6,event=7,events=8,msg=9,res=10}
+    Util.gKeysNext = 10
+    function Util._keyCompare(a,b)
+      local av,bv = Util.gKeys[a], Util.gKeys[b]
+      if av == nil then Util.gKeysNext = Util.gKeysNext+1 Util.gKeys[a] = Util.gKeysNext av = Util.gKeysNext end
+      if bv == nil then Util.gKeysNext = Util.gKeysNext+1 Util.gKeys[b] = Util.gKeysNext bv = Util.gKeysNext end
+      return av < bv
+    end
+
+    function Util.prettyJson(e) -- our own json encode, as we don't have 'pure' json structs, and sorts keys in order
+      local res,seen,t = {},{}
+      local function pretty(e)
+        local t = type(e)
+        if t == 'string' then res[#res+1] = '"' res[#res+1] = e res[#res+1] = '"' 
+        elseif t == 'number' then res[#res+1] = e
+        elseif t == 'boolean' or t == 'function' or t=='thread' then res[#res+1] = tostring(e)
+        elseif t == 'table' then
+          if next(e)==nil then res[#res+1]='{}'
+          elseif seen[e] then res[#res+1]="..rec.."
+          elseif e[1] or #e>0 then
+            seen[e]=true
+            res[#res+1] = "[" pretty(e[1])
+            for i=2,#e do res[#res+1] = "," pretty(e[i]) end
+            res[#res+1] = "]"
+          else
+            seen[e]=true
+            if e._var_  then res[#res+1] = _format('"%s"',e._str) return end
+            local k = {} for key,_ in pairs(e) do k[#k+1] = key end 
+            table.sort(k,Util._keyCompare)
+            if #k == 0 then res[#res+1] = "[]" return end
+            res[#res+1] = '{'; res[#res+1] = '"' res[#res+1] = k[1]; res[#res+1] = '":' t = k[1] pretty(e[t])
+            for i=2,#k do 
+              res[#res+1] = ',"' res[#res+1] = k[i]; res[#res+1] = '":' t = k[i] pretty(e[t]) 
+            end
+            res[#res+1] = '}'
           end
-          last = nil
-
-        elseif x == 34 then -- '"' (end of string)
-          local s = str:sub(i + 1, j - 1)
-          if has_surrogate_escape then
-            s = s:gsub("\\u[dD][89aAbB]..\\u....", parse_unicode_escape)
-          end
-          if has_unicode_escape then
-            s = s:gsub("\\u....", parse_unicode_escape)
-          end
-          if has_escape then
-            s = s:gsub("\\.", escape_char_map_inv)
-          end
-          return s, j + 1
-
-        else
-          last = x
-        end
+        elseif e == nil then res[#res+1]='null'
+        else error("bad json expr:"..tostring(e)) end
       end
-      decode_error(str, i, "expected closing quote for string")
+      pretty(e)
+      return table.concat(res)
     end
-
-    local function parse_number(str, i)
-      local x = next_char(str, i, delim_chars)
-      local s = str:sub(i, x - 1)
-      local n = tonumber(s)
-      if not n then
-        decode_error(str, i, "invalid number '" .. s .. "'")
-      end
-      return n, x
-    end
-
-    local function parse_literal(str, i)
-      local x = next_char(str, i, delim_chars)
-      local word = str:sub(i, x - 1)
-      if not literals[word] then
-        decode_error(str, i, "invalid literal '" .. word .. "'")
-      end
-      return literal_map[word], x
-    end
-
-    local function parse_array(str, i)
-      local res = {}
-      local n = 1
-      i = i + 1
-      while 1 do
-        local x
-        i = next_char(str, i, space_chars, true)
-        -- Empty / end of array?
-        if str:sub(i, i) == "]" then
-          i = i + 1
-          break
-        end
-        -- Read token
-        x, i = parse(str, i)
-        res[n] = x
-        n = n + 1
-        -- Next token
-        i = next_char(str, i, space_chars, true)
-        local chr = str:sub(i, i)
-        i = i + 1
-        if chr == "]" then break end
-        if chr ~= "," then decode_error(str, i, "expected ']' or ','") end
-      end
-      return res, i
-    end
-
-    local function parse_object(str, i)
-      local res = {}
-      i = i + 1
-      while 1 do
-        local key, val
-        i = next_char(str, i, space_chars, true)
-        -- Empty / end of object?
-        if str:sub(i, i) == "}" then
-          i = i + 1
-          break
-        end
-        -- Read key
-        if str:sub(i, i) ~= '"' then
-          decode_error(str, i, "expected string for key")
-        end
-        key, i = parse(str, i)
-        -- Read ':' delimiter
-        i = next_char(str, i, space_chars, true)
-        if str:sub(i, i) ~= ":" then
-          decode_error(str, i, "expected ':' after key")
-        end
-        i = next_char(str, i + 1, space_chars, true)
-        -- Read value
-        val, i = parse(str, i)
-        -- Set
-        res[key] = val
-        -- Next token
-        i = next_char(str, i, space_chars, true)
-        local chr = str:sub(i, i)
-        i = i + 1
-        if chr == "}" then break end
-        if chr ~= "," then decode_error(str, i, "expected '}' or ','") end
-      end
-      return res, i
-    end
-
-    local char_func_map = {
-      [ '"' ] = parse_string,
-      [ "0" ] = parse_number,
-      [ "1" ] = parse_number,
-      [ "2" ] = parse_number,
-      [ "3" ] = parse_number,
-      [ "4" ] = parse_number,
-      [ "5" ] = parse_number,
-      [ "6" ] = parse_number,
-      [ "7" ] = parse_number,
-      [ "8" ] = parse_number,
-      [ "9" ] = parse_number,
-      [ "-" ] = parse_number,
-      [ "t" ] = parse_literal,
-      [ "f" ] = parse_literal,
-      [ "n" ] = parse_literal,
-      [ "[" ] = parse_array,
-      [ "{" ] = parse_object,
-    }
-
-    parse = function(str, idx)
-      local chr = str:sub(idx, idx)
-      local f = char_func_map[chr]
-      if f then
-        return f(str, idx)
-      end
-      decode_error(str, idx, "unexpected character '" .. chr .. "'")
-    end
-
-    function json.decode(str)
-      if type(str) ~= "string" then
-        error("expected argument of type string, got " .. type(str),2)
-      end
-      local stat,res = pcall(function()
-          local res, idx = parse(str, next_char(str, 1, space_chars, true))
-          idx = next_char(str, idx, space_chars, true)
-          if idx <= #str then
-            decode_error(str, idx, "trailing garbage")
-          end
-          return res
-        end)
-      if not stat then
-        error(res,2)
-      else return res end
-    end
-  end
-
-  tojson = json.encode
-
-  Util = Util or {}
-  Util.gKeys = {type=1,deviceID=2,value=3,val=4,key=5,arg=6,event=7,events=8,msg=9,res=10}
-  Util.gKeysNext = 10
-  function Util._keyCompare(a,b)
-    local av,bv = Util.gKeys[a], Util.gKeys[b]
-    if av == nil then Util.gKeysNext = Util.gKeysNext+1 Util.gKeys[a] = Util.gKeysNext av = Util.gKeysNext end
-    if bv == nil then Util.gKeysNext = Util.gKeysNext+1 Util.gKeys[b] = Util.gKeysNext bv = Util.gKeysNext end
-    return av < bv
-  end
-
-  function Util.prettyJson(e) -- our own json encode, as we don't have 'pure' json structs, and sorts keys in order
-    local res,seen,t = {},{}
-    local function pretty(e)
-      local t = type(e)
-      if t == 'string' then res[#res+1] = '"' res[#res+1] = e res[#res+1] = '"' 
-      elseif t == 'number' then res[#res+1] = e
-      elseif t == 'boolean' or t == 'function' or t=='thread' then res[#res+1] = tostring(e)
-      elseif t == 'table' then
-        if next(e)==nil then res[#res+1]='{}'
-        elseif seen[e] then res[#res+1]="..rec.."
-        elseif e[1] or #e>0 then
-          seen[e]=true
-          res[#res+1] = "[" pretty(e[1])
-          for i=2,#e do res[#res+1] = "," pretty(e[i]) end
-          res[#res+1] = "]"
-        else
-          seen[e]=true
-          if e._var_  then res[#res+1] = _format('"%s"',e._str) return end
-          local k = {} for key,_ in pairs(e) do k[#k+1] = key end 
-          table.sort(k,Util._keyCompare)
-          if #k == 0 then res[#res+1] = "[]" return end
-          res[#res+1] = '{'; res[#res+1] = '"' res[#res+1] = k[1]; res[#res+1] = '":' t = k[1] pretty(e[t])
-          for i=2,#k do 
-            res[#res+1] = ',"' res[#res+1] = k[i]; res[#res+1] = '":' t = k[i] pretty(e[t]) 
-          end
-          res[#res+1] = '}'
-        end
-      elseif e == nil then res[#res+1]='null'
-      else error("bad json expr:"..tostring(e)) end
-    end
-    pretty(e)
-    return table.concat(res)
-  end
-  tojson = Util.prettyJson
+    tojson = Util.prettyJson
 -----------------------------
 -- persistence
 -- Copyright (c) 2010 Gerhard Roethlin
 
 --------------------
 -- Private methods
-  do
-    local write, writeIndent, writers, refCount;
+    do
+      local write, writeIndent, writers, refCount;
 
-    persistence =
-    {
-      store = function (path, ...)
-        local file, e;
-        if type(path) == "string" then
-          -- Path, open a file
-          file, e = io.open(path, "w");
-          if not file then
-            return error(e);
+      persistence =
+      {
+        store = function (path, ...)
+          local file, e;
+          if type(path) == "string" then
+            -- Path, open a file
+            file, e = io.open(path, "w");
+            if not file then
+              return error(e);
+            end
+          else
+            -- Just treat it as file
+            file = path;
           end
-        else
-          -- Just treat it as file
-          file = path;
-        end
-        local n = select("#", ...);
-        -- Count references
-        local objRefCount = {}; -- Stores reference that will be exported
-        for i = 1, n do
-          refCount(objRefCount, (select(i,...)));
-        end;
-        -- Export Objects with more than one ref and assign name
-        -- First, create empty tables for each
-        local objRefNames = {};
-        local objRefIdx = 0;
-        file:write("-- Persistent Data\n");
-        file:write("local multiRefObjects = {\n");
-        for obj, count in pairs(objRefCount) do
-          if count > 1 then
-            objRefIdx = objRefIdx + 1;
-            objRefNames[obj] = objRefIdx;
-            file:write("{};"); -- table objRefIdx
+          local n = select("#", ...);
+          -- Count references
+          local objRefCount = {}; -- Stores reference that will be exported
+          for i = 1, n do
+            refCount(objRefCount, (select(i,...)));
           end;
-        end;
-        file:write("\n} -- multiRefObjects\n");
-        -- Then fill them (this requires all empty multiRefObjects to exist)
-        for obj, idx in pairs(objRefNames) do
-          for k, v in pairs(obj) do
-            file:write("multiRefObjects["..idx.."][");
-            write(file, k, 0, objRefNames);
-            file:write("] = ");
-            write(file, v, 0, objRefNames);
-            file:write(";\n");
+          -- Export Objects with more than one ref and assign name
+          -- First, create empty tables for each
+          local objRefNames = {};
+          local objRefIdx = 0;
+          file:write("-- Persistent Data\n");
+          file:write("local multiRefObjects = {\n");
+          for obj, count in pairs(objRefCount) do
+            if count > 1 then
+              objRefIdx = objRefIdx + 1;
+              objRefNames[obj] = objRefIdx;
+              file:write("{};"); -- table objRefIdx
+            end;
           end;
-        end;
-        -- Create the remaining objects
-        for i = 1, n do
-          file:write("local ".."obj"..i.." = ");
-          write(file, (select(i,...)), 0, objRefNames);
-          file:write("\n");
-        end
-        -- Return them
-        if n > 0 then
-          file:write("return obj1");
-          for i = 2, n do
-            file:write(" ,obj"..i);
+          file:write("\n} -- multiRefObjects\n");
+          -- Then fill them (this requires all empty multiRefObjects to exist)
+          for obj, idx in pairs(objRefNames) do
+            for k, v in pairs(obj) do
+              file:write("multiRefObjects["..idx.."][");
+              write(file, k, 0, objRefNames);
+              file:write("] = ");
+              write(file, v, 0, objRefNames);
+              file:write(";\n");
+            end;
           end;
-          file:write("\n");
-        else
-          file:write("return\n");
+          -- Create the remaining objects
+          for i = 1, n do
+            file:write("local ".."obj"..i.." = ");
+            write(file, (select(i,...)), 0, objRefNames);
+            file:write("\n");
+          end
+          -- Return them
+          if n > 0 then
+            file:write("return obj1");
+            for i = 2, n do
+              file:write(" ,obj"..i);
+            end;
+            file:write("\n");
+          else
+            file:write("return\n");
+          end;
+          file:close();
         end;
-        file:close();
-      end;
 
-      load = function (path)
-        local f, e = loadfile(path);
-        if f then
-          return f();
-        else
-          return nil, e;
+        load = function (path)
+          local f, e = loadfile(path);
+          if f then
+            return f();
+          else
+            return nil, e;
+          end;
         end;
-      end;
-    }
+      }
 
 -- Private methods
 
 -- write thing (dispatcher)
-    write = function (file, item, level, objRefNames)
-      writers[type(item)](file, item, level, objRefNames);
-    end;
+      write = function (file, item, level, objRefNames)
+        writers[type(item)](file, item, level, objRefNames);
+      end;
 
 -- write indent
-    writeIndent = function (file, level)
-      for i = 1, level do
-        file:write("\t");
+      writeIndent = function (file, level)
+        for i = 1, level do
+          file:write("\t");
+        end;
       end;
-    end;
 
 -- recursively count references
-    refCount = function (objRefCount, item)
-      -- only count reference types (tables)
-      if type(item) == "table" then
-        -- Increase ref count
-        if objRefCount[item] then
-          objRefCount[item] = objRefCount[item] + 1;
-        else
-          objRefCount[item] = 1;
-          -- If first encounter, traverse
-          for k, v in pairs(item) do
-            refCount(objRefCount, k);
-            refCount(objRefCount, v);
+      refCount = function (objRefCount, item)
+        -- only count reference types (tables)
+        if type(item) == "table" then
+          -- Increase ref count
+          if objRefCount[item] then
+            objRefCount[item] = objRefCount[item] + 1;
+          else
+            objRefCount[item] = 1;
+            -- If first encounter, traverse
+            for k, v in pairs(item) do
+              refCount(objRefCount, k);
+              refCount(objRefCount, v);
+            end;
           end;
         end;
       end;
-    end;
 
 -- Format items for the purpose of restoring
-    writers = {
-      ["nil"] = function (file, item)
-        file:write("nil");
-      end;
-      ["number"] = function (file, item)
-        file:write(tostring(item));
-      end;
-      ["string"] = function (file, item)
-        file:write(string.format("%q", item));
-      end;
-      ["boolean"] = function (file, item)
-        if item then
-          file:write("true");
-        else
-          file:write("false");
-        end
-      end;
-      ["table"] = function (file, item, level, objRefNames)
-        local refIdx = objRefNames[item];
-        if refIdx then
-          -- Table with multiple references
-          file:write("multiRefObjects["..refIdx.."]");
-        else
-          -- Single use table
-          file:write("{\n");
-          for k, v in pairs(item) do
-            writeIndent(file, level+1);
-            file:write("[");
-            write(file, k, level+1, objRefNames);
-            file:write("] = ");
-            write(file, v, level+1, objRefNames);
-            file:write(";\n");
-          end
-          writeIndent(file, level);
-          file:write("}");
+      writers = {
+        ["nil"] = function (file, item)
+          file:write("nil");
         end;
-      end;
-      ["function"] = function (file, item)
-        -- Does only work for "normal" functions, not those
-        -- with upvalues or c functions
-        local dInfo = debug.getinfo(item, "uS");
-        if dInfo.nups > 0 then
-          file:write("nil --[[functions with upvalue not supported]]");
-        elseif dInfo.what ~= "Lua" then
-          file:write("nil --[[non-lua function not supported]]");
-        else
-          local r, s = pcall(string.dump,item);
-          if r then
-            file:write(string.format("loadstring(%q)", s));
+        ["number"] = function (file, item)
+          file:write(tostring(item));
+        end;
+        ["string"] = function (file, item)
+          file:write(string.format("%q", item));
+        end;
+        ["boolean"] = function (file, item)
+          if item then
+            file:write("true");
           else
-            file:write("nil --[[function could not be dumped]]");
+            file:write("false");
           end
-        end
-      end;
-      ["thread"] = function (file, item)
-        file:write("nil --[[thread]]\n");
-      end;
-      ["userdata"] = function (file, item)
-        file:write("nil --[[userdata]]\n");
-      end;
-    }
-  end
+        end;
+        ["table"] = function (file, item, level, objRefNames)
+          local refIdx = objRefNames[item];
+          if refIdx then
+            -- Table with multiple references
+            file:write("multiRefObjects["..refIdx.."]");
+          else
+            -- Single use table
+            file:write("{\n");
+            for k, v in pairs(item) do
+              writeIndent(file, level+1);
+              file:write("[");
+              write(file, k, level+1, objRefNames);
+              file:write("] = ");
+              write(file, v, level+1, objRefNames);
+              file:write(";\n");
+            end
+            writeIndent(file, level);
+            file:write("}");
+          end;
+        end;
+        ["function"] = function (file, item)
+          -- Does only work for "normal" functions, not those
+          -- with upvalues or c functions
+          local dInfo = debug.getinfo(item, "uS");
+          if dInfo.nups > 0 then
+            file:write("nil --[[functions with upvalue not supported]]");
+          elseif dInfo.what ~= "Lua" then
+            file:write("nil --[[non-lua function not supported]]");
+          else
+            local r, s = pcall(string.dump,item);
+            if r then
+              file:write(string.format("loadstring(%q)", s));
+            else
+              file:write("nil --[[function could not be dumped]]");
+            end
+          end
+        end;
+        ["thread"] = function (file, item)
+          file:write("nil --[[thread]]\n");
+        end;
+        ["userdata"] = function (file, item)
+          file:write("nil --[[userdata]]\n");
+        end;
+      }
+    end
 
-  ------------------- Sunset/Sunrise ---------------
+    ------------------- Sunset/Sunrise ---------------
 -- \fibaro\usr\share\lua\5.2\common\lustrous.lua ﻿based on the United States Naval Observatory
 
-  SunCalc={}
-  function SunCalc.sunturnTime(date, rising, latitude, longitude, zenith, local_offset)
-    local rad,deg,floor = math.rad,math.deg,math.floor
-    local frac = function(n) return n - floor(n) end
-    local cos = function(d) return math.cos(rad(d)) end
-    local acos = function(d) return deg(math.acos(d)) end
-    local sin = function(d) return math.sin(rad(d)) end
-    local asin = function(d) return deg(math.asin(d)) end
-    local tan = function(d) return math.tan(rad(d)) end
-    local atan = function(d) return deg(math.atan(d)) end
+    SunCalc={}
+    function SunCalc.sunturnTime(date, rising, latitude, longitude, zenith, local_offset)
+      local rad,deg,floor = math.rad,math.deg,math.floor
+      local frac = function(n) return n - floor(n) end
+      local cos = function(d) return math.cos(rad(d)) end
+      local acos = function(d) return deg(math.acos(d)) end
+      local sin = function(d) return math.sin(rad(d)) end
+      local asin = function(d) return deg(math.asin(d)) end
+      local tan = function(d) return math.tan(rad(d)) end
+      local atan = function(d) return deg(math.atan(d)) end
 
-    local function day_of_year(date)
-      local n1 = floor(275 * date.month / 9)
-      local n2 = floor((date.month + 9) / 12)
-      local n3 = (1 + floor((date.year - 4 * floor(date.year / 4) + 2) / 3))
-      return n1 - (n2 * n3) + date.day - 30
+      local function day_of_year(date)
+        local n1 = floor(275 * date.month / 9)
+        local n2 = floor((date.month + 9) / 12)
+        local n3 = (1 + floor((date.year - 4 * floor(date.year / 4) + 2) / 3))
+        return n1 - (n2 * n3) + date.day - 30
+      end
+
+      local function fit_into_range(val, min, max)
+        local range,count = max - min
+        if val < min then count = floor((min - val) / range) + 1; return val + count * range
+        elseif val >= max then count = floor((val - max) / range) + 1; return val - count * range
+        else return val end
+      end
+
+      -- Convert the longitude to hour value and calculate an approximate time
+      local n,lng_hour,t =  day_of_year(date), longitude / 15, nil
+      if rising then t = n + ((6 - lng_hour) / 24) -- Rising time is desired
+      else t = n + ((18 - lng_hour) / 24) end -- Setting time is desired
+      local M = (0.9856 * t) - 3.289 -- Calculate the Sun^s mean anomaly
+      -- Calculate the Sun^s true longitude
+      local L = fit_into_range(M + (1.916 * sin(M)) + (0.020 * sin(2 * M)) + 282.634, 0, 360)
+      -- Calculate the Sun^s right ascension
+      local RA = fit_into_range(atan(0.91764 * tan(L)), 0, 360)
+      -- Right ascension value needs to be in the same quadrant as L
+      local Lquadrant = floor(L / 90) * 90
+      local RAquadrant = floor(RA / 90) * 90
+      RA = RA + Lquadrant - RAquadrant; RA = RA / 15 -- Right ascension value needs to be converted into hours
+      local sinDec = 0.39782 * sin(L) -- Calculate the Sun's declination
+      local cosDec = cos(asin(sinDec))
+      local cosH = (cos(zenith) - (sinDec * sin(latitude))) / (cosDec * cos(latitude)) -- Calculate the Sun^s local hour angle
+      if rising and cosH > 1 then return "N/R" -- The sun never rises on this location on the specified date
+      elseif cosH < -1 then return "N/S" end -- The sun never sets on this location on the specified date
+
+      local H -- Finish calculating H and convert into hours
+      if rising then H = 360 - acos(cosH)
+      else H = acos(cosH) end
+      H = H / 15
+      local T = H + RA - (0.06571 * t) - 6.622 -- Calculate local mean time of rising/setting
+      local UT = fit_into_range(T - lng_hour, 0, 24) -- Adjust back to UTC
+      local LT = UT + local_offset -- Convert UT value to local time zone of latitude/longitude
+      return osTime({day = date.day,month = date.month,year = date.year,hour = floor(LT),min = math.modf(frac(LT) * 60)})
     end
 
-    local function fit_into_range(val, min, max)
-      local range,count = max - min
-      if val < min then count = floor((min - val) / range) + 1; return val + count * range
-      elseif val >= max then count = floor((val - max) / range) + 1; return val - count * range
-      else return val end
+    function SunCalc.getTimezone() local now = osTime() return os.difftime(now, osTime(osDate("!*t", now))) end
+
+    function SunCalc.sunCalc(time)
+      local hc2Info = HC2 and HC2.getLocation() or {}
+      local lat = hc2Info.latitude or _LATITUDE
+      local lon = hc2Info.longitude or _LONGITUDE
+      local utc = SunCalc.getTimezone() / 3600
+      local zenith,zenith_twilight = 90.83, 96.0 -- sunset/sunrise 90°50′, civil twilight 96°0′
+
+      local date = osDate("*t",time or osTime())
+      if date.isdst then utc = utc + 1 end
+      local rise_time = osDate("*t", SunCalc.sunturnTime(date, true, lat, lon, zenith, utc))
+      local set_time = osDate("*t", SunCalc.sunturnTime(date, false, lat, lon, zenith, utc))
+      local rise_time_t = osDate("*t", SunCalc.sunturnTime(date, true, lat, lon, zenith_twilight, utc))
+      local set_time_t = osDate("*t", SunCalc.sunturnTime(date, false, lat, lon, zenith_twilight, utc))
+      local sunrise = _format("%.2d:%.2d", rise_time.hour, rise_time.min)
+      local sunset = _format("%.2d:%.2d", set_time.hour, set_time.min)
+      local sunrise_t = _format("%.2d:%.2d", rise_time_t.hour, rise_time_t.min)
+      local sunset_t = _format("%.2d:%.2d", set_time_t.hour, set_time_t.min)
+      return sunrise, sunset, sunrise_t, sunset_t
     end
-
-    -- Convert the longitude to hour value and calculate an approximate time
-    local n,lng_hour,t =  day_of_year(date), longitude / 15, nil
-    if rising then t = n + ((6 - lng_hour) / 24) -- Rising time is desired
-    else t = n + ((18 - lng_hour) / 24) end -- Setting time is desired
-    -- Calculate the Sun^s mean anomaly
-    local M = (0.9856 * t) - 3.289
-    -- Calculate the Sun^s true longitude
-    local L = fit_into_range(M + (1.916 * sin(M)) + (0.020 * sin(2 * M)) + 282.634, 0, 360)
-    -- Calculate the Sun^s right ascension
-    local RA = fit_into_range(atan(0.91764 * tan(L)), 0, 360)
-    -- Right ascension value needs to be in the same quadrant as L
-    local Lquadrant = floor(L / 90) * 90
-    local RAquadrant = floor(RA / 90) * 90
-    RA = RA + Lquadrant - RAquadrant
-    -- Right ascension value needs to be converted into hours
-    RA = RA / 15
-    -- Calculate the Sun's declination
-    local sinDec = 0.39782 * sin(L)
-    local cosDec = cos(asin(sinDec))
-    -- Calculate the Sun^s local hour angle
-    local cosH = (cos(zenith) - (sinDec * sin(latitude))) / (cosDec * cos(latitude))
-    if rising and cosH > 1 then
-      return "N/R" -- The sun never rises on this location on the specified date
-    elseif cosH < -1 then
-      return "N/S" -- The sun never sets on this location on the specified date
-    end
-
-    -- Finish calculating H and convert into hours
-    local H
-    if rising then H = 360 - acos(cosH)
-    else H = acos(cosH) end
-    H = H / 15
-    -- Calculate local mean time of rising/setting
-    local T = H + RA - (0.06571 * t) - 6.622
-    -- Adjust back to UTC
-    local UT = fit_into_range(T - lng_hour, 0, 24)
-    -- Convert UT value to local time zone of latitude/longitude
-    local LT = UT + local_offset
-    return osTime({day = date.day,month = date.month,year = date.year,hour = floor(LT),min = math.modf(frac(LT) * 60)})
   end
-
-  function SunCalc.getTimezone()
-    local now = osTime()
-    return os.difftime(now, osTime(osDate("!*t", now)))
-  end
-
-  function SunCalc.sunCalc(time)
-    local hc2Info = HC2.getLocation()
-    local lat = hc2Info.latitude or _LATITUDE
-    local lon = hc2Info.longitude or _LONGITUDE
-    local utc = SunCalc.getTimezone() / 3600
-    local zenith = 90.83 -- sunset/sunrise 90°50′
-    local zenith_twilight = 96.0 -- civil twilight 96°0′
-
-    local date = osDate("*t",time or osTime())
-    if date.isdst then utc = utc + 1 end
-    local rise_time = osDate("*t", SunCalc.sunturnTime(date, true, lat, lon, zenith, utc))
-    local set_time = osDate("*t", SunCalc.sunturnTime(date, false, lat, lon, zenith, utc))
-    local rise_time_t = osDate("*t", SunCalc.sunturnTime(date, true, lat, lon, zenith_twilight, utc))
-    local set_time_t = osDate("*t", SunCalc.sunturnTime(date, false, lat, lon, zenith_twilight, utc))
-    local sunrise = _format("%.2d:%.2d", rise_time.hour, rise_time.min)
-    local sunset = _format("%.2d:%.2d", set_time.hour, set_time.min)
-    local sunrise_t = _format("%.2d:%.2d", rise_time_t.hour, rise_time_t.min)
-    local sunset_t = _format("%.2d:%.2d", set_time_t.hour, set_time_t.min)
-    return sunrise, sunset, sunrise_t, sunset_t
-  end
-end
 
 ---------------------------------------------------------------------------------
 ---- Web GUI pages
 --------------------------------------------------------------------------------
 
-function pages()
-  local P_MAIN =
+  function pages()
+    local P_MAIN =
 [[HTTP/1.1 200 OK
 Content-Type: text/html
 Cache-Control: no-cache, no-store, must-revalidate
@@ -3101,7 +3108,7 @@ table, th, td {
 
 ]]
 
-  local P_EMU =
+    local P_EMU =
 [[HTTP/1.1 200 OK
 Content-Type: text/html
 Cache-Control: no-cache, no-store, must-revalidate
@@ -3160,7 +3167,7 @@ return _format("Scenes:%s</br>Globals:%s</br>Devices:%s</br>Rooms:%s</br>",c.sce
 
 ]]
 
-  local P_SCENES =
+    local P_SCENES =
 [[HTTP/1.1 200 OK
 Content-Type: text/html
 Cache-Control: no-cache, no-store, must-revalidate
@@ -3193,7 +3200,7 @@ return table.concat(res)
 
 ]]
 
-  local P_DEVICES = 
+    local P_DEVICES = 
 [[HTTP/1.1 200 OK
 Content-Type: text/html
 
@@ -3233,7 +3240,7 @@ return table.concat(res)
 
 ]]
 
-  local P_GLOBALS = 
+    local P_GLOBALS = 
 [[HTTP/1.1 200 OK
 Content-Type: text/html
 
@@ -3262,7 +3269,7 @@ return table.concat(res)
 
 ]]
 
-  local P_ERROR1 =
+    local P_ERROR1 =
 [[HTTP/1.1 200 OK
 Content-Type: text/html
 Cache-Control: no-cache, no-store, must-revalidate
@@ -3280,85 +3287,85 @@ Cache-Control: no-cache, no-store, must-revalidate
 
 ]]  
 
-  Pages = { pages={} }
-  function Pages.lr(t,id)
-    local r = HC2.getRsrc(t,id,true)
-    return r and r._local and "L" or "R"
-  end
-  function Pages.register(path,page)
-    local file = page:match("^file:(.*)")
-    if fd then
-      local f = io.open(file)
-      if not f then error("No such file:"..file) end
-      local page = f:read("*all")
+    Pages = { pages={} }
+    function Pages.lr(t,id)
+      local r = HC2.getRsrc(t,id,true)
+      return r and r._local and "L" or "R"
     end
-    Pages.pages[path]={page=page, path=path} 
-    return Pages.pages[path]
-  end
-
-  function Pages.getPath(path)
-    local p = Pages.pages[path]
-    if p and not p.cpage then
-      Pages.compile(p)
+    function Pages.register(path,page)
+      local file = page:match("^file:(.*)")
+      if fd then
+        local f = io.open(file)
+        if not f then error("No such file:"..file) end
+        local page = f:read("*all")
+      end
+      Pages.pages[path]={page=page, path=path} 
+      return Pages.pages[path]
     end
-    if p then return Pages.render(p)
-    else return null end
-  end
 
-  function Pages.renderError(msg)
-    return _format(P_ERROR1,msg)
-  end
-
-  function Pages.render(p)
-    if p.static and p.static~=true then return p.static end
-    local stat,res = pcall(function()
-        return p.cpage:gsub("<<<(%d+)>>>",
-          function(i)
-            return p.funs[tonumber(i)]()
-          end)
-      end)
-    if not stat then return Pages.renderError(res)
-    else p.static=res return res end
-  end
-
-  function Pages.renderAction(id,method,action1,action2,value)
-    local res
-    if not value then
-      res = _format([[<form action="/emu/fibaro/%s/%s/%s"><input type="submit" class="button" value="%s"></form>]],method,id,action1,action2)
-    else
-      res = _format([[<form action="/emu/fibaro/%s/%s/%s"><input type="submit" class="button" value="%s"><input type="text" name="value" value="%s"></form>]],method,id,action1,action2,value)
+    function Pages.getPath(path)
+      local p = Pages.pages[path]
+      if p and not p.cpage then
+        Pages.compile(p)
+      end
+      if p then return Pages.render(p)
+      else return null end
     end
-    return res
-  end
 
-  function Pages.renderStopScene(id)
-    return _format([[<form action="/emu/fibaro/stopScene/%s"><input class="button" type="submit" value="stopScene"></form>]],id)
-  end
+    function Pages.renderError(msg)
+      return _format(P_ERROR1,msg)
+    end
 
-  function Pages.renderStartScene(id)
-    return _format([[<form action="/emu/fibaro/startScene/%s"><input type="submit" class="button" value="startScene"><input type="text" name="value" value=""></form>]],id)
-  end
+    function Pages.render(p)
+      if p.static and p.static~=true then return p.static end
+      local stat,res = pcall(function()
+          return p.cpage:gsub("<<<(%d+)>>>",
+            function(i)
+              return p.funs[tonumber(i)]()
+            end)
+        end)
+      if not stat then return Pages.renderError(res)
+      else p.static=res return res end
+    end
 
-  function Pages.compile(p)
-    local funs={}
-    p.cpage=p.page:gsub("<<<(.-)>>>",
-      function(code)
-        local f = _format("do %s end",code)
-        f,m = loadstring(f)
-        if m then printf("ERROR RENDERING PAGE %s, %s",p.path,m) end
-        funs[#funs+1]=f
-        return (_format("<<<%s>>>",#funs))
-      end)
-    p.funs=funs
-  end
+    function Pages.renderAction(id,method,action1,action2,value)
+      local res
+      if not value then
+        res = _format([[<form action="/emu/fibaro/%s/%s/%s"><input type="submit" class="button" value="%s"></form>]],method,id,action1,action2)
+      else
+        res = _format([[<form action="/emu/fibaro/%s/%s/%s"><input type="submit" class="button" value="%s"><input type="text" name="value" value="%s"></form>]],method,id,action1,action2,value)
+      end
+      return res
+    end
 
-  Pages.register("/emu/main",P_MAIN).static=true
-  Pages.register("/emu/emu",P_EMU)
-  Pages.register("/emu/scenes",P_SCENES)
-  Pages.register("/emu/devices",P_DEVICES)
-  Pages.register("/emu/globals",P_GLOBALS)
+    function Pages.renderStopScene(id)
+      return _format([[<form action="/emu/fibaro/stopScene/%s"><input class="button" type="submit" value="stopScene"></form>]],id)
+    end
 
-  _PAGE_STYLE=
+    function Pages.renderStartScene(id)
+      return _format([[<form action="/emu/fibaro/startScene/%s"><input type="submit" class="button" value="startScene"><input type="text" name="value" value=""></form>]],id)
+    end
+
+    function Pages.compile(p)
+      local funs={}
+      p.cpage=p.page:gsub("<<<(.-)>>>",
+        function(code)
+          local f = _format("do %s end",code)
+          f,m = loadstring(f)
+          if m then printf("ERROR RENDERING PAGE %s, %s",p.path,m) end
+          funs[#funs+1]=f
+          return (_format("<<<%s>>>",#funs))
+        end)
+      p.funs=funs
+    end
+
+    Pages.register("/emu/main",P_MAIN).static=true
+    Pages.register("/emu/emu",P_EMU)
+    Pages.register("/emu/scenes",P_SCENES)
+    Pages.register("/emu/devices",P_DEVICES)
+    Pages.register("/emu/globals",P_GLOBALS)
+
+    _PAGE_STYLE=
 [[<style>
 table, th, td {
   border: 1px solid black;
@@ -3391,21 +3398,40 @@ th {
 </style>
 ]]
 
-end
+  end
 
 --------------------------------------------------
 -- Load code and start
 --------------------------------------------------
-libs()
-pages()
-Support_functions()
-Web_functions()
-Proxy_functions()
-Scene_functions()
-HC2_functions()
-Runtime_functions()
-System_functions()
-Event_functions()
-Fibaro_functions()
-ER_functions()
-startup()
+  if _EMBEDDED and type(_EMBEDDED)=='table' then -- Setup parameters from calling scene
+    local d = _EMBEDDED
+    if type(d.ip)=='string' then _HC2_IP=d.ip end
+    if type(d.user)=='string' then _HC2_USER=d.user end
+    if type(d.pwd)=='string' then _HC2_PWD=d.pwd end
+    if type(d.name)=='string' then _SCENE_NAME=d.name end
+    if type(d.id)=='number' then _SCENE_ID=d.id end
+    if d.loc~=nil then _LOCAL=d.loc end
+    if d.speed~=nil then _SPEEDTIME=d.speed end
+    if type(d.maxtime)=='number' then _MAXTIME=d.maxtime end
+    if d.color~=nil then _COLOR=d.color end
+    if type(d.data)=='string' then _HC2_FILE=d.data end
+    if d.force~=nil then _FORCERESOURCEUPDATE=d.force end
+    if d.logapi~=nil then _DEBUGREMOTERSRC=d.logapi end
+    if d.autodevice~=nil then _AUTOCREATEGLOBALS=d.autodevice end
+    if d.autoglobal~=nil then _AUTOCREATEGLOBALS=d.autoglobal end
+    if d.blockput~=nil then _BLOCK_PUT=d.blockput end
+    if d.blockpost~=nil then _BLOCK_POST=d.blockpost end
+  end
+  libs()
+  pages()
+  Support_functions()
+  Web_functions()
+  Proxy_functions()
+  Scene_functions()
+  HC2_functions()
+  Runtime_functions()
+  System_functions()
+  Event_functions()
+  Fibaro_functions()
+  ER_functions()
+  startup()
