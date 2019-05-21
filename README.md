@@ -1,6 +1,9 @@
 # EventRunner
-Scene event framework for Fibaro HC2 (visit [Wiki](../../wiki/Home) or [Fibaro Forum thread](https://forum.fibaro.com/topic/31180-tutorial-single-scene-instance-event-model/) for more details)   
-There is also an [EventRunnerLite](../../wiki/Lite) framework with all the bells and whistles scaled down that may be a gentler introduction to the single-instance/event model of coding scenes.   
+Scene event framework for Fibaro HC2 (visit [Wiki](../../wiki/Home) or [Fibaro Forum thread](https://forum.fibaro.com/topic/31180-tutorial-single-scene-instance-event-model/) for more details)
+
+There is also an [HC2 emulator](https://forum.fibaro.com/topic/42835-hc2-scene-emulator/) that can run all types of scenes (and multiple instances) and communicate (2-ways) with live devices on the HC2. The emulator is optimized to run the EventRunner framework and is the best approach to develop and debug rules. 
+
+A slimmed down version of the framework [EventRunnerLite](../../wiki/Lite) also exists that may be a gentler introduction to the single-instance/event model for coding scenes.
 
 This framework is a way to combine schedulers and trigger rules within a single scene instance. It is an 'event' based model where rules can be written in either Lua or a homemade "script language", or a mix of both. The framework allows the programmer to work within a single scene instance and not bother about multiple scene instances being triggered. This means that a scene can keep state in local Lua variables and not having to rely on Fibaro globals to remember things between scene invocations. This also means that the scene is always running while active, however it is very conservative on systems resources. Things that need to be remembered between restart of the scene/HC2 need of course to be stored somewhere permanently e.g. using Fibaro globals.
 
