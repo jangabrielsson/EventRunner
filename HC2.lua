@@ -25,7 +25,7 @@ SOFTWARE.
 json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
-_version,_fix = "0.10","fix3" -- May 26, 2019    
+_version,_fix = "0.10","fix4" -- May 26, 2019    
 _sceneName = "HC2 emulator"
 
 _LOCAL=true                  -- set all resource to local in main(), i.e. no calls to HC2
