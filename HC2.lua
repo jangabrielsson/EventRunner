@@ -238,6 +238,7 @@ function Support_functions()
 --json = require("json")
   socket = require("socket")
   http = require("socket.http")
+  cfg = require "dist.config"
   lfs = require("lfs")
 
   _ENV = _ENV or _G or {}         -- Environment
@@ -557,7 +558,7 @@ function Scene_functions()
   function Scene.global() return _SceneContext[coroutine.running()] end -- global().<var>
   function Scene.setGlobal(v,s) _SceneContext[coroutine.running()][v]=s end -- setGlobal('v',42)
 
-  function Scene.load(name,id,file)
+  function Scene.load(name,id,file,fullname)
     if Scene.scenes[id] then 
       Log(LOG.LOG,"Scene %s already loaded",id)
       return false
@@ -565,6 +566,7 @@ function Scene_functions()
     Scene.scenes[id] = Scene.scenes[id] or {}
     local scene,msg = Scene.scenes[id]
     scene.name = name
+    scene.fullname=fullname
     scene.id = id
     scene.fromFile=true
     scene.runningInstances = 0
@@ -600,6 +602,7 @@ function Scene_functions()
     globals.__fibaroSceneSourceTrigger = event
     globals.__fibaroSceneArgs = args
     globals.__sceneCode = scene.code 
+    globals.__fullFileName = scene.fullname
     globals.__debugName=_format("[%s:%s]",scene.id,scene.runningInstances+1)
     globals.__sceneCleanup = function(co)
       if (not scene._terminateMsg) or (scene._terminateMsg and not scene._terminateMsg(scene.id,env.__orgInstanceNumber,env)) then
@@ -648,7 +651,7 @@ function Scene_functions()
 
     local f = io.open(fileName)
     if not f then error("No such file:"..fileName) end
-    local src = f:read("*all")
+    local src = f:read("*all") f:close()
     Scene.checkValidCharsInFile(src,fileName)
     local c = src:match("--%[%[.-%-%-%]%]")
     local curr = nil
@@ -750,8 +753,8 @@ function HC2_functions()
     end
   end
 
-  function HC2.registerScene(name,id,file,globVars,triggers)
-    local scene = Scene.load(name,id,file) 
+  function HC2.registerScene(name,id,file,globVars,triggers,fullname)
+    local scene = Scene.load(name,id,file,fullname) 
     if not scene then return end
     HC2.rsrc.scenes[id]=scene
     for _,t in ipairs(scene.triggers) do
@@ -1270,7 +1273,9 @@ function HC2_functions()
       if err1 or err2 then 
         error("File load error: "..(err1 or err2).." in "..lfs.currentdir())
       end
-      local scene = HC2.registerScene(name,id,short_src)
+      local wd = lfs.currentdir()
+      if wd then wd = wd..(cfg.arch == "Windows" and "\\" or "/")..short_src end
+      local scene = HC2.registerScene(name,id,short_src,nil,nil,wd)
     end
   end
 

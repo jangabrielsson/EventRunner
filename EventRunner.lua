@@ -12,7 +12,7 @@ Test
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B49"  -- May 26, 2019  
+_version,_fix = "2.0","B50"  -- May 26, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -880,6 +880,39 @@ function Util.checkVersion()
         end
       end})
 end
+
+function Util.patchEventRunner(newSrc)
+  if newSrc == nil then
+    local req = net.HTTPClient()
+    req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/EventRunner.lua",
+      {options = {method = 'GET', checkCertificate = false, timeout=20000},
+        success=function(data)
+          if data.status == 200 then
+            local src = data.data
+            Util.patchEventRunner(src)
+          end
+        end})
+  else
+    local oldSrc,scene="",nil
+    if __fullFileName then
+      local f = io.open(__fullFileName)
+      if not f then return end
+      oldSrc = f:read("*all")
+    else scene = api.get("/scenes/"..__fibaroSceneId); oldSrc=scene.lua end
+    local obp = oldSrc:find("%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%- EventModel %- Don't change! ")
+    oldSrc = oldSrc:sub(1,obp-1)
+    local nbp = newSrc:find("%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%- EventModel %- Don't change! ")
+    local nbody = newSrc:sub(nbp)
+    oldSrc = oldSrc:gsub("(_version,_fix = .-\n)",newSrc:match("(_version,_fix = .-\n)"))
+    if __fullFileName then
+      local f = io.open(__fullFileName, "w")
+      io.output(f)
+      io.write(oldSrc..nbody)
+      io.close(f)
+    else scene.lua=oldSrc..nbody; api.put("/scenes/"..__fibaroSceneId,scene) end
+  end
+end
+
 ---------- VDev support --------------
 
 function makeVDev()
