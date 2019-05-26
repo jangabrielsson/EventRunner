@@ -67,7 +67,7 @@ end -- main()
 Event = Event or {}
 _STARTONTRIGGER = _STARTONTRIGGER or false
 _NUMBEROFBOXES = _NUMBEROFBOXES or 1
-_CHECKVERSION = true
+_CHECKVERSION = _CHECKVERSION==nil and true or _CHECKVERSION
 _MAILBOXES={}
 _MIDNIGHTADJUST = _MIDNIGHTADJUST or false
 _emulator={ids={},adress=nil}
