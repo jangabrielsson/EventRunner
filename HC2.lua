@@ -25,7 +25,7 @@ SOFTWARE.
 json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
-_version,_fix = "0.10","fix2" -- May 20, 2019    
+_version,_fix = "0.10","fix3" -- May 26, 2019    
 _sceneName = "HC2 emulator"
 
 _LOCAL=true                  -- set all resource to local in main(), i.e. no calls to HC2
@@ -2281,7 +2281,7 @@ Expected input:
           end
           return table.unpack(res)
         else
-          local astr=(id~=nil and Util.reverseVar(id).."," or "")..json.encode(args):sub(2,-2)
+          local astr=(id~=nil and reverseVar(id).."," or "")..json.encode(args):sub(2,-2)
           error(_format("fibaro:%s(%s),%s",name,astr,res),3)
         end
       end
