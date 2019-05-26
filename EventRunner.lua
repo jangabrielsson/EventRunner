@@ -2343,7 +2343,7 @@ if _type == 'autostart' or _type == 'other' then
     if _CHECKVERSION then
       local req = net.HTTPClient()
       req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/VERSION.json",
-        {options = {method = 'GET',timeout=2000},
+        {options = {method = 'GET',timeout=1000},
           success=function(data)
             if data.status == 200 then
               local v = json.decode(data.data)
