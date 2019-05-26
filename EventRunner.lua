@@ -12,7 +12,7 @@ Test
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B50"  -- May 26, 2019  
+_version,_fix = "2.0","B51"  -- May 26, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -904,6 +904,7 @@ function Util.patchEventRunner(newSrc)
     local nbp = newSrc:find("%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%- EventModel %- Don't change! ")
     local nbody = newSrc:sub(nbp)
     oldSrc = oldSrc:gsub("(_version,_fix = .-\n)",newSrc:match("(_version,_fix = .-\n)"))
+    Log(LOG.LOG,"Patching scene to latest version")
     if __fullFileName then
       local f = io.open(__fullFileName, "w")
       io.output(f)
