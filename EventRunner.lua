@@ -12,7 +12,7 @@ Test
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B47"  -- May 26, 2019  
+_version,_fix = "2.0","B48"  -- May 26, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -51,6 +51,7 @@ function main()
     },
     other = "other"
   }
+
   --or read in "HomeTable" from a fibaro global variable (or scene)
   --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
   --HT = json.decode(HT)
@@ -59,6 +60,7 @@ function main()
 
   rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
 
+  rule("@{catch,06:00} => Util.checkVersion()") -- Check for new version every morning at 6:00
   rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix))")
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
 end -- main()
@@ -67,7 +69,6 @@ end -- main()
 Event = Event or {}
 _STARTONTRIGGER = _STARTONTRIGGER or false
 _NUMBEROFBOXES = _NUMBEROFBOXES or 1
-_CHECKVERSION = _CHECKVERSION==nil and true or _CHECKVERSION
 _MAILBOXES={}
 _MIDNIGHTADJUST = _MIDNIGHTADJUST or false
 _emulator={ids={},adress=nil}
@@ -866,6 +867,19 @@ Util.getIDfromTrigger={
   event=function(e) return e.event and Util.getIDfromEvent[e.event.type or ""](e.event.data) end
 }
 
+function Util.checkVersion()
+  local req = net.HTTPClient()
+  req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/VERSION.json",
+    {options = {method = 'GET',timeout=1000},
+      success=function(data)
+        if data.status == 200 then
+          local v = json.decode(data.data)
+          if v.version ~= _version or v.fix ~= _fix then
+            Event.post({type='ER_version',version=v.version,fix=v.fix or "", _sh=true})
+          end
+        end
+      end})
+end
 ---------- VDev support --------------
 
 function makeVDev()
@@ -2340,19 +2354,6 @@ if _type == 'autostart' or _type == 'other' then
 
     _trigger._sh = true
     Event.post(_trigger)
-    if _CHECKVERSION then
-      local req = net.HTTPClient()
-      req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/VERSION.json",
-        {options = {method = 'GET',timeout=1000},
-          success=function(data)
-            if data.status == 200 then
-              local v = json.decode(data.data)
-              if v.version ~= _version or v.fix ~= _fix then
-                Event.post({type='ER_version',version=v.version,fix=v.fix or "", _sh=true})
-              end
-            end
-          end})
-    end
     Log(LOG.SYSTEM,"") Log(LOG.SYSTEM,"Scene running")
     collectgarbage("collect") GC=collectgarbage("count")
   end
