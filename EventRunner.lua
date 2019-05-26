@@ -12,7 +12,7 @@ Test
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B46"  -- May 20, 2019  
+_version,_fix = "2.0","B47"  -- May 26, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -29,7 +29,7 @@ _myNodeRed   = "http://192.168.1.50:1880/eventrunner" -- Ex. used for Event.post
 
 -- debug flags for various subsystems...
 _debugFlags = { 
-  post=true,invoke=false,triggers=true,dailys=false,rule=false,ruleTrue=false,hue=false,msgTime=false,
+  post=true,invoke=false,triggers=true,dailys=false,rule=false,ruleTrue=true,hue=false,msgTime=false,
   fcall=true, fglobal=false, fget=false, fother=true
 }
 ---------------- Here you place rules and user code, called once at startup --------------------
@@ -47,7 +47,7 @@ function main()
     dev = 
     { bedroom = {lamp = 88,motion = 99},
       phones = {bob = 121},
-      kitchen = {lamp = 66, motion = 77}
+      kitchen = {lamp = 66, motion = 77},
     },
     other = "other"
   }
@@ -58,7 +58,8 @@ function main()
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
   rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
-
+  
+  rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix))")
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
 end -- main()
 
@@ -548,58 +549,58 @@ function newEventEngine()
       end
     end 
     return fibaro._call(obj,id,call,...)
-end 
+  end 
 
-function fibaro.get(obj,id,...) 
-  id = tonumber(id); if not id then error("deviceID not a number",2) end
-  if fibaro._idMap[id] then return fibaro._idMap[id].get(obj,id,...) else return fibaro._get(obj,id,...) end
-end
+  function fibaro.get(obj,id,...) 
+    id = tonumber(id); if not id then error("deviceID not a number",2) end
+    if fibaro._idMap[id] then return fibaro._idMap[id].get(obj,id,...) else return fibaro._get(obj,id,...) end
+  end
 
-function fibaro.getValue(obj,id,...) 
-  id = tonumber(id); if not id then error("deviceID not a number",2) end
-  if fibaro._idMap[id] then return (fibaro._idMap[id].get(obj,id,...)) else return (fibaro._getValue(obj,id,...)) end
-end
+  function fibaro.getValue(obj,id,...) 
+    id = tonumber(id); if not id then error("deviceID not a number",2) end
+    if fibaro._idMap[id] then return (fibaro._idMap[id].get(obj,id,...)) else return (fibaro._getValue(obj,id,...)) end
+  end
 
 -- Logging of fibaro:* calls -------------
-local function traceFibaro(name,flag,rt)
-  local orgFun=fibaro[name]
-  fibaro[name]=function(f,id,...)
-    local args={...}
-    local stat,res = pcall(function() return {orgFun(f,id,table.unpack(args))} end)
-    if stat then
-      if _debugFlags[flag] then
-        if rt then rt(id,args,res)
-        else
-          local astr=(id~=nil and Util.reverseVar(id).."," or "")..json.encode(args):sub(2,-2)
-          Debug(true,"fibaro:%s(%s)%s",name,astr,#res>0 and "="..tojson(res):sub(2,-2) or "")
+  local function traceFibaro(name,flag,rt)
+    local orgFun=fibaro[name]
+    fibaro[name]=function(f,id,...)
+      local args={...}
+      local stat,res = pcall(function() return {orgFun(f,id,table.unpack(args))} end)
+      if stat then
+        if _debugFlags[flag] then
+          if rt then rt(id,args,res)
+          else
+            local astr=(id~=nil and Util.reverseVar(id).."," or "")..json.encode(args):sub(2,-2)
+            Debug(true,"fibaro:%s(%s)%s",name,astr,#res>0 and "="..tojson(res):sub(2,-2) or "")
+          end
         end
+        return table.unpack(res)
+      else
+        local astr=(id~=nil and Util.reverseVar(id).."," or "")..json.encode(args):sub(2,-2)
+        error(_format("fibaro:%s(%s),%s",name,astr,res),3)
       end
-      return table.unpack(res)
-    else
-      local astr=(id~=nil and Util.reverseVar(id).."," or "")..json.encode(args):sub(2,-2)
-      error(_format("fibaro:%s(%s),%s",name,astr,res),3)
     end
   end
-end
 
-if not _EMULATED then  -- Emulator logs fibaro:* calls for us
-  local maps = {
-    {"call","fcall"},{"setGlobal","fglobal"},{"getGlobal","fglobal"},{"getGlobalValue","fglobal"},
-    {"get","fget"},{"getValue","fget"},{"killScenes","fother"},{"abort","fother"},
-    {"sleep","fother",function(id,args,res) 
-        Debug(true,"fibaro:sleep(%s) until %s",id,osDate("%X",osTime()+math.floor(0.5+id/1000))) 
-      end},        
-    {"startScene","fother",function(id,args,res) 
-        local a = isRemoteEvent(args[1]) and json.encode(decodeRemoteEvent(args[1])) or args and json.encode(args)
-        Debug(true,"fibaro:startScene(%s%s)",id,a and ","..a or "") 
-      end},
-  }
-  for _,f in ipairs(maps) do traceFibaro(f[1],f[2],f[3]) end
-end
+  if not _EMULATED then  -- Emulator logs fibaro:* calls for us
+    local maps = {
+      {"call","fcall"},{"setGlobal","fglobal"},{"getGlobal","fglobal"},{"getGlobalValue","fglobal"},
+      {"get","fget"},{"getValue","fget"},{"killScenes","fother"},{"abort","fother"},
+      {"sleep","fother",function(id,args,res) 
+          Debug(true,"fibaro:sleep(%s) until %s",id,osDate("%X",osTime()+math.floor(0.5+id/1000))) 
+        end},        
+      {"startScene","fother",function(id,args,res) 
+          local a = isRemoteEvent(args[1]) and json.encode(decodeRemoteEvent(args[1])) or args and json.encode(args)
+          Debug(true,"fibaro:startScene(%s%s)",id,a and ","..a or "") 
+        end},
+    }
+    for _,f in ipairs(maps) do traceFibaro(f[1],f[2],f[3]) end
+  end
 
-function fibaro:sleep() error("Not allowed to use fibaro:sleep in EventRunner scenes!") end
+  function fibaro:sleep() error("Not allowed to use fibaro:sleep in EventRunner scenes!") end
 
-return self
+  return self
 end
 
 Event = newEventEngine()
@@ -1531,7 +1532,7 @@ function newScriptCompiler()
 
   local _tokens = {
     {"^(%b'')",'string'},{'^(%b"")','string'},
-    {"^%#([0-9a-zA-Z]+{?)",'event'},
+    {"^%#([0-9a-zA-Z_]+{?)",'event'},
     {"^({})",'symbol'},
     {"^({)",'lbrack'},{"^(})",'rbrack'},{"^(,)",'token'},
     {"^(%[)",'lsquare'},{"^(%])",'rsquare'},
@@ -2338,7 +2339,17 @@ if _type == 'autostart' or _type == 'other' then
 
     _trigger._sh = true
     Event.post(_trigger)
-
+    local req = net.HTTPClient()
+    req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/VERSION.json",
+      {options = {method = 'GET',timeout=2000},
+        success=function(data)
+          if data.status == 200 then
+            local v = json.decode(data.data)
+            if v.version ~= _version or v.fix ~= _fix then
+              Event.post({type='ER_version',version=v.version,fix=v.fix or "", _sh=true})
+            end
+          end
+        end})
     Log(LOG.SYSTEM,"") Log(LOG.SYSTEM,"Scene running")
     collectgarbage("collect") GC=collectgarbage("count")
   end
