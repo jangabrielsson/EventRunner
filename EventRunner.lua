@@ -12,7 +12,7 @@ Test
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B48"  -- May 26, 2019  
+_version,_fix = "2.0","B49"  -- May 26, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -870,7 +870,8 @@ Util.getIDfromTrigger={
 function Util.checkVersion()
   local req = net.HTTPClient()
   req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/VERSION.json",
-    {options = {method = 'GET',timeout=1000},
+    {options = {method = 'GET', checkCertificate = false, timeout=20000},
+      headers = {['Accept']='application/json'}},
       success=function(data)
         if data.status == 200 then
           local v = json.decode(data.data)
