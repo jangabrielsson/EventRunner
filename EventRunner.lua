@@ -29,7 +29,7 @@ _myNodeRed   = "http://192.168.1.50:1880/eventrunner" -- Ex. used for Event.post
 
 -- debug flags for various subsystems...
 _debugFlags = { 
-  post=true,invoke=false,triggers=true,dailys=false,rule=false,ruleTrue=true,hue=false,msgTime=false,
+  post=true,invoke=false,triggers=true,dailys=false,rule=false,ruleTrue=false,hue=false,msgTime=false,
   fcall=true, fglobal=false, fget=false, fother=true
 }
 ---------------- Here you place rules and user code, called once at startup --------------------
