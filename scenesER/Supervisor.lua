@@ -12,7 +12,7 @@ Test
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=11} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B3"  -- May 26, 2019  
+_version,_fix = "2.0","B4"  -- May 26, 2019   
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -32,7 +32,7 @@ _debugFlags = {
 ---------------- Here you place rules and user code, called once at startup --------------------
 function main()
 
-  -- Ping and Kepp-alive -------------------------------
+  -- Ping and Keep-alive -------------------------------
 
   local POLLINTERVAL = "+/00:03"    -- poll every 3 minute
   local PINGTIMEOUT = "+/00:00:10"  -- No answer in 10s, scene will be restarted
@@ -114,7 +114,9 @@ function main()
 
   ------- Log handling ------------- 
   local LOGWRITEINTERVAL = "+/00:01" 
-
+  local MAXENTRIES = 2000
+  local PRUNENTRIES = 1500
+  
   function createLog(name)
     local scenes = api.get("/scenes")
     for _,s in ipairs(scenes) do 
@@ -176,9 +178,9 @@ function main()
 
   Event.schedule(LOGWRITEINTERVAL,function()
       if #logItems ~= currLogItems then
-        if #logItems > 2000 then
+        if #logItems > MAXENTRIES then
           local l,n={},#logItems
-          for i=1000,0,-1 do l[#l+1]=logItems[n-i] end
+          for i=PRUNENTRIES,0,-1 do l[#l+1]=logItems[n-i] end
           logItems=l
         end
         writeLog(logID,logItems)
