@@ -25,7 +25,7 @@ SOFTWARE.
 json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
-_version,_fix = "0.10","fix4" -- May 26, 2019    
+_version,_fix = "0.10","fix5" -- May 28, 2019    
 _sceneName = "HC2 emulator"
 
 _LOCAL=true                  -- set all resource to local in main(), i.e. no calls to HC2
@@ -240,7 +240,7 @@ function Support_functions()
   http = require("socket.http")
   cfg = require "dist.config"
   lfs = require("lfs")
-
+  
   _ENV = _ENV or _G or {}         -- Environment
 
   _HCPrompt="[HC2 ]"
@@ -1388,16 +1388,29 @@ function Runtime_functions()
     ["SPEED"] = function(t) _gTime=t-_gOffset if Runtime.idleHandler then Runtime.idleHandler() end return false end,
     ["NORMAL"] = function(t) 
       local idle = Runtime.idleHandler
-      local ct=os.clock()
       BREAKIDLE=false
-      while true do
-        local diff = (t-_gOffset)-(_gTime+(os.clock()-ct))
-        if diff < 0 or  BREAKIDLE then break end
-        --if diff > 0.01 then wx.wxMilliSleep(10) ct=ct-0.01 end
-        if diff > 0.01 then socket.sleep(0.01) ct=ct-0.01 end
+      local wt = t-(_gTime+_gOffset)
+      local sec = math.floor(wt)
+      local secn = osOrgTime()
+      local _,ms = math.modf(wt)
+      --Log(LOG.LOG,"WAIT:"..sec)
+      while osOrgTime()-(secn+sec) < 0 and not BREAKIDLE do
+        socket.sleep(0.01)
         if idle then idle() end
+      end 
+      --Log(LOG.LOG,"WAITED:"..osOrgTime()-secn)
+      _gTime=_gTime+(osOrgTime()-secn)
+      local ttt = osOrgTime()
+      --Log(LOG.LOG,"WAITE2:"..ms)
+      local ms2 = ms
+      while ms2 > 0 and not BREAKIDLE do
+        if ms2 > 0.01 then socket.sleep(0.01); ms2=ms2-0.01 end
+        local ct = os.clock()
+        if idle then idle() end
+        ms2=ms2-(os.clock()-ct)
       end
-      _gTime=_gTime+(os.clock()-ct)
+      --Log(LOG.LOG,"WAITED2:"..osOrgTime()-ttt)
+      _gTime=_gTime+ms
       return false 
     end,
   }
@@ -1422,6 +1435,7 @@ function Runtime_functions()
       ::REDO::
       local co,now = _gTimers,osTimeFrac()
       if co.time > now then Runtime.waitUntil[WAITINDEX](co.time) goto REDO end
+      local ct = os.clock()
       _gTimers=_gTimers.next
       if co.env then setfenv(co.env.__sceneCode,co.env) end
       local stat,thread,time=coroutine.resume(co.co)
@@ -1446,6 +1460,8 @@ function Runtime_functions()
         if t<=0 and co.env.__sceneCleanup then co.env.__sceneCleanup(co.co) end
         if co.cleanup then co.cleanup() end
       end
+      --Log(LOG.LOG,"COMP:"..(os.clock()-ct))
+      _gTime = _gTime+(os.clock()-ct)
     end
     Log(LOG.SYSTEM,"%s:End of time(rs)",osOrgDate("%X",osTime()))
   end
@@ -1594,6 +1610,7 @@ function System_functions()
 
   _System.port = _EVENTSERVER
   _System.ipAdress = HC2.getIPadress()
+  _System.time = osOrgTime
 
   _System.speed = Runtime.speed
 
