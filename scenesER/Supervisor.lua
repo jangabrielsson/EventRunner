@@ -1,11 +1,7 @@
 --[[
 %% properties
-88 value
-99 value
 %% events
-5 CentralSceneEvent
 %% globals
-Test
 %% autostart 
 --]] 
 
