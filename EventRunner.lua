@@ -12,7 +12,7 @@ Test
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B52"  -- May 26, 2019  
+_version,_fix = "2.0","B53"  -- May 30, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -58,7 +58,7 @@ function main()
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
-  rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
+  rule("@@00:00:05 => f=!f; log(osdate('%X',_System.time()));  || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
 
   rule("@{catch,06:00} => Util.checkVersion()") -- Check for new version every morning at 6:00
   rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix))")
@@ -855,7 +855,8 @@ function Util.findScenes(str)
   for _,s1 in ipairs(api.get("/scenes")) do
     if s1.isLua and s1.id~=__fibaroSceneId and s1._local ~= true then
       local s2=api.get("/scenes/"..s1.id)
-      if s2.lua:match(str) then res[#res+1]=s1.id end
+      if s2==nil or s2.lua==nil then Log(LOG.ERROR,"Scene missing: %s",s1.id)
+      elseif s2.lua:match(str) then res[#res+1]=s1.id end
     end
   end
   return res

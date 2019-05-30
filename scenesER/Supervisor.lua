@@ -12,7 +12,7 @@ Test
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=11} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B4"  -- May 26, 2019   
+_version,_fix = "2.0","B5"  -- May 30, 2019   
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -979,7 +979,8 @@ function Util.findScenes(str)
   for _,s1 in ipairs(api.get("/scenes")) do
     if s1.isLua and s1.id~=__fibaroSceneId and s1._local ~= true then
       local s2=api.get("/scenes/"..s1.id)
-      if s2.lua:match(str) then res[#res+1]=s1.id end
+      if s2==nil or s2.lua==nil then Log(LOG.ERROR,"Scene missing: %s",s1.id)
+      elseif s2.lua:match(str) then res[#res+1]=s1.id end
     end
   end
   return res
