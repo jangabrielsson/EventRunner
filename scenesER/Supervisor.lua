@@ -8,7 +8,7 @@
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=11} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B6"  -- May 30, 2019   
+_version,_fix = "2.0","B7"  -- May 30, 2019   
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -67,6 +67,7 @@ function main()
     function(env)
       local scene = env.p.scene
       scene.timeout=nil
+      scene.ttime = os.time()
       local runconfig = fibaro:getSceneRunConfig(scene.id)
       if runconfig == nil then eventRunners[scene.id]=nil; return end -- Removed?
       eventMap[scene.id]=env.event
@@ -113,7 +114,7 @@ function main()
       local wevent = eventMap[id]
       if scene.timeout == nil then return end
       scene.restarts = nil
-      Log(LOG.LOG,"Pong from scene:'%s', ID:%s",scene.name,id)
+      Log(LOG.LOG,"Pong from scene:'%s', ID:%s (resp:%ss)",scene.name,id,os.time()-scene.ttime)
       Event.cancel(scene.timeout) 
       scene.timeout=Event.post(wevent,wevent.interval)
     end)
