@@ -8,7 +8,7 @@
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=11} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B5"  -- May 30, 2019   
+_version,_fix = "2.0","B6"  -- May 30, 2019   
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -22,8 +22,8 @@ _sceneName   = "Supervisor"      -- Set to scene/script name
 
 -- debug flags for various subsystems...
 _debugFlags = { 
-  post=true,invoke=false,triggers=true,dailys=false,rule=false,ruleTrue=false,hue=false,msgTime=false,
-  fcall=true, fglobal=false, fget=false, fother=true
+  post=false,invoke=false,triggers=false,dailys=false,rule=false,ruleTrue=false,hue=false,msgTime=false,
+  fcall=true, fglobal=false, fget=false, fother=false
 }
 ---------------- Here you place rules and user code, called once at startup --------------------
 function main()
@@ -43,6 +43,13 @@ function main()
     function(env)
       local scenes = Util.findScenes(gEventRunnerKey)
       for _,id in ipairs(scenes) do Event.post({type=Event.ANNOUNCE,_from=id,d='AS'}) end
+    end)
+
+  Event.event({type='notify',scene='$scene', msg='$msg'},
+    function(env) 
+      for _,p in ipairs(phonesToNotify) do 
+        fibaro:call(p,"sendPush",string.format(env.p.msg,env.p.scene.name,env.p.scene.id)) 
+      end
     end)
 
   Event.event({type=Event.ANNOUNCE},
@@ -68,6 +75,8 @@ function main()
         Log(LOG.LOG,"Pinging scene:'%s', ID:%s",scene.name,scene.id)
         Event.postRemote(scene.id,{type=Event.PING})
       else
+        Log(LOG.LOG,"Not pinging scene:'%s', ID:%s disabled=%s runconfig=%s",
+            scene.name,scene.id,tostring(scene.disabled),runconfig)
         if scene.disabled then
           -- Log(LOG.LOG,"Skipping disabled scene:'%s', ID:%s",scene.name,scene.id)
         else
@@ -83,6 +92,7 @@ function main()
       local wevent = eventMap[scene.id]
       scene.timeout=nil
       if scene.restarts and scene.restarts >= MAXRESTARTS then
+        Log(LOG.ERROR,"Scene:'%s', ID:%s - unable to restart",scene.name,scene.id)
         fibaro:setSceneRunConfig(scene.id,'MANUAL_ONLY')
         Event.post({type='notify',scene=scene, msg="Scene:'%s', ID:%s could not be restarted"})
         scene.timeout=Event.post(wevent,wevent.interval)
