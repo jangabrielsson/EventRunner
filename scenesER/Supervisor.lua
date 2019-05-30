@@ -31,7 +31,7 @@ function main()
   -- Ping and Keep-alive -------------------------------
 
   local POLLINTERVAL = "+/00:03"    -- poll every 3 minute
-  local PINGTIMEOUT = "+/00:00:10"  -- No answer in 10s, scene will be restarted
+  local PINGTIMEOUT = "+/00:00:20"  -- No answer in 10s, scene will be restarted
   local STARTUPDELAY = "+/00:00:20" -- Time for scene to startup after a restart before pinging starts again
   local MAXRESTARTS = 2             -- Number of failed restarts before disabling the scene
   local phonesToNotify = {}         -- Phone to alter when restarting scenes
@@ -149,7 +149,7 @@ function main()
 
   function readLog(id)
     local s = api.get("/scenes/"..id)
-    print(s.lua)
+    --print(s.lua)
     return s.lua and json.decode(s.lua) or {}
   end
 
