@@ -14,7 +14,7 @@ Part of the code after "baran" from http://www.zwave-community.it/
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="iCal", id=44} dofile("HC2.lua") end
 
-_version,_fix = "0.9","B1"  -- May 29, 2019   
+_version,_fix = "0.9","B2"  -- May 29, 2019   
 
 --[[
 -- iCal. Event based scheduler/device trigger handler
@@ -29,7 +29,7 @@ _sceneName   = "iCal"      -- Set to scene/script name
 -- debug flags for various subsystems...
 _debugFlags = { 
   post=false,invoke=false,triggers=false,dailys=false,rule=false,ruleTrue=false,hue=false,msgTime=false,
-  fcall=true, fglobal=false, fget=false, fother=false, pubsub=false
+  fcall=true, fglobal=false, fget=false, fother=false, pubsub=false, iCal=true
 }
 
 ---------------- Here you place rules and user code, called once at startup --------------------
@@ -60,7 +60,8 @@ function main()
 
     local function AppendToCal(e)
       local now = os.time()
-      if e.startDate < now or e.startDate > now+30*24*60*60 then return end      
+      if e.startDate < now or e.startDate > now+maxDays*24*60*60 then return end 
+      local wd = os.date("%X",e.startDate)=="00:00:00" and os.date("%X",e.endDate)=="00:00:00"
       myCal[#myCal+1] = { 
         name       = e.name,
         startDate  = e.startDate,
@@ -68,8 +69,8 @@ function main()
         location   = e.location or "",
         uid        = e.uid or "",
         description= e.descr or "",
-        wholeDay   = os.date("%X",e.startDate)=="00:00:00" and os.date("%X",e.endDate)=="00:00:00"
-      }                               
+        wholeDay   = wd
+      }
     end
 
 -- parse dates
@@ -235,7 +236,7 @@ function main()
           error =  function(err) print("HTTP Error:"..json.encode(err)) end,
         })
     end
-   -- TESTING=true
+    -- TESTING=true
     function self.fetchData()
       myCal = {}
       if TESTING then
@@ -266,16 +267,22 @@ function main()
 
   -- Client Event.subscribe({type='calendar', name=name, url=url})
 
+  Event.event({type='newCal',name='$name',url='$url'},
+    function(env)
+      local event = env.event
+      if calendars[event.name] == nil then
+        Log(LOG.LOG,"Watching calendar %s, days:%s, tz:%s",event.name,event.days or 30,event.tz or 0)
+        calendars[event.name] = {cal=makeICal(event.name,event.url,event.days or 30,event.tz or 0),entries={},url=event.url}
+        Event.schedule(event.interval or "+/00:30",function() calendars[event.name].cal.fetchData() end,{start=true})
+      end
+    end)
+
   -- Server 
   Event.event({type=Event.SUB},
     function(env)
       for _,event in ipairs(env.event.event[1] and env.event.event or {env.event.event}) do
         if event.type=='calendar' and event.name and event.url then
-          if calendars[event.name] == nil then
-            Log(LOG.LOG,"Watching calendar %s",event.name)
-            calendars[event.name] = {cal=makeICal(event.name,event.url,event.days or 30,event.tz or 0),entries={},url=event.url}
-            Event.schedule(event.interval or "+/00:30",function() calendars[event.name].cal.fetchData() end,{start=true})
-          end
+          Event.post({type='newCal', name=event.name, url=even.url})
         end
       end
     end)
@@ -298,8 +305,8 @@ function main()
       calendarAlarms = newCal
       calendars[name].entries = env.p.entries
       local url = calendars[name].url
-      for _,entry in ipairs(env.p.entries) do
-        Log(LOG.LOG,"Entry: '%s' Start:%s, Stop:%s",entry.name,os.date("%c",entry.startDate),os.date("%c",entry.endDate))
+      for i,entry in ipairs(env.p.entries) do
+        Log(LOG.LOG,"Entry%s:'%s' start:%s, end:%s, day:%s",i,entry.name,os.date("%c",entry.startDate),os.date("%c",entry.endDate),entry.wholeDay)
         local refS = Event.post({type='calAlarm',status='start',name=name,url=url,entry=entry},entry.startDate)
         local refE = Event.post({type='calAlarm',status='end',name=name,url=url,entry=entry},entry.endDate)
         calendarAlarms[entry.uid] = {start=refS,stop=refE,name=name,uid=entry.uid}
@@ -315,6 +322,9 @@ function main()
 
   Event.schedule("+/00:01",function() end)
 
+  --local iCal = "https://p64-calendars.icloud.com/published/2/MTMxNjYxdfgdgdfgw4ergeOZF01LBw1p8vFrjxFq9NvCD"
+  --local googleCal = "https://calendar.google.com/calendar/ical/bob%40gmail.com/private-8fiuvdhuds7fv8sdf7sdyusdgsd678/basic.ics"
+  --Event.post({type='newCal', name='Test', url=iCal})
 end -- main()
 
 ------------------- EventModel - Don't change! --------------------  
