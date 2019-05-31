@@ -14,7 +14,7 @@ Part of the code after "baran" from http://www.zwave-community.it/
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="iCal", id=44} dofile("HC2.lua") end
 
-_version,_fix = "0.9","B2"  -- May 29, 2019   
+_version,_fix = "0.9","B3"  -- May 29, 2019   
 
 --[[
 -- iCal. Event based scheduler/device trigger handler
@@ -223,7 +223,7 @@ function main()
 
     local function GetICalData(url)
       HC:request(url,{ 
-          options = {method = "GET" },
+          options = {method = "GET", checkCertificate = false, timeout=20000},
           success = function(response) 
             if response.status==301 then
               GetICalData(response.headers.location)
