@@ -14,7 +14,7 @@ Part of the code after "baran" from http://www.zwave-community.it/
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="iCal", id=44} dofile("HC2.lua") end
 
-_version,_fix = "0.9","B3"  -- May 29, 2019   
+_version,_fix = "0.9","B4"  -- June 1, 2019   
 
 --[[
 -- iCal. Event based scheduler/device trigger handler
@@ -39,7 +39,8 @@ function main()
 ----  https://calendar.google.com/calendar/ical/XXXXXXXX%40gmail.com/private-googleid/yyyyy.ics
 ---  Apple
 ----  "webcal://pXX-calendars.icloud.com/published/X/XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-
+  --_System.speed(true)     
+  --_System.setRemote("virtualDevices",true)
   calendars = {}
 
   function makeICal(name2,url,days,tz)
@@ -214,10 +215,7 @@ function main()
             end -- recurance
           end
         end
-
       end
-
--- Events are collected
       return OutputData()
     end
 
@@ -236,24 +234,20 @@ function main()
           error =  function(err) print("HTTP Error:"..json.encode(err)) end,
         })
     end
-    -- TESTING=true
+    --TESTING=true
     function self.fetchData()
       myCal = {}
       if TESTING then
-        myCal[#myCal+1] = {
-          startDate = os.time()+60,
-          endDate = os.time()+2*60,
-          name = "Test1",
-          uid = "1234",
-          description="Abc",
-        }
-        myCal[#myCal+1] = {
-          startDate = os.time()+3*60,
-          endDate = os.time()+4*60,
-          name = "Test2",
-          uid = "1235",
-          description= "Def",
-        }
+        for i=1,12 do
+          myCal[#myCal+1] = {
+            startDate = os.time()+i*60,
+            endDate = os.time()+(i+1)*60,
+            name = "Test"..i,
+            uid = tostring(i).."uid",
+            description="A"..i,
+            wholeDay=false,
+          }
+        end
         Log(LOG.LOG,"MyCal #:%s",#myCal)
         table.sort(myCal,function(a,b) return a.startDate < b.startDate end)
         Event.post({type='newEntries', name=name, entries=myCal})
@@ -282,15 +276,23 @@ function main()
     function(env)
       for _,event in ipairs(env.event.event[1] and env.event.event or {env.event.event}) do
         if event.type=='calendar' and event.name and event.url then
-          Event.post({type='newCal', name=event.name, url=even.url})
+          Event.post({type='newCal', name=event.name, url=event.url, days=event.days, tz=event.tz,interval=event.interval})
+          event.url,event.days,event.tz,event.interval=nil,nil,nil,nil
         end
       end
-    end)
+    end,nil,nil,true)
 
   Event.event({type='calEntries', name='$name'},
     function(env)
       if env.event._from and calendars[env.p.name] then
         Event.postRemote({type='calEntries', name=env.p.name, entries=calendars[env.p.name].entries or {}})
+      end
+    end)
+
+  Event.event({type='calUpdate', name='$name'},
+    function(env)
+      if env.event._from and calendars[env.p.name] then
+        calendars[env.p.name].cal.fetchData()
       end
     end)
 
@@ -307,17 +309,51 @@ function main()
       local url = calendars[name].url
       for i,entry in ipairs(env.p.entries) do
         Log(LOG.LOG,"Entry%s:'%s' start:%s, end:%s, day:%s",i,entry.name,os.date("%c",entry.startDate),os.date("%c",entry.endDate),entry.wholeDay)
-        local refS = Event.post({type='calAlarm',status='start',name=name,url=url,entry=entry},entry.startDate)
-        local refE = Event.post({type='calAlarm',status='end',name=name,url=url,entry=entry},entry.endDate)
+        local refS = Event.post({type='calAlarm',status='start',name=name,entry=entry},entry.startDate)
+        local refE = Event.post({type='calAlarm',status='end',name=name,entry=entry},entry.endDate)
         calendarAlarms[entry.uid] = {start=refS,stop=refE,name=name,uid=entry.uid}
       end
+      Event.post({type='updateVD'})
     end)
 
   Event.event({type='calAlarm'},
     function(env)
-      local entry = env.event.entry
-      entry.type=env.event.status
-      Event.publish({type='calendar', name=env.event.name, url=env.event.url, entry=entry})
+      local event = env.event
+      local se = {type='calendar', status=event.status, name=event.name, entry=event.entry}
+      --Log(LOG.LOG,"Publishing:%s",tojson(se))
+      Event.publish(se)
+    end)
+
+  local vd = VDev.define("iCal ER","icaler",6,
+    {{'label',{'',"r1","",true}},
+      {'label',{'',"r2","",true}},
+      {'label',{'',"r3","",true}},
+      {'label',{'',"r4","",true}},
+      {'label',{'',"r5","",true}},
+      {'button',{'<<',"prev"},{'>>',"next"}}},
+    nil)
+  vdEntries = {}
+  vdEptr=1
+  local function updateVD()
+    for i=0,4 do
+      local str,e="",vdEntries[vdEptr+i]
+      if e==nil then str=""
+      else str=os.date("%m/%d/%H:%M-",e.startDate)..os.date("%m/%d/%H:%M ",e.endDate)..e.name end
+      vd.setValue("r"..(i+1),str)
+    end
+  end
+  Event.event({type="VD"},function(env)
+      if env.event.label=='prev' then
+        if vdEptr-5 >= 1 then vdEptr=vdEptr-5; updateVD() end
+      elseif env.event.label=='next' then
+        if vdEptr+5 <= #vdEntries then vdEptr=vdEptr+5; updateVD() end
+      end
+    end)
+  Event.event({type='updateVD'},function(env)
+      vdEntries,vdEptr={},1
+      for n,c in pairs(calendars) do for _,e in ipairs(c.entries) do vdEntries[#vdEntries+1]=e end end
+      table.sort(vdEntries,function(a,b) return a.startDate < b.startDate end)
+      updateVD()
     end)
 
   Event.schedule("+/00:01",function() end)
@@ -683,7 +719,7 @@ function newEventEngine()
   end
   function self.disable(handle) return handlerEnable('disable',handle) end
 
-  function self.event(e,action,doc,ctx) -- define rules - event template + action
+  function self.event(e,action,doc,ctx,front) -- define rules - event template + action
     doc = doc and " Event.event:"..doc or _format(" Event.event(%s,...)",tojson(e))
     ctx = ctx or {}; ctx.src,ctx.line=ctx.src or doc,ctx.line or _LINE()
     if e[1] then -- events is list of event patterns {{type='x', ..},{type='y', ...}, ...}
@@ -700,9 +736,9 @@ function newEventEngine()
     local rules = _handlers[hashKey]
     local rule,fn = {[self.RULE]=e, action=action, src=ctx.src, line=ctx.line}, true
     for _,rs in ipairs(rules) do -- Collect handlers with identical patterns. {{e1,e2,e3},{e1,e2,e3}}
-      if _equal(e,rs[1][self.RULE]) then rs[#rs+1] = rule fn = false break end
+      if _equal(e,rs[1][self.RULE]) then if front then table.insert(rs,1,rule) else rs[#rs+1] = rule end fn = false break end
     end
-    if fn then rules[#rules+1] = {rule} end
+    if fn then if front then table.insert(rules,1,{rule}) else rules[#rules+1] = {rule} end end
     rule.enable = function() rule._disabled = nil return rule end
     rule.disable = function() rule._disabled = true return rule end
     rule.start = function() self._invokeRule({rule=rule}) return rule end
@@ -1117,7 +1153,7 @@ else Util.getWeekNumber = function(tm) return tonumber(os.date("%V",tm)) end end
 function Util.findScenes(str)
   local res = {}
   for _,s1 in ipairs(api.get("/scenes")) do
-    if s1.isLua and s1.id~=__fibaroSceneId then -- and s1._local ~= true then
+    if s1.isLua and s1.id~=__fibaroSceneId and s1._local ~= true then
       local s2=api.get("/scenes/"..s1.id)
       if s2.lua:match(str) then res[#res+1]=s1.id end
     end
