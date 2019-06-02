@@ -366,12 +366,8 @@ function main()
 
   Event.schedule("+/00:01",function() end)
 
-  local iCal = "https://p64-calendars.icloud.com/published/2/MTMxNjYxNDMwMTMxNjYxNN60jsE0ciSlGdK4hSjmZOZF01LBw1p8vFrjxFq9NvCD"
-  local googleCal = "https://calendar.google.com/calendar/ical/jangabrielsson%40gmail.com/private-7ecd64859a57120d5419062b9c1525c8/basic.ics"
-
-
   --local googleCal = "https://calendar.google.com/calendar/ical/bob%40gmail.com/private-8fiuvdhuds7fv8sdf7sdyusdgsd678/basic.ics"
-  Event.post({type='newCal', name='Test', url=googleCal})
+  --Event.post({type='newCal', name='Test', url=googleCal})
 end -- main()
 
 ------------------- EventModel - Don't change! --------------------  
