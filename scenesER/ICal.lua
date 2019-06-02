@@ -14,7 +14,7 @@ Part of the code after "baran" from http://www.zwave-community.it/
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="iCal", id=44} dofile("HC2.lua") end
 
-_version,_fix = "0.9","B4"  -- June 1, 2019   
+_version,_fix = "0.9","B6"  -- June 2, 2019   
 
 --[[
 -- iCal. Event based scheduler/device trigger handler
@@ -42,6 +42,7 @@ function main()
   --_System.speed(true)     
   --_System.setRemote("virtualDevices",true)
   calendars = {}
+  VD_ROWS = 5 -- number of rows for entries in the VD
 
   function makeICal(name2,url,days,tz)
     local self = {}
@@ -161,7 +162,9 @@ function main()
 
       for i,line in ipairs(lines) do 
 
-        values = split(line, ":")
+        local v1,v2 = line:match("(.-):(.*)")
+        local values
+        values= v1 and {v1,v2} or {line}
 
         if values[1] == "BEGIN" then
           if values[2] == "VEVENT" then
@@ -324,31 +327,36 @@ function main()
       Event.publish(se)
     end)
 
-  local vd = VDev.define("iCal ER","icaler",6,
-    {{'label',{'',"r1","",true}},
-      {'label',{'',"r2","",true}},
-      {'label',{'',"r3","",true}},
-      {'label',{'',"r4","",true}},
-      {'label',{'',"r5","",true}},
-      {'button',{'<<',"prev"},{'>>',"next"}}},
-    nil)
+  local vdLabels = {}
+  for i=1,VD_ROWS do vdLabels[#vdLabels+1]={'label',{'',"r"..i,"",true}} end
+  vdLabels[#vdLabels+1]={'button',{'<<',"prev"},{'>>',"next"}}
+  vdLabels[#vdLabels+1]={'button',{'Update',"update"}}
+  local vd = VDev.define("iCal ER","icaler",8,vdLabels,nil)
+
   vdEntries = {}
   vdEptr=1
   local function updateVD()
-    for i=0,4 do
+    for i=0,VD_ROWS-1 do
       local str,e="",vdEntries[vdEptr+i]
       if e==nil then str=""
-      else str=os.date("%m/%d/%H:%M-",e.startDate)..os.date("%m/%d/%H:%M ",e.endDate)..e.name end
+      else
+        local sd,ed = os.date("%m/%d/%H:%M",e.startDate),os.date("%m/%d/%H:%M",e.endDate)
+        if sd:sub(1,5)==ed:sub(1,5) then ed=ed:sub(7) end
+        str=sd.."-"..ed.." "..e.name 
+      end
       vd.setValue("r"..(i+1),str)
     end
   end
   Event.event({type="VD"},function(env)
       if env.event.label=='prev' then
-        if vdEptr-5 >= 1 then vdEptr=vdEptr-5; updateVD() end
+        if vdEptr-VD_ROWS >= 1 then vdEptr=vdEptr-VD_ROWS; updateVD() end
       elseif env.event.label=='next' then
-        if vdEptr+5 <= #vdEntries then vdEptr=vdEptr+5; updateVD() end
+        if vdEptr+VD_ROWS <= #vdEntries then vdEptr=vdEptr+VD_ROWS; updateVD() end
+      elseif env.event.label=='update' then
+        for _,c in pairs(calendars) do c.cal.fetchData() end
       end
     end)
+
   Event.event({type='updateVD'},function(env)
       vdEntries,vdEptr={},1
       for n,c in pairs(calendars) do for _,e in ipairs(c.entries) do vdEntries[#vdEntries+1]=e end end
@@ -358,9 +366,12 @@ function main()
 
   Event.schedule("+/00:01",function() end)
 
-  --local iCal = "https://p64-calendars.icloud.com/published/2/MTMxNjYxdfgdgdfgw4ergeOZF01LBw1p8vFrjxFq9NvCD"
+  local iCal = "https://p64-calendars.icloud.com/published/2/MTMxNjYxNDMwMTMxNjYxNN60jsE0ciSlGdK4hSjmZOZF01LBw1p8vFrjxFq9NvCD"
+  local googleCal = "https://calendar.google.com/calendar/ical/jangabrielsson%40gmail.com/private-7ecd64859a57120d5419062b9c1525c8/basic.ics"
+
+
   --local googleCal = "https://calendar.google.com/calendar/ical/bob%40gmail.com/private-8fiuvdhuds7fv8sdf7sdyusdgsd678/basic.ics"
-  --Event.post({type='newCal', name='Test', url=iCal})
+  Event.post({type='newCal', name='Test', url=googleCal})
 end -- main()
 
 ------------------- EventModel - Don't change! --------------------  
