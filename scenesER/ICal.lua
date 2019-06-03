@@ -14,7 +14,7 @@ Part of the code after "baran" from http://www.zwave-community.it/
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="iCal", id=44} dofile("HC2.lua") end
 
-_version,_fix = "0.9","B6"  -- June 2, 2019   
+_version,_fix = "0.9","B7"  -- June 3, 2019   
 
 --[[
 -- iCal. Event based scheduler/device trigger handler
@@ -43,7 +43,8 @@ function main()
   --_System.setRemote("virtualDevices",true)
   calendars = {}
   VD_ROWS = 5 -- number of rows for entries in the VD
-
+  dateFormat = "%m/%d/%H:%M"
+  
   function makeICal(name2,url,days,tz)
     local self = {}
     local HC = net.HTTPClient()
@@ -269,9 +270,13 @@ function main()
       local event = env.event
       if calendars[event.name] == nil then
         Log(LOG.LOG,"Watching calendar %s, days:%s, tz:%s",event.name,event.days or 30,event.tz or 0)
-        calendars[event.name] = {cal=makeICal(event.name,event.url,event.days or 30,event.tz or 0),entries={},url=event.url}
+        calendars[event.name] = {
+          cal=makeICal(event.name,event.url,event.days or 30,event.tz or 0),
+          entries={},url=event.url
+        }
         Event.schedule(event.interval or "+/00:30",function() calendars[event.name].cal.fetchData() end,{start=true})
       end
+      dateFormat = event.format or dateFormat
     end)
 
   -- Server 
@@ -279,8 +284,9 @@ function main()
     function(env)
       for _,event in ipairs(env.event.event[1] and env.event.event or {env.event.event}) do
         if event.type=='calendar' and event.name and event.url then
-          Event.post({type='newCal', name=event.name, url=event.url, days=event.days, tz=event.tz,interval=event.interval})
-          event.url,event.days,event.tz,event.interval=nil,nil,nil,nil
+          Event.post({type='newCal', name=event.name, url=event.url, days=event.days, 
+              tz=event.tz,interval=event.interval,format=event.format})
+          event.url,event.days,event.tz,event.interval,event.format=nil,nil,nil,nil,nil
         end
       end
     end,nil,nil,true)
@@ -340,8 +346,8 @@ function main()
       local str,e="",vdEntries[vdEptr+i]
       if e==nil then str=""
       else
-        local sd,ed = os.date("%m/%d/%H:%M",e.startDate),os.date("%m/%d/%H:%M",e.endDate)
-        if sd:sub(1,5)==ed:sub(1,5) then ed=ed:sub(7) end
+        local sd,ed = os.date(dateFormat,e.startDate),os.date(dateFormat,e.endDate)
+        if sd:sub(1,6)==ed:sub(1,6) then ed=ed:sub(7) end
         str=sd.."-"..ed.." "..e.name 
       end
       vd.setValue("r"..(i+1),str)
@@ -366,8 +372,31 @@ function main()
 
   Event.schedule("+/00:01",function() end)
 
-  --local googleCal = "https://calendar.google.com/calendar/ical/bob%40gmail.com/private-8fiuvdhuds7fv8sdf7sdyusdgsd678/basic.ics"
-  --Event.post({type='newCal', name='Test', url=googleCal})
+--  local googleCal = "https://calendar.google.com/calendar/ical/bob%40gmail.com/private-8fiuvdhuds7fv8sdf7sdyusdgsd678/basic.ics"
+--  Event.post({type='newCal', name='Test', url=googleCal})
+
+--  Example, running ER commands stored in calendar's description field.
+--  rule([[#calendar{name='Test', status='start', entry='$entry'} => 
+--  log('CalEvent:%s',entry.name);
+--  checkCalCmd(entry.description,"S")]])
+--  rule([[#calendar{name='Test', status='end', entry='$entry'} => 
+--  log('CalEvent:%s',entry.name);
+--  checkCalCmd(entry.description,"E")]])
+
+--  function checkCalCmd(str,tag)
+--    str=str:gsub("\r","")
+--    str = split(str,"\\n")
+--    tag = tag..":(.*)"
+--    for _,s in ipairs(str) do
+--      local cmd=s:match(tag)
+--      if cmd and cmd~="" then 
+--        Log(LOG.LOG,"Evaluating iCal cmd:'%s'",cmd)
+--        local status,res = pcall(function() Rule.eval(cmd) end)
+--        if not status then Log(LOG.LOG,"iCal cmd err:%s",res) end
+--      end
+--    end
+--  end
+
 end -- main()
 
 ------------------- EventModel - Don't change! --------------------  
