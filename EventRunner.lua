@@ -12,7 +12,7 @@ Test
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B54"  -- May 30, 2019  
+_version,_fix = "2.0","B55"  -- June 1, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -41,7 +41,7 @@ function main()
     --_System.setRemote("devices",{5})  -- make device 5 remote (call HC2 with api)
     --_System.installProxy()            -- Install HC2 proxy sending sourcetriggers back to emulator
   end
-
+  
   HT =  -- Example of in-line "home table"
   {
     dev = 
@@ -51,7 +51,7 @@ function main()
     },
     other = "other"
   }
-
+  
   --or read in "HomeTable" from a fibaro global variable (or scene)
   --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
   --HT = json.decode(HT)
@@ -59,8 +59,7 @@ function main()
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
   rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
-
-  rule("Util.checkVersion()")
+  
   rule("@{catch,06:00} => Util.checkVersion()") -- Check for new version every morning at 6:00
   rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix))")
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
@@ -420,7 +419,7 @@ function newEventEngine()
   end
   function self.disable(handle) return handlerEnable('disable',handle) end
 
-  function self.event(e,action,doc,ctx) -- define rules - event template + action
+  function self.event(e,action,doc,ctx,front) -- define rules - event template + action
     doc = doc and " Event.event:"..doc or _format(" Event.event(%s,...)",tojson(e))
     ctx = ctx or {}; ctx.src,ctx.line=ctx.src or doc,ctx.line or _LINE()
     if e[1] then -- events is list of event patterns {{type='x', ..},{type='y', ...}, ...}
@@ -437,9 +436,9 @@ function newEventEngine()
     local rules = _handlers[hashKey]
     local rule,fn = {[self.RULE]=e, action=action, src=ctx.src, line=ctx.line}, true
     for _,rs in ipairs(rules) do -- Collect handlers with identical patterns. {{e1,e2,e3},{e1,e2,e3}}
-      if _equal(e,rs[1][self.RULE]) then rs[#rs+1] = rule fn = false break end
+      if _equal(e,rs[1][self.RULE]) then if front then table.insert(rs,1,rule) else rs[#rs+1] = rule end fn = false break end
     end
-    if fn then rules[#rules+1] = {rule} end
+    if fn then if front then table.insert(rules,1,{rule}) else rules[#rules+1] = {rule} end end
     rule.enable = function() rule._disabled = nil return rule end
     rule.disable = function() rule._disabled = true return rule end
     rule.start = function() self._invokeRule({rule=rule}) return rule end
