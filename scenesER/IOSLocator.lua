@@ -7,7 +7,7 @@
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner",id=10} dofile("HC2.lua") end
 
-_version,_fix  = "2.0","B5"  -- June 5, 2019 
+_version,_fix  = "2.0","B6"  -- June 5, 2019 
 
 _sceneName     = "iOSLocator"
 nameOfHome = "Home"
@@ -15,7 +15,7 @@ _deviceTable   = "devicemap" -- Name of your HomeTable variable
 _ruleLogLength = 80          -- Log message cut-off, defaults to 40
 _HueHubs       = {}          -- Hue bridges, Ex. {{name='Hue',user=_HueUserName,ip=_HueIP}}
 _NUMBEROFBOXES = 1           -- Number of mailboxes, increase if exceeding 10 instances...
-EVENTRUNNERSRCPATH = "scenesER/ILocator.lua"
+EVENTRUNNERSRCPATH = "scenesER/IOSLocator.lua"
 EVENTRUNNERDELIMETER = "function".." main()"
   
 local _test = true                -- use local HomeTable variable instead of fibaro global
