@@ -22,9 +22,9 @@ _sceneName   = "Supervisor"      -- Set to scene/script name
 
 KEEPALIVE = true -- Enable keep-alive service
 LOGGER    = true -- Enable Logger service
-KEYSTORE  = true -- Enable Key store service
+KEYSTORE  = false -- Enable Key store service
 
-SIMPLEKEEPALIVE = true -- SImple count scene instances to check if scenes are alive
+SIMPLEKEEPALIVE = false -- SImple count scene instances to check if scenes are alive
 
 -- debug flags for various subsystems...
 _debugFlags = { 
