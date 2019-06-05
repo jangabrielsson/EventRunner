@@ -14,7 +14,7 @@ Part of the code after "baran" from http://www.zwave-community.it/
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="iCal", id=44} dofile("HC2.lua") end
 
-_version,_fix = "0.9","B7"  -- June 3, 2019   
+_version,_fix = "0.9","B8"  -- June 5, 2019   
 
 --[[
 -- iCal. Event based scheduler/device trigger handler
@@ -121,16 +121,16 @@ function main()
         if l_multiplier == 9999 then
           l_finish = "Yes";
         else  
+          AppendToCal(e);
           e.startDate = e.startDate + l_multiplier * (60 * 60 * 24 )
           e.endDate   = e.endDate + l_multiplier * (60 * 60 * 24 )
-          AppendToCal(e);
 
           -- did I reach the end?
           if l_rule == "COUNT" then
             if tonumber(l_ruleEnd) == i then 
               l_finish = "Yes" 
             end
-          elseif rule == "UNTIL" then
+          elseif l_rule == "UNTIL" then
             if  e.startDate >= l_ruleEnd then 
               l_finish = "Yes" 
             end
@@ -372,8 +372,9 @@ function main()
 
   Event.schedule("+/00:01",function() end)
 
---  local googleCal = "https://calendar.google.com/calendar/ical/bob%40gmail.com/private-8fiuvdhuds7fv8sdf7sdyusdgsd678/basic.ics"
---  Event.post({type='newCal', name='Test', url=googleCal})
+  --local googleCal = "https://calendar.google.com/calendar/ical/bob%40gmail.com/private-8fiuvdhuds7fv8sdf7sdyusdgsd678/basic.ics"
+  --local iclCal = "https://p64-calendars.icloud.com/published/2/MTMxNjYkjlkjöölklkoåkålää01LBw1p8vFrjxFq9NvCD"
+  --Event.post({type='newCal', name='Test', url=iclCal})
 
 --  Example, running ER commands stored in calendar's description field.
 --  rule([[#calendar{name='Test', status='start', entry='$entry'} => 
