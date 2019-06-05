@@ -7,7 +7,7 @@
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner",id=10} dofile("HC2.lua") end
 
-_version,_fix  = "2.0","B4"  -- June 5, 2019 
+_version,_fix  = "2.0","B5"  -- June 5, 2019 
 
 _sceneName     = "iOSLocator"
 nameOfHome = "Home"
@@ -16,7 +16,8 @@ _ruleLogLength = 80          -- Log message cut-off, defaults to 40
 _HueHubs       = {}          -- Hue bridges, Ex. {{name='Hue',user=_HueUserName,ip=_HueIP}}
 _NUMBEROFBOXES = 1           -- Number of mailboxes, increase if exceeding 10 instances...
 EVENTRUNNERSRCPATH = "scenesER/ILocator.lua"
-
+EVENTRUNNERDELIMETER = "function".." main()"
+  
 local _test = true                -- use local HomeTable variable instead of fibaro global
 local homeLatitude,homeLongitude  -- set to first place in HomeTable.places list
 
@@ -48,7 +49,7 @@ _debugFlags = {
   post=true,invoke=false,triggers=true,dailys=true,timers=false,rule=false,ruleTrue=false,
   hue=false,msgTime=false
 }
-
+--Test
 function main()
 
   INTERVAL = 90 -- check every 90s
