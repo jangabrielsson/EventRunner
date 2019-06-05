@@ -1217,7 +1217,7 @@ Util.getIDfromTrigger={
 function Util.checkVersion(vers)
   local req = net.HTTPClient()
   req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/VERSION.json",
-    {options = {method = 'GET',timeout=1000},
+    {options = {method = 'GET',timeout=8000},
       success=function(data)
         if data.status == 200 then
           local v = json.decode(data.data)

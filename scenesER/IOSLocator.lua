@@ -7,7 +7,7 @@
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner",id=10} dofile("HC2.lua") end
 
-_version,_fix  = "2.0","B6"  -- June 5, 2019 
+_version,_fix = "2.0","B6"  -- June 5, 2019 
 
 _sceneName     = "iOSLocator"
 nameOfHome = "Home"
