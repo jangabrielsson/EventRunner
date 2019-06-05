@@ -8,7 +8,7 @@
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=11} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B7"  -- May 30, 2019   
+_version,_fix = "2.0","B9"  -- June 5, 2019   
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -20,6 +20,12 @@ _sceneName   = "Supervisor"      -- Set to scene/script name
 --if dofile then dofile("credentials.lua") end -- To not accidently commit credentials to Github, or post at forum :-)
 -- E.g. Hue user names, icloud passwords etc. HC2 credentials is set from HC2.lua, but can use same file.
 
+KEEPALIVE = true -- Enable keep-alive service
+LOGGER    = true -- Enable Logger service
+KEYSTORE  = true -- Enable Key store service
+
+SIMPLEKEEPALIVE = true -- SImple count scene instances to check if scenes are alive
+
 -- debug flags for various subsystems...
 _debugFlags = { 
   post=false,invoke=false,triggers=false,dailys=false,rule=false,ruleTrue=false,hue=false,msgTime=false,
@@ -28,103 +34,156 @@ _debugFlags = {
 ---------------- Here you place rules and user code, called once at startup --------------------
 function main()
 
-  -- Ping and Keep-alive -------------------------------
+  if KEEPALIVE then
+    -- Ping and Keep-alive -------------------------------
 
-  local POLLINTERVAL = "+/00:03"    -- poll every 3 minute
-  local PINGTIMEOUT = "+/00:00:20"  -- No answer in 10s, scene will be restarted
-  local STARTUPDELAY = "+/00:00:20" -- Time for scene to startup after a restart before pinging starts again
-  local MAXRESTARTS = 2             -- Number of failed restarts before disabling the scene
-  local phonesToNotify = {}         -- Phone to alter when restarting scenes
+    local POLLINTERVAL = "+/00:03"    -- poll every 3 minute
+    local PINGTIMEOUT = "+/00:00:20"  -- No answer in 10s, scene will be restarted
+    local STARTUPDELAY = "+/00:00:20" -- Time for scene to startup after a restart before pinging starts again
+    local MAXRESTARTS = 2             -- Number of failed restarts before disabling the scene
+    local phonesToNotify = {}         -- Phone to alter when restarting scenes
 
-  local eventRunners = {}
-  local eventMap = {}
+    local eventRunners = {}
+    local eventMap = {}
 
-  Event.event({{type='autostart'},{type='other'}},
-    function(env)
-      local scenes = Util.findScenes(gEventRunnerKey)
-      for _,id in ipairs(scenes) do Event.post({type=Event.ANNOUNCE,_from=id,d='AS'}) end
-    end)
+    Event.event({{type='autostart'},{type='other'}},
+      function(env)
+        local scenes = Util.findScenes(gEventRunnerKey)
+        for _,id in ipairs(scenes) do Event.post({type=Event.ANNOUNCE,_from=id,d='AS'}) end
+      end)
 
-  Event.event({type='notify',scene='$scene', msg='$msg'},
-    function(env) 
-      for _,p in ipairs(phonesToNotify) do 
-        fibaro:call(p,"sendPush",string.format(env.p.msg,env.p.scene.name,env.p.scene.id)) 
-      end
-    end)
-
-  Event.event({type=Event.ANNOUNCE},
-    function(env)
-      local id,old = env.event._from
-      local scene = eventRunners[id]
-      if scene and scene.timeout then scene.timeout = Event.cancel(scene.timeout) old=true end -- if we have pinged, cancel
-      scene={id=id,name=api.get("/scenes/"..id).name}
-      eventRunners[id]=scene
-      Log(LOG.LOG,"%segistering scene:'%s', ID:%s",old and "Re-r" or "R",scene.name,scene.id) 
-      scene.timeout=Event.post({type='watch',scene=scene,interval=POLLINTERVAL,timeout=PINGTIMEOUT},osTime()+math.random(1,4))
-    end)
-
-  Event.event({type='watch', scene='$scene', timeout='$timeout',},
-    function(env)
-      local scene = env.p.scene
-      scene.timeout=nil
-      scene.ttime = os.time()
-      local runconfig = fibaro:getSceneRunConfig(scene.id)
-      if runconfig == nil then eventRunners[scene.id]=nil; return end -- Removed?
-      eventMap[scene.id]=env.event
-      if (not scene.disabled) and runconfig == 'TRIGGER_AND_MANUAL' then
-        scene.timeout=Event.post({type='pingTimeout',scene=scene},env.p.timeout)
-        Log(LOG.LOG,"Pinging scene:'%s', ID:%s",scene.name,scene.id)
-        Event.postRemote(scene.id,{type=Event.PING})
-      else
-        Log(LOG.LOG,"Not pinging scene:'%s', ID:%s disabled=%s runconfig=%s",
-            scene.name,scene.id,tostring(scene.disabled),runconfig)
-        if scene.disabled then
-          -- Log(LOG.LOG,"Skipping disabled scene:'%s', ID:%s",scene.name,scene.id)
-        else
-          -- Log(LOG.LOG,"Skipping scene:'%s', ID:%s with runconfig:%s",scene.name,scene.id,runconfig)
+    Event.event({type='notify',scene='$scene', msg='$msg'},
+      function(env) 
+        for _,p in ipairs(phonesToNotify) do 
+          fibaro:call(p,"sendPush",string.format(env.p.msg,env.p.scene.name,env.p.scene.id)) 
         end
-        scene.timeout=Event.post(env.event,env.event.interval) 
-      end
-    end) 
+      end)
 
-  Event.event({type='pingTimeout', scene='$scene'}, -- restart scene
-    function(env)
-      local scene = env.p.scene
-      local wevent = eventMap[scene.id]
-      scene.timeout=nil
-      if scene.restarts and scene.restarts >= MAXRESTARTS then
-        Log(LOG.ERROR,"Scene:'%s', ID:%s - unable to restart",scene.name,scene.id)
-        fibaro:setSceneRunConfig(scene.id,'MANUAL_ONLY')
-        Event.post({type='notify',scene=scene, msg="Scene:'%s', ID:%s could not be restarted"})
-        scene.timeout=Event.post(wevent,wevent.interval)
-      else
-        Log(LOG.ERROR,"Scene:'%s', ID:%s not answering, restarting scene!",scene.name,scene.id)
-        fibaro:killScenes(scene.id) 
-        fibaro:startScene(scene.id)
-        Event.post({type='notify',scene=scene, msg="Restarted scene:'%s', ID:%s"})
-        scene.restarts = scene.restarts and scene.restarts+1 or 1
-        scene.timeout=Event.post(wevent,STARTUPDELAY)-- Start watching again. Give scene some time to start up 
-      end
-    end)
+    if SIMPLEKEEPALIVE then -- count instances model
+      Event.event({type=Event.ANNOUNCE},
+        function(env)
+          local id,old = env.event._from
+          local scene = eventRunners[id]
+          if scene and scene.timeout then scene.timeout = Event.cancel(scene.timeout) old=true end -- if we have pinged, cancel
+          scene={id=id,name=api.get("/scenes/"..id).name}
+          eventRunners[id]=scene
+          Log(LOG.LOG,"%segistering scene:'%s', ID:%s",old and "Re-r" or "R",scene.name,scene.id) 
+          scene.timeout=Event.post({type='watch',scene=scene,interval=POLLINTERVAL,timeout=PINGTIMEOUT},osTime()+math.random(1,4))
+        end)
 
-  Event.event({type=Event.PONG}, -- Got a pong back from client, cancel 'timeout' and watch again 
-    function(env)
-      local id = env.event._from
-      local scene = eventRunners[id]
-      local wevent = eventMap[id]
-      if scene.timeout == nil then return end
-      scene.restarts = nil
-      Log(LOG.LOG,"Pong from scene:'%s', ID:%s (resp:%ss)",scene.name,id,os.time()-scene.ttime)
-      Event.cancel(scene.timeout) 
-      scene.timeout=Event.post(wevent,wevent.interval)
-    end)
+      Event.event({type='watch', scene='$scene', timeout='$timeout',},
+        function(env)
+          local scene = env.p.scene
+          scene.timeout=nil
+          scene.ttime = os.time()
+          local runconfig = fibaro:getSceneRunConfig(scene.id)
+          if runconfig == nil then eventRunners[scene.id]=nil; return end -- Removed?
+          eventMap[scene.id]=env.event
+          if (not scene.disabled) and runconfig == 'TRIGGER_AND_MANUAL' then
+            local n = fibaro:countScenes(scene.id)
+            if n < 1 then
+              if scene.restarts and scene.restarts >= MAXRESTARTS then
+                Log(LOG.ERROR,"Scene:'%s', ID:%s - unable to restart",scene.name,scene.id)
+                --fibaro:setSceneRunConfig(scene.id,'MANUAL_ONLY')
+                Event.post({type='notify',scene=scene, msg="Scene:'%s', ID:%s could not be restarted"})
+              else
+                Log(LOG.ERROR,"Scene:'%s', ID:%s not running, restarting scene!",scene.name,scene.id)
+                fibaro:killScenes(scene.id) 
+                fibaro:startScene(scene.id)
+                Event.post({type='notify',scene=scene, msg="Restarted scene:'%s', ID:%s"})
+                scene.restarts = scene.restarts and scene.restarts+1 or 1
+                scene.timeout=Event.post(env.event,STARTUPDELAY)-- Start watching again. Give scene some time to start up 
+              end
+            else 
+              Log(LOG.LOG,"Scene:'%s' is alive, ID:%s",scene.name,scene.id)
+              scene.timeout=Event.post(env.event,env.event.interval)
+            end
+          else
+            Log(LOG.LOG,"Not watching scene:'%s', ID:%s disabled=%s runconfig=%s",
+              scene.name,scene.id,tostring(scene.disabled),runconfig)
+            if scene.disabled then
+              -- Log(LOG.LOG,"Skipping disabled scene:'%s', ID:%s",scene.name,scene.id)
+            else
+              -- Log(LOG.LOG,"Skipping scene:'%s', ID:%s with runconfig:%s",scene.name,scene.id,runconfig)
+            end
+            scene.timeout=Event.post(env.event,env.event.interval) 
+          end
+        end) 
 
-  ------- Log handling ------------- 
-  local LOGWRITEINTERVAL = "+/00:01" 
-  local MAXENTRIES = 2000
-  local PRUNENTRIES = 1500
-  
-  function createLog(name)
+
+    else -- Ping model
+      Event.event({type=Event.ANNOUNCE},
+        function(env)
+          local id,old = env.event._from
+          local scene = eventRunners[id]
+          if scene and scene.timeout then scene.timeout = Event.cancel(scene.timeout) old=true end -- if we have pinged, cancel
+          scene={id=id,name=api.get("/scenes/"..id).name}
+          eventRunners[id]=scene
+          Log(LOG.LOG,"%segistering scene:'%s', ID:%s",old and "Re-r" or "R",scene.name,scene.id) 
+          scene.timeout=Event.post({type='watch',scene=scene,interval=POLLINTERVAL,timeout=PINGTIMEOUT},osTime()+math.random(1,4))
+        end)
+
+      Event.event({type='watch', scene='$scene', timeout='$timeout',},
+        function(env)
+          local scene = env.p.scene
+          scene.timeout=nil
+          scene.ttime = os.time()
+          local runconfig = fibaro:getSceneRunConfig(scene.id)
+          if runconfig == nil then eventRunners[scene.id]=nil; return end -- Removed?
+          eventMap[scene.id]=env.event
+          if (not scene.disabled) and runconfig == 'TRIGGER_AND_MANUAL' then
+            scene.timeout=Event.post({type='pingTimeout',scene=scene},env.p.timeout)
+            Log(LOG.LOG,"Pinging scene:'%s', ID:%s",scene.name,scene.id)
+            Event.postRemote(scene.id,{type=Event.PING})
+          else
+            Log(LOG.LOG,"Not pinging scene:'%s', ID:%s disabled=%s runconfig=%s",
+              scene.name,scene.id,tostring(scene.disabled),runconfig)
+            if scene.disabled then
+              -- Log(LOG.LOG,"Skipping disabled scene:'%s', ID:%s",scene.name,scene.id)
+            else
+              -- Log(LOG.LOG,"Skipping scene:'%s', ID:%s with runconfig:%s",scene.name,scene.id,runconfig)
+            end
+            scene.timeout=Event.post(env.event,env.event.interval) 
+          end
+        end) 
+
+      Event.event({type='pingTimeout', scene='$scene'}, -- restart scene
+        function(env)
+          local scene = env.p.scene
+          local wevent = eventMap[scene.id]
+          scene.timeout=nil
+          if scene.restarts and scene.restarts >= MAXRESTARTS then
+            Log(LOG.ERROR,"Scene:'%s', ID:%s - unable to restart",scene.name,scene.id)
+            fibaro:setSceneRunConfig(scene.id,'MANUAL_ONLY')
+            Event.post({type='notify',scene=scene, msg="Scene:'%s', ID:%s could not be restarted"})
+            scene.timeout=Event.post(wevent,wevent.interval)
+          else
+            Log(LOG.ERROR,"Scene:'%s', ID:%s not answering, restarting scene!",scene.name,scene.id)
+            fibaro:killScenes(scene.id) 
+            fibaro:startScene(scene.id)
+            Event.post({type='notify',scene=scene, msg="Restarted scene:'%s', ID:%s"})
+            scene.restarts = scene.restarts and scene.restarts+1 or 1
+            scene.timeout=Event.post(wevent,STARTUPDELAY)-- Start watching again. Give scene some time to start up 
+          end
+        end)
+
+      Event.event({type=Event.PONG}, -- Got a pong back from client, cancel 'timeout' and watch again 
+        function(env)
+          local id = env.event._from
+          local scene = eventRunners[id]
+          local wevent = eventMap[id]
+          if scene.timeout == nil then return end
+          scene.restarts = nil
+          Log(LOG.LOG,"Pong from scene:'%s', ID:%s (resp:%ss)",scene.name,id,os.time()-scene.ttime)
+          Event.cancel(scene.timeout) 
+          scene.timeout=Event.post(wevent,wevent.interval)
+        end)
+    end
+  end
+
+----------------- DB handling -------------------------------------
+  DB={}
+  function DB:create(name,init)
     local scenes = api.get("/scenes")
     for _,s in ipairs(scenes) do 
       if s.name==name then 
@@ -142,58 +201,129 @@ function main()
       type = "com.fibaro.luaScene",visible = false}
     local s = api.post("/scenes",db)
     if s then
-      s.lua, s.runConfig = "[]","DISABLED"
+      s.lua, s.runConfig = init,"DISABLED"
       api.put("/scenes/"..s.id,s)
       return s.id 
     end
   end
 
-  function readLog(id)
+  function DB:read(id)
     local s = api.get("/scenes/"..id)
     --print(s.lua)
     return s.lua and json.decode(s.lua) or {}
   end
 
-  function writeLog(id,items)
+  function DB:write(id,items,start,stop,fun)
     local s = api.get("/scenes/"..id)
     if s.lua then
-      local res = {"["}
-      for _,i in ipairs(items) do
-        res[#res+1]= Util.prettyJson(i)..","
+      local res = {start}
+      for k,i in pairs(items) do
+        res[#res+1]= fun(i,k)..","
       end
       if res[#res] then res[#res]=res[#res]:sub(1,-2) end
-      res[#res+1]="]"
+      res[#res+1]=stop
       res = table.concat(res,"\n")
       s.lua = res
       api.put("/scenes/"..id,s)
     end
   end
 
-  local logID = createLog("EventRunner Log")
-  local logItems = readLog(logID)
-  local currLogItems = #logItems 
-  Log(LOG.LOG,"Log items %s",currLogItems)
-  
-  Event.subscribe({type='ERLog'},
-    function(env)
-      local time = env.event.time or os.time()
-      local from = env.event.from or env.event._from
-      local msg = env.event.msg or "No text"
-      time = type(time)=='number' and os.date("%X/%x",time) or time
-      logItems[#logItems+1]={time,"Scene:"..from,msg}
-    end)
+  if LOGGER then
+    ------- Log handling ------------- 
+    local LOGWRITEINTERVAL = "+/00:01" 
+    local MAXENTRIES = 2000
+    local PRUNENTRIES = 1500
 
-  Event.schedule(LOGWRITEINTERVAL,function()
-      if #logItems ~= currLogItems then
-        if #logItems > MAXENTRIES then
-          local l,n={},#logItems
-          for i=PRUNENTRIES,0,-1 do l[#l+1]=logItems[n-i] end
-          logItems=l
-        end
-        writeLog(logID,logItems)
-        currLogItems = #logItems
-      end
-    end)
+    function createLog(name) return DB:create(name,"[]") end
+    function readLog(id) return DB:read(id) end
+    function writeLog(id,items) DB:write(id,items,"[","]",function(i,k) return Util.prettyJson(k) end) end
+
+    local logID = createLog("EventRunner Log")
+    if logID then
+      local logItems = readLog(logID)
+      local currLogItems = #logItems 
+      Log(LOG.LOG,"Log items %s",currLogItems)
+
+      Event.subscribe({type='ERLog'},
+        function(env)
+          local time = env.event.time or os.time()
+          local from = env.event.from or env.event._from
+          local msg = env.event.msg or "No text"
+          time = type(time)=='number' and os.date("%X/%x",time) or time
+          logItems[#logItems+1]={time,"Scene:"..from,msg}
+        end)
+
+      Event.schedule(LOGWRITEINTERVAL,function()
+          if #logItems ~= currLogItems then
+            if #logItems > MAXENTRIES then
+              local l,n={},#logItems
+              for i=PRUNENTRIES,0,-1 do l[#l+1]=logItems[n-i] end
+              logItems=l
+            end
+            writeLog(logID,logItems)
+            currLogItems = #logItems
+          end
+        end)
+
+    else
+      Log(LOG.ERROR,"Unable to create log database!")
+    end
+  end
+
+  if KEYSTORE then
+    ------- KeyStore handling ------------- 
+    local KEYSTOREWRITEINTERVAL = "+/00:01" 
+    local ksUpdate = false
+
+    function createKS(name) return DB:create(name,"[]") end
+    function readKS(id) return DB:read(id) end
+    function writeKS(id,items) DB:write(id,items,"{","}",
+        function(i,k) return string.format('"%s"="%s"',i,Util.prettyJson(k)) end) 
+    end
+
+    local ksID = createKS("EventRunner keystore")
+    if ksID then
+      local ksItems = readKS(ksID)
+
+      Event.subscribe({type='ERkeystore'},
+        function(env)
+          local key = env.event.key
+          local value = env.event.value 
+          if key and type(key)=='string' and value then
+            Log(LOG.LOG,"%s %s",key,tojson(value))
+            ksItems[key]=value
+            ksUpdate=true
+          end
+        end)
+
+      -- Supervisor={}
+      -- Event.subscribe({type='%%Supervisor%%', id=__fibaroSceneId, logId=logID, keystoreId=ksID},
+      --        function(env) local s,e=Supervisor,env.event; s.id,s.logId,s.keystoreId=e.id,e.logId,e.keystoreId end)
+      -- function Supervisor.getKey(key)
+      --    if Supervisor.ksID then
+      --      local ks = api.get("/scenes/"..Supervisor.ksID)
+      --      return ks.isLua and (json.decode(ks.lua))[key]
+      --    end
+      -- end
+      -- function Supervisor.setKey(key,value)
+      --    Event.publish({type='ERkeystore', key=key, value=value})
+      -- end
+      -- function Supervisor.log(str,...)
+      --    Event.publish({type='ERlog', msg=string.format(str,...)})
+      -- end
+
+      Event.schedule(KEYSTOREWRITEINTERVAL,function()
+          if ksUpdate then writeKS(ksID,ksItems); ksUpdate=false end
+        end)
+
+    else
+      Log(LOG.ERROR,"Unable to create keystore database!")
+    end
+
+  end
+
+  Event.publish({type='%%Supervisor%%', id=__fibaroSceneId, logId=logID, keystoreId=ksID},true)
+
 end -- main()
 
 ------------------- EventModel - Don't change! --------------------  
