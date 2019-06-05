@@ -1,6 +1,6 @@
-{"version":"2.0","fix":"B56",
+{"version":"2.0","fix":"B57",
   "scenes":{
-    "ICal":{"version":"0.9","fix":"B8"},
-    "IOSLocator":{"version":"2.0","fix":"B3"}
+    "ICal":{"version":"0.9","fix":"B9"},
+    "IOSLocator":{"version":"2.0","fix":"B4"}
   }
 }

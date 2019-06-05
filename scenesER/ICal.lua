@@ -14,7 +14,7 @@ Part of the code after "baran" from http://www.zwave-community.it/
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="iCal", id=44} dofile("HC2.lua") end
 
-_version,_fix = "0.9","B8"  -- June 5, 2019   
+_version,_fix = "0.9","B9"  -- June 5, 2019   
 
 --[[
 -- iCal. Event based scheduler/device trigger handler
@@ -44,6 +44,8 @@ function main()
   calendars = {}
   VD_ROWS = 5 -- number of rows for entries in the VD
   dateFormat = "%m/%d/%H:%M"
+  EVENTRUNNERSRCPATH = "scenesER/ICal.lua"
+  EVENTRUNNERDELIMETER = "function".." main()"
   
   function makeICal(name2,url,days,tz)
     local self = {}
@@ -371,6 +373,14 @@ function main()
     end)
 
   Event.schedule("+/00:01",function() end)
+
+  Event.event({type='ER_version'},
+    function(env)
+      Log(LOG.LOG,'New ICal version, v:%s, fix:%s',env.event.version,env.event.fix)
+      Util.patchEventRunner()
+    end)
+  Event.schedule("t/06:00",function() Util.checkVersion("ICal") end,{start=true})
+
 
   --local googleCal = "https://calendar.google.com/calendar/ical/bob%40gmail.com/private-8fiuvdhuds7fv8sdf7sdyusdgsd678/basic.ics"
   --local iclCal = "https://p64-calendars.icloud.com/published/2/MTMxNjYkjlkjöölklkoåkålää01LBw1p8vFrjxFq9NvCD"
@@ -1204,18 +1214,57 @@ Util.getIDfromTrigger={
   event=function(e) return e.event and Util.getIDfromEvent[e.event.type or ""](e.event.data) end
 }
 
-function Util.checkVersion()
+function Util.checkVersion(vers)
   local req = net.HTTPClient()
   req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/VERSION.json",
     {options = {method = 'GET',timeout=1000},
       success=function(data)
         if data.status == 200 then
           local v = json.decode(data.data)
+          if vers then v = v.scenes[vers] end
           if v.version ~= _version or v.fix ~= _fix then
             Event.post({type='ER_version',version=v.version,fix=v.fix or "", _sh=true})
           end
         end
       end})
+
+  EVENTRUNNERSRCPATH = EVENTRUNNERSRCPATH or "EventRunner.lua"
+  EVENTRUNNERDELIMETER = EVENTRUNNERDELIMETER or "%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%- EventModel %- Don't change! "
+  
+  function Util.patchEventRunner(newSrc)
+    if newSrc == nil then
+      local req = net.HTTPClient()
+      req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/"..EVENTRUNNERSRCPATH,
+        {options = {method = 'GET', checkCertificate = false, timeout=20000},
+          success=function(data)
+            if data.status == 200 then
+              local src = data.data
+              Util.patchEventRunner(src)
+            end
+          end,
+          error=function(status) Log(LOG.LOG,"Err:Get src code from Github: %s",status) end
+          })
+    else
+      local oldSrc,scene="",nil
+      if __fullFileName then
+        local f = io.open(__fullFileName)
+        if not f then return end
+        oldSrc = f:read("*all")
+      else scene = api.get("/scenes/"..__fibaroSceneId); oldSrc=scene.lua end
+      local obp = oldSrc:find(EVENTRUNNERDELIMETER)
+      oldSrc = oldSrc:sub(1,obp-1)
+      local nbp = newSrc:find(EVENTRUNNERDELIMETER)
+      local nbody = newSrc:sub(nbp)
+      oldSrc = oldSrc:gsub("(_version,_fix = .-\n)",newSrc:match("(_version,_fix = .-\n)"))
+      Log(LOG.LOG,"Patching scene to latest version")
+      if __fullFileName then
+        local f = io.open(__fullFileName, "w")
+        io.output(f)
+        io.write(oldSrc..nbody)
+        io.close(f)
+      else scene.lua=oldSrc..nbody; api.put("/scenes/"..__fibaroSceneId,scene) end
+    end
+  end
 end
 ---------- VDev support --------------
 
