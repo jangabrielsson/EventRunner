@@ -14,7 +14,7 @@ Part of the code after "baran" from http://www.zwave-community.it/
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="iCal", id=44} dofile("HC2.lua") end
 
-_version,_fix = "0.9","B10"  -- June 5, 2019   
+_version,_fix = "0.9","B11"  -- June 13, 2019   
 
 --[[
 -- iCal. Event based scheduler/device trigger handler
@@ -312,7 +312,7 @@ function main()
   Event.event({type='newEntries', name='$name', entries='$entries'},
     function(env)
       local newCal,name = {},env.p.name
-      for uid,e in ipairs(calendarAlarms) do
+      for uid,e in pairs(calendarAlarms) do
         if e.name == name then Event.cancel(e.start); Event.cancel(e.stop) else newCal[uid]=e end
       end
       calendarAlarms = newCal
@@ -331,7 +331,7 @@ function main()
     function(env)
       local event = env.event
       local se = {type='calendar', status=event.status, name=event.name, entry=event.entry}
-      --Log(LOG.LOG,"Publishing:%s",tojson(se))
+      Log(LOG.LOG,"Publishing:%s",tojson(se))
       Event.publish(se)
     end)
 
