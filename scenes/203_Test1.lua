@@ -11,6 +11,8 @@
 %% autostart
 --]] 
 
+if dofile and not _EMULATED then _EMBEDDED={name="Test1",id=203} dofile("HC2.lua") end
+
 function printf(...) fibaro:debug(string.format(...)) end
 
 local trigger = fibaro:getSourceTrigger()

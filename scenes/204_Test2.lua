@@ -3,6 +3,8 @@
 55 value
 --]]
 
+if dofile and not _EMULATED then _EMBEDDED={name="Test2",id=204} dofile("HC2.lua") end
+
 sensor = 55
 light = 66  
 

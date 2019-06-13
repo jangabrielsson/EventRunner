@@ -1,7 +1,9 @@
 --[[
 %% autostart
 --]]
- 
+
+if dofile and not _EMULATED then _EMBEDDED={name="Ping",id=201} dofile("HC2.lua") end
+
 local trigger = fibaro:getSourceTrigger() 
   
 if trigger.type=='autostart' then

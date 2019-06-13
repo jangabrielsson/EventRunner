@@ -3,6 +3,9 @@
 55 value
 %% autostart
 --]]
+
+if dofile and not _EMULATED then _EMBEDDED={name="InfoScene",id=200} dofile("HC2.lua") end
+
 local function printf(...) fibaro:debug(string.format(...)) end
 
 local s = fibaro:getSourceTrigger()
