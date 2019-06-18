@@ -14,7 +14,7 @@ Part of the code after "baran" from http://www.zwave-community.it/
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="iCal", id=44} dofile("HC2.lua") end
 
-_version,_fix = "0.9","B11"  -- June 13, 2019   
+_version,_fix = "0.9","B12"  -- June 13, 2019   
 
 --[[
 -- iCal. Event based scheduler/device trigger handler
@@ -28,7 +28,7 @@ _sceneName   = "iCal"      -- Set to scene/script name
 
 -- debug flags for various subsystems...
 _debugFlags = { 
-  post=false,invoke=false,triggers=false,dailys=false,rule=false,ruleTrue=false,hue=false,msgTime=false,
+  post=true,invoke=false,triggers=false,dailys=false,rule=false,ruleTrue=false,hue=false,msgTime=false,
   fcall=true, fglobal=false, fget=false, fother=false, pubsub=false, iCal=true
 }
 
@@ -244,10 +244,13 @@ function main()
     function self.fetchData()
       myCal = {}
       if TESTING then
-        for i=1,12 do
+        local t=os.date("*t")
+        t.day=20 t.hour=18 t.min=0 t.sec=0
+        local tt = os.time(t)
+        for i=1,2 do
           myCal[#myCal+1] = {
-            startDate = os.time()+i*60,
-            endDate = os.time()+(i+1)*60,
+            startDate = tt+i*60,
+            endDate = tt+(i+1)*60,
             name = "Test"..i,
             uid = tostring(i).."uid",
             description="A"..i,
@@ -312,8 +315,13 @@ function main()
   Event.event({type='newEntries', name='$name', entries='$entries'},
     function(env)
       local newCal,name = {},env.p.name
-      for uid,e in pairs(calendarAlarms) do
-        if e.name == name then Event.cancel(e.start); Event.cancel(e.stop) else newCal[uid]=e end
+      for _,e in ipairs(calendarAlarms) do
+        if e.name == name then 
+          Event.cancel(e.start)
+          Event.cancel(e.stop) 
+        else 
+          newCal[#newCal+1]=e 
+        end
       end
       calendarAlarms = newCal
       calendars[name].entries = env.p.entries
@@ -322,7 +330,7 @@ function main()
         Log(LOG.LOG,"Entry%s:'%s' start:%s, end:%s, day:%s",i,entry.name,os.date("%c",entry.startDate),os.date("%c",entry.endDate),entry.wholeDay)
         local refS = Event.post({type='calAlarm',status='start',name=name,entry=entry},entry.startDate)
         local refE = Event.post({type='calAlarm',status='end',name=name,entry=entry},entry.endDate)
-        calendarAlarms[entry.uid] = {start=refS,stop=refE,name=name,uid=entry.uid}
+        calendarAlarms[#calendarAlarms+1] = {start=refS,stop=refE,name=name,uid=entry.uid}
       end
       Event.post({type='updateVD'})
     end)
@@ -384,7 +392,7 @@ function main()
 
   --local googleCal = "https://calendar.google.com/calendar/ical/bob%40gmail.com/private-8fiuvdhuds7fv8sdf7sdyusdgsd678/basic.ics"
   --local iclCal = "https://p64-calendars.icloud.com/published/2/MTMxNjYkjlkjöölklkoåkålää01LBw1p8vFrjxFq9NvCD"
-  --Event.post({type='newCal', name='Test', url=iclCal})
+  --Event.post({type='newCal', name='Test', url=iclCal},"+/00:00:02")
 
 --  Example, running ER commands stored in calendar's description field.
 --  rule([[#calendar{name='Test', status='start', entry='$entry'} => 
