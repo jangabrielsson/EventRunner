@@ -1,18 +1,15 @@
 --[[
 %% properties
-88 value
-99 value
 %% events
-5 CentralSceneEvent
 %% globals
-Test
+UHASSleepState
 %% autostart 
 --]] 
 
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B57"  -- June 5, 2019  
+_version,_fix = "2.0","B58"  -- June 23, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -37,7 +34,7 @@ function main()
   local rule,define = Rule.eval, Util.defvar
 
   if _EMULATED then
-    --_System.speed(true)               -- run emulator faster than real-time
+    _System.speed(true)               -- run emulator faster than real-time
     --_System.setRemote("devices",{5})  -- make device 5 remote (call HC2 with api)
     --_System.installProxy()            -- Install HC2 proxy sending sourcetriggers back to emulator
   end
@@ -58,7 +55,7 @@ function main()
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
-  rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
+  --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
 
   rule("@{catch,06:00} => Util.checkVersion()") -- Check for new version every morning at 6:00
   rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix))")
@@ -885,19 +882,19 @@ end
 
 EVENTRUNNERSRCPATH = EVENTRUNNERSRCPATH or "EventRunner.lua"
 EVENTRUNNERDELIMETER = EVENTRUNNERDELIMETER or "%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%- EventModel %- Don't change! "
-  
+
 function Util.patchEventRunner(newSrc)
   if newSrc == nil then
-      req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/"..EVENTRUNNERSRCPATH,
-        {options = {method = 'GET', checkCertificate = false, timeout=20000},
-          success=function(data)
-            if data.status == 200 then
-              local src = data.data
-              Util.patchEventRunner(src)
-            end
-          end,
-          error=function(status) Log(LOG.LOG,"Err:Get src code from Github: %s",status) end
-          })
+    req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/"..EVENTRUNNERSRCPATH,
+      {options = {method = 'GET', checkCertificate = false, timeout=20000},
+        success=function(data)
+          if data.status == 200 then
+            local src = data.data
+            Util.patchEventRunner(src)
+          end
+        end,
+        error=function(status) Log(LOG.LOG,"Err:Get src code from Github: %s",status) end
+      })
   else
     local oldSrc,scene="",nil
     if __fullFileName then
@@ -1156,6 +1153,7 @@ function newScriptEngine()
   getIdFun['start']=function(s,i) doit(Util.mapF,function(id) fibaro:startScene(ID(id,i)) end,s.pop()) return true end
   getIdFun['stop']=function(s,i) doit(Util.mapF,function(id) fibaro:killScenes(ID(id,i)) end,s.pop()) return true end  
   getIdFun['toggle']=function(s,i) return doit(Util.mapF,function(id) fibaro:call(id,"toggle") end,s.pop()) end
+  getIdFun['wake']=function(s,i) return doit(Util.mapF,function(id) fibaro:call(id,"wakeUpDeadDevice") end,s.pop()) end
   local setIdFun={}
   local _propMap={R='setR',G='setG',B='setB', armed='setArmed',W='setW',value='setValue',time='setTime',power='setPower'}
   local function setIdFuns(s,i,prop,id,v) 
@@ -1718,6 +1716,7 @@ function newScriptCompiler()
     elseif t.t== 'rpar' then
       while not s.isEmpty() and s.peek().t ~= 'lpar' do _prec[s.peek().v][2](s,res) end
       if s.isEmpty() then tokens.push(t) return res.pop() end
+      --if s.peek().t ~= 'lpar' then _passert(false,t.cp,"unbalanced paranthesis (right)") end
       s.pop()
     elseif pExpr[t.t] then res.push(pExpr[t.t](t,tokens))
     else
