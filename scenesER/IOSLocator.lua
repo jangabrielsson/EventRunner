@@ -5,9 +5,9 @@
 %% autostart
 --]]
 -- Don't forget to declare triggers from devices in the header!!!
-if dofile and not _EMULATED then _EMBEDDED={name="EventRunner",id=10} dofile("HC2.lua") end
+if dofile and not _EMULATED then _EMBEDDED={name="IOSLocator",id=10} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B8"  -- June 24, 2019 
+_version,_fix = "2.0","B9"  -- June 24, 2019 
 
 _sceneName     = "iOSLocator"
 nameOfHome = "Home"
@@ -261,7 +261,7 @@ function main()
       if home and homeFlag ~= true then 
         homeFlag = true
         ev={type='presence', state='home', who=table.concat(who,','), ios=true}
-      elseif nlocations == #iUsers then
+      elseif nlocations == #iUsers and home == false then
         if homeFlag ~= false then
           homeFlag = false
           ev={type='presence', state='allaway', ios=true}
