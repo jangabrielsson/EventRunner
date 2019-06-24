@@ -7,7 +7,7 @@
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner",id=10} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B6"  -- June 5, 2019 
+_version,_fix = "2.0","B7"  -- June 24, 2019 
 
 _sceneName     = "iOSLocator"
 nameOfHome = "Home"
@@ -250,21 +250,24 @@ function main()
         Event.publish(ev) -- and publish to subscribers
       end
 
-      local user,place,ev=event.user,event.place 
+      local user,place,ev=event.user,event.place
       locations[user]=place
       local home = false
-      local who = {}
+      local who,nlocations = {},0
       for w,p in pairs(locations) do 
+        nlocations=nlocations+1
         if p == nameOfHome then home=true; who[#who+1]=w end
       end
       if home and homeFlag ~= true then 
         homeFlag = true
         ev={type='presence', state='home', who=table.concat(who,','), ios=true}
-      elseif #locations == #iUsers then
+      elseif nlocations == #iUsers then
         if homeFlag ~= false then
           homeFlag = false
           ev={type='presence', state='allaway', ios=true}
         end
+      else
+        --Debug(true,"Unknown #locations:%s, #iUsers:%s, homeFlag:%s, home:%s",#locations,#iUsers,homeFlag,home)
       end
       if ev then
         local evs = json.encode(ev)
