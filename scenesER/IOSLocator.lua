@@ -7,7 +7,7 @@
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner",id=10} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B7"  -- June 24, 2019 
+_version,_fix = "2.0","B8"  -- June 24, 2019 
 
 _sceneName     = "iOSLocator"
 nameOfHome = "Home"
@@ -275,7 +275,7 @@ function main()
           Debug(true,"Sending %s to scene %s",evs,conf.scenes[v].id)
           Event.postRemote(conf.scenes[v].id,ev)
         end
-        Event.publish(ev) -- and to all subscribers
+        Event.publish(ev,true) -- and to all subscribers
       end
     end)
 
@@ -2345,7 +2345,7 @@ function Event.subscribe(event,h)
   if h then Event.event(event,h) end
 end
 function Event.publish(event,stat)
-  if stat then Event._stats[#Event._stats+1]=event end
+  if stat then Event._stats[event.type]=event end
   for _,e in ipairs(Event._dir) do
     if Event._match(e.pattern,event) then for _,id in ipairs(e.ids) do Event.sendScene(id,event) end end
   end
@@ -2364,7 +2364,7 @@ Event.event({type=Event.SUB},
       if not seen then
         local pattern = _copy(event); Event._compilePattern(pattern)
         Event._dir[#Event._dir+1]={event=event,ids={id},pattern=pattern}
-        for _,se in ipairs(Event._stats) do
+        for _,se in pairs(Event._stats) do
           if Event._match(pattern,se) then Event.sendScene(id,se) end
         end
       end
