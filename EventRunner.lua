@@ -1,15 +1,14 @@
 --[[
 %% properties
 %% events
-%% globals
-UHASSleepState
+%% globals 
 %% autostart 
 --]] 
 
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B58"  -- June 23, 2019  
+_version,_fix = "2.0","B59"  -- June 24, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -885,6 +884,7 @@ EVENTRUNNERDELIMETER = EVENTRUNNERDELIMETER or "%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-
 
 function Util.patchEventRunner(newSrc)
   if newSrc == nil then
+    local req = net.HTTPClient()
     req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/"..EVENTRUNNERSRCPATH,
       {options = {method = 'GET', checkCertificate = false, timeout=20000},
         success=function(data)
