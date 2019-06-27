@@ -1294,7 +1294,7 @@ function newScriptEngine()
   instr['once'] = function(s,n,e,i) 
     if n==1 then local f; i[4],f = s.pop(),i[4]; s.push(not f and i[4]) 
     elseif n==2 then local f,g,e; e,i[4],f = s.pop(),s.pop(),i[4]; g=not f and i[4]; s.push(g) 
-      if g then Event.cancel(i[5]) i[5]=Event.post(function() i[4]=nil print("CCC") end,e) end
+      if g then Event.cancel(i[5]) i[5]=Event.post(function() i[4]=nil end,e) end
     else local f; i[4],f=os.date("%x"),i[4] or ""; s.push(f ~= i[4]) end
   end
   instr['always'] = function(s,n,e,i) s.pop(n) s.push(true) end
