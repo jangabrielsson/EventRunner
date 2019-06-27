@@ -8,7 +8,7 @@
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B60"  -- June 27, 2019  
+_version,_fix = "2.0","B61"  -- June 27, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -47,15 +47,15 @@ function main()
     },
     other = "other"
   }
-  
+
   --or read in "HomeTable" from a fibaro global variable (or scene)
   --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
   --HT = json.decode(HT)
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
-  --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
-
+  rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
+  
   rule("@{catch,06:00} => Util.checkVersion()") -- Check for new version every morning at 6:00
   rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix))")
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
@@ -1291,7 +1291,11 @@ function newScriptEngine()
   instr['idname'] = function(s,n) s.push(Util.reverseVar(s.pop())) end 
   instr['label'] = function(s,n,e,i) local nm,id = s.pop(),s.pop() s.push(fibaro:getValue(ID(id,i),_format("ui.%s.value",nm))) end
   instr['slider'] = instr['label']
-  instr['once'] = function(s,n,e,i) local f; i[4],f = s.pop(),i[4]; s.push(not f and i[4]) end
+  instr['once'] = function(s,n,e,i) 
+    if n> 0 then local f; i[4],f = s.pop(),i[4]; s.push(not f and i[4]) 
+    else local f; i[4],f=os.date("%x"),i[4] or ""; s.push(f ~= i[4]) end
+  end
+  instr['newday'] = function(s,n,e,i) local f; i[4],f=os.date("%x"),i[4]; s.push(f ~= i[4]) end
   instr['always'] = function(s,n,e,i) s.pop(n) s.push(true) end
   instr['enable'] = function(s,n,e,i) local t,g = s.pop(),false; 
     if n==2 then g,t=t,s.pop() end
