@@ -8,7 +8,7 @@
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B59"  -- June 24, 2019  
+_version,_fix = "2.0","B60"  -- June 27, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -25,7 +25,7 @@ _myNodeRed   = "http://192.168.1.50:1880/eventrunner" -- Ex. used for Event.post
 
 -- debug flags for various subsystems...
 _debugFlags = { 
-  post=true,invoke=false,triggers=true,dailys=false,rule=false,ruleTrue=false,hue=false,msgTime=false,
+  post=true,invoke=false,triggers=true,dailys=false,rule=true,ruleTrue=false,hue=false,msgTime=false,
   fcall=true, fglobal=false, fget=false, fother=true
 }
 ---------------- Here you place rules and user code, called once at startup --------------------
@@ -47,7 +47,7 @@ function main()
     },
     other = "other"
   }
-
+  
   --or read in "HomeTable" from a fibaro global variable (or scene)
   --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
   --HT = json.decode(HT)
@@ -1823,7 +1823,7 @@ function newRuleCompiler()
 
   local function compTimes(cs)
     local t1,t2=map(function(c) return ScriptEngine.eval(c) end,cs),{}
-    if #t1>0 then _transform(t1[1],function(t) t2[t]=true end) end
+    if #t1>0 then _transform(t1,function(t) t2[t]=true end) end
     return mapkl(function(k,v) return k end,t2)
   end
 
