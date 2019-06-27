@@ -8,7 +8,7 @@
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B61"  -- June 27, 2019  
+_version,_fix = "2.0","B62"  -- June 27, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -33,7 +33,7 @@ function main()
   local rule,define = Rule.eval, Util.defvar
 
   if _EMULATED then
-    _System.speed(true)               -- run emulator faster than real-time
+    --_System.speed(true)               -- run emulator faster than real-time
     --_System.setRemote("devices",{5})  -- make device 5 remote (call HC2 with api)
     --_System.installProxy()            -- Install HC2 proxy sending sourcetriggers back to emulator
   end
@@ -55,7 +55,7 @@ function main()
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
   rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
-  
+
   rule("@{catch,06:00} => Util.checkVersion()") -- Check for new version every morning at 6:00
   rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix))")
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
@@ -1292,10 +1292,11 @@ function newScriptEngine()
   instr['label'] = function(s,n,e,i) local nm,id = s.pop(),s.pop() s.push(fibaro:getValue(ID(id,i),_format("ui.%s.value",nm))) end
   instr['slider'] = instr['label']
   instr['once'] = function(s,n,e,i) 
-    if n> 0 then local f; i[4],f = s.pop(),i[4]; s.push(not f and i[4]) 
+    if n==1 then local f; i[4],f = s.pop(),i[4]; s.push(not f and i[4]) 
+    elseif n==2 then local f,g,e; e,i[4],f = s.pop(),s.pop(),i[4]; g=not f and i[4]; s.push(g) 
+      if g then Event.cancel(i[5]) i[5]=Event.post(function() i[4]=nil print("CCC") end,e) end
     else local f; i[4],f=os.date("%x"),i[4] or ""; s.push(f ~= i[4]) end
   end
-  instr['newday'] = function(s,n,e,i) local f; i[4],f=os.date("%x"),i[4]; s.push(f ~= i[4]) end
   instr['always'] = function(s,n,e,i) s.pop(n) s.push(true) end
   instr['enable'] = function(s,n,e,i) local t,g = s.pop(),false; 
     if n==2 then g,t=t,s.pop() end
