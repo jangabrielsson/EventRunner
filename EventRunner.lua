@@ -1146,6 +1146,11 @@ function newScriptEngine()
     end
     return a
   end 
+  getIdFun['removeSchedule']=function(s,i) doit(Util.mapF,function(id) fibaro:call(ID(id,i),'removeSchedule') end,s.pop()) return true end
+  getIdFun['retryScheduleSynchronization']=function(s,i) 
+    doit(Util.mapF,function(id) fibaro:call(ID(id,i),'retryScheduleSynchronization') end,s.pop()) return true 
+  end
+  getIdFun['setAllSchedules']=function(s,i) doit(Util.mapF,function(id) fibaro:call(ID(id,i),'setAllSchedules') end,s.pop()) return true end
   getIdFun['access']=function(s,i) return doit(Util.map,function(id) return _lastEID['AccessControlEvent'][id] or {} end,s.pop()) end
   getIdFun['central']=function(s,i) return doit(Util.map,function(id) return _lastEID['CentralSceneEvent'][id] or {} end,s.pop()) end
   getIdFun['lux']=function(s,i) return getIdFuns(s,i,'value') end
