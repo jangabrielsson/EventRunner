@@ -8,7 +8,7 @@
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=10} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B63"  -- July 6, 2019  
+_version,_fix = "2.0","B64"  -- July 6, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -26,7 +26,7 @@ _myNodeRed   = "http://192.168.1.50:1880/eventrunner" -- Ex. used for Event.post
 -- debug flags for various subsystems...
 _debugFlags = { 
   post=true,invoke=false,triggers=true,dailys=false,rule=false,ruleTrue=false,hue=false,msgTime=false,
-  fcall=true, fglobal=false, fget=false, fother=true
+  fcall=true, fglobal=false, fget=true, fother=true
 }
 
 ---------------- Here you place rules and user code, called once at startup --------------------
@@ -48,7 +48,7 @@ function main()
     },
     other = "other"
   }
-            
+
   --or read in "HomeTable" from a fibaro global variable (or scene)
   --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
   --HT = json.decode(HT)
@@ -56,7 +56,7 @@ function main()
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
   --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
-  
+
   rule("@{catch,06:00} => Util.checkVersion()") -- Check for new version every morning at 6:00
   rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix))")
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
@@ -1156,14 +1156,23 @@ function newScriptEngine()
   getIdFun['toggle']=function(s,i) return doit(Util.mapF,function(id) fibaro:call(id,"toggle") end,s.pop()) end
   getIdFun['wake']=function(s,i) return doit(Util.mapF,function(id) fibaro:call(id,"wakeUpDeadDevice") end,s.pop()) end
   local setIdFun={}
-  local _propMap={R='setR',G='setG',B='setB', armed='setArmed',W='setW',
-                  value='setValue',time='setTime',power='setPower',targetLevel='setTargetLevel'}
+  local _propMap={
+    R='setR',G='setG',B='setB', armed='setArmed',W='setW',value='setValue',time='setTime',power='setPower',
+    targetLevel='setTargetLevel',interval='setInterval',mode='setMode',setpointMode='setSetpointMode',
+    defaultPartyTime='setDefaultPartyTime',scheduleState='setScheduleState'
+  }
   local function setIdFuns(s,i,prop,id,v) 
     local p,vp=_propMap[prop],0 _assert(p,"bad setProperty :%s",prop)
     local vf = type(v) == 'table' and type(id)=='table' and v[1] and function() vp=vp+1 return v[vp] end or function() return v end 
     doit(Util.mapF,function(id) fibaro:call(ID(id,i),p,vf()) end,id) 
   end
   setIdFun['color'] = function(s,i,id,v) doit(Util.mapF,function(id) fibaro:call(ID(id,i),'setColor',v[1],v[2],v[3]) end,id) return v end
+  setIdFun['thermostatSetpoint'] = function(s,i,id,v) 
+    doit(Util.mapF,function(id) fibaro:call(ID(id,i),'setThermostatSetpoint',v[1],v[2]) end,id) return v 
+  end
+  setIdFun['schedule'] = function(s,i,id,v) 
+    doit(Util.mapF,function(id) fibaro:call(ID(id,i),'setSchedule',v[1],v[2],v[3]) end,id) return v 
+  end
   setIdFun['msg'] = function(s,i,id,v) local m = v doit(Util.mapF,function(id) fibaro:call(ID(id,i),'sendPush',m) end,id) return m end
   setIdFun['email'] = function(s,i,id,v) local h,m = v:match("(.-):(.*)") 
     doit(Util.mapF,function(id) fibaro:call(ID(id,i),'sendEmail',h,m) end,id) return v
