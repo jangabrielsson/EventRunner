@@ -6,9 +6,9 @@
 --]] 
 
 -- Don't forget to declare triggers from devices in the header!!!
-if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=20} dofile("HC2.lua") end
+if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=10} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B62"  -- June 27, 2019  
+_version,_fix = "2.0","B63"  -- July 6, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -25,9 +25,10 @@ _myNodeRed   = "http://192.168.1.50:1880/eventrunner" -- Ex. used for Event.post
 
 -- debug flags for various subsystems...
 _debugFlags = { 
-  post=true,invoke=false,triggers=true,dailys=false,rule=true,ruleTrue=false,hue=false,msgTime=false,
+  post=true,invoke=false,triggers=true,dailys=false,rule=false,ruleTrue=false,hue=false,msgTime=false,
   fcall=true, fglobal=false, fget=false, fother=true
 }
+
 ---------------- Here you place rules and user code, called once at startup --------------------
 function main()
   local rule,define = Rule.eval, Util.defvar
@@ -47,15 +48,15 @@ function main()
     },
     other = "other"
   }
-
+            
   --or read in "HomeTable" from a fibaro global variable (or scene)
   --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
   --HT = json.decode(HT)
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
-  rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
-
+  --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
+  
   rule("@{catch,06:00} => Util.checkVersion()") -- Check for new version every morning at 6:00
   rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix))")
   --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
@@ -1155,7 +1156,8 @@ function newScriptEngine()
   getIdFun['toggle']=function(s,i) return doit(Util.mapF,function(id) fibaro:call(id,"toggle") end,s.pop()) end
   getIdFun['wake']=function(s,i) return doit(Util.mapF,function(id) fibaro:call(id,"wakeUpDeadDevice") end,s.pop()) end
   local setIdFun={}
-  local _propMap={R='setR',G='setG',B='setB', armed='setArmed',W='setW',value='setValue',time='setTime',power='setPower'}
+  local _propMap={R='setR',G='setG',B='setB', armed='setArmed',W='setW',
+                  value='setValue',time='setTime',power='setPower',targetLevel='setTargetLevel'}
   local function setIdFuns(s,i,prop,id,v) 
     local p,vp=_propMap[prop],0 _assert(p,"bad setProperty :%s",prop)
     local vf = type(v) == 'table' and type(id)=='table' and v[1] and function() vp=vp+1 return v[vp] end or function() return v end 
@@ -1535,6 +1537,7 @@ function newScriptCompiler()
   preC['.'] = function(e) return {'aref',e[2],e[3]} end
   preC['neg'] = function(e) return isNum(e[2]) and -e[2] or e end
   preC['+='] = function(e) return {'inc',e[2],e[3],'+'} end
+  preC['...'] = function(e) local l = {'var',Util.gensym('L')}; return {'once',{'betw',e[2],{'set',l,e[3]}},{'+',{'+',l,1},{'%time','midnight'}}} end
   preC['-='] = function(e) return {'inc',e[2],e[3],'-'} end
   preC['*='] = function(e) return {'inc',e[2],e[3],'*'} end
   preC['+'] = function(e) return tonumber(e[2]) and tonumber(e[3]) and tonumber(e[2])+tonumber(e[3]) or e end
@@ -1583,7 +1586,7 @@ function newScriptCompiler()
   local function _binop(s,res) res.push({mapOp(s.pop().v),table.unpack(res.lift(2))}) end
   local function _unnop(s,res) res.push({mapOp(s.pop().v),res.pop()}) end
   local _prec = {
-    ['*'] = 10, ['/'] = 10, ['%'] = 10, ['.'] = 12.5, ['+'] = 9, ['-'] = 9, [':'] = 12.6, ['..'] = 8.5, ['=>'] = -2, ['neg'] = 13, ['!'] = 6.5, ['@']=8.5, ['@@']=8.5,
+    ['*'] = 10, ['/'] = 10, ['%'] = 10, ['.'] = 12.5, ['+'] = 9, ['-'] = 9, [':'] = 12.6, ['..'] = 8.5, ['...'] = 8.5, ['=>'] = -2, ['neg'] = 13, ['!'] = 6.5, ['@']=8.5, ['@@']=8.5,
     ['>']=7, ['<']=7, ['>=']=7, ['<=']=7, ['==']=7, ['~=']=7, ['&']=6, ['|']=5, ['=']=4, ['+=']=4, ['-=']=4, ['*=']=4, [';']=3.6, ['('] = 1, }
 
   for i,j in pairs(_prec) do _prec[i]={j,_binop} end 
@@ -1603,7 +1606,7 @@ function newScriptCompiler()
     {"^(%()",'lpar'},{"^(%))",'rpar'},
     {"^([;,])",'token'},{"^(end)",'token'},
     {"^([_a-zA-Z\xC3\xA5\xA4\xB6\x85\x84\x96][_0-9a-zA-Z\xC3\xA5\xA4\xB6\x85\x84\x96]*)",'symbol'},
-    {"^(%.%.)",'op'},{"^(->)",'op'},    
+    {"^(%.%.%.?)",'op'},{"^(->)",'op'},    
     {"^(%d+%.?%d*)",'num'},
     {"^(%|%|)",'token'},{"^(>>)",'token'},{"^(=>)",'token'},{"^(@@)",'op'},{"^([%*%+~=><]+)",'op'},
     {"^([%%%*%+/&%.:~=><%|!@]+)",'op'},{"^(%-%=)",'op'},{"^(-)",'op'},
