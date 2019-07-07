@@ -1,6 +1,5 @@
 --[[
 %% properties
-26 armed
 %% events
 %% globals 
 %% autostart 
@@ -9,7 +8,7 @@
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=10} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B65"  -- July 7, 2019  
+_version,_fix = "2.0","B64"  -- July 6, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -17,50 +16,86 @@ _version,_fix = "2.0","B65"  -- July 7, 2019
 -- Email: jan@gabrielsson.com
 --]]
 
-_sceneName   = "Demo"      -- Set to scene/script name
-_homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
+_sceneName   = "testing"      -- Set to scene/script name
+_homeTable   = "HomeTable" -- Name of your HomeTable variable (fibaro global)
 _HueHubs     = {}          -- Hue bridges, Ex. {{name='Hue',user=_HueUserName,ip=_HueIP}}
-_myNodeRed   = "http://192.168.1.50:1880/eventrunner" -- Ex. used for Event.postRemote(_myNodeRed,{type='test'})
+_myNodeRed   = "http://192.168.1.158:1880/eventrunner" -- Ex. used for Event.postRemote(_myNodeRed,{type='test'})
 --if dofile then dofile("credentials.lua") end -- To not accidently commit credentials to Github, or post at forum :-)
 -- E.g. Hue user names, icloud passwords etc. HC2 credentials is set from HC2.lua, but can use same file.
-
 -- debug flags for various subsystems...
 _debugFlags = { 
-  post=true,invoke=false,triggers=true,dailys=false,rule=true,ruleTrue=false,hue=false,msgTime=false,
-  fcall=true, fglobal=false, fget=true, fother=true
+  post=false,invoke=false,triggers=false,dailys=false,rule=false,ruleTrue=false,hue=false,msgTime=false,
+  fcall=false, fglobal=false, fget=false, fother=false
 }
-
+_EVENTSERVER=true       -- Starts port on 6872 listening for incoming events (Node-red, HC2 etc)
 ---------------- Here you place rules and user code, called once at startup --------------------
 function main()
-  local rule,define = Rule.eval, Util.defvar
+  --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
+  --HT = json.decode(HT)
+  --Util.defvars(HT)            -- Make HomeTable defs available in EventScript
+  --Util.reverseMapDef(HT)      -- Make HomeTable names available for logger
 
+  local rule,define = Rule.eval, Util.defvar
   if _EMULATED then
     --_System.speed(true)               -- run emulator faster than real-time
     --_System.setRemote("devices",{5})  -- make device 5 remote (call HC2 with api)
     --_System.installProxy()            -- Install HC2 proxy sending sourcetriggers back to emulator
   end
-
-  HT =  -- Example of in-line "home table"
+  ---------------START TEST------------------------
+  deviceList =
   {
-    dev = 
-    { bedroom = {lamp = 88,motion = 99},
-      phones = {bob = 121},
-      kitchen = {lamp = 66, motion = 77},
-    },
-    other = "other"
+    temperature = { Altandorrtemp = 85, AltanTemp = 14, 
+      ForradsdorrTemp = 231, Balkondorr = 371, Friggebod = 387 },
+    energy = { TV = 290},
+    motion = { PirAltan = 13, PirTrappa = 439},
+    door = { BalkongSov = 370,  AltanVrum = 84, Entre = 92, Tvatt = 34, 
+      Forrad = 230, Friggebod = 386, TVmarkis = 252, Sovmarkis = 262},
+    light = { Arbetsrum = 309, LillaSovr = 317 },
   }
+  local sourceTrigger = fibaro:getSourceTrigger()
+  if (sourceTrigger['type'] == 'property') then
+    processOne(sourceTrigger['deviceID'])
+  end
 
-  --or read in "HomeTable" from a fibaro global variable (or scene)
-  --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
-  --HT = json.decode(HT)
-  Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
-  Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
+  MAP={}
+  local function map(t,r)
+    r = r or {}
+    if type(t)=='number' then MAP[t]=r
+    else for k,v in pairs(t) do map(v,{k,r}) end end
+  end
+  map(deviceList)
 
-  rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
+  function processOne(deviceID)
+    local d = MAP[deviceID]
+    local deviceName = d[1]
+    local deviceClass = d[2][1]
+    Event.postRemote(_myNodeRed,{type='device',class=deviceClass, name=deviceName, id=deviceID, data=fibaro:getValue(deviceID,'value')})
+  end
+  
+  function processAll()
+    for deviceID,_ in pairs(MAP) do processOne(deviceID) end
+  end
+--[[
+  function processOne(findDeviceID)
+    for deviceClass, devices in pairs(deviceList) do
+      for deviceName, deviceID in pairs(devices) do
+        if (findDeviceID == deviceID) then
+           Event.postRemote(_myNodeRed,{type='device',class=deviceClass, name=deviceName, id=deviceID, data=fibaro:getValue(deviceID,'value')})
+        end
+      end
+    end
+  end
 
-  --rule("@{catch,06:00} => Util.checkVersion()") -- Check for new version every morning at 6:00
-  --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix))")
-  --if dofile then dofile("example_rules.lua") end     -- some more example rules to try out...
+  function processAll()
+    for deviceClass, devices in pairs(deviceList) do
+      for deviceName, deviceID in pairs(devices) do
+        Event.postRemote(_myNodeRed,{type='device',class=deviceClass, name=deviceName, id=deviceID, data=fibaro:getValue(deviceID,'value')})
+      end
+    end
+  end
+--]]
+
+  rule("@@00:02 => processAll()")
 end -- main()
 
 ------------------- EventModel - Don't change! --------------------  
@@ -851,7 +886,7 @@ else Util.getWeekNumber = function(tm) return tonumber(os.date("%V",tm)) end end
 function Util.findScenes(str)
   local res = {}
   for _,s1 in ipairs(api.get("/scenes")) do
-    if s1.isLua and s1.id~=__fibaroSceneId and s1.runningInstances > 0 then
+    if s1.isLua and s1.id~=__fibaroSceneId and s1._local ~= true then
       local s2=api.get("/scenes/"..s1.id)
       if s2==nil or s2.lua==nil then Log(LOG.ERROR,"Scene missing: %s",s1.id)
       elseif s2.lua:match(str) then res[#res+1]=s1.id end
