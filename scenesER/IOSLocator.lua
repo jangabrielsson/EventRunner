@@ -7,7 +7,7 @@
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="IOSLocator",id=10} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B9"  -- June 24, 2019 
+_version,_fix = "2.0","B10"  -- July 15, 2019 
 
 _sceneName     = "iOSLocator"
 nameOfHome = "Home"
@@ -154,15 +154,16 @@ function main()
     function(env)
       local event = env.event
       local loc = event.result.location
+      local batt = event.result.battery
       if not loc then return end
       for _,v in ipairs(conf.places) do
         local d = distance(loc.latitude,loc.longitude,v.latitude,v.longitude)
         if d < v.dist then 
-          Event.post({type='checkPresence', user=event.user, place=v.name, dist=d, _sh=true})
+          Event.post({type='checkPresence', user=event.user, place=v.name, dist=d, battery=batt, _sh=true})
           return
         end
       end
-      Event.post({type='checkPresence', user=event.user, place='away', dist=event.result.distance, _sh=true})
+      Event.post({type='checkPresence', user=event.user, place='away', dist=event.result.distance, battery=batt, _sh=true})
     end)
 
   Event.event({type='deviceMap'},
@@ -176,7 +177,7 @@ function main()
         local loc = value.location
         if value.name:match(devicePattern) and loc and type(loc) == 'table' then
           local d = distance(loc.latitude,loc.longitude,homeLatitude,homeLongitude)
-          result[#result+1] = {device=value.name, distance=d, location=loc}
+          result[#result+1] = {device=value.name, distance=d, location=loc, battery=value.batteryLevel}
         end
       end
       if #result == 1 then result = result[1] end
@@ -238,10 +239,10 @@ function main()
   Event.event({type='checkPresence'},
     function(env)
       local event = env.event
-      if whereIsUser[event.user] ~= event.place then  -- user at new place
-        whereIsUser[event.user] = event.place
+      if (whereIsUser[event.user] and whereIsUser[event.user].place) ~= event.place then  -- user at new place
+        whereIsUser[event.user] = {place=event.place,battery=event.battery}
         Debug(true,"%s is at %s",event.user,event.place)
-        local ev = {type='location', user=event.user, place=event.place, dist=event.dist, ios=true}
+        local ev = {type='location', user=event.user, place=event.place, dist=event.dist, battery=event.battery, ios=true}
         local evs = json.encode(ev)
         for _,v in pairs(conf.scenes.iOSLocator.send) do
           Debug(true,"Sending %s to scene %s",evs,conf.scenes[v].id)
@@ -285,8 +286,8 @@ function main()
       Debug(true,"Got remote location request from scene:%s",event._from)
       for u,p in pairs(whereIsUser) do
         if u and p then
-          Debug(true,"User:%s Position:%s",u,p)
-          Event.postRemote(event._from,{type='location', user=u, place=p, ios=true})
+          Debug(true,"User:%s Position:%s",u,p.place)
+          Event.postRemote(event._from,{type='location', user=u, place=p.place, battery=p.battery, ios=true})
         end
       end
     end)
