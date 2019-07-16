@@ -7,7 +7,7 @@
 -- Don't forget to declare triggers from devices in the header!!!
 if dofile and not _EMULATED then _EMBEDDED={name="IOSLocator",id=10} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B11"  -- July 16, 2019 
+_version,_fix = "2.0","B12"  -- July 16, 2019 
 
 _sceneName     = "iOSLocator"
 nameOfHome = "Home"
@@ -239,7 +239,8 @@ function main()
   Event.event({type='checkPresence'},
     function(env)
       local event = env.event
-      if (whereIsUser[event.user] and whereIsUser[event.user].place) ~= event.place then  -- user at new place
+      if whereIsUser[event.user]~=nil then whereIsUser[event.user].battery=event.battery end
+      if whereIsUser[event.user]==nil or whereIsUser[event.user].place ~= event.place then  -- user at new place
         whereIsUser[event.user] = {place=event.place,battery=event.battery}
         Debug(true,"%s is at %s",event.user,event.place)
         local ev = {type='location', user=event.user, place=event.place, dist=event.dist, battery=event.battery, ios=true}
