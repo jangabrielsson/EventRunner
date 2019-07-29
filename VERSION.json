@@ -1,6 +1,21 @@
-{"version":"2.0","fix":"B65",
+{"EventRunner.lua":{
+  "version":"2.0",
+  "fix":"B65",
   "scenes":{
     "ICal":{"version":"0.9","fix":"B12"},
     "IOSLocator":{"version":"2.0","fix":"B12"}
-  }
+  }},
+  "EventRunner3.lua":{
+  "version":"3.0",
+  "fix":"B1",
+  "scenes":{
+    "ICal":{"version":"0.9","fix":"B12"},
+    "IOSLocator":{"version":"2.0","fix":"B12"}
+  }},
+  "version":"2.0",
+  "fix":"B66",
+  "scenes":{
+    "ICal":{"version":"0.9","fix":"B12"},
+    "IOSLocator":{"version":"2.0","fix":"B12"}
+  },
 }

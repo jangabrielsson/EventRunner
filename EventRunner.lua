@@ -2,14 +2,16 @@
 %% properties
 26 armed
 %% events
-%% globals 
+22 GeofenceEvent 220
+21 GeofenceEvent 220
+%% globals
 %% autostart 
 --]] 
 
 -- Don't forget to declare triggers from devices in the header!!!
-if dofile and not _EMULATED then _EMBEDDED={name="EventRunner", id=10} dofile("HC2.lua") end
+if dofile and not _EMULATED then _EMULATED={name="EventRunner", id=10} dofile("HC2.lua") end
 
-_version,_fix = "2.0","B65"  -- July 7, 2019  
+_version,_fix = "2.0","B66"  -- July 29, 2019  
 
 --[[
 -- EventRunner. Event based scheduler/device trigger handler
@@ -36,7 +38,7 @@ function main()
 
   if _EMULATED then
     --_System.speed(true)               -- run emulator faster than real-time
-    --_System.setRemote("devices",{5})  -- make device 5 remote (call HC2 with api)
+    --_System.setRemote("devices",{5})  -- make deviceinc+ 5 remote (call HC2 with api)
     --_System.installProxy()            -- Install HC2 proxy sending sourcetriggers back to emulator
   end
 
@@ -55,7 +57,6 @@ function main()
   --HT = json.decode(HT)
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
-
   rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
 
   --rule("@{catch,06:00} => Util.checkVersion()") -- Check for new version every morning at 6:00
@@ -866,6 +867,8 @@ Util.getIDfromTrigger={
   event=function(e) return e.event and Util.getIDfromEvent[e.event.type or ""](e.event.data) end
 }
 
+EVENTRUNNERSRCPATH = EVENTRUNNERSRCPATH or "EventRunner.lua"
+
 function Util.checkVersion(vers)
   local req = net.HTTPClient()
   req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/VERSION.json",
@@ -873,6 +876,7 @@ function Util.checkVersion(vers)
       success=function(data)
         if data.status == 200 then
           local v = json.decode(data.data)
+          v = v[EVENTRUNNERSRCPATH]
           if vers then v = v.scenes[vers] end
           if v.version ~= _version or v.fix ~= _fix then
             Event.post({type='ER_version',version=v.version,fix=v.fix or "", _sh=true})
