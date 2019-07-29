@@ -50,10 +50,6 @@ function main()
     other = "other"
   }
 
---  rule("#NODERED => log('%s',tjson(env.event))")
---  rule("log('%s',nodered(#echo{test=8},true).data.test)")
-   rule("@10:00 => log('HUPP')")
-  --rule("x = nodered(#echo); log(x.response)")
   --or read in "HomeTable" from a fibaro global variable (or scene)
   --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
   --HT = json.decode(HT)
