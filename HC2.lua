@@ -757,6 +757,11 @@ function HC2_functions()
     end
   end
 
+  function HC2.registerSceneTrigger(t,sceneID)
+    local scene = HC2.rsrc.scenes[sceneID]
+    Event.event(t,function(env) Scene.start(scene,env.event) end)
+  end
+  
   function HC2.registerScene(name,id,file,globVars,triggers,fullname)
     local scene = Scene.load(name,id,file,fullname) 
     if not scene then return end
@@ -895,7 +900,7 @@ function HC2_functions()
       "dns":"192.168.1.1","remoteAccess":true,"remoteAccessSupport":0}]]
     return json.decode(rsrc)
   end
-  
+
   local function standardWeather()
     local rsrc= 
     [[{"Temperature": 9.5,"TemperatureUnit": "C","_local":true,
@@ -1645,7 +1650,7 @@ function System_functions()
   _System.port = _EVENTSERVER
   _System.ipAdress = HC2.getIPadress()
   _System.time = osOrgTime
-
+  _System.registerSceneTrigger = HC2.registerSceneTrigger
   _System.speed = Runtime.speed
 
   _System._Msg = Util.Msg

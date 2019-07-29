@@ -5,7 +5,7 @@
 57 value
 88 value
 %% events
-5 CentralSceneEvent
+5 CentralSceneEventx
 22 GeofenceEvent
 %% globals 
 Test
@@ -14,7 +14,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="tts",id=10,maxtime=24} dofile("HC2.lua") end
 
-local _version,_fix = "3.0","B1"  -- July 25, 2019  
+local _version,_fix = "3.0","B2"  -- July 29, 2019  
 
 local _sceneName   = "Demo"      -- Set to scene/script name
 local _homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
@@ -49,7 +49,8 @@ function main()
     },
     other = "other"
   }
-
+  
+  rule("{2,nil,3}[3]")
   --or read in "HomeTable" from a fibaro global variable (or scene)
   --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
   --HT = json.decode(HT)
@@ -61,7 +62,7 @@ function main()
   --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix))")
 
   --dofile("verify.lua")
-  --dofile("example_rules3.lua")
+  dofile("example_rules3.lua")
 end
 
 ------------------- EventModel - Don't change! -------------------- 
@@ -399,7 +400,7 @@ function makeEventManager()
         local co = coroutine.create(code,src,env); env.co = co
         local res={coroutine.resume(co)}
         if res[1]==true then
-          if coroutine.status(co)=='dead' then env.log.cont(select(2,table.unpack(res))) end
+          if coroutine.status(co)=='dead' then return env.log.cont(select(2,table.unpack(res))) end
         else error(res[1]) end
       end
       return run
@@ -1003,7 +1004,7 @@ local function makeEventScriptParser()
 
   local function tablefy(t)
     local res={}
-    for k,e in ipairs(t) do if isInstr(e,'=') then res[e[2][2]]=e[3] else res[k]=e end end
+    for k,e in pairs(t) do if isInstr(e,'=') then res[e[2][2]]=e[3] else res[k]=e end end
     return res
   end
 
@@ -1059,8 +1060,8 @@ local function makeEventScriptParser()
   end
 
   function self.gArgs(inp,stop)
-    local res = {}
-    while inp.peek().value ~= stop do res[#res+1] = gExpr(inp,{[stop]=true,[',']=true}) if inp.peek().value == ',' then inp.next() end end
+    local res,i = {},1
+    while inp.peek().value ~= stop do res[i] = gExpr(inp,{[stop]=true,[',']=true}); i=i+1; if inp.peek().value == ',' then inp.next() end end
     inp.next() return res
   end
 
@@ -1207,14 +1208,7 @@ local function makeEventScriptParser()
       return {'if',test,{'%frame',body},gElse(inp)}
     else return gExpr(inp,stop) end 
   end
-  -- for a,b in f(x) do ...  end
-  -- local l,a,b,i; i,l,a=f(x); a,b=i(l,a); while a do ... a,b=i(l,a) end
-  -- local l,a,b,c,i; c=pack(f(x)); i=c[1]; l=c[2]; c=pack(i(l,c[3])); while c[1] do a=c[1]; b=c[2]; ... ; c=pack(i(l,a)) end
-  --function loop(x,f)
-  --  local pack = table.pack
-  --  local l,a,b,c,i; c=pack(f(x)); i=c[1]; l=c[2]; c=pack(i(l,c[3])); while c[1] do a=c[1]; b=c[2]; print(a.."="..b) ; c=pack(i(l,a)) end
-  --end
-
+ 
   function gElse(inp)
     if inp.peek().value=='end' then inp.next(); return nil end
     if inp.peek().value=='else' then inp.next()
@@ -1365,7 +1359,7 @@ function makeEventScriptRuntime()
   local _vars = Util._vars
 
   local function getVarRec(var,locs) return locs[var] or locs._next and getVarRec(var,locs._next) end
-  local function getVar(var,env) local v = getVarRec(var,env.locals)
+  local function getVar(var,env) local v = getVarRec(var,env.locals); env._lastR = var
     if v then return v[1]
     elseif _vars[var] then return _vars[var][1]
     elseif _ENV[var]~=nil then return _ENV[var] end
@@ -1395,7 +1389,7 @@ function makeEventScriptRuntime()
   local function getArg(s,e) if e then return e[1] else return s.pop() end end
   instr['%aref'] = function(s,n,e,i) local k,tab 
     if n==1 then k,tab=i[3],s.pop() else k,tab=s.pop(),s.pop() end
-    _assert(type(tab)=='table',"attempting to index non table with key:'%s'",k)
+    _assert(type(tab)=='table',"attempting to index non table with key:'%s'",k); e._lastR = k
     s.push(tab[k])
   end
   instr['%setaref'] = function(s,n,e,i) local r,v,k = s.pop(),getArg(s,i[3]),getArg(s,i[4])
@@ -1516,12 +1510,16 @@ function makeEventScriptRuntime()
     self.getFuns=getFuns
   end
 
-  local function ID(id,i) _assert(tonumber(id),"bad deviceID '%s' for '%s' '%s'",id,i[1],i[3] or "") return id end
+  local function ID(id,i,l) 
+    if tonumber(id)==nil then 
+      error(format("bad deviceID '%s' for '%s' '%s'",id,i[1],(i[4] or l or "").."?"),3) else return id
+    end
+  end
   instr['%prop'] = function(s,n,e,i) local id,f=s.pop(),getFuns[i[3]]
     if i[3]=='dID' then s.push(getFuns['dID'][1](id,e)) return end
     if not f then f={_getFun,i[3]} end
-    if type(id)=='table' then s.push((f[3] or map)(function(id) return f[1](ID(id,i),f[2]) end,id))
-    else s.push(f[1](ID(id,i),f[2])) end
+    if type(id)=='table' then s.push((f[3] or map)(function(id) return f[1](ID(id,i,e._lastR),f[2]) end,id))
+    else s.push(f[1](ID(id,i,e._lastR),f[2])) end
   end
   instr['%setprop'] = function(s,n,e,i) local id,val,prop=s.pop(),getArg(s,i[3]),getArg(s,i[4])
     local f = setFuns[prop] _assert(f,"bad property '%s'",prop or "") 
@@ -1599,7 +1597,7 @@ function makeEventScriptRuntime()
   end
   instr['trueFor'] = function(s,n,e,i) 
     local val,time = s.pop(),s.pop()
-    local re = {code=e.code, src=e.src, rule=e.rule}
+    local re = {code=e.code, src=e.src, rule=e.rule, locals=e.locals}
     local flags = i[5] or {}; i[5]=flags
     local rep = function() flags.expired = true; flags.timer = nil; self.eval(re) end
     e.forR = nil -- Repeat function (see repeat())
@@ -1688,6 +1686,7 @@ function makeEventScriptRuleCompiler()
   local lblF=function(id,e) return {type='property', deviceID=id, propertyName=format("ui.%s.value",e[3])} end
   local triggFuns={label=lblF,slider=lblF}
 
+  local function ID(id,p) _assert(tonumber(id),"bad deviceID '%s' for '%s'",id,p or "") return id end
   local gtFuns = {
     ['%daily'] = function(e,s) s.dailys[#s.dailys+1 ]=ScriptCompiler.compile2(e[2]) end,
     ['%interv'] = function(e,s) s.scheds[#s.scheds+1 ] = ScriptCompiler.compile2(e[2]) end,
@@ -1705,7 +1704,7 @@ function makeEventScriptRuleCompiler()
       local pn = getFuns[e[3]][2]
       local cv = ScriptCompiler.compile2(e[2])
       local v = ScriptEngine.eval2({code=cv})
-      map(function(id) s.triggs[id..pn]={type='property', deviceID=id, propertyName=pn} end,type(v)=='table' and v or {v})
+      map(function(id) s.triggs[ID(id,e[3])..pn]={type='property', deviceID=id, propertyName=pn} end,type(v)=='table' and v or {v})
     end,
   }
 
@@ -1817,15 +1816,17 @@ function makeEventScriptRuleCompiler()
     Util.validateChars(escript,"Invalid (multi-byte) char in rule:%s")
     if log == nil then log = {} elseif log==true then log={print=true} end
     if log.print==nil then log.print=true end
-    local status, res, ctx = spcall(function() 
+    local status,res,ctx
+    status, res, ctx = spcall(function() 
         local expr = self.macroSubs(escript)
         if not log.cont then 
           log.cont=function(res)
             log.cont=nil
             local name,r
-            if not log.print then return end
-            if Util.isRule(res) then name,r=res.src,"OK" else name,r=escript,tojson(res) end
-            Log(LOG.LOG,"%s = %s",name,r) 
+            if not log.print then return res end
+            if Util.isRule(res) then name,r=res.src,"OK" else name,r=escript,res end
+            Log(LOG.LOG,"%s = %s",name,tojson(r)) 
+            return r
           end
         end
         local f = Event._compileAction(expr,nil,log)
