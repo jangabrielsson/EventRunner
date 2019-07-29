@@ -61,7 +61,7 @@ function main()
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
   --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
-  rule("Util.checkVersion()",{code=true,trace=true}) -- Check for new version every morning at 6:00
+  rule("@{06:00,catch} => Util.checkVersion()") -- Check for new version every morning at 6:00
   --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix))")
 
   --dofile("verify.lua")
@@ -78,7 +78,7 @@ local _MIDNIGHTADJUST = setDefault('MIDNIGHTADJUST',false)
 setDefault('DEVICEAUTOACTION',false)
 local _VALIDATECHARS = setDefault('VALIDATECHARS',true)
 local _NODEREDTIMEOUT = setDefault('NODEREDTIMEOUT',5000)
-local _EVENTRUNNERSRCPATH = setDefault('EVENTRUNNERSRCPATH',"EventRunner.lua")
+local _EVENTRUNNERSRCPATH = setDefault('EVENTRUNNERSRCPATH',"EventRunner3.lua")
 local _HUETIMEOUT = setDefault('HUETIMEOUT',10000)
 local _MARSHALL = setDefault('MARSHALL',true)
 setDefault('SUBFILE',nil)
@@ -2002,6 +2002,7 @@ function extraERSetup()
         success=function(data)
           if data.status == 200 then
             local v = json.decode(data.data)
+            v = v[_EVENTRUNNERSRCPATH]
             if vers then v = v.scenes[vers] end
             if v.version ~= _version or v.fix ~= _fix then
               Event.post({type='ER_version',version=v.version,fix=v.fix or "", _sh=true})
