@@ -61,11 +61,11 @@ function main()
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
   --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
-  rule("@{06:00,catch} => Util.checkVersion()") -- Check for new version every morning at 6:00
+  --rule("@{06:00,catch} => Util.checkVersion()") -- Check for new version every morning at 6:00
   --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix))")
 
   --dofile("verify.lua")
-  --dofile("example_rules2.lua")
+  --dofile("example_rules3.lua")
 end
 
 ------------------- EventModel - Don't change! -------------------- 
