@@ -12,9 +12,9 @@ Test
 %% autostart 
 --]] 
 
-if dofile and not _EMULATED then _EMULATED={name="tts",id=10,maxtime=24} dofile("HC2.lua") end
+if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end
 
-local _version,_fix = "3.0","B2"  -- July 29, 2019  
+local _version,_fix = "3.0","B3"  -- July 30, 2019  
 
 local _sceneName   = "Demo"      -- Set to scene/script name
 local _homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
@@ -26,7 +26,7 @@ local _defaultNodeRed   = "http://192.168.1.50:1880/eventrunner" -- Ex. used for
 -- debug flags for various subsystems (global)
 _debugFlags = { 
   post=true,invoke=false,triggers=true,dailys=false,rule=false,ruleTrue=false,hue=false,
-  fcall=true, fglobal=false, fget=true, fother=true
+  fcall=true, fglobal=true, fget=true, fother=true
 }
 _options={}
 
@@ -35,7 +35,7 @@ function main()
   local rule,define = Rule.eval, Util.defvar
 
   if _EMULATED then
-    _System.speed(true)               -- run emulator faster than real-time
+    --_System.speed(true)               -- run emulator faster than real-time
     --_System.setRemote("devices",{5})  -- make device 5 remote (call HC2 with api)
     --_System.installProxy()            -- Install HC2 proxy sending sourcetriggers back to emulator
   end
@@ -49,8 +49,7 @@ function main()
     },
     other = "other"
   }
-  
-  rule("{2,nil,3}[3]")
+
   --or read in "HomeTable" from a fibaro global variable (or scene)
   --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
   --HT = json.decode(HT)
@@ -60,9 +59,9 @@ function main()
   --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
   --rule("@{06:00,catch} => Util.checkVersion()") -- Check for new version every morning at 6:00
   --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix))")
-
+  
   --dofile("verify.lua")
-  dofile("example_rules3.lua")
+  --dofile("example_rules3.lua")
 end
 
 ------------------- EventModel - Don't change! -------------------- 
@@ -1208,7 +1207,7 @@ local function makeEventScriptParser()
       return {'if',test,{'%frame',body},gElse(inp)}
     else return gExpr(inp,stop) end 
   end
- 
+
   function gElse(inp)
     if inp.peek().value=='end' then inp.next(); return nil end
     if inp.peek().value=='else' then inp.next()
@@ -1396,10 +1395,10 @@ function makeEventScriptRuntime()
     _assertf(type(r)=='table',"trying to set non-table value '%s'",function() return json.encode(r) end)
     r[k]= v; s.push(v) 
   end
-  local _marshaBool={['true']=true,['True']=true,['TRUE']=true,['false']=false,['False']=false,['FALSE']=false}
+  local _marshalBool={['true']=true,['True']=true,['TRUE']=true,['false']=false,['False']=false,['FALSE']=false}
   local function marshall(v) 
     if not _MARSHALL then return v
-    elseif _marshaBool[v]~=nil then return _marshaBool[v] end
+    elseif _marshalBool[v]~=nil then return _marshalBool[v] end
     local s,t = pcall(toTime,v); return s and t or v 
   end
   local getVarFs = { script=getVar, glob=function(n,e) return marshall(fibaro:getGlobalValue(n)) end }
@@ -1990,6 +1989,19 @@ function extraERSetup()
         else Event.post(p.e) end
       end)
   end
+
+----------- Sonos speech/mp3
+  sonos = { vdID = 10, buttonID = 28, lang = 'en'}
+  function sonos._cmd(cmd)
+    vol = vol or 30
+    local _f = fibaro
+    local _x ={root="x_sonos_object",load=function(b)local c=_f:getGlobalValue(b.root)if string.len(c)>0 then local d=json.decode(c)if d and type(d)=="table"then return d else _f:debug("Unable to process data, check variable")end else _f:debug("No data found!")end end,set=function(b,e,d)local f=b:load()if f[e]then for g,h in pairs(d)do f[e][g]=h end else f[e]=d end;_f:setGlobal(b.root,json.encode(f))end,get=function(b,e)local f=b:load()if f and type(f)=="table"then for g,h in pairs(f)do if tostring(g)==tostring(e or"")then return h end end end;return nil end}
+    _x:set(tostring(sonos.vdID), cmd)
+    _f:call(sonos.vdID, "pressButton", sonos.buttonID)
+  end
+
+  function sonos.mp3(file, vol) vol=vol or 30; sonos._cmd({stream={stream=file, source="local", duration="auto", volume=vol}}) end
+  function sonos.speak(message, vol) vol=vol or 30; sonos._cmd({tts={message=message, duration='auto', language=sonos.lang, volume=vol}}) end
 
 --------- Auto patch ---------------
   function Util.checkVersion(vers)
