@@ -25,7 +25,7 @@ SOFTWARE.
 json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
-_version,_fix = "0.11","fix6" --July 29, 2019    
+_version,_fix = "0.11","fix7" --July 30, 2019    
 _sceneName = "HC2 emulator"
 _LOCAL=true                  -- set all resource to local in main(), i.e. no calls to HC2
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
@@ -89,8 +89,8 @@ function main()
 
   --HC2.loadScenesFromDir("scenes") -- Load all files with name <ID>_<name>.lua from dir, Ex. 11_MyScene.lua
   --HC2.createDevice(77,"Test")     -- Create local deviceID 77 with name "[[Test"
-  --HC2.registerScene("CalSubscriber",33,"CalSubscriber.lua")
-  --HC2.registerScene("Subscriber",31,"EventRunnerSub.lua")
+  --HC2.registerScene("EventRunnerSub3",21,"EventRunnerSub3.lua")
+  --HC2.registerScene("EventRunnerPub3",22,"EventRunnerPub3.lua")
   --HC2.registerScene("Publisher",32,"EventRunnerPub.lua")
   -- Simple test scene
   --[[
@@ -2413,7 +2413,9 @@ end
 -- Libs, json etc
 ---------------------------------------------------------------------------------
 function libs()
-
+  local lunpack = table.unpack
+  table.unpack = function(t) return lunpack(t,1,table.maxn(t)) end
+  
   if not _VERSION:match("5%.1") then
     loadstring = load
     function setfenv(fn, env)
