@@ -14,7 +14,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end
 
-local _version,_fix = "3.0","B3"  -- July 30, 2019  
+local _version,_fix = "3.0","B4"  -- July 30, 2019  
 
 local _sceneName   = "Demo"      -- Set to scene/script name
 local _homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
@@ -49,7 +49,7 @@ function main()
     },
     other = "other"
   }
-
+  
   --or read in "HomeTable" from a fibaro global variable (or scene)
   --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
   --HT = json.decode(HT)
@@ -1825,7 +1825,7 @@ function makeEventScriptRuleCompiler()
             if not log.print then return res end
             if Util.isRule(res) then name,r=res.src,"OK" else name,r=escript,res end
             Log(LOG.LOG,"%s = %s",name,tojson(r)) 
-            return r
+            return res
           end
         end
         local f = Event._compileAction(expr,nil,log)
