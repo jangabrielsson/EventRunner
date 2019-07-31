@@ -25,7 +25,7 @@ SOFTWARE.
 json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
-_version,_fix = "0.11","fix7" --July 30, 2019    
+_version,_fix = "0.11","fix8" --July 31, 2019    
 _sceneName = "HC2 emulator"
 _LOCAL=true                  -- set all resource to local in main(), i.e. no calls to HC2
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
@@ -1235,7 +1235,8 @@ function HC2_functions()
     generic = 
 [[{"type":"com.fibaro.multilevelSwitch","baseType":"com.fibaro.binarySwitch",
    "interfaces":["deviceGrouping","levelChange","light","power","zwave","zwaveConfiguration","zwaveSceneActivation"],
-   "properties":{"parameters":[],"configured":"true","dead":"false","power":"0.00","powerConsumption":"42","sceneActivation":"0","value":"0"},
+   "properties":{"parameters":[],"configured":"true","dead":"false","power":"0.00","armed":"0","powerConsumption":"42",
+   "sceneActivation":"0","value":"0"},
    "actions":{
       "associationGet":1,"associationSet":2,"getParameter":1,"setParameter":2,"setProperty":2,"setValue":1,
       "startLevelDecrease":0,"startLevelIncrease":0,"stopLevelChange":0,"turnOff":0,"turnOn":0}
