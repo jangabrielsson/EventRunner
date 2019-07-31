@@ -2415,6 +2415,7 @@ end
 function libs()
   local lunpack = table.unpack
   table.unpack = function(t) return lunpack(t,1,table.maxn(t)) end
+  table.pack = function(...) return { n = select("#", ...), ... } end 
   
   if not _VERSION:match("5%.1") then
     loadstring = load

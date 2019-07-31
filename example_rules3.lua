@@ -5,7 +5,7 @@
 
 --]]
 local tExpr = false
-local tRules = false
+local tRules = true
 local tShell = false
 local tEarth = false
 local tTest1 = false
@@ -13,7 +13,7 @@ local tTest2 = false
 local tPresence = false
 local tHouse = false
 local tScheduler = false
-local tTimes = true
+local tTimes = false
 local tTriggerTuturial = false
 
 local function post(e,t) Event.post(e,t) end
@@ -123,6 +123,8 @@ if tExpr then -- test some standard expression
   test("a = {back.lamp,kitchen.lamp_stove}; a:on")
   test("11:30+05:40==17:10")
   test("a=back.lamp")
+  test("$foo='10:00'; $foo==10:00")
+  test("$foo='TRUE'; $foo==true")
   test("a:isOn")
   test("a:isOff")
   test("{88,99}:msg=fmt('%s+%s=%s',6,8,6+8)")
@@ -134,6 +136,14 @@ if tExpr then -- test some standard expression
   test("|| 11:00..12:00 & day('1-7') & wday('mon') >> log('Noon first Monday of the month!')")
   test("|| 11:00..12:00 & day('lastw-last') & wday('mon') >> log('Noon last Monday of the month!')")
   test("log('Week number is %s and week is %s',wnum,wnum % 2 == 1 & 'odd' | 'even')")
+  test("log('Difference between dusk and sunset is %s',osdate('%H:%M',dusk-sunset)); dusk > sunset")
+  test("log('Difference between dusk and sunset is %s',osdate('%H:%M',sunrise-dawn)); dawn < sunrise")
+  test([[
+    log('Dawn at %s',osdate('%X',dawn));
+    log('Sunrise at %s',osdate('%X',sunrise));
+    log('Sunset at %s',osdate('%X',sunset));
+    log('Dusk at %s',osdate('%X',dusk))
+    ]])
   test([[
     || 05:00..11:00 >> log('Morning at %s',osdate('%X')) 
     || 11:00..15:00 >> log('Day at %s',osdate('%X'))

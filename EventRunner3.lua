@@ -14,19 +14,19 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end
 
-local _version,_fix = "3.0","B5"  -- July 30, 2019  
+local _version,_fix = "3.0","B8"  -- July 31, 2019  
 
 local _sceneName   = "Demo"      -- Set to scene/script name
 local _homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
 local _HueHubs     = {}          -- Hue bridges, Ex. {{name='Hue',user=_HueUserName,ip=_HueIP}}
-local _defaultNodeRed   = "http://192.168.1.50:1880/eventrunner" -- Ex. used for Event.postRemote(_myNodeRed,{type='test'})
+local _defaultNodeRed   = "http://192.168.1.50:1880/eventrunner" -- Ex. used for Event.postRemote(_defaultNodeRed,{type='test'})
 --if dofile then dofile("credentials.lua") end -- To not accidently commit credentials to Github, or post at forum :-)
 -- E.g. Hue user names, icloud passwords etc. HC2 credentials is set from HC2.lua, but can use same file.
 
 -- debug flags for various subsystems (global)
 _debugFlags = { 
   post=true,invoke=false,triggers=true,dailys=false,rule=false,ruleTrue=false,hue=false,
-  fcall=true, fglobal=true, fget=true, fother=true
+  fcall=true, fglobal=false, fget=true, fother=true
 }
 _options={}
 
@@ -35,7 +35,7 @@ function main()
   local rule,define = Rule.eval, Util.defvar
 
   if _EMULATED then
-    --_System.speed(true)               -- run emulator faster than real-time
+    _System.speed(true)               -- run emulator faster than real-time
     --_System.setRemote("devices",{5})  -- make device 5 remote (call HC2 with api)
     --_System.installProxy()            -- Install HC2 proxy sending sourcetriggers back to emulator
   end
@@ -49,18 +49,17 @@ function main()
     },
     other = "other"
   }
-  
+
   --or read in "HomeTable" from a fibaro global variable (or scene)
   --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
   --HT = json.decode(HT)
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
-  rule("55:power > 10 & !true => true",{code=true})
   --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
   --rule("@{06:00,catch} => Util.checkVersion()") -- Check for new version every morning at 6:00
   --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix))")
-  
+
   --dofile("verify.lua")
   --dofile("example_rules3.lua")
 end
@@ -131,29 +130,30 @@ if _supportedEvents[_type] then
 end
 
 ---------- Consumer - re-posting incoming triggers as internal events --------------------
-
-local function eventConsumer()
-  local mailboxes,_debugFlags,Event,json = _MAILBOXES,_debugFlags,Event,json
-  local _CXCS,_CXCST1,_CXCST2=250,os.clock()
-  local function poll()
-    _CXCS = math.min(2*(_CXCS+1),250)
-    _CXCST1,_CXCST2 = os.clock(),_CXCST1
-    if _CXCST1-_CXCST2 > 0.75 then Log(LOG.ERROR,"Slow mailbox watch:%ss",_CXCST1-_CXCST2) end
-    for _,mb in ipairs(mailboxes) do
-      local l = fibaro:getGlobal(mb)
-      if l and l ~= "" and l:sub(1,3) ~= '<@>' then -- Something in the mailbox
-        fibaro:setGlobal(mb,"") -- clear mailbox
-        if _debugFlags.triggers then Debug(true,"Incoming event:"..l) end
-        l = json.decode(l) l._sh=true
-        setTimeout(function() Event.triggerHandler(l) end,5)-- and post it to our "main()"
-        _CXCS=1
+do
+  local _getGlobal,_setGlobal = fibaro.getGlobal, fibaro.setGlobal
+  local function eventConsumer()
+    local mailboxes,_debugFlags,Event,json = _MAILBOXES,_debugFlags,Event,json
+    local _CXCS,_CXCST1,_CXCST2=250,os.clock()
+    local function poll()
+      _CXCS = math.min(2*(_CXCS+1),250)
+      _CXCST1,_CXCST2 = os.clock(),_CXCST1
+      if _CXCST1-_CXCST2 > 0.75 then Log(LOG.ERROR,"Slow mailbox watch:%ss",_CXCST1-_CXCST2) end
+      for _,mb in ipairs(mailboxes) do
+        local l = _getGlobal(mb)
+        if l and l ~= "" and l:sub(1,3) ~= '<@>' then -- Something in the mailbox
+          _setGlobal(mb,"") -- clear mailbox
+          if _debugFlags.triggers then Debug(true,"Incoming event:"..l) end
+          l = json.decode(l) l._sh=true
+          setTimeout(function() Event.triggerHandler(l) end,5)-- and post it to our "main()"
+          _CXCS=1
+        end
       end
+      setTimeout(poll,_CXCS) -- check again
     end
-    setTimeout(poll,_CXCS) -- check again
+    poll()
   end
-  poll()
 end
-
 ---------- Event manager --------------------------------------
 function makeEventManager()
   local self,_handlers = {},{}
@@ -411,7 +411,7 @@ function makeEventManager()
   function self._invokeRule(env)
     local t = os.time()
     env.last,env.rule.time,env.log = t-(env.rule.time or 0),t,env.rule.log
-    if _debugFlags.invoke and not env.event._sh then Debug(true,"Invoking:%s",env.rule.src) end
+    if _debugFlags.invoke and (env.event == nil or not env.event._sh) then Debug(true,"Invoking:%s",env.rule.src) end
     local status, res, ctx = spcall(env.rule.action,env) -- call the associated action
     if not status then
       if not isError(res) then
@@ -1589,7 +1589,11 @@ function makeEventScriptRuntime()
     _assert(tonumber(t1) and tonumber(t2),"Bad arguments to between '...', '%s' '%s'",t1 or "nil", t2 or "nil")
     if t1<=t2 then s.push(t1 <= now and now <= t2) else s.push(now >= t1 or now <= t2) end 
   end
-  instr['%eventmatch'] = function(s,n,e,i) local ev,evp=i[4],i[3]; s.push(e.event and Event._match(evp,e.event) and ev or false) end
+  instr['%eventmatch'] = function(s,n,e,i) 
+    local ev,evp=i[4],i[3]; 
+    local vs = Event._match(evp,e.event)
+    if vs then for k,v in pairs(vs) do e.locals[k]={v} end end
+    s.push(e.event and vs and ev or false) end
   instr['again'] = function(s,n,e) 
     local v = n>0 and s.pop() or math.huge
     if not e.forR then s.push(0) 
@@ -1597,10 +1601,12 @@ function makeEventScriptRuntime()
   end
   instr['trueFor'] = function(s,n,e,i) 
     local val,time = s.pop(),s.pop()
-    local re = {code=e.code, src=e.src, rule=e.rule, locals=e.locals}
+    local re = {code=e.code, src=e.src, rule=e.rule, locals=e.locals, event=e.event}
+    local rule = e.rule
+    e.rule._again = e.event
     local flags = i[5] or {}; i[5]=flags
-    local rep = function() flags.expired = true; flags.timer = nil; self.eval(re) end
-    e.forR = nil -- Repeat function (see repeat())
+    local rep = function() flags.expired = true; flags.timer = nil; re.event=rule._again; self.eval(re) end
+    e.forR = nil -- Again function (see again())
     --Log(LOG.LOG,"FOR")
     if flags.expired then -- true if timer has expired
       --Log(LOG.LOG,"Timer expired")
@@ -1738,14 +1744,13 @@ function makeEventScriptRuleCompiler()
     return mapkl(function(k,_) return k end,t2)
   end
 
-  -- #property{deviceID={6,7} & 6:isOn => .. generates 2 triggers for 6????
-  -- #ev & 6:isOn
   local function remapEvents(obj)
     if Util.isTEvent(obj) then 
       local ce = ScriptEngine.eval2({code=ScriptCompiler.compile(obj)})
       local ep = copy(ce); Event._compilePattern(ep)
       obj[1],obj[2],obj[3]='%eventmatch',ep,ce; 
-    elseif type(obj)=='table' and (obj[1]=='%and' or obj[1]=='%or') then remapEvents(obj[2]); remapEvents(obj[3])  end
+--    elseif type(obj)=='table' and (obj[1]=='%and' or obj[1]=='%or' or obj[1]=='trueFor') then remapEvents(obj[2]); remapEvents(obj[3])  end
+      elseif type(obj)=='table' then map(function(e) remapEvents(e) end,obj,2) end
   end
 
   local function trimRule(str)
@@ -1969,6 +1974,7 @@ function extraERSetup()
     local nrr={}
     function nodered(event,req,node)
       node = node and node or _defaultNodeRed
+      _assert(node,"Missing nodered ip addres - set _defaultNodeRed at beginning of scene")
       local tag = Util.gensym("NR")
       event._transID = tag
       Event.postRemote(node,event)
