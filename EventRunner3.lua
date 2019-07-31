@@ -14,7 +14,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end
 
-local _version,_fix = "3.0","B17"  -- July 31, 2019  
+local _version,_fix = "3.0","B18"  -- July 31, 2019  
 
 local _sceneName   = "Demo"      -- Set to scene/script name
 local _homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
@@ -35,7 +35,7 @@ function main()
   local rule,define = Rule.eval, Util.defvar
 
   if _EMULATED then
-    --_System.speed(true)               -- run emulator faster than real-time
+    _System.speed(true)               -- run emulator faster than real-time
     --_System.setRemote("devices",{5})  -- make device 5 remote (call HC2 with api)
     --_System.installProxy()            -- Install HC2 proxy sending sourcetriggers back to emulator
   end
@@ -59,7 +59,7 @@ function main()
   --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
   --rule("@{06:00,catch} => Util.checkVersion()") -- Check for new version every morning at 6:00
   --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix))")
-
+  
   --dofile("verify.lua")
   --dofile("example_rules3.lua")
 end
@@ -1797,10 +1797,10 @@ function makeEventScriptRuntime()
             else catchup2 = true end
           end
           if catchup2 and catchup1 then Log(LOG.LOG,"Catching up:%s",src); Event.post(event) end
-          local reaction = function() self.restartDaily(res) end
-          for _,tr in ipairs(triggers) do -- Add triggers to reschedule dailys when variables change...
-            if tr.propertyName~='<nop>' then Event.event(tr,reaction,{doc=src})  end
-          end
+--          local reaction = function() self.restartDaily(res) end
+--          for _,tr in ipairs(triggers) do -- Add triggers to reschedule dailys when variables change...
+--            if tr.propertyName~='<nop>' then Event.event(tr,reaction,{doc=src})  end
+--          end
         end
         if #dailys==0 and #triggers > 0 then -- id/glob trigger or events
           for _,tr in ipairs(triggers) do 
