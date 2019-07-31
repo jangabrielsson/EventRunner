@@ -14,7 +14,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end
 
-local _version,_fix = "3.0","B8"  -- July 31, 2019  
+local _version,_fix = "3.0","B9"  -- July 31, 2019  
 
 local _sceneName   = "Demo"      -- Set to scene/script name
 local _homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
@@ -56,6 +56,7 @@ function main()
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
+  Util.printRule(rule([[812:access.status=='Unlock' | $UHASPresentState=='Hemma' => lampSim:off]]))
   --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
   --rule("@{06:00,catch} => Util.checkVersion()") -- Check for new version every morning at 6:00
   --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix))")
@@ -132,7 +133,7 @@ end
 ---------- Consumer - re-posting incoming triggers as internal events --------------------
 do
   local _getGlobal,_setGlobal = fibaro.getGlobal, fibaro.setGlobal
-  local function eventConsumer()
+  function eventConsumer()
     local mailboxes,_debugFlags,Event,json = _MAILBOXES,_debugFlags,Event,json
     local _CXCS,_CXCST1,_CXCST2=250,os.clock()
     local function poll()
@@ -1594,547 +1595,547 @@ function makeEventScriptRuntime()
     local vs = Event._match(evp,e.event)
     if vs then for k,v in pairs(vs) do e.locals[k]={v} end end
     s.push(e.event and vs and ev or false) end
-  instr['again'] = function(s,n,e) 
-    local v = n>0 and s.pop() or math.huge
-    if not e.forR then s.push(0) 
-    elseif v > e.forR[2] then s.push(e.forR[1]()) else s.push(e.forR[2]) end 
-  end
-  instr['trueFor'] = function(s,n,e,i) 
-    local val,time = s.pop(),s.pop()
-    local re = {code=e.code, src=e.src, rule=e.rule, locals=e.locals, event=e.event}
-    local rule = e.rule
-    e.rule._again = e.event
-    local flags = i[5] or {}; i[5]=flags
-    local rep = function() flags.expired = true; flags.timer = nil; re.event=rule._again; self.eval(re) end
-    e.forR = nil -- Again function (see again())
-    --Log(LOG.LOG,"FOR")
-    if flags.expired then -- true if timer has expired
-      --Log(LOG.LOG,"Timer expired")
-      flags.expired = false; 
-      if val then 
-        flags.counter = (flags.counter or 0)+1 -- Times we have repeated 
-        --print(string.format("REP:%s, TIME:%s",i[7],time))
-        e.forR={function() Event.post(rep,time+os.time(),e.rule) return flags.counter end,flags.counter}
+    instr['again'] = function(s,n,e) 
+      local v = n>0 and s.pop() or math.huge
+      if not e.forR then s.push(0) 
+      elseif v > e.forR[2] then s.push(e.forR[1]()) else s.push(e.forR[2]) end 
+    end
+    instr['trueFor'] = function(s,n,e,i) 
+      local val,time = s.pop(),s.pop()
+      local re = {code=e.code, src=e.src, rule=e.rule, locals=e.locals, event=e.event}
+      local rule = e.rule
+      e.rule._again = e.event
+      local flags = i[5] or {}; i[5]=flags
+      local rep = function() flags.expired = true; flags.timer = nil; re.event=rule._again; self.eval(re) end
+      e.forR = nil -- Again function (see again())
+      --Log(LOG.LOG,"FOR")
+      if flags.expired then -- true if timer has expired
+        --Log(LOG.LOG,"Timer expired")
+        flags.expired = false; 
+        if val then 
+          flags.counter = (flags.counter or 0)+1 -- Times we have repeated 
+          --print(string.format("REP:%s, TIME:%s",i[7],time))
+          e.forR={function() Event.post(rep,time+os.time(),e.rule) return flags.counter end,flags.counter}
+        end
+        s.push(val) 
+        return
+      end 
+      flags.counter = 0
+      if flags.timer and (not val) then flags.timer = 
+        Event.cancel(flags.timer) --Log(LOG.LOG,"Killing timer") -- Timer already running, and false, stop timer
+      elseif (not flags.timer) and val then                     -- Timer not running, and true, start timer
+        flags.timer=Event.post(rep,time+os.time(),e.rule)        --Log(LOG.LOG,"Starting timer %s",tostring(i[5]))
       end
-      s.push(val) 
-      return
-    end 
-    flags.counter = 0
-    if flags.timer and (not val) then flags.timer = 
-      Event.cancel(flags.timer) --Log(LOG.LOG,"Killing timer") -- Timer already running, and false, stop timer
-    elseif (not flags.timer) and val then                     -- Timer not running, and true, start timer
-      flags.timer=Event.post(rep,time+os.time(),e.rule)        --Log(LOG.LOG,"Starting timer %s",tostring(i[5]))
+      s.push(false)
     end
-    s.push(false)
-  end
 
-  function self.addInstr(name,fun) _assert(instr[name] == nil,"Instr already defined: %s",name) instr[name] = fun end
+    function self.addInstr(name,fun) _assert(instr[name] == nil,"Instr already defined: %s",name) instr[name] = fun end
 
-  self.instr = instr
-  local function postTrace(i,args,stack,cp)
-    local f,n = i[1],i[2]
-    if not ({jmp=true,push=true,pop=true,addr=true,fn=true,table=true,})[f] then
-      local p0,p1=3,1; while i[p0] do table.insert(args,p1,i[p0]) p1=p1+1 p0=p0+1 end
-      args = format("%s(%s)=%s",f,safeEncode(args):sub(2,-2),safeEncode(stack.peek()))
-      Log(LOG.LOG,"pc:%-3d sp:%-3d %s",cp,stack.size(),args)
-    else
-      Log(LOG.LOG,"pc:%-3d sp:%-3d [%s/%s%s]",cp,stack.size(),i[1],i[2],i[3] and ","..json.encode(i[3]) or "")
+    self.instr = instr
+    local function postTrace(i,args,stack,cp)
+      local f,n = i[1],i[2]
+      if not ({jmp=true,push=true,pop=true,addr=true,fn=true,table=true,})[f] then
+        local p0,p1=3,1; while i[p0] do table.insert(args,p1,i[p0]) p1=p1+1 p0=p0+1 end
+        args = format("%s(%s)=%s",f,safeEncode(args):sub(2,-2),safeEncode(stack.peek()))
+        Log(LOG.LOG,"pc:%-3d sp:%-3d %s",cp,stack.size(),args)
+      else
+        Log(LOG.LOG,"pc:%-3d sp:%-3d [%s/%s%s]",cp,stack.size(),i[1],i[2],i[3] and ","..json.encode(i[3]) or "")
+      end
     end
-  end
 
-  function self.listInstructions()
-    local t={}
-    print("User functions:")
-    for f,_ in pairs(instr) do if f=="%" or f:sub(1,1)~='%' then t[#t+1]=f end end
-    table.sort(t); for _,f in ipairs(t) do print(f) end
-    print("Property functions:")
-    t={}
-    for f,_ in pairs(getFuns) do t[#t+1]="<ID>:"..f end 
-    for f,_ in pairs(setFuns) do t[#t+1]="<ID>:"..f.."=.." end 
-    table.sort(t); for _,f in ipairs(t) do print(f) end
-  end
-
-  function self.eval(env)
-    local stack,code=env.stack or mkStack(),env.code
-    local traceFlag = env.log and env.log.trace or _traceInstrs
-    env.cp,env.env,env.src = env.cp or 1, env.env or {},env.src or ""
-    local i,args
-    local status,stat,res = spcall(function() 
-        local stat,res
-        repeat
-          i = code[env.cp]
-          if traceFlag then 
-            args = copy(stack.liftc(i[2]))
-            stat,res=(instr[i[1]] or instr['%call'])(stack,i[2],env,i)
-            postTrace(i,args,stack,env.cp) 
-          else stat,res=(instr[i[1]] or instr['%call'])(stack,i[2],env,i) end
-          env.cp = env.cp+1
-        until env.cp > #code or stat
-        return stat,res or {stack.pop()}
-      end)
-    if status then return stat,res
-    else
-      if isError(stat) then stat.src = stat.src or env.src; error(stat) end
-      throwError{msg=format("Error executing instruction:'%s'",tojson(i)),err=stat,src=env.src,ctx=res}
+    function self.listInstructions()
+      local t={}
+      print("User functions:")
+      for f,_ in pairs(instr) do if f=="%" or f:sub(1,1)~='%' then t[#t+1]=f end end
+      table.sort(t); for _,f in ipairs(t) do print(f) end
+      print("Property functions:")
+      t={}
+      for f,_ in pairs(getFuns) do t[#t+1]="<ID>:"..f end 
+      for f,_ in pairs(setFuns) do t[#t+1]="<ID>:"..f.."=.." end 
+      table.sort(t); for _,f in ipairs(t) do print(f) end
     end
+
+    function self.eval(env)
+      local stack,code=env.stack or mkStack(),env.code
+      local traceFlag = env.log and env.log.trace or _traceInstrs
+      env.cp,env.env,env.src = env.cp or 1, env.env or {},env.src or ""
+      local i,args
+      local status,stat,res = spcall(function() 
+          local stat,res
+          repeat
+            i = code[env.cp]
+            if traceFlag then 
+              args = copy(stack.liftc(i[2]))
+              stat,res=(instr[i[1]] or instr['%call'])(stack,i[2],env,i)
+              postTrace(i,args,stack,env.cp) 
+            else stat,res=(instr[i[1]] or instr['%call'])(stack,i[2],env,i) end
+            env.cp = env.cp+1
+          until env.cp > #code or stat
+          return stat,res or {stack.pop()}
+        end)
+      if status then return stat,res
+      else
+        if isError(stat) then stat.src = stat.src or env.src; error(stat) end
+        throwError{msg=format("Error executing instruction:'%s'",tojson(i)),err=stat,src=env.src,ctx=res}
+      end
+    end
+    function self.eval2(env) env.cp=nil; env.locals = env.locals or {}; local _,res=self.eval(env) return res[1] end
+    return self
   end
-  function self.eval2(env) env.cp=nil; env.locals = env.locals or {}; local _,res=self.eval(env) return res[1] end
-  return self
-end
 
 --------- Event script Rule compiler ------------------------------------------
-function makeEventScriptRuleCompiler()
-  local self = {}
-  local HOURS24,CATCHUP,RULEFORMAT = 24*60*60,math.huge,"Rule:%s[%s]"
-  local map,mapkl,getFuns,format,midnight,time2str=Util.map,Util.mapkl,ScriptEngine.getFuns,string.format,Util.midnight,Util.time2str
-  local transform,copy,isGlob,isTriggerVar = Util.transform,Util.copy,Util.isGlob,Util.isTriggerVar
-  local _macros,dailysTab,rCounter= {},{},0
-  local lblF=function(id,e) return {type='property', deviceID=id, propertyName=format("ui.%s.value",e[3])} end
-  local triggFuns={label=lblF,slider=lblF}
+  function makeEventScriptRuleCompiler()
+    local self = {}
+    local HOURS24,CATCHUP,RULEFORMAT = 24*60*60,math.huge,"Rule:%s[%s]"
+    local map,mapkl,getFuns,format,midnight,time2str=Util.map,Util.mapkl,ScriptEngine.getFuns,string.format,Util.midnight,Util.time2str
+    local transform,copy,isGlob,isTriggerVar = Util.transform,Util.copy,Util.isGlob,Util.isTriggerVar
+    local _macros,dailysTab,rCounter= {},{},0
+    local lblF=function(id,e) return {type='property', deviceID=id, propertyName=format("ui.%s.value",e[3])} end
+    local triggFuns={label=lblF,slider=lblF}
 
-  local function ID(id,p) _assert(tonumber(id),"bad deviceID '%s' for '%s'",id,p or "") return id end
-  local gtFuns = {
-    ['%daily'] = function(e,s) s.dailys[#s.dailys+1 ]=ScriptCompiler.compile2(e[2]) end,
-    ['%interv'] = function(e,s) s.scheds[#s.scheds+1 ] = ScriptCompiler.compile2(e[2]) end,
-    ['%betw'] = function(e,s) 
-      s.dailys[#s.dailys+1 ]=ScriptCompiler.compile2(e[2])
-      s.dailys[#s.dailys+1 ]=ScriptCompiler.compile({'+',1,e[3]}) 
-    end,
-    ['%var'] = function(e,s) 
-      if e[3]=='glob' then s.triggs[e[2] ] = {type='global', name=e[2]} 
-      elseif e[2]:sub(1,1)=="_" then s.triggs[e[2] ] = {type='variable', name=e[2]} end 
-    end,
-    ['%set'] = function(e,s) if isTriggerVar(e[2]) or isGlob(e[2]) then error("Can't assign variable in rule header") end end,
-    ['%prop'] = function(e,s) 
-      if not getFuns[e[3]][4] then return end
-      local pn = getFuns[e[3]][2]
-      local cv = ScriptCompiler.compile2(e[2])
-      local v = ScriptEngine.eval2({code=cv})
-      map(function(id) s.triggs[ID(id,e[3])..pn]={type='property', deviceID=id, propertyName=pn} end,type(v)=='table' and v or {v})
-    end,
-  }
+    local function ID(id,p) _assert(tonumber(id),"bad deviceID '%s' for '%s'",id,p or "") return id end
+    local gtFuns = {
+      ['%daily'] = function(e,s) s.dailys[#s.dailys+1 ]=ScriptCompiler.compile2(e[2]) end,
+      ['%interv'] = function(e,s) s.scheds[#s.scheds+1 ] = ScriptCompiler.compile2(e[2]) end,
+      ['%betw'] = function(e,s) 
+        s.dailys[#s.dailys+1 ]=ScriptCompiler.compile2(e[2])
+        s.dailys[#s.dailys+1 ]=ScriptCompiler.compile({'+',1,e[3]}) 
+      end,
+      ['%var'] = function(e,s) 
+        if e[3]=='glob' then s.triggs[e[2] ] = {type='global', name=e[2]} 
+        elseif e[2]:sub(1,1)=="_" then s.triggs[e[2] ] = {type='variable', name=e[2]} end 
+      end,
+      ['%set'] = function(e,s) if isTriggerVar(e[2]) or isGlob(e[2]) then error("Can't assign variable in rule header") end end,
+      ['%prop'] = function(e,s) 
+        if not getFuns[e[3]][4] then return end
+        local pn = getFuns[e[3]][2]
+        local cv = ScriptCompiler.compile2(e[2])
+        local v = ScriptEngine.eval2({code=cv})
+        map(function(id) s.triggs[ID(id,e[3])..pn]={type='property', deviceID=id, propertyName=pn} end,type(v)=='table' and v or {v})
+      end,
+    }
 
-  local function getTriggers(e)
-    local s={triggs={},dailys={},scheds={}}
-    local function traverse(e)
-      if type(e) ~= 'table' then return e end
-      if e[1]== '%eventmatch' then -- {'eventmatch',{'quote', ep,ce}} 
-        local ep,ce = e[2],e[3]
-        s.triggs[tojson(ce)] = ce  
-      else
-        Util.mapkk(traverse,e)
-        if gtFuns[e[1]] then gtFuns[e[1]](e,s)
-        elseif triggFuns[e[1]] then
-          local cv = ScriptCompiler.compile2(e[2])
-          local v = ScriptEngine.eval2({code=cv})
-          map(function(id) s.triggs[id]=triggFuns[e[1]](id,e) end,type(v)=='table' and v or {v})
+    local function getTriggers(e)
+      local s={triggs={},dailys={},scheds={}}
+      local function traverse(e)
+        if type(e) ~= 'table' then return e end
+        if e[1]== '%eventmatch' then -- {'eventmatch',{'quote', ep,ce}} 
+          local ep,ce = e[2],e[3]
+          s.triggs[tojson(ce)] = ce  
+        else
+          Util.mapkk(traverse,e)
+          if gtFuns[e[1]] then gtFuns[e[1]](e,s)
+          elseif triggFuns[e[1]] then
+            local cv = ScriptCompiler.compile2(e[2])
+            local v = ScriptEngine.eval2({code=cv})
+            map(function(id) s.triggs[id]=triggFuns[e[1]](id,e) end,type(v)=='table' and v or {v})
+          end
         end
       end
+      traverse(e); return mapkl(function(_,v) return v end,s.triggs),s.dailys,s.scheds
     end
-    traverse(e); return mapkl(function(_,v) return v end,s.triggs),s.dailys,s.scheds
-  end
 
-  function self.test(s) return {getTriggers(ScriptCompiler.parse(s))} end
-  function self.define(name,fun) ScriptEngine.define(name,fun) end
-  function self.addTrigger(name,instr,gt) ScriptEngine.addInstr(name,instr) triggFuns[name]=gt end
+    function self.test(s) return {getTriggers(ScriptCompiler.parse(s))} end
+    function self.define(name,fun) ScriptEngine.define(name,fun) end
+    function self.addTrigger(name,instr,gt) ScriptEngine.addInstr(name,instr) triggFuns[name]=gt end
 
-  local function compTimes(cs)
-    local t1,t2=map(function(c) return ScriptEngine.eval2({code=c}) end,cs),{}
-    if #t1>0 then transform(t1,function(t) t2[t]=true end) end
-    return mapkl(function(k,_) return k end,t2)
-  end
+    local function compTimes(cs)
+      local t1,t2=map(function(c) return ScriptEngine.eval2({code=c}) end,cs),{}
+      if #t1>0 then transform(t1,function(t) t2[t]=true end) end
+      return mapkl(function(k,_) return k end,t2)
+    end
 
-  local function remapEvents(obj)
-    if Util.isTEvent(obj) then 
-      local ce = ScriptEngine.eval2({code=ScriptCompiler.compile(obj)})
-      local ep = copy(ce); Event._compilePattern(ep)
-      obj[1],obj[2],obj[3]='%eventmatch',ep,ce; 
+    local function remapEvents(obj)
+      if Util.isTEvent(obj) then 
+        local ce = ScriptEngine.eval2({code=ScriptCompiler.compile(obj)})
+        local ep = copy(ce); Event._compilePattern(ep)
+        obj[1],obj[2],obj[3]='%eventmatch',ep,ce; 
 --    elseif type(obj)=='table' and (obj[1]=='%and' or obj[1]=='%or' or obj[1]=='trueFor') then remapEvents(obj[2]); remapEvents(obj[3])  end
       elseif type(obj)=='table' then map(function(e) remapEvents(e) end,obj,2) end
-  end
-
-  local function trimRule(str)
-    local str2 = str:sub(1,(str:find("\n") or math.min(#str,_RULELOGLENGTH)+1)-1)
-    if #str2 < #str then str2=str2.."..." end
-    return str2
-  end
-
-  function self.compRule(e,env)
-    local head,body,log,res,events,src,triggers2,sdaily = e[2],e[3],e[4],{},{},env.src or "<no src>",{}
-    src=format(RULEFORMAT,rCounter+1,trimRule(src))
-    remapEvents(head)  -- #event -> eventmatch
-    local triggers,dailys,reps = getTriggers(head)
-    _assert(#triggers>0 or #dailys>0 or #reps>0, "no triggers found in header")
-    --_assert(not(#dailys>0 and #reps>0), "can't have @daily and @@interval rules together in header")
-    local code = ScriptCompiler.compile({'%and',(_debugFlags.rule or _debugFlags.ruleTrue) and {'%logRule',head,src} or head,body})
-    local action = Event._compileAction(code,src,env.log)
-    if #reps>0 then -- @@interval rules
-      local event,env={type=Util.gensym("INTERV")},{code=reps[1]}
-      events[#events+1] = Event.event(event,action,{doc=src,log=log})
-      event._sh=true
-      local timeVal,skip = nil,ScriptEngine.eval2(env)
-      local function interval()
-        timeVal = timeVal or os.time()
-        Event.post(event)
-        timeVal = timeVal+math.abs(ScriptEngine.eval2(env))
-        setTimeout(interval,1000*(timeVal-os.time()))
-      end
-      setTimeout(interval,1000*(skip < 0 and -skip or 0))
-    else
-      local m,ot,catchup1,catchup2=midnight(),os.time()
-      if #dailys > 0 then -- daily rules
-        local event,timers={type=Util.gensym("DAILY"),_sh=true},{}
-        sdaily={dailys=dailys,event=event,timers=timers}
-        dailysTab[#dailysTab+1] = sdaily
-        events[#events+1]=Event.event(event,action,{doc=src,log=log})
-        local times = compTimes(dailys)
-        for _,t in ipairs(times) do _assert(tonumber(t),"@time not a number:%s",t)
-          if t ~= CATCHUP then
-            if _MIDNIGHTADJUST and t==HOURS24 then t=t-1 end
-            if t+m >= ot then 
-              timers[#timers+1]=Event.post(event,t+m) 
-            else catchup1=true end
-          else catchup2 = true end
-        end
-        if catchup2 and catchup1 then Log(LOG.LOG,"Catching up:%s",src); Event.post(event) end
-      end
-      if #dailys==0 and #triggers > 0 then -- id/glob trigger or events
-        for _,tr in ipairs(triggers) do 
-          if tr.propertyName~='<nop>' then events[#events+1]=Event.event(tr,action,{doc=src,log=log}) triggers2[#triggers2+1]=tr end
-        end
-      end
     end
-    res=#events>1 and Event._mkCombEvent(src,action,src,events) or events[1]
-    res.dailys = sdaily
-    if sdaily then sdaily.rule=res end
-    res.print = function()
-      Util.map(function(r) Log(LOG.LOG,"Interval(%s) =>...",time2str(r)) end,compTimes(reps)) 
-      Util.map(function(d) Log(LOG.LOG,"Daily(%s) =>...",d==CATCHUP and "catchup" or time2str(d)) end,compTimes(dailys)) 
-      Util.map(function(tr) Log(LOG.LOG,"Trigger(%s) =>...",tojson(tr)) end,triggers2)
+
+    local function trimRule(str)
+      local str2 = str:sub(1,(str:find("\n") or math.min(#str,_RULELOGLENGTH)+1)-1)
+      if #str2 < #str then str2=str2.."..." end
+      return str2
     end
-    rCounter=rCounter+1
-    return res
-  end
+
+    function self.compRule(e,env)
+      local head,body,log,res,events,src,triggers2,sdaily = e[2],e[3],e[4],{},{},env.src or "<no src>",{}
+      src=format(RULEFORMAT,rCounter+1,trimRule(src))
+      remapEvents(head)  -- #event -> eventmatch
+      local triggers,dailys,reps = getTriggers(head)
+      _assert(#triggers>0 or #dailys>0 or #reps>0, "no triggers found in header")
+      --_assert(not(#dailys>0 and #reps>0), "can't have @daily and @@interval rules together in header")
+      local code = ScriptCompiler.compile({'%and',(_debugFlags.rule or _debugFlags.ruleTrue) and {'%logRule',head,src} or head,body})
+      local action = Event._compileAction(code,src,env.log)
+      if #reps>0 then -- @@interval rules
+        local event,env={type=Util.gensym("INTERV")},{code=reps[1]}
+        events[#events+1] = Event.event(event,action,{doc=src,log=log})
+        event._sh=true
+        local timeVal,skip = nil,ScriptEngine.eval2(env)
+        local function interval()
+          timeVal = timeVal or os.time()
+          Event.post(event)
+          timeVal = timeVal+math.abs(ScriptEngine.eval2(env))
+          setTimeout(interval,1000*(timeVal-os.time()))
+        end
+        setTimeout(interval,1000*(skip < 0 and -skip or 0))
+      else
+        local m,ot,catchup1,catchup2=midnight(),os.time()
+        if #dailys > 0 then -- daily rules
+          local event,timers={type=Util.gensym("DAILY"),_sh=true},{}
+          sdaily={dailys=dailys,event=event,timers=timers}
+          dailysTab[#dailysTab+1] = sdaily
+          events[#events+1]=Event.event(event,action,{doc=src,log=log})
+          local times = compTimes(dailys)
+          for _,t in ipairs(times) do _assert(tonumber(t),"@time not a number:%s",t)
+            if t ~= CATCHUP then
+              if _MIDNIGHTADJUST and t==HOURS24 then t=t-1 end
+              if t+m >= ot then 
+                timers[#timers+1]=Event.post(event,t+m) 
+              else catchup1=true end
+            else catchup2 = true end
+          end
+          if catchup2 and catchup1 then Log(LOG.LOG,"Catching up:%s",src); Event.post(event) end
+        end
+        if #dailys==0 and #triggers > 0 then -- id/glob trigger or events
+          for _,tr in ipairs(triggers) do 
+            if tr.propertyName~='<nop>' then events[#events+1]=Event.event(tr,action,{doc=src,log=log}) triggers2[#triggers2+1]=tr end
+          end
+        end
+      end
+      res=#events>1 and Event._mkCombEvent(src,action,src,events) or events[1]
+      res.dailys = sdaily
+      if sdaily then sdaily.rule=res end
+      res.print = function()
+        Util.map(function(r) Log(LOG.LOG,"Interval(%s) =>...",time2str(r)) end,compTimes(reps)) 
+        Util.map(function(d) Log(LOG.LOG,"Daily(%s) =>...",d==CATCHUP and "catchup" or time2str(d)) end,compTimes(dailys)) 
+        Util.map(function(tr) Log(LOG.LOG,"Trigger(%s) =>...",tojson(tr)) end,triggers2)
+      end
+      rCounter=rCounter+1
+      return res
+    end
 
 -- context = {log=<bool>, level=<int>, line=<int>, doc=<str>, trigg=<bool>, enable=<bool>}
-  function self.eval(escript,log)
-    Util.validateChars(escript,"Invalid (multi-byte) char in rule:%s")
-    if log == nil then log = {} elseif log==true then log={print=true} end
-    if log.print==nil then log.print=true end
-    local status,res,ctx
-    status, res, ctx = spcall(function() 
-        local expr = self.macroSubs(escript)
-        if not log.cont then 
-          log.cont=function(res)
-            log.cont=nil
-            local name,r
-            if not log.print then return res end
-            if Util.isRule(res) then name,r=res.src,"OK" else name,r=escript,res end
-            Log(LOG.LOG,"%s = %s",name,tojson(r)) 
-            return res
-          end
-        end
-        local f = Event._compileAction(expr,nil,log)
-        return f({log=log,rule={cache={}}})
-      end)
-    if not status then 
-      if not isError(res) then res={ERR=true,ctx=ctx,src=escript,err=res} end
-      Log(LOG.ERROR,"Error in '%s': %s",res and res.src or "rule",res.err)
-      if res.ctx then Log(LOG.ERROR,"\n%s",res.ctx) end
-      error(res.err)
-    else return res end
-  end
-
-  function self.load(rules,log)
-    local function splitRules(rules)
-      local lines,cl,pb,cline = {},math.huge,false,""
-      if not rules:match("([^%c]*)\r?\n") then return {rules} end
-      rules:gsub("([^%c]*)\r?\n?",function(p) 
-          if p:match("^%s*---") then return end
-          local s,l = p:match("^(%s*)(.*)")
-          if l=="" then cl = math.huge return end
-          if #s > cl then cline=cline.." "..l cl = #s pb = true
-          elseif #s == cl and pb then cline=cline.." "..l
-          else if cline~="" then lines[#lines+1]=cline end cline=l cl=#s pb = false end
-        end)
-      lines[#lines+1]=cline
-      return lines
-    end
-    map(function(r) self.eval(r,log) end,splitRules(rules))
-  end
-
-  function self.macro(name,str) _macros['%$'..name..'%$'] = str end
-  function self.macroSubs(str) for m,s in pairs(_macros) do str = str:gsub(m,s) end return str end
-
-  function self.restartDaily(r)
-    if not r.dailys then return end
-    local dailys,dtimers = r.dailys,{}
-    for _,t in ipairs(dailys.timers or {}) do Event.cancel(t) end
-    dailys.timers = dtimers
-    local times,m,ot = compTimes(dailys.dailys),midnight(),os.time()
-    for _,t in ipairs(times) do
-      if _MIDNIGHTADJUST and t==HOURS24 then t=t-1 end
-      if t ~= CATCHUP and t+m >= ot then 
-        Debug(_debugFlags.dailys,"Rescheduling daily %s at %s",r._name or "",os.date("%c",t+m)); 
-        dtimers[#dtimers+1]=Event.post(dailys.event,t+m) 
-      end
-    end
-  end
-
-  Event.schedule("n/00:00",function(env)  -- Scheduler that every night posts 'daily' rules
-      local midnight = Util.midnight()
-      for _,d in ipairs(dailysTab) do
-        d.timers={}
-        local times,dt = compTimes(d.dailys)
-        for _,t in ipairs(times) do
-          if t ~= CATCHUP then
-            if _debugFlags.dailys then Debug(true,"Scheduling daily %s at %s",d.rule._name or "",os.date("%c",midnight+t)) end
-            if _MIDNIGHTADJUST and t==HOURS24 then t=t-1 end
-            if t==0 then dt=Event.post(d.event) else dt=Event.post(d.event,midnight+t) end
-            d.timers[#d.timers+1]=dt
-          end
-        end
-      end
-    end)
-  return self
-end
-
-------- Extra ER setup ------------------------------
-function extraERSetup()
-  local copy,member,equal=Util.copy,Util.member,Util.equal
-  local function makeDateInstr(f)
-    return function(s,n,e,i)
-      local ts,cache = s.pop(),e.rule.cache
-      if ts ~= i[5] then i[6] = Util.dateTest(f(ts)); i[5] = ts end -- cache fun
-      s.push(i[6]())
-    end
-  end
-  ScriptEngine.addInstr("date",makeDateInstr(function(s) return s end))             -- min,hour,days,month,wday
-  ScriptEngine.addInstr("day",makeDateInstr(function(s) return "* * "..s end))      -- day('1-31'), day('1,3,5')
-  ScriptEngine.addInstr("month",makeDateInstr(function(s) return "* * * "..s end))  -- month('jan-feb'), month('jan,mar,jun')
-  ScriptEngine.addInstr("wday",makeDateInstr(function(s) return "* * * * "..s end)) -- wday('fri-sat'), wday('mon,tue,wed')
-
--- Support for CentralSceneEvent & WeatherChangedEvent
-  _lastEID = {CentralSceneEvent={}, AccessControlEvent={}}
-  Event.event({type='event', event={type='$t', data='$data'}}, 
-    function(env) 
-      local t = env.p.t
-      if _lastEID[t] then
-        local id = Util.getIDfromEvent[t](env.p.data)
-        if not id then return end
-        env.p.data.timestamp=os.time()
-        _lastEID[t][id]=env.p.data
-        Event.post({type='property',deviceID=id,propertyName=t, value=env.p.data, _sh=true})
-      end
-    end)
-
-  _lastWeatherEvent = {}
-  Event.event({type='WeatherChangedEvent'}, 
-    function(env) _lastWeatherEvent[env.event.data.change] = env.event.data; _lastWeatherEvent['*'] = env.event.data end)
-  Rule.addTrigger('weather',
-    function(s,n,e,i) local k = n>0 and s.pop() or '*'; return s.push(_lastWeatherEvent[k]) end,
-    function(id) return {type='WeatherChangedEvent',data={changed=id}} end)
-
---- SceneActivation constants
-  Util.defvar('S1',Util.S1)
-  Util.defvar('S2',Util.S2)
-  Util.defvar('catch',math.huge)
-  Util.defvar("defvars",Util.defvars)
-  Util.defvar("mapvars",Util.reverseMapDef)
-  if _EMULATED then Util.getWeekNumber = _System.getWeekNumber
-  else Util.getWeekNumber = function(tm) return tonumber(os.date("%V",tm)) end end
-  function Util.findScenes(str)
-    local res = {}
-    for _,s1 in ipairs(api.get("/scenes")) do
-      if s1.isLua and s1.id~=__fibaroSceneId and s1.runningInstances > 0 then
-        local s2=api.get("/scenes/"..s1.id)
-        if s2==nil or s2.lua==nil then Log(LOG.ERROR,"Scene missing: %s",s1.id)
-        elseif s2.lua:match(str) then res[#res+1]=s1.id end
-      end
-    end
-    return res
-  end
--- Sunset/sunrise patch
-  local _SUNTIMEDAY = nil
-  local _SUNTIMEVALUES = {sunsetHour=nil,sunriseHour=nil,dawnHour=nil,duskHour=nil}
-  Event._registerID(1,nil,function(obj,id,prop) 
-      local s = _SUNTIMEVALUES
-      if prop=='sunsetHour' or prop=='sunriseHour' or prop=='dawnHour' or prop=='duskHour' then
-        local day = os.date("*t").day
-        if day ~= _SUNTIMEDAY then
-          _SUNTIMEDAY = day
-          s.sunriseHour,s.sunsetHour,s.dawnHour,s.duskHour=Util.sunCalc()
-        end
-        return _SUNTIMEVALUES[prop]
-      else return fibaro._get(obj,id,prop) end
-    end)
-
---------- Node-red support ---------
-  do
-    local nrr={}
-    function nodered(event,req,node)
-      node = node and node or _defaultNodeRed
-      _assert(node,"Missing nodered ip addres - set _defaultNodeRed at beginning of scene")
-      local tag = Util.gensym("NR")
-      event._transID = tag
-      Event.postRemote(node,event)
-      if req then
-        nrr[tag]={}
-        nrr[tag][1]=setTimeout(function() nrr[tag]=nil 
-            error("No response from Node-red, '%s'",(tojson(event)))
-          end,_NODEREDTIMEOUT)
-        return {['<cont>']=function(cont) nrr[tag][2]=cont end}
-      else return true end
-    end
-    Event.event({type='NODERED',value='$e',_transID='$tag'},
-      function(env) local p = env.p
-        if p.tag then
-          local cr = nrr[p.tag] or {}
-          clearTimeout(cr[1])
-          if cr[2] then cr[2](p.e) else Event.post(p.e) end
-          nrr[p.tag]=nil
-        else Event.post(p.e) end
-      end)
-  end
-
------------ Sonos speech/mp3
-  sonos = { vdID = 10, buttonID = 28, lang = 'en'}
-  function sonos._cmd(cmd)
-    vol = vol or 30
-    local _f = fibaro
-    local _x ={root="x_sonos_object",load=function(b)local c=_f:getGlobalValue(b.root)if string.len(c)>0 then local d=json.decode(c)if d and type(d)=="table"then return d else _f:debug("Unable to process data, check variable")end else _f:debug("No data found!")end end,set=function(b,e,d)local f=b:load()if f[e]then for g,h in pairs(d)do f[e][g]=h end else f[e]=d end;_f:setGlobal(b.root,json.encode(f))end,get=function(b,e)local f=b:load()if f and type(f)=="table"then for g,h in pairs(f)do if tostring(g)==tostring(e or"")then return h end end end;return nil end}
-    _x:set(tostring(sonos.vdID), cmd)
-    _f:call(sonos.vdID, "pressButton", sonos.buttonID)
-  end
-
-  function sonos.mp3(file, vol) vol=vol or 30; sonos._cmd({stream={stream=file, source="local", duration="auto", volume=vol}}) end
-  function sonos.speak(message, vol) vol=vol or 30; sonos._cmd({tts={message=message, duration='auto', language=sonos.lang, volume=vol}}) end
-
---------- Auto patch ---------------
-  function Util.checkVersion(vers)
-    local req = net.HTTPClient()
-    req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/VERSION.json",
-      {options = {method = 'GET', checkCertificate = false, timeout=20000},
-        success=function(data)
-          if data.status == 200 then
-            local v = json.decode(data.data)
-            v = v[_EVENTRUNNERSRCPATH]
-            if vers then v = v.scenes[vers] end
-            if v.version ~= _version or v.fix ~= _fix then
-              Event.post({type='ER_version',version=v.version,fix=v.fix or "", _sh=true})
+    function self.eval(escript,log)
+      Util.validateChars(escript,"Invalid (multi-byte) char in rule:%s")
+      if log == nil then log = {} elseif log==true then log={print=true} end
+      if log.print==nil then log.print=true end
+      local status,res,ctx
+      status, res, ctx = spcall(function() 
+          local expr = self.macroSubs(escript)
+          if not log.cont then 
+            log.cont=function(res)
+              log.cont=nil
+              local name,r
+              if not log.print then return res end
+              if Util.isRule(res) then name,r=res.src,"OK" else name,r=escript,res end
+              Log(LOG.LOG,"%s = %s",name,tojson(r)) 
+              return res
             end
           end
-        end})
+          local f = Event._compileAction(expr,nil,log)
+          return f({log=log,rule={cache={}}})
+        end)
+      if not status then 
+        if not isError(res) then res={ERR=true,ctx=ctx,src=escript,err=res} end
+        Log(LOG.ERROR,"Error in '%s': %s",res and res.src or "rule",res.err)
+        if res.ctx then Log(LOG.ERROR,"\n%s",res.ctx) end
+        error(res.err)
+      else return res end
+    end
+
+    function self.load(rules,log)
+      local function splitRules(rules)
+        local lines,cl,pb,cline = {},math.huge,false,""
+        if not rules:match("([^%c]*)\r?\n") then return {rules} end
+        rules:gsub("([^%c]*)\r?\n?",function(p) 
+            if p:match("^%s*---") then return end
+            local s,l = p:match("^(%s*)(.*)")
+            if l=="" then cl = math.huge return end
+            if #s > cl then cline=cline.." "..l cl = #s pb = true
+            elseif #s == cl and pb then cline=cline.." "..l
+            else if cline~="" then lines[#lines+1]=cline end cline=l cl=#s pb = false end
+          end)
+        lines[#lines+1]=cline
+        return lines
+      end
+      map(function(r) self.eval(r,log) end,splitRules(rules))
+    end
+
+    function self.macro(name,str) _macros['%$'..name..'%$'] = str end
+    function self.macroSubs(str) for m,s in pairs(_macros) do str = str:gsub(m,s) end return str end
+
+    function self.restartDaily(r)
+      if not r.dailys then return end
+      local dailys,dtimers = r.dailys,{}
+      for _,t in ipairs(dailys.timers or {}) do Event.cancel(t) end
+      dailys.timers = dtimers
+      local times,m,ot = compTimes(dailys.dailys),midnight(),os.time()
+      for _,t in ipairs(times) do
+        if _MIDNIGHTADJUST and t==HOURS24 then t=t-1 end
+        if t ~= CATCHUP and t+m >= ot then 
+          Debug(_debugFlags.dailys,"Rescheduling daily %s at %s",r._name or "",os.date("%c",t+m)); 
+          dtimers[#dtimers+1]=Event.post(dailys.event,t+m) 
+        end
+      end
+    end
+
+    Event.schedule("n/00:00",function(env)  -- Scheduler that every night posts 'daily' rules
+        local midnight = Util.midnight()
+        for _,d in ipairs(dailysTab) do
+          d.timers={}
+          local times,dt = compTimes(d.dailys)
+          for _,t in ipairs(times) do
+            if t ~= CATCHUP then
+              if _debugFlags.dailys then Debug(true,"Scheduling daily %s at %s",d.rule._name or "",os.date("%c",midnight+t)) end
+              if _MIDNIGHTADJUST and t==HOURS24 then t=t-1 end
+              if t==0 then dt=Event.post(d.event) else dt=Event.post(d.event,midnight+t) end
+              d.timers[#d.timers+1]=dt
+            end
+          end
+        end
+      end)
+    return self
   end
 
-  local _EVENTRUNNERDELIMETER = "%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%- EventModel %- Don't change! "
+------- Extra ER setup ------------------------------
+  function extraERSetup()
+    local copy,member,equal=Util.copy,Util.member,Util.equal
+    local function makeDateInstr(f)
+      return function(s,n,e,i)
+        local ts,cache = s.pop(),e.rule.cache
+        if ts ~= i[5] then i[6] = Util.dateTest(f(ts)); i[5] = ts end -- cache fun
+        s.push(i[6]())
+      end
+    end
+    ScriptEngine.addInstr("date",makeDateInstr(function(s) return s end))             -- min,hour,days,month,wday
+    ScriptEngine.addInstr("day",makeDateInstr(function(s) return "* * "..s end))      -- day('1-31'), day('1,3,5')
+    ScriptEngine.addInstr("month",makeDateInstr(function(s) return "* * * "..s end))  -- month('jan-feb'), month('jan,mar,jun')
+    ScriptEngine.addInstr("wday",makeDateInstr(function(s) return "* * * * "..s end)) -- wday('fri-sat'), wday('mon,tue,wed')
 
-  function Util.patchEventRunner(newSrc)
-    if newSrc == nil then
+-- Support for CentralSceneEvent & WeatherChangedEvent
+    _lastEID = {CentralSceneEvent={}, AccessControlEvent={}}
+    Event.event({type='event', event={type='$t', data='$data'}}, 
+      function(env) 
+        local t = env.p.t
+        if _lastEID[t] then
+          local id = Util.getIDfromEvent[t](env.p.data)
+          if not id then return end
+          env.p.data.timestamp=os.time()
+          _lastEID[t][id]=env.p.data
+          Event.post({type='property',deviceID=id,propertyName=t, value=env.p.data, _sh=true})
+        end
+      end)
+
+    _lastWeatherEvent = {}
+    Event.event({type='WeatherChangedEvent'}, 
+      function(env) _lastWeatherEvent[env.event.data.change] = env.event.data; _lastWeatherEvent['*'] = env.event.data end)
+    Rule.addTrigger('weather',
+      function(s,n,e,i) local k = n>0 and s.pop() or '*'; return s.push(_lastWeatherEvent[k]) end,
+      function(id) return {type='WeatherChangedEvent',data={changed=id}} end)
+
+--- SceneActivation constants
+    Util.defvar('S1',Util.S1)
+    Util.defvar('S2',Util.S2)
+    Util.defvar('catch',math.huge)
+    Util.defvar("defvars",Util.defvars)
+    Util.defvar("mapvars",Util.reverseMapDef)
+    if _EMULATED then Util.getWeekNumber = _System.getWeekNumber
+    else Util.getWeekNumber = function(tm) return tonumber(os.date("%V",tm)) end end
+    function Util.findScenes(str)
+      local res = {}
+      for _,s1 in ipairs(api.get("/scenes")) do
+        if s1.isLua and s1.id~=__fibaroSceneId and s1.runningInstances > 0 then
+          local s2=api.get("/scenes/"..s1.id)
+          if s2==nil or s2.lua==nil then Log(LOG.ERROR,"Scene missing: %s",s1.id)
+          elseif s2.lua:match(str) then res[#res+1]=s1.id end
+        end
+      end
+      return res
+    end
+-- Sunset/sunrise patch
+    local _SUNTIMEDAY = nil
+    local _SUNTIMEVALUES = {sunsetHour=nil,sunriseHour=nil,dawnHour=nil,duskHour=nil}
+    Event._registerID(1,nil,function(obj,id,prop) 
+        local s = _SUNTIMEVALUES
+        if prop=='sunsetHour' or prop=='sunriseHour' or prop=='dawnHour' or prop=='duskHour' then
+          local day = os.date("*t").day
+          if day ~= _SUNTIMEDAY then
+            _SUNTIMEDAY = day
+            s.sunriseHour,s.sunsetHour,s.dawnHour,s.duskHour=Util.sunCalc()
+          end
+          return _SUNTIMEVALUES[prop]
+        else return fibaro._get(obj,id,prop) end
+      end)
+
+--------- Node-red support ---------
+    do
+      local nrr={}
+      function nodered(event,req,node)
+        node = node and node or _defaultNodeRed
+        _assert(node,"Missing nodered ip addres - set _defaultNodeRed at beginning of scene")
+        local tag = Util.gensym("NR")
+        event._transID = tag
+        Event.postRemote(node,event)
+        if req then
+          nrr[tag]={}
+          nrr[tag][1]=setTimeout(function() nrr[tag]=nil 
+              error("No response from Node-red, '%s'",(tojson(event)))
+            end,_NODEREDTIMEOUT)
+          return {['<cont>']=function(cont) nrr[tag][2]=cont end}
+        else return true end
+      end
+      Event.event({type='NODERED',value='$e',_transID='$tag'},
+        function(env) local p = env.p
+          if p.tag then
+            local cr = nrr[p.tag] or {}
+            clearTimeout(cr[1])
+            if cr[2] then cr[2](p.e) else Event.post(p.e) end
+            nrr[p.tag]=nil
+          else Event.post(p.e) end
+        end)
+    end
+
+----------- Sonos speech/mp3
+    sonos = { vdID = 10, buttonID = 28, lang = 'en'}
+    function sonos._cmd(cmd)
+      vol = vol or 30
+      local _f = fibaro
+      local _x ={root="x_sonos_object",load=function(b)local c=_f:getGlobalValue(b.root)if string.len(c)>0 then local d=json.decode(c)if d and type(d)=="table"then return d else _f:debug("Unable to process data, check variable")end else _f:debug("No data found!")end end,set=function(b,e,d)local f=b:load()if f[e]then for g,h in pairs(d)do f[e][g]=h end else f[e]=d end;_f:setGlobal(b.root,json.encode(f))end,get=function(b,e)local f=b:load()if f and type(f)=="table"then for g,h in pairs(f)do if tostring(g)==tostring(e or"")then return h end end end;return nil end}
+      _x:set(tostring(sonos.vdID), cmd)
+      _f:call(sonos.vdID, "pressButton", sonos.buttonID)
+    end
+
+    function sonos.mp3(file, vol) vol=vol or 30; sonos._cmd({stream={stream=file, source="local", duration="auto", volume=vol}}) end
+    function sonos.speak(message, vol) vol=vol or 30; sonos._cmd({tts={message=message, duration='auto', language=sonos.lang, volume=vol}}) end
+
+--------- Auto patch ---------------
+    function Util.checkVersion(vers)
       local req = net.HTTPClient()
-      req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/".._EVENTRUNNERSRCPATH,
+      req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/VERSION.json",
         {options = {method = 'GET', checkCertificate = false, timeout=20000},
           success=function(data)
             if data.status == 200 then
-              local src = data.data
-              Util.patchEventRunner(src)
+              local v = json.decode(data.data)
+              v = v[_EVENTRUNNERSRCPATH]
+              if vers then v = v.scenes[vers] end
+              if v.version ~= _version or v.fix ~= _fix then
+                Event.post({type='ER_version',version=v.version,fix=v.fix or "", _sh=true})
+              end
             end
-          end,
-          error=function(status) Log(LOG.LOG,"Err:Get src code from Github: %s",status) end
-        })
-    else
-      local oldSrc,scene="",nil
-      if __fullFileName then
-        local f = io.open(__fullFileName)
-        if not f then return end
-        oldSrc = f:read("*all")
-      else scene = api.get("/scenes/"..__fibaroSceneId); oldSrc=scene.lua end
-      local obp = oldSrc:find(_EVENTRUNNERDELIMETER)
-      oldSrc = oldSrc:sub(1,obp-1)
-      local nbp = newSrc:find(_EVENTRUNNERDELIMETER)
-      local nbody = newSrc:sub(nbp)
-      oldSrc = oldSrc:gsub("(_version,_fix = .-\n)",newSrc:match("(_version,_fix = .-\n)"))
-      Log(LOG.LOG,"Patching scene to latest version")
-      if __fullFileName then
-        local f = io.open(__fullFileName, "w")
-        io.output(f)
-        io.write(oldSrc..nbody)
-        io.close(f)
-      else scene.lua=oldSrc..nbody; api.put("/scenes/"..__fibaroSceneId,scene) end
+          end})
     end
-  end
+
+    local _EVENTRUNNERDELIMETER = "%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-%- EventModel %- Don't change! "
+
+    function Util.patchEventRunner(newSrc)
+      if newSrc == nil then
+        local req = net.HTTPClient()
+        req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/".._EVENTRUNNERSRCPATH,
+          {options = {method = 'GET', checkCertificate = false, timeout=20000},
+            success=function(data)
+              if data.status == 200 then
+                local src = data.data
+                Util.patchEventRunner(src)
+              end
+            end,
+            error=function(status) Log(LOG.LOG,"Err:Get src code from Github: %s",status) end
+          })
+      else
+        local oldSrc,scene="",nil
+        if __fullFileName then
+          local f = io.open(__fullFileName)
+          if not f then return end
+          oldSrc = f:read("*all")
+        else scene = api.get("/scenes/"..__fibaroSceneId); oldSrc=scene.lua end
+        local obp = oldSrc:find(_EVENTRUNNERDELIMETER)
+        oldSrc = oldSrc:sub(1,obp-1)
+        local nbp = newSrc:find(_EVENTRUNNERDELIMETER)
+        local nbody = newSrc:sub(nbp)
+        oldSrc = oldSrc:gsub("(_version,_fix = .-\n)",newSrc:match("(_version,_fix = .-\n)"))
+        Log(LOG.LOG,"Patching scene to latest version")
+        if __fullFileName then
+          local f = io.open(__fullFileName, "w")
+          io.output(f)
+          io.write(oldSrc..nbody)
+          io.close(f)
+        else scene.lua=oldSrc..nbody; api.put("/scenes/"..__fibaroSceneId,scene) end
+      end
+    end
 
 -- Ping / publish / subscribe / & emulator support
-  Event._dir,Event._rScenes,Event._subs,Event._stats = {},{},{},{}
-  Event.ANNOUNCE,Event.SUB = '%%ANNOUNCE%%','%%SUB%%' 
-  Event.event({type=Event.PING},function(env) local e=copy(env.event);e.type=Event.PONG; Event.postRemote(e._from,e) end)
+    Event._dir,Event._rScenes,Event._subs,Event._stats = {},{},{},{}
+    Event.ANNOUNCE,Event.SUB = '%%ANNOUNCE%%','%%SUB%%' 
+    Event.event({type=Event.PING},function(env) local e=copy(env.event);e.type=Event.PONG; Event.postRemote(e._from,e) end)
 
-  local function isRunning(id) 
-    if _EMULATED then id = math.abs(id) end
-    return fibaro:countScenes(id)>0 
-  end
-
-  Event.event({{type='autostart'},{type='other'}},
-    function(env)
-      local event = {type=Event.ANNOUNCE, subs=#Event._subs>0 and Event._subs or nil}
-      for _,id in ipairs(Util.findScenes(gEventRunnerKey)) do 
-        if isRunning(id) then
-          Debug(_debugFlags.pubsub,"Announce to ID:%s %s",id,tojson(env.event.subs)); Event._rScenes[id]=true; Event.postRemote(id,event) 
-        end
-      end
-    end)
-
-  Event.event({type=Event.ANNOUNCE},function(env)
-      local id = env.event._from
+    local function isRunning(id) 
       if _EMULATED then id = math.abs(id) end
-      Debug(_debugFlags.pubsub,"Announce from ID:%s %s",id,env.event.subs and tojson(env.event.subs) or "")
-      Event._rScenes[id]=true;
-      if #Event._subs>0 then Event.postRemote(id,{type=Event.SUB, event=Event._subs}) end
-      for _,e in ipairs(Event._dir) do for i,id2 in ipairs(e.ids) do if id==id2 then table.remove(e.ids,i); break; end end end
-      if env.event.subs then Event.post({type=Event.SUB, event=env.event.subs, _from=id}) end
-    end)
-
-  function Event.sendScene(id,event) if Event._rScenes[id] and isRunning(id) then Event.postRemote(id,event) else Event._rScenes[id]=false end end
-  function Event.sendAllScenes(event) for id,_ in pairs(Event._rScenes) do Event.sendScene(id,event) end end
-  function Event.subscribe(event,h) 
-    Event._subs[#Event._subs+1]=event; Event.sendAllScenes({type=Event.SUB, event=event}) 
-    if h then Event.event(event,h) end
-  end
-  function Event.publish(event,stat)
-    if stat then Event._stats[#Event._stats+1]=event end
-    for _,e in ipairs(Event._dir) do
-      if Event._match(e.pattern,event) then for _,id in ipairs(e.ids) do Event.sendScene(id,event) end end
+      return fibaro:countScenes(id)>0 
     end
-  end
 
-  Event.event({type=Event.SUB},
-    function(env)
-      local id = env.event._from
-      if _EMULATED then id = math.abs(id) end
-      Debug(_debugFlags.pubsub,"Subcribe from ID:%s %s",id,tojson(env.event.event))
-      for _,event in ipairs(env.event.event[1] and env.event.event or {env.event.event}) do
-        local seen = false
-        for _,e in ipairs(Event._dir) do
-          if equal(e.event,event) then seen=true; if not member(id,e.ids) then e.ids[#e.ids+1]=id end; break; end
-        end
-        if not seen then
-          local pattern = copy(event); Event._compilePattern(pattern)
-          Event._dir[#Event._dir+1]={event=event,ids={id},pattern=pattern}
-          for _,se in ipairs(Event._stats) do
-            if Event._match(pattern,se) then Event.sendScene(id,se) end
+    Event.event({{type='autostart'},{type='other'}},
+      function(env)
+        local event = {type=Event.ANNOUNCE, subs=#Event._subs>0 and Event._subs or nil}
+        for _,id in ipairs(Util.findScenes(gEventRunnerKey)) do 
+          if isRunning(id) then
+            Debug(_debugFlags.pubsub,"Announce to ID:%s %s",id,tojson(env.event.subs)); Event._rScenes[id]=true; Event.postRemote(id,event) 
           end
         end
+      end)
+
+    Event.event({type=Event.ANNOUNCE},function(env)
+        local id = env.event._from
+        if _EMULATED then id = math.abs(id) end
+        Debug(_debugFlags.pubsub,"Announce from ID:%s %s",id,env.event.subs and tojson(env.event.subs) or "")
+        Event._rScenes[id]=true;
+        if #Event._subs>0 then Event.postRemote(id,{type=Event.SUB, event=Event._subs}) end
+        for _,e in ipairs(Event._dir) do for i,id2 in ipairs(e.ids) do if id==id2 then table.remove(e.ids,i); break; end end end
+        if env.event.subs then Event.post({type=Event.SUB, event=env.event.subs, _from=id}) end
+      end)
+
+    function Event.sendScene(id,event) if Event._rScenes[id] and isRunning(id) then Event.postRemote(id,event) else Event._rScenes[id]=false end end
+    function Event.sendAllScenes(event) for id,_ in pairs(Event._rScenes) do Event.sendScene(id,event) end end
+    function Event.subscribe(event,h) 
+      Event._subs[#Event._subs+1]=event; Event.sendAllScenes({type=Event.SUB, event=event}) 
+      if h then Event.event(event,h) end
+    end
+    function Event.publish(event,stat)
+      if stat then Event._stats[#Event._stats+1]=event end
+      for _,e in ipairs(Event._dir) do
+        if Event._match(e.pattern,event) then for _,id in ipairs(e.ids) do Event.sendScene(id,event) end end
       end
-    end)
-end
+    end
+
+    Event.event({type=Event.SUB},
+      function(env)
+        local id = env.event._from
+        if _EMULATED then id = math.abs(id) end
+        Debug(_debugFlags.pubsub,"Subcribe from ID:%s %s",id,tojson(env.event.event))
+        for _,event in ipairs(env.event.event[1] and env.event.event or {env.event.event}) do
+          local seen = false
+          for _,e in ipairs(Event._dir) do
+            if equal(e.event,event) then seen=true; if not member(id,e.ids) then e.ids[#e.ids+1]=id end; break; end
+          end
+          if not seen then
+            local pattern = copy(event); Event._compilePattern(pattern)
+            Event._dir[#Event._dir+1]={event=event,ids={id},pattern=pattern}
+            for _,se in ipairs(Event._stats) do
+              if Event._match(pattern,se) then Event.sendScene(id,se) end
+            end
+          end
+        end
+      end)
+  end
 
 ------- Virtual device creation support ---------------------------------
-function makeVDevSupport()
-  local self = {}
-  local ip, port = "127.0.0.1",80
-  if _EMULATED then ip,port=_System.ipAdress,_System.port end
-  local function CODE(lbl,tag) 
-    return string.format(
+  function makeVDevSupport()
+    local self = {}
+    local ip, port = "127.0.0.1",80
+    if _EMULATED then ip,port=_System.ipAdress,_System.port end
+    local function CODE(lbl,tag) 
+      return string.format(
 [[local sceneID,label,tag=%s,'%s','%s'
   local VDID=fibaro:getSelfId()
   local val = fibaro:getValue(VDID,"ui.%s.value") or ""
@@ -2154,301 +2155,301 @@ else
     fibaro:debug("error "..err)
   end
 end]],_EMULATED and -__fibaroSceneId or __fibaroSceneId,lbl,tag,lbl,ip,port)
-  end
+    end
 
-  local function makeElement(tag,id,name,lbl) return {id=id,lua=false,waitForResponse=false,caption=name,name=lbl,favourite=false,main=false} end
-  local function makeButton(tag,id,name,lbl) 
-    local b=makeElement(tag,id,name,lbl); b.empty,b.lua,b.msg,b.buttonIcon=false,true,CODE(lbl,tag),0; return b 
-  end 
-  local function makeSlider(tag,id,name,lbl,def) local b=makeButton(tag,id,name,lbl); b.empty,b.value=def,0; return b end 
-  local eCreate={button=makeButton,slider=makeSlider,label=makeElement}
+    local function makeElement(tag,id,name,lbl) return {id=id,lua=false,waitForResponse=false,caption=name,name=lbl,favourite=false,main=false} end
+    local function makeButton(tag,id,name,lbl) 
+      local b=makeElement(tag,id,name,lbl); b.empty,b.lua,b.msg,b.buttonIcon=false,true,CODE(lbl,tag),0; return b 
+    end 
+    local function makeSlider(tag,id,name,lbl,def) local b=makeButton(tag,id,name,lbl); b.empty,b.value=def,0; return b end 
+    local eCreate={button=makeButton,slider=makeSlider,label=makeElement}
 
-  local function createVD(vt,name,tag,vers,rows)
-    local vp,tagv = vt.properties or {}, tag..":"..vers
-    local vd = {id=vt.id or 42,name=name,roomID=vt.roomID or 0,type='virtual_device',visible=vt.visible or true,enabled=true,actions={pressButton=1,setSlider=2}}
-    local id,ui,props = 1,{},{deviceIcon=vp.deviceIcon or 0,ip="",port=80,currentIcon=vt.currentIcon or "0",log="",logTemp="",mainLoop="t='"..tagv.."'",rows={}}
-    for _,row in ipairs(rows) do
-      local etype = row[1] -- type
-      local r = {type = etype, elements = {}}
-      for i=2,#row do 
-        local e = row[i]
-        r.elements[#r.elements+1]= eCreate[etype](tag,id,e[1],e[2],e[3]); id=id+1
-        if etype=='label' then r.elements[#r.elements].favourite=e[4] or false end
-        if etype~='button' then ui["ui."..e[2]..".value"] = e[3] or "" end
+    local function createVD(vt,name,tag,vers,rows)
+      local vp,tagv = vt.properties or {}, tag..":"..vers
+      local vd = {id=vt.id or 42,name=name,roomID=vt.roomID or 0,type='virtual_device',visible=vt.visible or true,enabled=true,actions={pressButton=1,setSlider=2}}
+      local id,ui,props = 1,{},{deviceIcon=vp.deviceIcon or 0,ip="",port=80,currentIcon=vt.currentIcon or "0",log="",logTemp="",mainLoop="t='"..tagv.."'",rows={}}
+      for _,row in ipairs(rows) do
+        local etype = row[1] -- type
+        local r = {type = etype, elements = {}}
+        for i=2,#row do 
+          local e = row[i]
+          r.elements[#r.elements+1]= eCreate[etype](tag,id,e[1],e[2],e[3]); id=id+1
+          if etype=='label' then r.elements[#r.elements].favourite=e[4] or false end
+          if etype~='button' then ui["ui."..e[2]..".value"] = e[3] or "" end
+        end
+        props.rows[#props.rows+1]=r
       end
-      props.rows[#props.rows+1]=r
-    end
-    for k,v in pairs(ui) do props[k]=v end
-    vd.properties = props
-    return vd,ui
-  end 
+      for k,v in pairs(ui) do props[k]=v end
+      vd.properties = props
+      return vd,ui
+    end 
 
-  local function createVDObject(vd) 
-    local self = { id = vd.id, map={} }
-    for _,r in ipairs(vd.properties.rows) do for _,e in ipairs(r.elements) do self.map[e.name]=e.id end end
-    function self.idOf(lbl) return self.map[lbl] end
-    function self.setValue(lbl,val) return fibaro:call(self.id,"setProperty","ui."..lbl..".value",val) end
-    function self.getValue(lbl) return fibaro:getValue(self.id,"ui."..lbl..".value") end
-    function self.setIcon(icon)
-      local vd = api.get("/virtualDevices/"..self.id)
-      vd.properties.deviceIcon=icon
-      for _,row in pairs(vd.properties.rows) do 
-        for _,element in pairs(row.elements) do element.buttonIcon=icon end 
-      end 
-      api.put("/virtualDevices/"..self.id,vd)
+    local function createVDObject(vd) 
+      local self = { id = vd.id, map={} }
+      for _,r in ipairs(vd.properties.rows) do for _,e in ipairs(r.elements) do self.map[e.name]=e.id end end
+      function self.idOf(lbl) return self.map[lbl] end
+      function self.setValue(lbl,val) return fibaro:call(self.id,"setProperty","ui."..lbl..".value",val) end
+      function self.getValue(lbl) return fibaro:getValue(self.id,"ui."..lbl..".value") end
+      function self.setIcon(icon)
+        local vd = api.get("/virtualDevices/"..self.id)
+        vd.properties.deviceIcon=icon
+        for _,row in pairs(vd.properties.rows) do 
+          for _,element in pairs(row.elements) do element.buttonIcon=icon end 
+        end 
+        api.put("/virtualDevices/"..self.id,vd)
+      end
+
+      return self
     end
 
+    local _CACHE_FIND_VIRTUALS = nil
+    local function find(tag)
+      local tmatch="^t='("..tag.."):(%d+)'"
+      local vds = _CACHE_FIND_VIRTUALS or api.get("/virtualDevices")
+      _CACHE_FIND_VIRTUALS = vds
+      for _,vd1 in ipairs(vds) do 
+        local tag,vers=(vd1.properties and vd1.properties.mainLoop or ""):match(tmatch)
+        if tag then return tag,vers,vd1 end
+      end
+      return nil
+    end
+
+    function self.clearCache() _CACHE_FIND_VIRTUALS = nil end
+
+    function self.remove(tag)
+      local tag1,vers,vd = find(tag)
+      if tag1 then api.delete("/virtualDevices/"..vd.id); Log(LOG.LOG,"VD %s deleted",vd.name) return vd 
+      else Log(LOG.LOG,"VD tag:%s not found",tag) end
+    end
+
+    function self.define(name,tag,version,rows)
+      version = tostring(version)
+      local tag1,vers,vd,ui = find(tag)
+      if tag1 then
+        if vers==version then 
+          Log(LOG.LOG,"VD %s already exist",name)
+          return createVDObject(vd)
+        end
+      end
+      if not vd then vd = api.post("/virtualDevices",{id=42,name=name}) Log(LOG.LOG,"VD %s created",name) else Log(LOG.LOG,"VD %s updated",name) end
+      vd,ui=createVD(vd,name,tag,(version or 1),rows)
+      api.put("/virtualDevices/"..vd.id,vd)
+      for k,v in pairs(ui) do fibaro:call(vd.id,"setProperty",k,v) end
+      return createVDObject(vd)
+    end
     return self
   end
 
-  local _CACHE_FIND_VIRTUALS = nil
-  local function find(tag)
-    local tmatch="^t='("..tag.."):(%d+)'"
-    local vds = _CACHE_FIND_VIRTUALS or api.get("/virtualDevices")
-    _CACHE_FIND_VIRTUALS = vds
-    for _,vd1 in ipairs(vds) do 
-      local tag,vers=(vd1.properties and vd1.properties.mainLoop or ""):match(tmatch)
-      if tag then return tag,vers,vd1 end
-    end
-    return nil
-  end
-
-  function self.clearCache() _CACHE_FIND_VIRTUALS = nil end
-
-  function self.remove(tag)
-    local tag1,vers,vd = find(tag)
-    if tag1 then api.delete("/virtualDevices/"..vd.id); Log(LOG.LOG,"VD %s deleted",vd.name) return vd 
-    else Log(LOG.LOG,"VD tag:%s not found",tag) end
-  end
-
-  function self.define(name,tag,version,rows)
-    version = tostring(version)
-    local tag1,vers,vd,ui = find(tag)
-    if tag1 then
-      if vers==version then 
-        Log(LOG.LOG,"VD %s already exist",name)
-        return createVDObject(vd)
-      end
-    end
-    if not vd then vd = api.post("/virtualDevices",{id=42,name=name}) Log(LOG.LOG,"VD %s created",name) else Log(LOG.LOG,"VD %s updated",name) end
-    vd,ui=createVD(vd,name,tag,(version or 1),rows)
-    api.put("/virtualDevices/"..vd.id,vd)
-    for k,v in pairs(ui) do fibaro:call(vd.id,"setProperty",k,v) end
-    return createVDObject(vd)
-  end
-  return self
-end
-
 ------- Hue support ---------------------------------
-function makeHueSupport(cont)
-  local _defaultHubName,format = "Hue",string.format
-  --[[
+  function makeHueSupport(cont)
+    local _defaultHubName,format = "Hue",string.format
+    --[[
        _HueHubs = {{name="Hub1",user="hghgjhT6TUG", ip="192.168.1.50"}}
       Hue.define("Hub1:my Light","light",890)
 --]]
-  local function makeHueHub(name,username,ip,cont)
-    local lights,groups,scenes,sensors = {},{},{},{}
-    local self = {lights=lights,groups=groups,scenes=scenes,sensors=sensors}
-    local hubName,baseURL=name,"http://"..ip..":80/api/"..username.."/"
-    local lightURL = baseURL.."lights/%s/state"
-    local groupURL = baseURL.."groups/%s/action"
-    local sensorURL = baseURL.."sensors/%s"
-    function self._setState(hue,prop,val,upd)
-      if type(prop)=='table' then 
-        for k,v in pairs(prop) do self._setState(hue,k,v,upd) end
-        return
-      end
-      local change,id = hue.state[prop]~=nil and hue.state[prop] ~= val, hue.fid
-      hue.state[prop],hue.state['lastupdate']=val,os.time()
-      local filter = id and hue._filter
-      if change and id and filter and filter[prop] then 
-        Event.post({type='property',deviceID=id,propertyName=prop,value=val,_hue=true,_sh=_debugFlags.hue}) 
-      end
-      --Log(LOG.LOG,"Name:%s, PROP:%s, VAL:%s",hue.name,tojson(prop),tojson(val))
-      if (not upd) and hue.lights then -- for groups
-        for _,id in ipairs(hue.lights) do self._setState(lights[tonumber(id)],prop,val,upd) end 
-      end
-    end
-    function self.updateState(state) -- partial state
-      for _,s in ipairs(state[1] and state or {}) do
-        if s.success then 
-          for p,v in pairs(s.success) do 
-            local tp,id,mt,prop = p:match("/(%a+)/(%d+)/(%a+)/(.*)")
-            if id then self._setState(self[tp][ tonumber(id) ],prop,v)
-            else Log(LOG.LOG,"Unknown Hue state %s %s",p,v) end
-          end --for 
-        end -- if
-      end --for
-    end --fun
-    local function setFullState(devices,id,d,state,t,url)
-      local dd = devices[d.name] or {name=d.name,id=tonumber(id), state={}, type=t, url=url,lights=d.lights, scenes={}}
-      devices[d.name],devices[tonumber(id)]=dd,dd
-      self._setState(dd,d[state],nil,true)
-    end
-    local function match(t1,t2) if #t1~=#t2 then return false end; for i=1,#t1 do if t1[i]~=t2[i] then return false end end return true end
-    function self.getFullState(f)
-      Hue.request(baseURL,function(data)
-          for id,d in pairs(data.sensors) do setFullState(sensors,id,d,'state','sensor',sensorURL) end
-          for id,d in pairs(data.lights) do setFullState(lights,id,d,'state','light',lightURL) end
-          for id,d in pairs(data.groups) do table.sort(d.lights) setFullState(groups,id,d,'action','group',groupURL) end
-          for id,d in pairs(data.scenes) do if d.version>1 then 
-            scenes[d.name] = id; table.sort(d.lights)
-            for _,g in pairs(groups) do if match(g.lights,d.lights) then g.scenes[d.name]=id end end
-          end end
-          if f then f() end
-        end)
-    end
-    local _defFilter={buttonevent=true, on=true}
-    function self.monitor(sensor,interval,filter)
-      local url = sensor.url:sub(#baseURL+1)
-      url=baseURL..format(url:match("(.-/)").."%s",sensor.id)
-      sensor._filter = filter or sensor._filter or _defFilter
-      if sensor._timer then clearTimeout(sensor._timer) sensor._timer=nil end
-      if interval>0 then 
-        Debug(_debugFlags.hue,"Monitoring URL:%s",url)
-        local function poll() 
-          Hue.request(url,function(state) self._setState(sensor,state.state) sensor._timer=setTimeout(poll,interval) end)
-        end
-        poll()
-      end
-    end
-    function self.dump()
-      Log(LOG.LOG,"%s------------ Hue Lights ---------------------",name)
-      for k,v in pairs(lights) do if not tonumber(k) then Log(LOG.LOG,"Light '%s' id=%s",k,json.encode(v.id)) end end
-      Log(LOG.LOG,"%s------------- Hue Groups ---------------------",name)
-      for k,v in pairs(groups) do if not tonumber(k) then Log(LOG.LOG,"Group '%s' id=%s",k,json.encode(v.id)) end end
-      Log(LOG.LOG,"%s------------- Hue Scenes ---------------------",name)
-      for k,v in pairs(scenes) do Log(LOG.LOG,"Scene '%s' id=%s",k,v) end
-      Log(LOG.LOG,"%s------------- Hue Sensors ---------------------",name)
-      for k,v in pairs(sensors) do if not tonumber(k) then Log(LOG.LOG,"Sensor '%s' id=%s",k,json.encode(v.id)) end end
-      Log(LOG.LOG,"----------------------------------------------")
-    end
-    Hue.hubs[name]=self -- hack
-    self.getFullState(cont)
-    return self
-  end
-
-  local function makeHue()
-    local self, devMap, hueNames = { hubs={} }, {}, {}
-    local HTTP = net.HTTPClient()
-    function self.isHue(id) return devMap[id] and devMap[id].hue end
-    function self.name(n) return hueNames[n] end   
-    function self.connect(name,user,ip,cont)
-      self.hubs[name]=makeHueHub(name,user,ip,cont)
-    end
-    function self.hueName(hue) --Hue1:SensorID=1
-      local name,t,id=hue:match("(%w+):(%a+)=(%d+)")
-      local dev = ({SensorID='sensors',LightID='lights',GroupID='groups'})[t]
-      return name..":"..self.hubs[name][dev][tonumber(id)].name 
-    end
-    function self.request(url,cont,op,payload)
-      op,payload = op or "GET", payload and json.encode(payload) or ""
-      Debug(_debugFlags.hue,"Hue req:%s Payload:%s",url,payload)
-      HTTP:request(url,{
-          options = {headers={['Accept']='application/json',['Content-Type']='application/json'},
-            data = payload, timeout=_HUETIMEOUT, method = op},
-          error = function(status) error("Hue connection:"..tojson(status)..", "..url) end,
-          success = function(status) if cont then cont(json.decode(status.data)) end end
-        })
-    end
-
-    function self.dump() for _,h in pairs(self.hubs) do h.dump() end end
-    local function find(name) -- find a Hue device in any of the connected Hue hubs we have, name is <hub>:<name>
-      local hname,dname=name:match("(.*):(.*)")
-      local hub = self.hubs[hname]
-      return hub.lights[dname] or hub.groups[dname] or hub.sensors[dname],hname
-    end
-
-    local function hueCall(obj,id,...)
-      local val,params=({...})[1],{select(2,...)}
-      if Hue[val] then Hue[val](id,table.unpack(params)) end
-    end
-    local function hueGet(obj,id,...)
-      local val,res,dev,time=({...})[1],nil,Hue.isHue(id)
-      if val=='value' then 
-        if dev.state.on and (dev.state.reachable==nil or  dev.state.reachable==true) then 
-          res = dev.state.bri and tostring(math.floor((dev.state.bri/254)*99+0.5)) or '99' 
-        else res = '0' end 
-      elseif val=='values' then res = dev.state
-      else res =  dev.state[val] and tostring(dev.state[val]) or nil end
-      time=dev.state.lastupdate or 0
-      Debug(_debugFlags.hue,"Get ID:%s %s -> %s",id,val,res)
-      return res and res,time
-    end
-
-    local mapIndex=10000 -- start mapping at deviceID 10000
-    --devMap[deviceID] -> {hub, type, hue}
-    function self.define(name,var,id) -- optional var
-      if id ==nil then id = mapIndex; mapIndex=mapIndex+1 else id =tonumber(id) end
-      if not name:match(":") then name=_defaultHubName..":"..name end -- default to Hue:<name>
-      hueNames[name]=id
-      local hue,hub = find(name) 
-      if hue then devMap[id] = {type=hue.type,hue=hue,hub=self.hubs[hub]}; hue.fid=id    
-      else error("No Hue name:"..name) end
-      if Util and var then Util.defvar(var,id) end
-      Log(LOG.LOG,"Hue device '%s' assigned deviceID %s",name,id)
-      Event._registerID(id,hueCall,hueGet)
-      return id
-    end
-
-    function self.monitor(name,interval,filter)
-      if type(name)=='table' then Util.mapF(function(n) self.monitor(n,interval,filter) end, name) return end
-      if type(name) == 'string' and not name:match(":") then name = _defaultHubName..":"..name end
-      local id = hueNames[name] or name -- name could be deviceID
-      local sensor = devMap[id]
-      sensor.hub.monitor(sensor.hue,interval,filter)
-    end
-
-    function self.rgb2xy(r,g,b)
-      r,g,b = r/254,g/254,b/254
-      r = (r > 0.04045) and ((r + 0.055) / (1.0 + 0.055)) ^ 2.4 or (r / 12.92)
-      g = (g > 0.04045) and ((g + 0.055) / (1.0 + 0.055)) ^ 2.4 or (g / 12.92)
-      b = (b > 0.04045) and ((b + 0.055) / (1.0 + 0.055)) ^ 2.4 or (b / 12.92)
-      local X = r*0.649926+g*0.103455+b*0.197109
-      local Y = r*0.234327+g*0.743075+b*0.022598
-      local Z = r*0.0000000+g*0.053077+b*1.035763
-      return X/(X+Y+Z), Y/(X+Y+Z)
-    end
-
-    function self.turnOn(id) local d,h=devMap[id].hue,devMap[id].hub 
-      self.request(format(d.url,d.id),h.updateState,"PUT",{on=true}) h._setState(d,'on',true) 
-    end
-    function self.turnOff(id) local d,h=devMap[id].hue, devMap[id].hub
-      self.request(format(d.url,d.id),h.updateState,"PUT",{on=false}) h._setState(d,'on',false) 
-    end
-    function self.setColor(id,r,g,b,w) local d,h,x,y=devMap[id].hue,devMap[id].hub,self.rgb2xy(r,g,b); 
-      local pl={xy={x,y},bri=w and w/99*254}
-      self.request(format(d.url,d.id),h.updateState,"PUT",pl) h._setState(d,pl) 
-    end
-    function self.setValue(id,val) local d,h,payload=devMap[id].hue, devMap[id].hub
-      if type(val)=='string' and not tonumber(val) then payload={scene=d.scenes[val] or val}
-      elseif tonumber(val)==0 then payload={on=false} 
-      elseif tonumber(val) then payload={on=true,bri=math.floor((val/99)*254)}
-      elseif type(val)=='table' then
-        if val.startup then
-          local lights = d.lights and #d.lights>0 and d.lights or {d.id}
-          for _,id in ipairs(lights) do
-            local d = h.lights[tonumber(id)]
-            local url = (d.url:match("(.*)/state")).."/config/startup/"
-            payload=val
-            self.request(format(url,d.id),nil,"PUT",payload)
-          end
+    local function makeHueHub(name,username,ip,cont)
+      local lights,groups,scenes,sensors = {},{},{},{}
+      local self = {lights=lights,groups=groups,scenes=scenes,sensors=sensors}
+      local hubName,baseURL=name,"http://"..ip..":80/api/"..username.."/"
+      local lightURL = baseURL.."lights/%s/state"
+      local groupURL = baseURL.."groups/%s/action"
+      local sensorURL = baseURL.."sensors/%s"
+      function self._setState(hue,prop,val,upd)
+        if type(prop)=='table' then 
+          for k,v in pairs(prop) do self._setState(hue,k,v,upd) end
           return
-        else payload=val end
+        end
+        local change,id = hue.state[prop]~=nil and hue.state[prop] ~= val, hue.fid
+        hue.state[prop],hue.state['lastupdate']=val,os.time()
+        local filter = id and hue._filter
+        if change and id and filter and filter[prop] then 
+          Event.post({type='property',deviceID=id,propertyName=prop,value=val,_hue=true,_sh=_debugFlags.hue}) 
+        end
+        --Log(LOG.LOG,"Name:%s, PROP:%s, VAL:%s",hue.name,tojson(prop),tojson(val))
+        if (not upd) and hue.lights then -- for groups
+          for _,id in ipairs(hue.lights) do self._setState(lights[tonumber(id)],prop,val,upd) end 
+        end
       end
-      if payload then self.request(format(d.url,d.id),h.updateState,"PUT",payload) h._setState(d,payload)
-      else  error(format("Hue setValue id:%s value:%s",id,val)) end
+      function self.updateState(state) -- partial state
+        for _,s in ipairs(state[1] and state or {}) do
+          if s.success then 
+            for p,v in pairs(s.success) do 
+              local tp,id,mt,prop = p:match("/(%a+)/(%d+)/(%a+)/(.*)")
+              if id then self._setState(self[tp][ tonumber(id) ],prop,v)
+              else Log(LOG.LOG,"Unknown Hue state %s %s",p,v) end
+            end --for 
+          end -- if
+        end --for
+      end --fun
+      local function setFullState(devices,id,d,state,t,url)
+        local dd = devices[d.name] or {name=d.name,id=tonumber(id), state={}, type=t, url=url,lights=d.lights, scenes={}}
+        devices[d.name],devices[tonumber(id)]=dd,dd
+        self._setState(dd,d[state],nil,true)
+      end
+      local function match(t1,t2) if #t1~=#t2 then return false end; for i=1,#t1 do if t1[i]~=t2[i] then return false end end return true end
+      function self.getFullState(f)
+        Hue.request(baseURL,function(data)
+            for id,d in pairs(data.sensors) do setFullState(sensors,id,d,'state','sensor',sensorURL) end
+            for id,d in pairs(data.lights) do setFullState(lights,id,d,'state','light',lightURL) end
+            for id,d in pairs(data.groups) do table.sort(d.lights) setFullState(groups,id,d,'action','group',groupURL) end
+            for id,d in pairs(data.scenes) do if d.version>1 then 
+              scenes[d.name] = id; table.sort(d.lights)
+              for _,g in pairs(groups) do if match(g.lights,d.lights) then g.scenes[d.name]=id end end
+            end end
+            if f then f() end
+          end)
+      end
+      local _defFilter={buttonevent=true, on=true}
+      function self.monitor(sensor,interval,filter)
+        local url = sensor.url:sub(#baseURL+1)
+        url=baseURL..format(url:match("(.-/)").."%s",sensor.id)
+        sensor._filter = filter or sensor._filter or _defFilter
+        if sensor._timer then clearTimeout(sensor._timer) sensor._timer=nil end
+        if interval>0 then 
+          Debug(_debugFlags.hue,"Monitoring URL:%s",url)
+          local function poll() 
+            Hue.request(url,function(state) self._setState(sensor,state.state) sensor._timer=setTimeout(poll,interval) end)
+          end
+          poll()
+        end
+      end
+      function self.dump()
+        Log(LOG.LOG,"%s------------ Hue Lights ---------------------",name)
+        for k,v in pairs(lights) do if not tonumber(k) then Log(LOG.LOG,"Light '%s' id=%s",k,json.encode(v.id)) end end
+        Log(LOG.LOG,"%s------------- Hue Groups ---------------------",name)
+        for k,v in pairs(groups) do if not tonumber(k) then Log(LOG.LOG,"Group '%s' id=%s",k,json.encode(v.id)) end end
+        Log(LOG.LOG,"%s------------- Hue Scenes ---------------------",name)
+        for k,v in pairs(scenes) do Log(LOG.LOG,"Scene '%s' id=%s",k,v) end
+        Log(LOG.LOG,"%s------------- Hue Sensors ---------------------",name)
+        for k,v in pairs(sensors) do if not tonumber(k) then Log(LOG.LOG,"Sensor '%s' id=%s",k,json.encode(v.id)) end end
+        Log(LOG.LOG,"----------------------------------------------")
+      end
+      Hue.hubs[name]=self -- hack
+      self.getFullState(cont)
+      return self
     end
-    return self
-  end
 
-  if _HueHubs then
-    Hue=makeHue() -- create global Hue object
-    Event.event({type='property',propertyName='on',_hue=true},
-      function(env) -- transform 'on' events
-        local e=env.event
-        Event.post({type='property',deviceID=e.deviceID,propertyName='value',value=fibaro:getValue(e.deviceID,'value'),_sh=true})
-      end)
+    local function makeHue()
+      local self, devMap, hueNames = { hubs={} }, {}, {}
+      local HTTP = net.HTTPClient()
+      function self.isHue(id) return devMap[id] and devMap[id].hue end
+      function self.name(n) return hueNames[n] end   
+      function self.connect(name,user,ip,cont)
+        self.hubs[name]=makeHueHub(name,user,ip,cont)
+      end
+      function self.hueName(hue) --Hue1:SensorID=1
+        local name,t,id=hue:match("(%w+):(%a+)=(%d+)")
+        local dev = ({SensorID='sensors',LightID='lights',GroupID='groups'})[t]
+        return name..":"..self.hubs[name][dev][tonumber(id)].name 
+      end
+      function self.request(url,cont,op,payload)
+        op,payload = op or "GET", payload and json.encode(payload) or ""
+        Debug(_debugFlags.hue,"Hue req:%s Payload:%s",url,payload)
+        HTTP:request(url,{
+            options = {headers={['Accept']='application/json',['Content-Type']='application/json'},
+              data = payload, timeout=_HUETIMEOUT, method = op},
+            error = function(status) error("Hue connection:"..tojson(status)..", "..url) end,
+            success = function(status) if cont then cont(json.decode(status.data)) end end
+          })
+      end
+
+      function self.dump() for _,h in pairs(self.hubs) do h.dump() end end
+      local function find(name) -- find a Hue device in any of the connected Hue hubs we have, name is <hub>:<name>
+        local hname,dname=name:match("(.*):(.*)")
+        local hub = self.hubs[hname]
+        return hub.lights[dname] or hub.groups[dname] or hub.sensors[dname],hname
+      end
+
+      local function hueCall(obj,id,...)
+        local val,params=({...})[1],{select(2,...)}
+        if Hue[val] then Hue[val](id,table.unpack(params)) end
+      end
+      local function hueGet(obj,id,...)
+        local val,res,dev,time=({...})[1],nil,Hue.isHue(id)
+        if val=='value' then 
+          if dev.state.on and (dev.state.reachable==nil or  dev.state.reachable==true) then 
+            res = dev.state.bri and tostring(math.floor((dev.state.bri/254)*99+0.5)) or '99' 
+          else res = '0' end 
+        elseif val=='values' then res = dev.state
+        else res =  dev.state[val] and tostring(dev.state[val]) or nil end
+        time=dev.state.lastupdate or 0
+        Debug(_debugFlags.hue,"Get ID:%s %s -> %s",id,val,res)
+        return res and res,time
+      end
+
+      local mapIndex=10000 -- start mapping at deviceID 10000
+      --devMap[deviceID] -> {hub, type, hue}
+      function self.define(name,var,id) -- optional var
+        if id ==nil then id = mapIndex; mapIndex=mapIndex+1 else id =tonumber(id) end
+        if not name:match(":") then name=_defaultHubName..":"..name end -- default to Hue:<name>
+        hueNames[name]=id
+        local hue,hub = find(name) 
+        if hue then devMap[id] = {type=hue.type,hue=hue,hub=self.hubs[hub]}; hue.fid=id    
+        else error("No Hue name:"..name) end
+        if Util and var then Util.defvar(var,id) end
+        Log(LOG.LOG,"Hue device '%s' assigned deviceID %s",name,id)
+        Event._registerID(id,hueCall,hueGet)
+        return id
+      end
+
+      function self.monitor(name,interval,filter)
+        if type(name)=='table' then Util.mapF(function(n) self.monitor(n,interval,filter) end, name) return end
+        if type(name) == 'string' and not name:match(":") then name = _defaultHubName..":"..name end
+        local id = hueNames[name] or name -- name could be deviceID
+        local sensor = devMap[id]
+        sensor.hub.monitor(sensor.hue,interval,filter)
+      end
+
+      function self.rgb2xy(r,g,b)
+        r,g,b = r/254,g/254,b/254
+        r = (r > 0.04045) and ((r + 0.055) / (1.0 + 0.055)) ^ 2.4 or (r / 12.92)
+        g = (g > 0.04045) and ((g + 0.055) / (1.0 + 0.055)) ^ 2.4 or (g / 12.92)
+        b = (b > 0.04045) and ((b + 0.055) / (1.0 + 0.055)) ^ 2.4 or (b / 12.92)
+        local X = r*0.649926+g*0.103455+b*0.197109
+        local Y = r*0.234327+g*0.743075+b*0.022598
+        local Z = r*0.0000000+g*0.053077+b*1.035763
+        return X/(X+Y+Z), Y/(X+Y+Z)
+      end
+
+      function self.turnOn(id) local d,h=devMap[id].hue,devMap[id].hub 
+        self.request(format(d.url,d.id),h.updateState,"PUT",{on=true}) h._setState(d,'on',true) 
+      end
+      function self.turnOff(id) local d,h=devMap[id].hue, devMap[id].hub
+        self.request(format(d.url,d.id),h.updateState,"PUT",{on=false}) h._setState(d,'on',false) 
+      end
+      function self.setColor(id,r,g,b,w) local d,h,x,y=devMap[id].hue,devMap[id].hub,self.rgb2xy(r,g,b); 
+        local pl={xy={x,y},bri=w and w/99*254}
+        self.request(format(d.url,d.id),h.updateState,"PUT",pl) h._setState(d,pl) 
+      end
+      function self.setValue(id,val) local d,h,payload=devMap[id].hue, devMap[id].hub
+        if type(val)=='string' and not tonumber(val) then payload={scene=d.scenes[val] or val}
+        elseif tonumber(val)==0 then payload={on=false} 
+        elseif tonumber(val) then payload={on=true,bri=math.floor((val/99)*254)}
+        elseif type(val)=='table' then
+          if val.startup then
+            local lights = d.lights and #d.lights>0 and d.lights or {d.id}
+            for _,id in ipairs(lights) do
+              local d = h.lights[tonumber(id)]
+              local url = (d.url:match("(.*)/state")).."/config/startup/"
+              payload=val
+              self.request(format(url,d.id),nil,"PUT",payload)
+            end
+            return
+          else payload=val end
+        end
+        if payload then self.request(format(d.url,d.id),h.updateState,"PUT",payload) h._setState(d,payload)
+        else  error(format("Hue setValue id:%s value:%s",id,val)) end
+      end
+      return self
+    end
+
+    if _HueHubs then
+      Hue=makeHue() -- create global Hue object
+      Event.event({type='property',propertyName='on',_hue=true},
+        function(env) -- transform 'on' events
+          local e=env.event
+          Event.post({type='property',deviceID=e.deviceID,propertyName='value',value=fibaro:getValue(e.deviceID,'value'),_sh=true})
+        end)
 --  Event.event({type='property', propertyName='buttonevent', value='$val', _hue=true},
 --    function(env) -- transform 'buttonevent' to CentralSceneEvents
 --      local e = env.event
@@ -2458,77 +2459,77 @@ function makeHueSupport(cont)
 --      local keyAttr = ({'Down','Hold','Down/Released','Released'})[env.p.val % 1000 + 1]
 --      Event.post({type='event',event={type='CentralSceneEvent',data={deviceId=e.deviceID,keyId=keyId,keyAttribute=keyAttr}}})
 --    end)
-    local c = cont
-    cont = function() Log(LOG.LOG,"Hue system inited (experimental)") c() end
-    if _HueHubs and #_HueHubs==1 then _defaultHubName=_HueHubs[1].name end
-    for _,hub in ipairs(_HueHubs or {}) do
-      local c,h = cont,hub
-      cont = function() Hue.connect(h.name,h.user,h.ip,c) end
+      local c = cont
+      cont = function() Log(LOG.LOG,"Hue system inited (experimental)") c() end
+      if _HueHubs and #_HueHubs==1 then _defaultHubName=_HueHubs[1].name end
+      for _,hub in ipairs(_HueHubs or {}) do
+        local c,h = cont,hub
+        cont = function() Hue.connect(h.name,h.user,h.ip,c) end
+      end
     end
-  end
 
-  cont()
-end
+    cont()
+  end
 
 -------- StartUp --------------------
-function startUp(cont)
-  if _type == 'other' and fibaro:countScenes() > 1 then 
-    Log(LOG.LOG,"Scene already started. Try again?") 
-    fibaro:abort()
-  end
-
-  if _type == 'autostart' or _type == 'other' then
-    Log(LOG.WELCOME,string.format("%sEventRunner v%s %s",_sceneName and (_sceneName.." - " or ""),_version,_fix))
-
-    local info = api.get("/settings/info")
-    Log(LOG.LOG,"Fibaro software version: %s",info.currentVersion.version)
-    Log(LOG.LOG,"HC2 uptime: %s hours",math.floor((os.time()-info.serverStatus)/3600))
-    for i=1,_NUMBEROFBOXES do
-      local mailbox = _MAILBOX.."_"..tostring(i)
-      if not string.find(json.encode((api.get("/globalVariables/"))),"\""..mailbox.."\"") then
-        api.post("/globalVariables/",{name=mailbox})
-      end
-      _MAILBOXES[i]=mailbox
+  function startUp(cont)
+    if _type == 'other' and fibaro:countScenes() > 1 then 
+      Log(LOG.LOG,"Scene already started. Try again?") 
+      fibaro:abort()
     end
 
-    Log(LOG.LOG,"Sunrise %s, Sunset %s",fibaro:getValue(1,'sunriseHour'),fibaro:getValue(1,'sunsetHour'))
-    if _EMULATED then 
-      Log(LOG.LOG,"Starting:%s %s",os.date("%x %X",os.time()),_System.speed()=="SPEED" and "(speeding)" or "") 
-    end
+    if _type == 'autostart' or _type == 'other' then
+      Log(LOG.WELCOME,string.format("%sEventRunner v%s %s",_sceneName and (_sceneName.." - " or ""),_version,_fix))
 
-    GC = 0
-    local function setUpCont()
-      Log(LOG.SYSTEM,"") Log(LOG.SYSTEM,"Loading rules")
-      local status, res = pcall(function() return main() end)
-      if not status then 
-        Log(LOG.ERROR,"Error loading rules:%s",type(res)=='table' and table.concat(res,' ') or res) fibaro:abort() 
+      local info = api.get("/settings/info")
+      Log(LOG.LOG,"Fibaro software version: %s",info.currentVersion.version)
+      Log(LOG.LOG,"HC2 uptime: %s hours",math.floor((os.time()-info.serverStatus)/3600))
+      for i=1,_NUMBEROFBOXES do
+        local mailbox = _MAILBOX.."_"..tostring(i)
+        if not string.find(json.encode((api.get("/globalVariables/"))),"\""..mailbox.."\"") then
+          api.post("/globalVariables/",{name=mailbox})
+        end
+        _MAILBOXES[i]=mailbox
       end
 
-      _trigger._sh = true
-      Event.post(_trigger)
-      Log(LOG.SYSTEM,"") Log(LOG.SYSTEM,"Scene running")
-      collectgarbage("collect") GC=collectgarbage("count")
-    end
+      Log(LOG.LOG,"Sunrise %s, Sunset %s",fibaro:getValue(1,'sunriseHour'),fibaro:getValue(1,'sunsetHour'))
+      if _EMULATED then 
+        Log(LOG.LOG,"Starting:%s %s",os.date("%x %X",os.time()),_System.speed()=="SPEED" and "(speeding)" or "") 
+      end
 
-    if not _EMULATED then
-      for _,mb in ipairs(_MAILBOXES) do fibaro:setGlobal(mb,"") end -- clear mailboxes
-      eventConsumer()  -- start polling mailbox
+      GC = 0
+      local function setUpCont()
+        Log(LOG.SYSTEM,"") Log(LOG.SYSTEM,"Loading rules")
+        local status, res = pcall(function() return main() end)
+        if not status then 
+          Log(LOG.ERROR,"Error loading rules:%s",type(res)=='table' and table.concat(res,' ') or res) fibaro:abort() 
+        end
+
+        _trigger._sh = true
+        Event.post(_trigger)
+        Log(LOG.SYSTEM,"") Log(LOG.SYSTEM,"Scene running")
+        collectgarbage("collect") GC=collectgarbage("count")
+      end
+
+      if not _EMULATED then
+        for _,mb in ipairs(_MAILBOXES) do fibaro:setGlobal(mb,"") end -- clear mailboxes
+        eventConsumer()  -- start polling mailbox
+      end
+      if cont then cont(setUpCont) else setUpCont() end
     end
-    if cont then cont(setUpCont) else setUpCont() end
   end
-end
 -------- Init ---------------------------
-Util           = makeUtils()
-tojson         = Util.prettyJson
-toTime         = Util.toTime
-LOG            = Util.LOG
-coroutine      = Util.coroutine
-Event          = makeEventManager()
-ScriptCompiler = makeEventScriptCompiler and makeEventScriptCompiler(makeEventScriptParser())
-ScriptEngine   = makeEventScriptRuntime and makeEventScriptRuntime()
-Rule           = makeEventScriptRuleCompiler and makeEventScriptRuleCompiler() 
-VDev           = makeVDevSupport and makeVDevSupport()
-extraERSetup()
+  Util           = makeUtils()
+  tojson         = Util.prettyJson
+  toTime         = Util.toTime
+  LOG            = Util.LOG
+  coroutine      = Util.coroutine
+  Event          = makeEventManager()
+  ScriptCompiler = makeEventScriptCompiler and makeEventScriptCompiler(makeEventScriptParser())
+  ScriptEngine   = makeEventScriptRuntime and makeEventScriptRuntime()
+  Rule           = makeEventScriptRuleCompiler and makeEventScriptRuleCompiler() 
+  VDev           = makeVDevSupport and makeVDevSupport()
+  extraERSetup()
 
-startUp(makeHueSupport)
+  startUp(makeHueSupport)
 
