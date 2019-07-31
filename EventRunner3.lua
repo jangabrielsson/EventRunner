@@ -14,7 +14,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end
 
-local _version,_fix = "3.0","B16"  -- July 31, 2019  
+local _version,_fix = "3.0","B17"  -- July 31, 2019  
 
 local _sceneName   = "Demo"      -- Set to scene/script name
 local _homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
@@ -55,7 +55,7 @@ function main()
   --HT = json.decode(HT)
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
-
+  
   --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
   --rule("@{06:00,catch} => Util.checkVersion()") -- Check for new version every morning at 6:00
   --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix))")
@@ -259,14 +259,13 @@ function makeEventManager()
 
   function self.postRemote(sceneID, e) -- Post event to other scenes or node-red
     _assert(sceneID,"sceneID is nil to postRemote"); _assert(isEvent(e),"Bad event format to postRemote")
-    
     e._from = _EMULATED and -__fibaroSceneId or __fibaroSceneId
     local payload = encodeRemoteEvent(e)
     if type(sceneID)=='string' and sceneID:sub(1,4)=='http' then -- external http event (node-red)
       payload={args={payload[1]}}
       httpPostEvent(sceneID, payload, e)
     elseif not _EMULATED then                  -- On HC2
-      if sceneID < 0 then    -- call emulator
+      if sceneID < 0 then    -- call emulator 
         if not _emulator.adress then return end
         httpPostEvent(_emulator.adress.."trigger/"..sceneID,payload)
       else fibaro:startScene(sceneID,payload) end -- call other scene on HC2
@@ -1062,7 +1061,7 @@ local function makeEventScriptParser()
 
   function self.gArgs(inp,stop)
     local res,i = {},1
-    while inp.peek().value ~= stop do res[i] = gExpr(inp,{[stop]=true,[',']=true}); i=i+1; if inp.peek().value == ',' then inp.next() end end
+    while inp.peek().value ~= stop do _assert(inp.peek().type~='eof',"Missing ')'"); res[i] = gExpr(inp,{[stop]=true,[',']=true}); i=i+1; if inp.peek().value == ',' then inp.next() end end
     inp.next() return res
   end
 
@@ -1437,7 +1436,7 @@ function makeEventScriptRuntime()
   end
   instr['yield'] = function(s,n,e,i) local r = s.lift(n); s.push(nil); return 'suspended',r end
   instr['return'] = function(s,n,e,i) return 'dead',s.lift(n) end
-  instr['wait'] = function(s,n,e,i) local t,co=s.pop(),e.co; t=t < os.time() and t or t-os.time();
+  instr['wait'] = function(s,n,e,i) local t,co=s.pop(),e.co; t=t < os.time() and t or t-os.time(); s.push(t);
     setTimeout(function() resume(co,e) end,t*1000); return 'suspended',{}
   end
   instr['%not'] = function(s,n) s.push(not s.pop()) end
@@ -1662,7 +1661,7 @@ function makeEventScriptRuntime()
       local i,args
       local status,stat,res = spcall(function() 
           local stat,res
-          repeat
+          while env.cp <= #code and stat==nil do
             i = code[env.cp]
             if traceFlag then 
               args = copy(stack.liftc(i[2]))
@@ -1670,7 +1669,7 @@ function makeEventScriptRuntime()
               postTrace(i,args,stack,env.cp) 
             else stat,res=(instr[i[1]] or instr['%call'])(stack,i[2],env,i) end
             env.cp = env.cp+1
-          until env.cp > #code or stat
+          end --until env.cp > #code or stat
           return stat,res or {stack.pop()}
         end)
       if status then return stat,res
@@ -1980,7 +1979,7 @@ function makeEventScriptRuntime()
       local nrr={}
       function nodered(event,req,node)
         node = node and node or _defaultNodeRed
-        _assert(node,"Missing nodered ip addres - set _defaultNodeRed at beginning of scene")
+        _assert(node,"Missing nodered ip address - set _defaultNodeRed at beginning of scene")
         local tag = Util.gensym("NR")
         event._transID = tag
         Event.postRemote(node,event)
@@ -1996,7 +1995,7 @@ function makeEventScriptRuntime()
         function(env) local p = env.p
           if p.tag then
             local cr = nrr[p.tag] or {}
-            clearTimeout(cr[1])
+            if cr[1] then clearTimeout(cr[1]) end
             if cr[2] then cr[2](p.e) else Event.post(p.e) end
             nrr[p.tag]=nil
           else Event.post(p.e) end
