@@ -14,7 +14,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end
 
-local _version,_fix = "3.0","B11"  -- July 31, 2019  
+local _version,_fix = "3.0","B12"  -- July 31, 2019  
 
 local _sceneName   = "Demo"      -- Set to scene/script name
 local _homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
@@ -35,7 +35,7 @@ function main()
   local rule,define = Rule.eval, Util.defvar
 
   if _EMULATED then
-    _System.speed(true)               -- run emulator faster than real-time
+    --_System.speed(true)               -- run emulator faster than real-time
     --_System.setRemote("devices",{5})  -- make device 5 remote (call HC2 with api)
     --_System.installProxy()            -- Install HC2 proxy sending sourcetriggers back to emulator
   end
@@ -258,7 +258,8 @@ function makeEventManager()
   end
 
   function self.postRemote(sceneID, e) -- Post event to other scenes or node-red
-    _assert(isEvent(e),"Bad event format")
+    _assert(sceneID,"sceneID is nil to postRemote"); _assert(isEvent(e),"Bad event format to postRemote")
+    
     e._from = _EMULATED and -__fibaroSceneId or __fibaroSceneId
     local payload = encodeRemoteEvent(e)
     if type(sceneID)=='string' and sceneID:sub(1,4)=='http' then -- external http event (node-red)
@@ -1901,7 +1902,7 @@ function makeEventScriptRuntime()
 
 ------- Extra ER setup ------------------------------
   function extraERSetup()
-    local copy,member,equal=Util.copy,Util.member,Util.equal
+    local copy,member,equal,format=Util.copy,Util.member,Util.equal,string.format
     local function makeDateInstr(f)
       return function(s,n,e,i)
         local ts,cache = s.pop(),e.rule.cache
@@ -1981,7 +1982,7 @@ function makeEventScriptRuntime()
         if req then
           nrr[tag]={}
           nrr[tag][1]=setTimeout(function() nrr[tag]=nil 
-              error("No response from Node-red, '%s'",(tojson(event)))
+              error(format("No response from Node-red, '%s'",(tojson(event))))
             end,_NODEREDTIMEOUT)
           return {['<cont>']=function(cont) nrr[tag][2]=cont end}
         else return true end
