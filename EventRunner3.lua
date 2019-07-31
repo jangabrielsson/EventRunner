@@ -14,7 +14,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end
 
-local _version,_fix = "3.0","B12"  -- July 31, 2019  
+local _version,_fix = "3.0","B14"  -- July 31, 2019  
 
 local _sceneName   = "Demo"      -- Set to scene/script name
 local _homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
@@ -56,6 +56,7 @@ function main()
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
+  rule("55:manual => 42")
   --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
   --rule("@{06:00,catch} => Util.checkVersion()") -- Check for new version every morning at 6:00
   --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix))")
@@ -1485,7 +1486,7 @@ function makeEventScriptRuntime()
       open={call,'open',mapF},close={call,'close',mapF},stop={call,'stop',mapF},secure={call,'secure',mapF},unsecure={call,'unsecure',mapF},
       name={function(id) return fibaro:getName(id) end},roomName={function(id) return fibaro:getRoomNameByDeviceID(id) end},
       trigger={function() return true end},time={get,'time',nil,true},armed={armed,'armed',mapOr,true},
-      manual={function(id) return Event.lastManual(id) end,'value',true},
+      manual={function(id) return Event.lastManual(id) end,'value',nil,true},
       start={function(id) return fibaro:startScene(id) end,"",mapF},kill={function(id) return fibaro:killScenes(id) end,"",mapF},
       toggle={call,'toggle',mapF},wake={call,'wakeUpDeadDevice',mapF},
       removeSchedule={call,'removeSchedule',mapF},retryScheduleSynchronization={call,'retryScheduleSynchronization',mapF},
