@@ -56,7 +56,6 @@ function main()
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
-  Util.printRule(rule([[812:access.status=='Unlock' | $UHASPresentState=='Hemma' => lampSim:off]]))
   --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
   --rule("@{06:00,catch} => Util.checkVersion()") -- Check for new version every morning at 6:00
   --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix))")
@@ -141,9 +140,9 @@ do
       _CXCST1,_CXCST2 = os.clock(),_CXCST1
       if _CXCST1-_CXCST2 > 0.75 then Log(LOG.ERROR,"Slow mailbox watch:%ss",_CXCST1-_CXCST2) end
       for _,mb in ipairs(mailboxes) do
-        local l = _getGlobal(mb)
+        local l = _getGlobal(nil,mb)
         if l and l ~= "" and l:sub(1,3) ~= '<@>' then -- Something in the mailbox
-          _setGlobal(mb,"") -- clear mailbox
+          _setGlobal(nil,mb,"") -- clear mailbox
           if _debugFlags.triggers then Debug(true,"Incoming event:"..l) end
           l = json.decode(l) l._sh=true
           setTimeout(function() Event.triggerHandler(l) end,5)-- and post it to our "main()"
