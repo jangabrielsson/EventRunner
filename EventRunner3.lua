@@ -25,8 +25,8 @@ local _defaultNodeRed   = "http://192.168.1.50:1880/eventrunner" -- Ex. used for
 
 -- debug flags for various subsystems (global)
 _debugFlags = { 
-  post=true,invoke=false,triggers=true,dailys=false,rule=false,ruleTrue=false,hue=false,
-  fcall=true, fglobal=false, fget=true, fother=true
+  post=true,invoke=false,triggers=false,dailys=false,rule=false,ruleTrue=false,hue=false,
+  fcall=true, fglobal=false, fget=false, fother=true
 }
 _options={}
 
