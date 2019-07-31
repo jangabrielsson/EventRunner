@@ -14,7 +14,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end
 
-local _version,_fix = "3.0","B10"  -- July 32, 2019  
+local _version,_fix = "3.0","B11"  -- July 31, 2019  
 
 local _sceneName   = "Demo"      -- Set to scene/script name
 local _homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
@@ -1047,7 +1047,7 @@ local function makeEventScriptParser()
   end
 
   function gExpr(inp,stop)
-    local st,ops,t,pt=mkStack(),mkStack(),{value='START'}
+    local st,ops,t,pt=mkStack(),mkStack(),{value='<START>'}
     while true do
       t,pt = inp.peek(),t
       if t.type=='eof' or stop and stop[t.value] then break end
