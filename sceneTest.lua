@@ -3,7 +3,7 @@
 66 value
 --]]
 
-if dofile and not _EMULATED then _EMBEDDED={name="sceneTest",id=42} dofile("HC2.lua") end
+if dofile and not _EMULATED then _EMULATED={name="sceneTest",id=42} dofile("HC2.lua") end
 
 local motion = 66
 local lamp = 77
