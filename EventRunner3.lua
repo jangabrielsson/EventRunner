@@ -14,7 +14,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end
 
-local _version,_fix = "3.0","B19"  -- Aug 1, 2019  
+local _version,_fix = "3.0","B20"  -- Aug 1, 2019  
 
 local _sceneName   = "Demo"      -- Set to scene/script name
 local _homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
@@ -60,8 +60,10 @@ function main()
   --rule("@{06:00,catch} => Util.checkVersion()") -- Check for new version every morning at 6:00
   --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix))")
 
-  --dofile("verify.lua")
-  --dofile("example_rules3.lua")
+  if _EMULATED then
+    --dofile("verify.lua")
+    --dofile("example_rules3.lua")
+  end
 end
 
 ------------------- EventModel - Don't change! -------------------- 
@@ -1992,13 +1994,13 @@ function makeEventScriptRuntime()
           return {['<cont>']=function(cont) nrr[tag][2]=cont end}
         else return true end
       end
-      Event.event({type='NODERED',value='$e',_transID='$tag'},
-        function(env) local p = env.p
-          if p.tag then
-            local cr = nrr[p.tag] or {}
+      Event.event({type='NODERED',value='$e'},
+        function(env) local p,tag = env.p,env.event._transID
+          if tag then
+            local cr = nrr[tag] or {}
             if cr[1] then clearTimeout(cr[1]) end
             if cr[2] then cr[2](p.e) else Event.post(p.e) end
-            nrr[p.tag]=nil
+            nrr[tag]=nil
           else Event.post(p.e) end
         end)
     end
