@@ -14,7 +14,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end
 
-local _version,_fix = "3.0","B18"  -- July 31, 2019  
+local _version,_fix = "3.0","B19"  -- Aug 1, 2019  
 
 local _sceneName   = "Demo"      -- Set to scene/script name
 local _homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
@@ -59,8 +59,8 @@ function main()
   --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
   --rule("@{06:00,catch} => Util.checkVersion()") -- Check for new version every morning at 6:00
   --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix))")
-  
-  --dofile("verify.lua")
+
+  dofile("verify.lua")
   --dofile("example_rules3.lua")
 end
 
@@ -1480,15 +1480,16 @@ function makeEventScriptRuntime()
       last={last,'value',nil,true},scene={get,'sceneActivation',nil,true},
       access={eid,'AccessControlEvent',nil,true},central={eid,'CentralSceneEvent',nil,true},
       safe={off,'value',mapAnd,true},breached={on,'value',mapOr,true},isOpen={on,'value',mapOr,true},isClosed={off,'value',mapAnd,true},
-      lux={get,'value',nil,true},temp={get,'value',nil,true},on={call,'turnOn',mapF},off={call,'turnOff',mapF},
-      open={call,'open',mapF},close={call,'close',mapF},stop={call,'stop',mapF},secure={call,'secure',mapF},unsecure={call,'unsecure',mapF},
+      lux={get,'value',nil,true},temp={get,'value',nil,true},on={call,'turnOn',mapF,true},off={call,'turnOff',mapF,true},
+      open={call,'open',mapF,true},close={call,'close',mapF,true},stop={call,'stop',mapF,true},
+      secure={call,'secure',mapF,true},unsecure={call,'unsecure',mapF,true},
       name={function(id) return fibaro:getName(id) end},roomName={function(id) return fibaro:getRoomNameByDeviceID(id) end},
       trigger={function() return true end},time={get,'time',nil,true},armed={armed,'armed',mapOr,true},
       manual={function(id) return Event.lastManual(id) end,'value',nil,true},
       start={function(id) return fibaro:startScene(id) end,"",mapF},kill={function(id) return fibaro:killScenes(id) end,"",mapF},
-      toggle={call,'toggle',mapF},wake={call,'wakeUpDeadDevice',mapF},
-      removeSchedule={call,'removeSchedule',mapF},retryScheduleSynchronization={call,'retryScheduleSynchronization',mapF},
-      setAllSchedules={call,'setAllSchedules',mapF},
+      toggle={call,'toggle',mapF,true},wake={call,'wakeUpDeadDevice',mapF,true},
+      removeSchedule={call,'removeSchedule',mapF,true},retryScheduleSynchronization={call,'retryScheduleSynchronization',mapF,true},
+      setAllSchedules={call,'setAllSchedules',mapF,true},
       dID={function(a,e) 
           if type(a)=='table' then
             local id = e.event and Util.getIDfromTrigger[e.event.type or ""](e.event)
@@ -1694,7 +1695,7 @@ function makeEventScriptRuntime()
 
     local function ID(id,p) _assert(tonumber(id),"bad deviceID '%s' for '%s'",id,p or "") return id end
     local gtFuns = {
-      ['%daily'] = function(e,s) s.dailys[#s.dailys+1 ]=ScriptCompiler.compile2(e[2]) end,
+      ['%daily'] = function(e,s) s.dailys[#s.dailys+1 ]=ScriptCompiler.compile2(e[2]); s.dailyFlag=true end,
       ['%interv'] = function(e,s) s.scheds[#s.scheds+1 ] = ScriptCompiler.compile2(e[2]) end,
       ['%betw'] = function(e,s) 
         s.dailys[#s.dailys+1 ]=ScriptCompiler.compile2(e[2])
@@ -1715,7 +1716,7 @@ function makeEventScriptRuntime()
     }
 
     local function getTriggers(e)
-      local s={triggs={},dailys={},scheds={}}
+      local s={triggs={},dailys={},scheds={},dailyFlag=false}
       local function traverse(e)
         if type(e) ~= 'table' then return e end
         if e[1]== '%eventmatch' then -- {'eventmatch',{'quote', ep,ce}} 
@@ -1731,7 +1732,7 @@ function makeEventScriptRuntime()
           end
         end
       end
-      traverse(e); return mapkl(function(_,v) return v end,s.triggs),s.dailys,s.scheds
+      traverse(e); return mapkl(function(_,v) return v end,s.triggs),s.dailys,s.scheds,s.dailyFlag
     end
 
     function self.test(s) return {getTriggers(ScriptCompiler.parse(s))} end
@@ -1763,7 +1764,7 @@ function makeEventScriptRuntime()
       local head,body,log,res,events,src,triggers2,sdaily = e[2],e[3],e[4],{},{},env.src or "<no src>",{}
       src=format(RULEFORMAT,rCounter+1,trimRule(src))
       remapEvents(head)  -- #event -> eventmatch
-      local triggers,dailys,reps = getTriggers(head)
+      local triggers,dailys,reps,dailyFlag = getTriggers(head)
       _assert(#triggers>0 or #dailys>0 or #reps>0, "no triggers found in header")
       --_assert(not(#dailys>0 and #reps>0), "can't have @daily and @@interval rules together in header")
       local code = ScriptCompiler.compile({'%and',(_debugFlags.rule or _debugFlags.ruleTrue) and {'%logRule',head,src} or head,body})
@@ -1802,7 +1803,7 @@ function makeEventScriptRuntime()
 --            if tr.propertyName~='<nop>' then Event.event(tr,reaction,{doc=src})  end
 --          end
         end
-        if #dailys==0 and #triggers > 0 then -- id/glob trigger or events
+        if not dailyFlag and #triggers > 0 then -- id/glob trigger or events
           for _,tr in ipairs(triggers) do 
             if tr.propertyName~='<nop>' then events[#events+1]=Event.event(tr,action,{doc=src,log=log}) triggers2[#triggers2+1]=tr end
           end
