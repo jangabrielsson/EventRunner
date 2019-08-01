@@ -9,23 +9,24 @@
 22 GeofenceEvent
 %% globals 
 Test
+Month
 %% autostart 
 --]] 
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end
 
-local _version,_fix = "3.0","B20"  -- Aug 1, 2019  
+local _version,_fix = "3.0","B22"  -- Aug 1, 2019  
 
 local _sceneName   = "Demo"      -- Set to scene/script name
 local _homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
-local _HueHubs     = {}          -- Hue bridges, Ex. {{name='Hue',user=_HueUserName,ip=_HueIP}}
+_HueHubs     = {}          -- Hue bridges, Ex. {{name='Hue',user=_HueUserName,ip=_HueIP}}
 local _defaultNodeRed   = "http://192.168.1.50:1880/eventrunner" -- Ex. used for Event.postRemote(_defaultNodeRed,{type='test'})
---if dofile then dofile("credentials.lua") end -- To not accidently commit credentials to Github, or post at forum :-)
+if dofile then dofile("credentials.lua") end -- To not accidently commit credentials to Github, or post at forum :-)
 -- E.g. Hue user names, icloud passwords etc. HC2 credentials is set from HC2.lua, but can use same file.
 
 -- debug flags for various subsystems (global)
 _debugFlags = { 
-  post=true,invoke=false,triggers=false,dailys=false,rule=false,ruleTrue=false,hue=false,
+  post=true,invoke=false,triggers=true,dailys=false,rule=false,ruleTrue=false,hue=false,
   fcall=true, fglobal=false, fget=false, fother=true
 }
 _options={}
@@ -55,8 +56,8 @@ function main()
   --HT = json.decode(HT)
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
-  
-  --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
+
+--rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
   --rule("@{06:00,catch} => Util.checkVersion()") -- Check for new version every morning at 6:00
   --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix))")
 
@@ -603,10 +604,10 @@ local function makeUtils()
     return table.unpack(stat)
   end
 
-  function self.map(f,l,s) s = s or 1; local r={} for i=s,#l do r[#r+1] = f(l[i]) end return r end
-  function self.mapAnd(f,l,s) s = s or 1; local e=true for i=s,#l do e = f(l[i]) if not e then return false end end return e end 
-  function self.mapOr(f,l,s) s = s or 1; for i=s,#l do local e = f(l[i]) if e then return e end end return false end
-  function self.mapF(f,l,s) s = s or 1; local e=true for i=s,#l do e = f(l[i]) end return e end
+  function self.map(f,l,s) s = s or 1; local r={} for i=s,table.maxn(l) do r[#r+1] = f(l[i]) end return r end
+  function self.mapAnd(f,l,s) s = s or 1; local e=true for i=s,table.maxn(l) do e = f(l[i]) if not e then return false end end return e end 
+  function self.mapOr(f,l,s) s = s or 1; for i=s,table.maxn(l) do local e = f(l[i]) if e then return e end end return false end
+  function self.mapF(f,l,s) s = s or 1; local e=true for i=s,table.maxn(l) do e = f(l[i]) end return e end
   function self.mapkl(f,l) local r={} for i,j in pairs(l) do r[#r+1]=f(i,j) end return r end
   function self.mapkk(f,l) local r={} for k,v in pairs(l) do r[k]=f(v) end return r end
   function self.member(v,tab) for _,e in ipairs(tab) do if v==e then return e end end return nil end
@@ -1023,7 +1024,10 @@ local function makeEventScriptParser()
       st.push(gExpr(inp,{[')']=true})) inp.next()
     end
   end
-  pExpr['lbra']=function(inp,st,ops,t,pt) st.push({'%aref',st.pop(),gExpr(inp,{[']']=true})}) inp.next() end
+  pExpr['lbra']=function(inp,st,ops,t,pt) 
+    while not ops.isEmpty() and opers[ops.peek().value][1] >= 12.9 do apply(ops.pop(),st) end
+    st.push({'%aref',st.pop(),gExpr(inp,{[']']=true})}) inp.next() 
+  end
   pExpr['lor']=function(inp,st,ops,t,pt) 
     local e = gExpr(inp,{['>>']=true}); inp.next()
     local body,el = gExpr(inp,{[';;']=true,['||']=true})
