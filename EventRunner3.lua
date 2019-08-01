@@ -15,7 +15,7 @@ Month
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end
 
-local _version,_fix = "3.0","B22"  -- Aug 1, 2019  
+local _version,_fix = "3.0","B23"  -- Aug 1, 2019  
 
 local _sceneName   = "Demo"      -- Set to scene/script name
 local _homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
@@ -26,7 +26,7 @@ if dofile then dofile("credentials.lua") end -- To not accidently commit credent
 
 -- debug flags for various subsystems (global)
 _debugFlags = { 
-  post=true,invoke=false,triggers=true,dailys=false,rule=false,ruleTrue=false,hue=false,
+  post=true,invoke=false,triggers=false,dailys=false,rule=false,ruleTrue=false,hue=false,
   fcall=true, fglobal=false, fget=false, fother=true
 }
 _options={}
@@ -36,7 +36,7 @@ function main()
   local rule,define = Rule.eval, Util.defvar
 
   if _EMULATED then
-    _System.speed(true)               -- run emulator faster than real-time
+    --_System.speed(true)               -- run emulator faster than real-time
     --_System.setRemote("devices",{5})  -- make device 5 remote (call HC2 with api)
     --_System.installProxy()            -- Install HC2 proxy sending sourcetriggers back to emulator
   end
@@ -1994,7 +1994,7 @@ function makeEventScriptRuntime()
           nrr[tag]={}
           nrr[tag][1]=setTimeout(function() nrr[tag]=nil 
               error(format("No response from Node-red, '%s'",(tojson(event))))
-            end,_NODEREDTIMEOUT)
+            end,_options['NODEREDTIMEOUT'])
           return {['<cont>']=function(cont) nrr[tag][2]=cont end}
         else return true end
       end
