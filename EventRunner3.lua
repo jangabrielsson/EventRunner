@@ -60,7 +60,7 @@ function main()
   --rule("@{06:00,catch} => Util.checkVersion()") -- Check for new version every morning at 6:00
   --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix))")
 
-  dofile("verify.lua")
+  --dofile("verify.lua")
   --dofile("example_rules3.lua")
 end
 
