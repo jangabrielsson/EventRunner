@@ -9,13 +9,12 @@
 22 GeofenceEvent
 %% globals 
 Test
-Month
 %% autostart 
 --]] 
 
-if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=124} dofile("HC2.lua") end
+if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end
 
-local _version,_fix = "3.0","B25"  -- Aug 2, 2019  
+local _version,_fix = "3.0","B26"  -- Aug 2, 2019  
 
 local _sceneName   = "Demo"      -- Set to scene/script name
 local _homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
@@ -27,7 +26,7 @@ if dofile then dofile("credentials.lua") end -- To not accidently commit credent
 -- debug flags for various subsystems (global)
 _debugFlags = { 
   post=true,invoke=false,triggers=false,dailys=false,rule=false,ruleTrue=false,hue=false,
-  fcall=true, fglobal=false, fget=false, fother=true
+  fcall=true, fglobal=false, fget=true, fother=true
 }
 _options={}
 
@@ -36,7 +35,7 @@ function main()
   local rule,define = Rule.eval, Util.defvar
 
   if _EMULATED then
-    --_System.speed(true)               -- run emulator faster than real-time
+    _System.speed(true)               -- run emulator faster than real-time
     --_System.setRemote("devices",{5})  -- make device 5 remote (call HC2 with api)
     --_System.installProxy()            -- Install HC2 proxy sending sourcetriggers back to emulator
   end
@@ -56,7 +55,7 @@ function main()
   --HT = json.decode(HT)
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
-  
+
   --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
   --rule("@{06:00,catch} => Util.checkVersion()") -- Check for new version every morning at 6:00
   --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix)")
@@ -293,7 +292,7 @@ function makeEventManager()
     local rm = {[self.RULE]=e, action=action, src=doc, cache={}, subs=rl}
     rm.enable = function() Util.mapF(function(e) e.enable() end,rl) return rm end
     rm.disable = function() Util.mapF(function(e) e.disable() end,rl) return rm end
-    rm.start = function() self._invokeRule({rule=rm}) return rm end
+    rm.start = function(event) self._invokeRule({rule=rm,event=event}) return rm end
     rm.print = function() Util.map(function(e) e.print() end,rl) end
     return rm
   end
@@ -345,7 +344,7 @@ function makeEventManager()
     if fn then if front then table.insert(rules,1,{rule}) else rules[#rules+1] = {rule} end end
     rule.enable = function() rule._disabled = nil return rule end
     rule.disable = function() rule._disabled = true return rule end
-    rule.start = function() self._invokeRule({rule=rule}) return rule end
+    rule.start = function(event) self._invokeRule({rule=rule,event=event}) return rule end
     rule.print = function() Log(LOG.LOG,"Event(%s) => ..",tojson(e)) end
     if self.SECTION then
       local s = self._sections[self.SECTION] or {}
@@ -411,9 +410,10 @@ function makeEventManager()
     error("Unable to compile action:"..json.encode(a))
   end
 
-  function self._invokeRule(env)
+  function self._invokeRule(env,event)
     local t = os.time()
     env.last,env.rule.time,env.log = t-(env.rule.time or 0),t,env.rule.log
+    env.event = env.event or event
     if _debugFlags.invoke and (env.event == nil or not env.event._sh) then Debug(true,"Invoking:%s",env.rule.src) end
     local status, res, ctx = spcall(env.rule.action,env) -- call the associated action
     if not status then
@@ -1424,7 +1424,7 @@ function makeEventScriptRuntime()
     local res = {coroutine.resume(co)}
     if res[1]==true then
       if coroutine.status(co)=='dead' then e.log.cont(select(2,table.unpack(res))) end
-    else error(res[1]) end
+    else error(res[2]) end
   end
   local function handleCall(s,e,fun,args)
     local res = table.pack(fun(table.unpack(args)))
@@ -1604,36 +1604,26 @@ function makeEventScriptRuntime()
   end
   instr['again'] = function(s,n,e) 
     local v = n>0 and s.pop() or math.huge
-    if not e.forR then s.push(0) 
-    elseif v > e.forR[2] then s.push(e.forR[1]()) else s.push(e.forR[2]) end 
+    e.rule._again = (e.rule._again or 0)+1
+    if v > e.rule._again then setTimeout(function() e.rule.start(e.rule._event) end,0) else e.rule._again,e.rule._event = nil,nil end
+    s.push(e.rule._again or v)
   end
-  instr['trueFor'] = function(s,n,e,i) 
+  instr['trueFor'] = function(s,n,e,i)
     local val,time = s.pop(),s.pop()
-    local re = {code=e.code, src=e.src, rule=e.rule, locals=e.locals, event=e.event}
-    local rule = e.rule
-    e.rule._again = e.event
+    e.rule._event = e.event
     local flags = i[5] or {}; i[5]=flags
-    local rep = function() flags.expired = true; flags.timer = nil; re.event=rule._again; self.eval(re) end
-    e.forR = nil -- Again function (see again())
-    --Log(LOG.LOG,"FOR")
-    if flags.expired then -- true if timer has expired
-      --Log(LOG.LOG,"Timer expired")
-      flags.expired = false; 
-      if val then 
-        flags.counter = (flags.counter or 0)+1 -- Times we have repeated 
-        --print(string.format("REP:%s, TIME:%s",i[7],time))
-        e.forR={function() Event.post(rep,time+os.time(),e.rule) return flags.counter end,flags.counter}
-      end
-      s.push(val) 
-      return
-    end 
-    flags.counter = 0
-    if flags.timer and (not val) then flags.timer = 
-      Event.cancel(flags.timer) --Log(LOG.LOG,"Killing timer") -- Timer already running, and false, stop timer
-    elseif (not flags.timer) and val then                     -- Timer not running, and true, start timer
-      flags.timer=Event.post(rep,time+os.time(),e.rule)        --Log(LOG.LOG,"Starting timer %s",tostring(i[5]))
+    if val then
+      if flags.expired then s.push(val); flags.expired=nil; return end
+      if flags.timer then s.push(false); return end
+      flags.timer = setTimeout(function() 
+          flags.expired,flags.timer=true,nil; 
+          e.rule.start(e.rule._event) 
+        end,1000*time); 
+      s.push(false); return
+    else
+      if flags.timer then flags.timer=clearTimeout(flags.timer) end
+      s.push(false)
     end
-    s.push(false)
   end
 
   function self.addInstr(name,fun) _assert(instr[name] == nil,"Instr already defined: %s",name) instr[name] = fun end
@@ -1671,7 +1661,7 @@ function makeEventScriptRuntime()
         local stat,res
         while env.cp <= #code and stat==nil do
           i = code[env.cp]
-          if traceFlag then 
+          if traceFlag or _traceInstrs then 
             args = copy(stack.liftc(i[2]))
             stat,res=(instr[i[1]] or instr['%call'])(stack,i[2],env,i)
             postTrace(i,args,stack,env.cp) 
@@ -1890,7 +1880,7 @@ function makeEventScriptRuleCompiler()
 
   -- Scheduler that every night posts 'daily' rules
   Event.schedule("n/00:00",function(env) for _,d in ipairs(dailysTab) do self.recalcDailys(d.rule) end end)
-  
+
   return self
 end
 
