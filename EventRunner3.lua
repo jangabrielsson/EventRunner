@@ -35,7 +35,7 @@ function main()
   local rule,define = Rule.eval, Util.defvar
 
   if _EMULATED then
-    _System.speed(true)               -- run emulator faster than real-time
+    --_System.speed(true)               -- run emulator faster than real-time
     --_System.setRemote("devices",{5})  -- make device 5 remote (call HC2 with api)
     --_System.installProxy()            -- Install HC2 proxy sending sourcetriggers back to emulator
   end
@@ -61,7 +61,7 @@ function main()
   --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix)")
 
   if _EMULATED then
-    --dofile("verify.lua")
+    dofile("verify.lua")
     --dofile("example_rules3.lua")
   end
 end
