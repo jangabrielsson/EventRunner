@@ -14,7 +14,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end
 
-local _version,_fix = "3.0","B26"  -- Aug 2, 2019  
+local _version,_fix = "3.0","B27"  -- Aug 2, 2019  
 
 local _sceneName   = "Demo"      -- Set to scene/script name
 local _homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
@@ -61,7 +61,7 @@ function main()
   --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix)")
 
   if _EMULATED then
-    dofile("verify.lua")
+    --dofile("verify.lua")
     --dofile("example_rules3.lua")
   end
 end
@@ -627,6 +627,11 @@ local function makeUtils()
     for k1,v1 in pairs(e1) do if e2[k1] == nil or not equal(v1,e2[k1]) then return false end end
     for k2,v2 in pairs(e2) do if e1[k2] == nil or not equal(e1[k2],v2) then return false end end
     return true
+  end
+  function self.randomizeList(list)
+    local res,l,j,n = {},{}; for _,v in pairs(list) do l[#l+1]=v end; n=#l
+    for i=n,1,-1 do j=math.random(1,i); res[#res+1]=l[j]; table.remove(l,j) end
+    return res
   end
   local function isVar(v) return type(v)=='table' and v[1]=='%var' end
   self.isVar = isVar
@@ -1558,6 +1563,9 @@ function makeEventScriptRuntime()
   instr['%today']=function(s,n,e,i) s.push(midnight()+s.pop()) end
   instr['%nexttime']=function(s,n,e,i) local t=s.pop()+midnight(); s.push(t >= os.time() and t or t+24*3600) end
   instr['%plustime']=function(s,n,e,i) s.push(os.time()+s.pop()) end
+  instr['HM']=function(s,n,e,i) local t = s.pop()
+    s.push(os.date("%H:%M",t < os.time() and t+midnight() or t)) 
+  end  
   instr['sign'] = function(s,n) s.push(tonumber(s.pop()) < 0 and -1 or 1) end
   instr['rnd'] = function(s,n) local ma,mi=s.pop(),n>1 and s.pop() or 1 s.push(math.random(mi,ma)) end
   instr['round'] = function(s,n) local v=s.pop(); s.push(math.floor(v+0.5)) end
