@@ -7,7 +7,7 @@
   }},
   "EventRunner3.lua":{
   "version":"3.0",
-  "fix":"B28",
+  "fix":"B30",
   "scenes":{
     "ICal":{"version":"0.9","fix":"B12"},
     "IOSLocator":{"version":"2.0","fix":"B12"}

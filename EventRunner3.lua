@@ -14,7 +14,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end
 
-local _version,_fix = "3.0","B28"  -- Aug 2, 2019  
+local _version,_fix = "3.0","B30"  -- Aug 2, 2019  
 
 local _sceneName   = "Demo"      -- Set to scene/script name
 local _homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
@@ -52,7 +52,7 @@ function main()
   
 --or read in "HomeTable" from a fibaro global variable (or scene)
 --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
---HT = json.decode(HT)
+--HT = type(HT) == 'string' and json.decode(HT) or HT
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
@@ -189,7 +189,7 @@ function makeEventManager()
   end
   local function compilePattern(pattern)
     compilePattern2(pattern)
-    if pattern.type and type(pattern.deviceID)=='table' then
+    if pattern.type and type(pattern.deviceID)=='table' and not pattern.deviceID._constr then
       local m = {}; for _,id in ipairs(pattern.deviceID) do m[id]=true end
       pattern.deviceID = {_var_='_', _constr=function(val) return m[val] end, _str=pattern.deviceID}
     end
@@ -1408,14 +1408,18 @@ local function makeUtils()
       r[k]= v; s.push(v) 
     end
     local _marshalBool={['true']=true,['True']=true,['TRUE']=true,['false']=false,['False']=false,['FALSE']=false}
-    local function marshall(v) 
-      if not _MARSHALL then return v
-      elseif tonumber(v) then return tonumber(v)
+    local function marshallFrom(v) if not _MARSHALL then return v elseif v==nil then return v end
+      local fc = v:sub(1,1)
+      if fc == '[' or fc == '{' then local s,t = pcall(json.decode,v); if s then return t end end
+      if tonumber(v) then return tonumber(v)
       elseif _marshalBool[v]~=nil then return _marshalBool[v] end
       local s,t = pcall(toTime,v); return s and t or v 
     end
-    local getVarFs = { script=getVar, glob=function(n,e) return marshall(fibaro:getGlobalValue(n)) end }
-    local setVarFs = { script=setVar, glob=function(n,v,e) fibaro:setGlobal(n,v) return v end }
+    local function marshallTo(v) if not _MARSHALL then return v end
+      if type(v)=='table' then return safeEncode(v) else return tostring(v) end
+    end
+    local getVarFs = { script=getVar, glob=function(n,e) return marshallFrom(fibaro:getGlobalValue(n)) end }
+    local setVarFs = { script=setVar, glob=function(n,v,e) fibaro:setGlobal(n,marshallTo(v)) return v end }
     instr['%var'] = function(s,n,e,i) s.push(getVarFs[i[4]](i[3],e)) end
     instr['%setvar'] = function(s,n,e,i) if n==1 then setVarFs[i[4]](i[3],s.peek(),e) else s.push(setVarFs[i[4]](i[3],i[5],e)) end end
     instr['%local'] = function(s,n,e,i) local vn,ve = i[3],s.lift(n); e.locals = e.locals or {}
