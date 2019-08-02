@@ -15,7 +15,7 @@ Month
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=124} dofile("HC2.lua") end
 
-local _version,_fix = "3.0","B24"  -- Aug 2, 2019  
+local _version,_fix = "3.0","B25"  -- Aug 2, 2019  
 
 local _sceneName   = "Demo"      -- Set to scene/script name
 local _homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
@@ -474,7 +474,7 @@ function makeEventManager()
     if call=='setValue' and not fibaro._actions[id].setValue and fibaro._actions[id].turnOn then
       return fibaro._call(obj,id,tonumber(({...})[1]) > 0 and "turnOn" or "turnOff")
     end
-    if _options.DEVICEAUTOACTION then fibaro._actions[id][call]="1" end
+    if _options.DEVICEAUTOACTION or call=='setProperty' then fibaro._actions[id][call]="1" end
     _assert(fibaro._actions[id][call],"ID:%d does not support action '%s'",id,call)
     return fibaro._call(obj,id,call,...)
   end 
