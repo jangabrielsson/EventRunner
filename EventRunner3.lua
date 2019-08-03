@@ -9,18 +9,19 @@
 22 GeofenceEvent
 %% globals 
 Test
+coffeeTimer
 %% autostart 
 --]] 
 
-if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end
+if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B31"  -- Aug 3, 2019  
+local _version,_fix = "3.0","B32"  -- Aug 3, 2019  
 
 local _sceneName   = "Demo"      -- Set to scene/script name
 local _homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
 _HueHubs     = {}          -- Hue bridges, Ex. {{name='Hue',user=_HueUserName,ip=_HueIP}}
 local _defaultNodeRed   = "http://192.168.1.50:1880/eventrunner" -- Ex. used for Event.postRemote(_defaultNodeRed,{type='test'})
-if dofile then dofile("credentials.lua") end -- To not accidently commit credentials to Github, or post at forum :-)
+--if dofile then dofile("credentials.lua") end -- To not accidently commit credentials to Github, or post at forum :-)
 -- E.g. Hue user names, icloud passwords etc. HC2 credentials is set from HC2.lua, but can use same file.
 
 -- debug flags for various subsystems (global)
@@ -55,13 +56,13 @@ function main()
 --HT = type(HT) == 'string' and json.decode(HT) or HT
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
-
+  
 --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
 --rule("@{06:00,catch} => Util.checkVersion()") -- Check for new version every morning at 6:00
 --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix)")
 
   if _EMULATED then
-    dofile("verify.lua")
+    --dofile("verify.lua")
     --dofile("example_rules3.lua")
   end
 end
@@ -1719,9 +1720,9 @@ function makeEventScriptRuleCompiler()
       elseif e[2]:sub(1,1)=="_" then s.triggs[e[2] ] = {type='variable', name=e[2]} end 
     end,
     ['%set'] = function(e,s) if isTriggerVar(e[2]) or isGlob(e[2]) then error("Can't assign variable in rule header") end end,
-    ['%prop'] = function(e,s) 
-      if not getFuns[e[3]][4] then return end
-      local pn = getFuns[e[3]][2]
+    ['%prop'] = function(e,s)
+      local pn
+      if not getFuns[e[3]] then pn = e[3] elseif not getFuns[e[3]][4] then return else pn = getFuns[e[3]][2] end
       local cv = ScriptCompiler.compile2(e[2])
       local v = ScriptEngine.eval2({code=cv})
       map(function(id) s.triggs[ID(id,e[3])..pn]={type='property', deviceID=id, propertyName=pn} end,type(v)=='table' and v or {v})
