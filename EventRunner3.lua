@@ -15,18 +15,18 @@ coffeeTimer
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B33"  -- Aug 4, 2019  
+local _version,_fix = "3.0","B34"  -- Aug 4, 2019  
 
 local _sceneName   = "Demo"      -- Set to scene/script name
 local _homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
 _HueHubs     = {}          -- Hue bridges, Ex. {{name='Hue',user=_HueUserName,ip=_HueIP}}
 local _defaultNodeRed   = "http://192.168.1.50:1880/eventrunner" -- Ex. used for Event.postRemote(_defaultNodeRed,{type='test'})
---if dofile then dofile("credentials.lua") end -- To not accidently commit credentials to Github, or post at forum :-)
+-- if dofile then dofile("credentials.lua") end -- To not accidently commit credentials to Github, or post at forum :-)
 -- E.g. Hue user names, icloud passwords etc. HC2 credentials is set from HC2.lua, but can use same file.
 
 -- debug flags for various subsystems (global)
 _debugFlags = { 
-  post=true,invoke=false,triggers=false,dailys=false,rule=false,ruleTrue=false,hue=false,
+  post=true,invoke=false,triggers=false,dailys=false,rule=false,ruleTrue=false,hue=true,
   fcall=true, fglobal=false, fget=true, fother=true
 }
 _options={}
@@ -388,6 +388,30 @@ function makeEventManager()
         local p = self._match(pattern,env.event)
         if p then env.p = p; self.post(function() ref=nil action(env) end, time, name) else self.cancel(ref) end
       end)
+  end
+
+  function self.pollTriggers(devices)
+    local filter = {}
+    local function truthTable(t) local res={}; for _,p in ipairs(t) do res[p]=true end return res end
+    for id,t in pairs(devices) do filter[id]=truthTable(type(t)=='table' and t or {t}) end
+    INTERVAL = 2
+    lastRefresh = 0
+    function pollRefresh()
+      states = api.get("/refreshStates?last=" .. lastRefresh)
+      if states then
+        lastRefresh=states.last
+        for k,v in pairs(states.changes or {}) do
+          for p,a in pairs(v) do
+            if p~='id' and filter[v.id] and filter[v.id][p] then
+              local e = {type='property', deviceID=v.id,propertyName=p, value=a}
+              print(json.encode(e))
+            end
+          end
+        end
+      end
+      setTimeout(pollRefresh,INTERVAL*1000)
+    end
+    pollRefresh()
   end
 
   function self._compileAction(a,src,log)
@@ -1631,7 +1655,7 @@ function makeEventScriptRuntime()
   instr['%eventmatch'] = function(s,n,e,i) 
     local ev,evp=i[4],i[3]; 
     local vs = Event._match(evp,e.event)
-    if vs then for k,v in pairs(vs) do e.locals[k]={v} end end
+    if vs then for k,v in pairs(vs) do e.locals[k]={v} end end -- Uneccesary? Alread done in head matching.
     s.push(e.event and vs and ev or false) 
   end
   instr['again'] = function(s,n,e) 
@@ -2359,14 +2383,28 @@ function makeHueSupport(cont)
       local dev = ({SensorID='sensors',LightID='lights',GroupID='groups'})[t]
       return name..":"..self.hubs[name][dev][tonumber(id)].name 
     end
+
+    local _queue = {}
     function self.request(url,cont,op,payload)
+      local key = url:match("lights/(%d+)") or tostring({})
+      if next(_queue) == nil then
+        _queue[1]='RUN'
+        self.doRequest(url,cont,op,payload,key)
+      else _queue[#_queue+1]={url,cont,op,payload,key} end
+    end
+    function self.doRequest(url,cont,op,payload,key)
       op,payload = op or "GET", payload and json.encode(payload) or ""
       Debug(_debugFlags.hue,"Hue req:%s Payload:%s",url,payload)
       HTTP:request(url,{
           options = {headers={['Accept']='application/json',['Content-Type']='application/json'},
             data = payload, timeout=_HUETIMEOUT, method = op},
           error = function(status) error("Hue connection:"..tojson(status)..", "..url) end,
-          success = function(status) if cont then cont(json.decode(status.data)) end end
+          success = function(status) 
+            table.remove(_queue,1)
+            local v = _queue[1]
+            if v then setTimeout(function() self.doRequest(table.unpack(v)) end,1) end
+            if cont then cont(json.decode(status.data)) end
+          end
         })
     end
 
