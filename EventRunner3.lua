@@ -9,25 +9,22 @@
 22 GeofenceEvent
 %% globals 
 Test
-coffeeTimer
 %% autostart 
 --]] 
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B34"  -- Aug 4, 2019  
+local _version,_fix = "3.0","B41"  -- Aug 9, 2019  
 
 local _sceneName   = "Demo"      -- Set to scene/script name
 local _homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
-_HueHubs     = {}          -- Hue bridges, Ex. {{name='Hue',user=_HueUserName,ip=_HueIP}}
-local _defaultNodeRed   = "http://192.168.1.50:1880/eventrunner" -- Ex. used for Event.postRemote(_defaultNodeRed,{type='test'})
--- if dofile then dofile("credentials.lua") end -- To not accidently commit credentials to Github, or post at forum :-)
+--if dofile then dofile("credentials.lua") end -- To not accidently commit credentials to Github, or post at forum :-)
 -- E.g. Hue user names, icloud passwords etc. HC2 credentials is set from HC2.lua, but can use same file.
 
 -- debug flags for various subsystems (global)
 _debugFlags = { 
-  post=true,invoke=false,triggers=false,dailys=false,rule=false,ruleTrue=false,hue=true,
-  fcall=true, fglobal=false, fget=true, fother=true
+  post=true,invoke=false,triggers=false,dailys=false,rule=false,ruleTrue=false,
+  fcall=true, fglobal=false, fget=true, fother=true, hue=true, telegram=true, nodered=true,
 }
 _options={}
 
@@ -61,8 +58,7 @@ function main()
 --rule("@{06:00,catch} => Util.checkVersion()") -- Check for new version every morning at 6:00
 --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix)")
 
-  if _EMULATED then
-    --dofile("verify.lua")
+  if _EMULATED then 
     --dofile("example_rules3.lua")
   end
 end
@@ -1573,7 +1569,7 @@ function makeEventScriptRuntime()
 
   local function ID(id,i,l) 
     if tonumber(id)==nil then 
-      error(format("bad deviceID '%s' for '%s' '%s'",id,i[1],tojson(i[4] or l or "").."?"),3) else return id
+      error(format("bad deviceID '%s' for '%s' '%s'",id,i[1],tojson(l or i[4] or "").."?"),3) else return id
     end
   end
   instr['%prop'] = function(s,n,e,i) local id,f=s.pop(),getFuns[i[3]]
@@ -1584,8 +1580,8 @@ function makeEventScriptRuntime()
   end
   instr['%setprop'] = function(s,n,e,i) local id,val,prop=s.pop(),getArg(s,i[3]),getArg(s,i[4])
     local f = setFuns[prop] _assert(f,"bad property '%s'",prop or "") 
-    if type(id)=='table' then Util.mapF(function(id) f[1](ID(id,i),f[2],val,e) end,id); s.push(true)
-    else s.push(f[1](ID(id,i),f[2],val,e)) end
+    if type(id)=='table' then Util.mapF(function(id) f[1](ID(id,i,e._lastR),f[2],val,e) end,id); s.push(true)
+    else s.push(f[1](ID(id,i,e._lastR),f[2],val,e)) end
   end
   instr['%rule'] = function(s,n,e,i) local b,h=s.pop(),s.pop(); s.push(Rule.compRule({'=>',h,b,e.log},e)) end
   instr['log'] = function(s,n) s.push(Log(LOG.ULOG,table.unpack(s.lift(n)))) end
@@ -1982,7 +1978,6 @@ function extraERSetup()
   Util.defvar('catch',math.huge)
   Util.defvar("defvars",Util.defvars)
   Util.defvar("mapvars",Util.reverseMapDef)
-  Util.defvar("_defaultNodeRed",_defaultNodeRed)
   if _EMULATED then Util.getWeekNumber = _System.getWeekNumber
   else Util.getWeekNumber = function(tm) return tonumber(os.date("%V",tm)) end end
   function Util.findScenes(str)
@@ -2011,46 +2006,119 @@ function extraERSetup()
       else return fibaro._get(obj,id,prop) end
     end)
 
---------- Node-red support ---------
-  do
-    local nrr={}
-    function nodered(event,req,node)
-      node = node and node or _defaultNodeRed
-      _assert(node,"Missing nodered ip address - set _defaultNodeRed at beginning of scene")
-      local tag = Util.gensym("NR")
-      event._transID = tag
-      Event.postRemote(node,event)
-      if req then
-        nrr[tag]={}
-        nrr[tag][1]=setTimeout(function() nrr[tag]=nil 
-            error(format("No response from Node-red, '%s'",(tojson(event))))
-          end,_options['NODEREDTIMEOUT'])
-        return {['<cont>']=function(cont) nrr[tag][2]=cont end}
-      else return true end
+--------- Telegram support ---------
+
+  Telegram={ _interval=2, _http=net.HTTPClient(), _users=nil, _userVar="TelegramUsers", _persist=true }
+  function Telegram._request(key,cmd,payload,cont)
+    local url = key..cmd
+    payload = payload and json.encode(payload)
+    Telegram._http:request(url,{options = {
+          headers = {['Accept']='application/json',['Content-Type']='application/json'},
+          data = payload, timeout=2000, method = 'POST'},
+        error = function(status) if status~= "Operation canceled" then print(json.encode(status)) end end,
+        success = function(status) if cont then cont(json.decode(status.data)) end end,
+      })
+  end
+  function Telegram._recordUser(username,chatID,bot)
+    local u = username..":"..chatID..":"..bot
+    local names = Telegram._users
+    for _,u2 in ipairs(names) do if u==u2 then return end end
+    names[#names+1]=u; Telegram._persistFlag = true
+  end
+  function Telegram._loadUsers()
+    if fibaro:getGlobalModificationTime(Telegram._userVar)==nil then
+      api.post("/globalVariables/",{name=Telegram._userVar,value="{}"});
     end
-    Event.event({type='NODERED',value='$e'},
-      function(env) local p,tag = env.p,env.event._transID
-        if tag then
-          local cr = nrr[tag] or {}
-          if cr[1] then clearTimeout(cr[1]) end
-          if cr[2] then cr[2](p.e) else Event.post(p.e) end
-          nrr[tag]=nil
-        else Event.post(p.e) end
-      end)
+    local users = fibaro:getGlobal(Telegram._userVar)
+    if users == nil or users == "" then users = "{}" end 
+    Telegram._users = json.decode(users)
+  end
+  function Telegram._findUser(key1,key2) -- user / chatID / chatID,Bot_key
+    if key2==nil then
+      local p
+      if tonumber(key1) then p="(.-):("..key1.."):(.*)$" else p="("..key1.."):(%d+):(.*)$" end
+      for _,user in ipairs(Telegram._users or {}) do
+        local u,c,b = user:match(p)
+        if u then return {tonumber(c),b} end
+      end
+      return nil
+    else return {key1,key2} end
+  end
+  function Telegram._flush()
+    if Telegram._persistFlag == true and Telegram._persist then 
+      fibaro:setGlobal(Telegram._userVar,json.encode(Telegram._users)) 
+      Telegram._persistFlag=false
+    end
+  end
+  function Telegram.bot(key,tag)
+    tag = tag or "Telegram"
+    Telegram._botkey = key
+    if not Telegram._users then Telegram._loadUsers() end
+    local url,lastID,msg = "https://api.telegram.org/bot"..key.."/",1,nil
+    local function loop()
+      Telegram._request(url,"getUpdates",{offset=lastID+1},
+        function(messages)
+          for _,m in ipairs(messages.result) do
+            lastID,msg=m.update_id,m.message
+            Telegram._recordUser(msg.from.username,msg.chat.id,key)
+            Event.post({type=tag,user=msg.from.username,text=msg.text,id={msg.chat.id,key},info=msg.chat,_sh=true})
+          end
+        end)
+      Telegram._flush()
+      setTimeout(loop,Telegram._interval*1000)
+    end
+    loop()
   end
 
+  function Telegram.msg(id,text,keyboard)
+    if not Telegram._users then Telegram._loadUsers() end
+    local id2 = type(id)=='table' and id or Telegram._findUser(table.unpack(type(id)=='table' and id or {id}))
+    _assert(id2,"No user with name "..tojson(id))
+    Telegram._request("https://api.telegram.org/bot"..id2[2].."/","sendMessage",{chat_id=id2[1],text=text,reply_markup=keyboard}) 
+  end
+
+--------- Node-red support ---------
+
+  Nodered = { _nrr = {}, _timeout = 4000 }
+  function Nodered.connect(url) Nodered._url = url end
+  function Nodered.post(event,req)
+    _assert(Nodered._url,"Missing nodered ip address - set _defaultNodeRed at beginning of scene")
+    _assert(Util.isEvent(event),"Arg to nodered.msg is not an event")
+    local tag, nrr = Util.gensym("NR"), Nodered._nrr
+    event._transID = tag
+    Event.postRemote(Nodered._url,event)
+    if req then
+      nrr[tag]={}
+      nrr[tag][1]=setTimeout(function() nrr[tag]=nil 
+          error(format("No response from Node-red, '%s'",(tojson(event))))
+        end,Nodered._timeout or _options['NODEREDTIMEOUT'])
+      return {['<cont>']=function(cont) nrr[tag][2]=cont end}
+    else return true end
+  end
+  Event.event({type='NODERED',value='$e'},
+    function(env) local p,tag = env.p,env.event._transID
+      if tag then
+        local nrr = Nodered._nrr
+        local cr = nrr[tag] or {}
+        if cr[1] then clearTimeout(cr[1]) end
+        if cr[2] then cr[2](p.e) else Event.post(p.e) end
+        nrr[tag]=nil
+      else Event.post(p.e) end
+    end)
+
 ----------- Sonos speech/mp3
-  sonos = { vdID = 10, buttonID = 28, lang = 'en'}
-  function sonos._cmd(cmd)
+
+  Sonos = { vdID = 10, buttonID = 28, lang = 'en'}
+  function Sonos._cmd(cmd)
     vol = vol or 30
     local _f = fibaro
     local _x ={root="x_sonos_object",load=function(b)local c=_f:getGlobalValue(b.root)if string.len(c)>0 then local d=json.decode(c)if d and type(d)=="table"then return d else _f:debug("Unable to process data, check variable")end else _f:debug("No data found!")end end,set=function(b,e,d)local f=b:load()if f[e]then for g,h in pairs(d)do f[e][g]=h end else f[e]=d end;_f:setGlobal(b.root,json.encode(f))end,get=function(b,e)local f=b:load()if f and type(f)=="table"then for g,h in pairs(f)do if tostring(g)==tostring(e or"")then return h end end end;return nil end}
-    _x:set(tostring(sonos.vdID), cmd)
-    _f:call(sonos.vdID, "pressButton", sonos.buttonID)
+    _x:set(tostring(Sonos.vdID), cmd)
+    _f:call(Sonos.vdID, "pressButton", Sonos.buttonID)
   end
 
-  function sonos.mp3(file, vol) vol=vol or 30; sonos._cmd({stream={stream=file, source="local", duration="auto", volume=vol}}) end
-  function sonos.speak(message, vol) vol=vol or 30; sonos._cmd({tts={message=message, duration='auto', language=sonos.lang, volume=vol}}) end
+  function Sonos.mp3(file, vol) vol=vol or 30; Sonos._cmd({stream={stream=file, source="local", duration="auto", volume=vol}}) end
+  function Sonos.speak(message, vol) vol=vol or 30; Sonos._cmd({tts={message=message, duration='auto', language=sonos.lang, volume=vol}}) end
 
 --------- Auto patch ---------------
   function Util.checkVersion(vers)
@@ -2118,12 +2186,14 @@ function extraERSetup()
 
   Event.event({{type='autostart'},{type='other'}},
     function(env)
-      local event = {type=Event.ANNOUNCE, subs=#Event._subs>0 and Event._subs or nil}
-      for _,id in ipairs(Util.findScenes(gEventRunnerKey)) do 
-        if isRunning(id) then
-          Debug(_debugFlags.pubsub,"Announce to ID:%s %s",id,tojson(env.event.subs)); Event._rScenes[id]=true; Event.postRemote(id,event) 
-        end
-      end
+      setTimeout(function() -- Do this after startup so triggers don't pile up
+          local event = {type=Event.ANNOUNCE, subs=#Event._subs>0 and Event._subs or nil}
+          for _,id in ipairs(Util.findScenes(gEventRunnerKey)) do 
+            if isRunning(id) then
+              Debug(_debugFlags.pubsub,"Announce to ID:%s %s",id,tojson(env.event.subs)); Event._rScenes[id]=true; Event.postRemote(id,event) 
+            end
+          end
+        end,2000)
     end)
 
   Event.event({type=Event.ANNOUNCE},function(env)
@@ -2282,12 +2352,9 @@ end]],_EMULATED and -__fibaroSceneId or __fibaroSceneId,lbl,tag,lbl,ip,port)
 end
 
 ------- Hue support ---------------------------------
-function makeHueSupport(cont)
-  local _defaultHubName,format = "Hue",string.format
-  --[[
-       _HueHubs = {{name="Hub1",user="hghgjhT6TUG", ip="192.168.1.50"}}
-      Hue.define("Hub1:my Light","light",890)
---]]
+function makeHueSupport()
+  local format,Hue = string.format,nil
+
   local function makeHueHub(name,username,ip,cont)
     local lights,groups,scenes,sensors = {},{},{},{}
     local self = {lights=lights,groups=groups,scenes=scenes,sensors=sensors}
@@ -2295,6 +2362,7 @@ function makeHueSupport(cont)
     local lightURL = baseURL.."lights/%s/state"
     local groupURL = baseURL.."groups/%s/action"
     local sensorURL = baseURL.."sensors/%s"
+
     function self._setState(hue,prop,val,upd)
       if type(prop)=='table' then 
         for k,v in pairs(prop) do self._setState(hue,k,v,upd) end
@@ -2311,6 +2379,7 @@ function makeHueSupport(cont)
         for _,id in ipairs(hue.lights) do self._setState(lights[tonumber(id)],prop,val,upd) end 
       end
     end
+
     function self.updateState(state) -- partial state
       for _,s in ipairs(state[1] and state or {}) do
         if s.success then 
@@ -2322,12 +2391,15 @@ function makeHueSupport(cont)
         end -- if
       end --for
     end --fun
+
     local function setFullState(devices,id,d,state,t,url)
       local dd = devices[d.name] or {name=d.name,id=tonumber(id), state={}, type=t, url=url,lights=d.lights, scenes={}}
       devices[d.name],devices[tonumber(id)]=dd,dd
       self._setState(dd,d[state],nil,true)
     end
+
     local function match(t1,t2) if #t1~=#t2 then return false end; for i=1,#t1 do if t1[i]~=t2[i] then return false end end return true end
+
     function self.getFullState(f)
       Hue.request(baseURL,function(data)
           for id,d in pairs(data.sensors) do setFullState(sensors,id,d,'state','sensor',sensorURL) end
@@ -2340,7 +2412,9 @@ function makeHueSupport(cont)
           if f then f() end
         end)
     end
+
     local _defFilter={buttonevent=true, on=true}
+
     function self.monitor(sensor,interval,filter)
       local url = sensor.url:sub(#baseURL+1)
       url=baseURL..format(url:match("(.-/)").."%s",sensor.id)
@@ -2354,6 +2428,7 @@ function makeHueSupport(cont)
         poll()
       end
     end
+
     function self.dump()
       Log(LOG.LOG,"%s------------ Hue Lights ---------------------",name)
       for k,v in pairs(lights) do if not tonumber(k) then Log(LOG.LOG,"Light '%s' id=%s",k,json.encode(v.id)) end end
@@ -2374,10 +2449,15 @@ function makeHueSupport(cont)
     local self, devMap, hueNames = { hubs={} }, {}, {}
     local HTTP = net.HTTPClient()
     function self.isHue(id) return devMap[id] and devMap[id].hue end
-    function self.name(n) return hueNames[n] end   
-    function self.connect(name,user,ip,cont)
-      self.hubs[name]=makeHueHub(name,user,ip,cont)
+    function self.name(n) return hueNames[n] end 
+
+    function self.connect(user,ip,name)
+      name = name or "Hue"
+      if next(self.hubs)==nil then Log(LOG.LOG,"Hue system inited (experimental)") end
+      _assert(self.hubs[name]==nil,"Hue hub name "..name.." already defined")
+      self.hubs[name]=makeHueHub(name,user,ip)
     end
+
     function self.hueName(hue) --Hue1:SensorID=1
       local name,t,id=hue:match("(%w+):(%a+)=(%d+)")
       local dev = ({SensorID='sensors',LightID='lights',GroupID='groups'})[t]
@@ -2398,7 +2478,7 @@ function makeHueSupport(cont)
       HTTP:request(url,{
           options = {headers={['Accept']='application/json',['Content-Type']='application/json'},
             data = payload, timeout=_HUETIMEOUT, method = op},
-          error = function(status) error("Hue connection:"..tojson(status)..", "..url) end,
+          error = function(status) Log(LOG.ERROR,"ERROR, Hue connection:%s, %s",tojson(status),url) end,
           success = function(status) 
             table.remove(_queue,1)
             local v = _queue[1]
@@ -2434,22 +2514,21 @@ function makeHueSupport(cont)
 
     local mapIndex=10000 -- start mapping at deviceID 10000
     --devMap[deviceID] -> {hub, type, hue}
-    function self.define(name,var,id) -- optional var
+    function self.define(name,id) -- optional var
       if id ==nil then id = mapIndex; mapIndex=mapIndex+1 else id =tonumber(id) end
-      if not name:match(":") then name=_defaultHubName..":"..name end -- default to Hue:<name>
+      if not name:match(":") then name="Hue:"..name end -- default to Hue:<name>
       hueNames[name]=id
       local hue,hub = find(name) 
       if hue then devMap[id] = {type=hue.type,hue=hue,hub=self.hubs[hub]}; hue.fid=id    
       else error("No Hue name:"..name) end
-      if Util and var then Util.defvar(var,id) end
-      Log(LOG.LOG,"Hue device '%s' assigned deviceID %s",name,id)
+      Debug(_debugFlags.hue,"Hue device '%s' assigned deviceID %s",name,id)
       Event._registerID(id,hueCall,hueGet)
       return id
     end
 
     function self.monitor(name,interval,filter)
       if type(name)=='table' then Util.mapF(function(n) self.monitor(n,interval,filter) end, name) return end
-      if type(name) == 'string' and not name:match(":") then name = _defaultHubName..":"..name end
+      if type(name) == 'string' and not name:match(":") then name = "Hue:"..name end
       local id = hueNames[name] or name -- name could be deviceID
       local sensor = devMap[id]
       sensor.hub.monitor(sensor.hue,interval,filter)
@@ -2493,18 +2572,16 @@ function makeHueSupport(cont)
         else payload=val end
       end
       if payload then self.request(format(d.url,d.id),h.updateState,"PUT",payload) h._setState(d,payload)
-      else  error(format("Hue setValue id:%s value:%s",id,val)) end
+      else  Log(LOG.ERROR,"Hue setValue id:%s value:%s",id,val) end
     end
     return self
   end
 
-  if _HueHubs then
-    Hue=makeHue() -- create global Hue object
-    Event.event({type='property',propertyName='on',_hue=true},
-      function(env) -- transform 'on' events
-        local e=env.event
-        Event.post({type='property',deviceID=e.deviceID,propertyName='value',value=fibaro:getValue(e.deviceID,'value'),_sh=true})
-      end)
+  Event.event({type='property',propertyName='on',_hue=true},
+    function(env) -- transform 'on' events
+      local e=env.event
+      Event.post({type='property',deviceID=e.deviceID,propertyName='value',value=fibaro:getValue(e.deviceID,'value'),_sh=true})
+    end)
 --  Event.event({type='property', propertyName='buttonevent', value='$val', _hue=true},
 --    function(env) -- transform 'buttonevent' to CentralSceneEvents
 --      local e = env.event
@@ -2514,16 +2591,9 @@ function makeHueSupport(cont)
 --      local keyAttr = ({'Down','Hold','Down/Released','Released'})[env.p.val % 1000 + 1]
 --      Event.post({type='event',event={type='CentralSceneEvent',data={deviceId=e.deviceID,keyId=keyId,keyAttribute=keyAttr}}})
 --    end)
-    local c = cont
-    cont = function() Log(LOG.LOG,"Hue system inited (experimental)") c() end
-    if _HueHubs and #_HueHubs==1 then _defaultHubName=_HueHubs[1].name end
-    for _,hub in ipairs(_HueHubs or {}) do
-      local c,h = cont,hub
-      cont = function() Hue.connect(h.name,h.user,h.ip,c) end
-    end
-  end
 
-  cont()
+  Hue = makeHue() -- create global Hue object
+  return Hue
 end
 
 -------- StartUp --------------------
@@ -2584,7 +2654,8 @@ ScriptCompiler = makeEventScriptCompiler and makeEventScriptCompiler(makeEventSc
 ScriptEngine   = makeEventScriptRuntime and makeEventScriptRuntime()
 Rule           = makeEventScriptRuleCompiler and makeEventScriptRuleCompiler() 
 VDev           = makeVDevSupport and makeVDevSupport()
+Hue            = makeHueSupport()
 extraERSetup()
 
-startUp(makeHueSupport)
+startUp()
 
