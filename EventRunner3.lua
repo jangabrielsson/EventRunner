@@ -14,7 +14,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B41"  -- Aug 9, 2019  
+local _version,_fix = "3.0","B42"  -- Aug 9, 2019  
 
 local _sceneName   = "Demo"      -- Set to scene/script name
 local _homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
@@ -27,7 +27,7 @@ _debugFlags = {
   fcall=true, fglobal=false, fget=true, fother=true, hue=true, telegram=true, nodered=true,
 }
 _options={}
-
+function HueSetup() end
 ---------- Main --------------------------------------
 function main()
   local rule,define = Rule.eval, Util.defvar
@@ -2441,12 +2441,15 @@ function makeHueSupport()
       Log(LOG.LOG,"----------------------------------------------")
     end
     Hue.hubs[name]=self -- hack
-    self.getFullState(cont)
+    Hue._initializing = Hue._initializing+1
+    self.getFullState(function()
+      Hue._initializing = Hue._initializing-1
+     end)
     return self
   end
 
   local function makeHue()
-    local self, devMap, hueNames = { hubs={} }, {}, {}
+    local self, devMap, hueNames = { hubs={}, _initializing=0 }, {}, {}
     local HTTP = net.HTTPClient()
     function self.isHue(id) return devMap[id] and devMap[id].hue end
     function self.name(n) return hueNames[n] end 
@@ -2657,5 +2660,20 @@ VDev           = makeVDevSupport and makeVDevSupport()
 Hue            = makeHueSupport()
 extraERSetup()
 
-startUp()
+if HueSetup then 
+	local function hue(cont)
+	 HueSetup()
+     local function waitFor()
+        if Hue._initializing > 0 then
+  		   setTimeout(waitFor,500)
+        else
+           cont()
+        end
+     end
+     waitFor()
+    end
+    startUp(hue)
+else
+  startUp()
+end
 
