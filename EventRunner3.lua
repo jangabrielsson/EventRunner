@@ -14,11 +14,11 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B42"  -- Aug 9, 2019  
+local _version,_fix = "3.0","B43"  -- Aug 9, 2019  
 
 local _sceneName   = "Demo"      -- Set to scene/script name
 local _homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
---if dofile then dofile("credentials.lua") end -- To not accidently commit credentials to Github, or post at forum :-)
+-- if dofile then dofile("credentials.lua") end -- To not accidently commit credentials to Github, or post at forum :-)
 -- E.g. Hue user names, icloud passwords etc. HC2 credentials is set from HC2.lua, but can use same file.
 
 -- debug flags for various subsystems (global)
@@ -27,7 +27,9 @@ _debugFlags = {
   fcall=true, fglobal=false, fget=true, fother=true, hue=true, telegram=true, nodered=true,
 }
 _options={}
-function HueSetup() end
+function 
+  --HueSetup() Hue.connect(_HueUserName,_HueIP) 
+end
 ---------- Main --------------------------------------
 function main()
   local rule,define = Rule.eval, Util.defvar
@@ -2443,8 +2445,8 @@ function makeHueSupport()
     Hue.hubs[name]=self -- hack
     Hue._initializing = Hue._initializing+1
     self.getFullState(function()
-      Hue._initializing = Hue._initializing-1
-     end)
+        Hue._initializing = Hue._initializing-1
+      end)
     return self
   end
 
@@ -2661,18 +2663,24 @@ Hue            = makeHueSupport()
 extraERSetup()
 
 if HueSetup then 
-	local function hue(cont)
-	 HueSetup()
-     local function waitFor()
-        if Hue._initializing > 0 then
-  		   setTimeout(waitFor,500)
+  local function hue(cont)
+    HueSetup()
+    local now = os.time()
+    local function waitFor()
+      if Hue._initializing > 0 then
+        if os.time()-now > 5 then
+          Log(LOG.ERROR,"HueSetup takes too long time")
+          cont()
         else
-           cont()
+          setTimeout(waitFor,500)
         end
-     end
-     waitFor()
+      else
+        cont()
+      end
     end
-    startUp(hue)
+    waitFor()
+  end
+  startUp(hue)
 else
   startUp()
 end
