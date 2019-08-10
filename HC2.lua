@@ -25,7 +25,7 @@ SOFTWARE.
 json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
-_version,_fix = "0.11","fix8" --July 31, 2019    
+_version,_fix = "0.11","fix10" --Aug 10, 2019    
 _sceneName = "HC2 emulator"
 _LOCAL=true                  -- set all resource to local in main(), i.e. no calls to HC2
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
@@ -129,7 +129,7 @@ function main()
 end
 
 _debugFlags = { 
-  threads=false, triggers=false, eventserver=false, hc2calls=true, globals=false, web=true,
+  threads=false, triggers=true, eventserver=true, hc2calls=true, globals=false, web=true,
   fcall=false, fglobal=false, fget=false, fother=true
 }
 
@@ -145,6 +145,7 @@ function setupContext(id)  -- Table of functions and variables available for sce
     fibaro=Util.copy(fibaro),  -- scenes may patch fibaro:*...
     _System=_System,       -- Available for debugging tasks in emulated mode
     dofile=Runtime.dofile, -- Allow dofile for including code for testing, but use our version that sets context
+    loadfile=Runtime.loadfile,
     os={clock=os.clock,date=osDate,time=osTime,difftime=os.difftime},
     json=json,
     print=print,
@@ -538,7 +539,6 @@ function Proxy_functions()
   end
 end
 
-
 ------------------------------------------------------------------------------
 -- Scene support
 -- load
@@ -761,7 +761,7 @@ function HC2_functions()
     local scene = HC2.rsrc.scenes[sceneID]
     Event.event(t,function(env) Scene.start(scene,env.event) end)
   end
-  
+
   function HC2.registerScene(name,id,file,globVars,triggers,fullname)
     local scene = Scene.load(name,id,file,fullname) 
     if not scene then return end
@@ -946,6 +946,7 @@ function HC2_functions()
       if name == "weather" then url="/weather" end
       rsrc = api.rawGet(_DEBUGREMOTERSRC,url)
       rsrcs[id] = rsrc -- cache it
+      rsrc._local = false
     end
     return rsrc
   end
@@ -1088,7 +1089,7 @@ function HC2_functions()
     end,
     ["POST:globalVariables"]=function(path,data)
       if path=="" then
-        HC2.createGlobal(data.name,data)
+        HC2.createGlobal(data.name,data.value)
         return 200
       else return nil,404 end
     end,
@@ -1124,6 +1125,9 @@ function HC2_functions()
         api.rawPost(true,'/mobile/push',data)
         return 200
       else return 404 end
+    end,
+    ["GET:refreshStates"]=function(path,data) -- api.get("/refreshStates?last="
+      return api.rawGet(false,'/refreshStates'..path)
     end
   }
 
@@ -1368,7 +1372,14 @@ function Runtime_functions()
     if code then
       setfenv(code,_SceneContext[coroutine.running()])
       code()
-    else Log(LOG.ERROR,"Missing file:%s",file) end
+    else Log(LOG.ERROR,"Missing file or error in file:%s",file) end
+  end
+
+  function Runtime.loadfile(file)
+    local code = loadfile(file)
+    if code then 
+      return function() setfenv(code,_SceneContext[coroutine.running()]) code() end
+    end
   end
 
   function Runtime.getInstance(id,inst)
@@ -2417,7 +2428,7 @@ function libs()
   local lunpack = table.unpack
   table.unpack = function(t) return lunpack(t,1,table.maxn(t)) end
   table.pack = function(...) return { n = select("#", ...), ... } end 
-  
+
   if not _VERSION:match("5%.1") then
     loadstring = load
     function setfenv(fn, env)

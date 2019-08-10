@@ -14,22 +14,31 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B43"  -- Aug 9, 2019  
+local _version,_fix = "3.0","B44"  -- Aug 10, 2019  
 
-local _sceneName   = "Demo"      -- Set to scene/script name
-local _homeTable   = "devicemap" -- Name of your HomeTable variable (fibaro global)
--- if dofile then dofile("credentials.lua") end -- To not accidently commit credentials to Github, or post at forum :-)
+local _sceneName   = "Demo"                                 -- Set to scene/script name
+local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
+--local _HueUserName = ".........."                           -- Hue API key
+--local _HueIP       = "192.168.1.XX"                         -- Hue bridge IP
+--local _NodeRed     = "http://192.168.1.YY:8080/EventRunner" -- Nodered URL
+--local _TelegBOT    = "t34yt98iughvnw9458gy5of45pg:chr9hcj"  -- Telegram BOT key
+--local _TelegCID    = 6876768686                             -- Telegram chat ID
+
+if loadfile then local cr = loadfile("credentials.lua"); if cr then cr() end end
+-- To not accidently commit credentials to Github, or post at forum :-)
 -- E.g. Hue user names, icloud passwords etc. HC2 credentials is set from HC2.lua, but can use same file.
 
 -- debug flags for various subsystems (global)
 _debugFlags = { 
-  post=true,invoke=false,triggers=false,dailys=false,rule=false,ruleTrue=false,
-  fcall=true, fglobal=false, fget=true, fother=true, hue=true, telegram=true, nodered=true,
+  post=true,invoke=false,triggers=true,dailys=false,rule=false,ruleTrue=false,
+  fcall=true, fglobal=false, fget=false, fother=false, hue=false, telegram=false, nodered=false,
 }
+-- options for various subsystems (global)
 _options={}
-function 
-  --HueSetup() Hue.connect(_HueUserName,_HueIP) 
-end
+
+-- Hue setup before main() starts. You can add more Hue.connect() inside this if you have more Hue bridges.
+function HueSetup() if _HueUserName and _HueIP then Hue.connect(_HueUserName,_HueIP) end end
+
 ---------- Main --------------------------------------
 function main()
   local rule,define = Rule.eval, Util.defvar
@@ -57,8 +66,13 @@ function main()
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
 --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
+
+--Nodered.connect(_NodeRed)            -- Setup nodered functionality
+--Telegram.bot(TelegBOT)               -- Setup Telegram bot that listens on oncoming messages. Only one per BOT.
+--Telegram.msg({TelegCID,TelegBOT})    -- Send msg to Telegram without BOT setup
 --rule("@{06:00,catch} => Util.checkVersion()") -- Check for new version every morning at 6:00
 --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix)")
+--rule("#ER_version => log('...patching scene'); Util.patchEventRunner()") -- Auto patch new versions...
 
   if _EMULATED then 
     --dofile("example_rules3.lua")
@@ -2081,21 +2095,29 @@ function extraERSetup()
 
 --------- Node-red support ---------
 
-  Nodered = { _nrr = {}, _timeout = 4000 }
-  function Nodered.connect(url) Nodered._url = url end
-  function Nodered.post(event,req)
-    _assert(Nodered._url,"Missing nodered ip address - set _defaultNodeRed at beginning of scene")
-    _assert(Util.isEvent(event),"Arg to nodered.msg is not an event")
-    local tag, nrr = Util.gensym("NR"), Nodered._nrr
-    event._transID = tag
-    Event.postRemote(Nodered._url,event)
-    if req then
-      nrr[tag]={}
-      nrr[tag][1]=setTimeout(function() nrr[tag]=nil 
-          error(format("No response from Node-red, '%s'",(tojson(event))))
-        end,Nodered._timeout or _options['NODEREDTIMEOUT'])
-      return {['<cont>']=function(cont) nrr[tag][2]=cont end}
-    else return true end
+  Nodered = { _nrr = {}, _timeout = 4000, _last=nil }
+  function Nodered.connect(url) Nodered._url = url 
+    self = { _url = url }
+    function self.post(event,sync)
+      _assert(Nodered._url,"Missing nodered URL - make Nodered.connect(<url>) at beginning of scene")
+      _assert(Util.isEvent(event),"Arg to nodered.msg is not an event")
+      local tag, nrr = Util.gensym("NR"), Nodered._nrr
+      event._transID = tag
+      Event.postRemote(Nodered._url,event)
+      if sync then
+        nrr[tag]={}
+        nrr[tag][1]=setTimeout(function() nrr[tag]=nil 
+            error(format("No response from Node-red, '%s'",(tojson(event))))
+          end,Nodered._timeout or _options['NODEREDTIMEOUT'])
+        return {['<cont>']=function(cont) nrr[tag][2]=cont end}
+      else return true end
+    end
+    Nodered._last = self
+    return self
+  end
+  function Nodered.post(event,sync)
+    _assert(Nodered._last,"Missing nodered URL - make Nodered.connect(<url>) at beginning of scene")
+    Nodered._last.post(event,sync)
   end
   Event.event({type='NODERED',value='$e'},
     function(env) local p,tag = env.p,env.event._transID
