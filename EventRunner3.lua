@@ -2096,14 +2096,13 @@ function extraERSetup()
 --------- Node-red support ---------
 
   Nodered = { _nrr = {}, _timeout = 4000, _last=nil }
-  function Nodered.connect(url) Nodered._url = url 
+  function Nodered.connect(url) 
     self = { _url = url }
     function self.post(event,sync)
-      _assert(Nodered._url,"Missing nodered URL - make Nodered.connect(<url>) at beginning of scene")
       _assert(Util.isEvent(event),"Arg to nodered.msg is not an event")
       local tag, nrr = Util.gensym("NR"), Nodered._nrr
       event._transID = tag
-      Event.postRemote(Nodered._url,event)
+      Event.postRemote(self._url,event)
       if sync then
         nrr[tag]={}
         nrr[tag][1]=setTimeout(function() nrr[tag]=nil 
@@ -2117,7 +2116,7 @@ function extraERSetup()
   end
   function Nodered.post(event,sync)
     _assert(Nodered._last,"Missing nodered URL - make Nodered.connect(<url>) at beginning of scene")
-    Nodered._last.post(event,sync)
+    return Nodered._last.post(event,sync)
   end
   Event.event({type='NODERED',value='$e'},
     function(env) local p,tag = env.p,env.event._transID
