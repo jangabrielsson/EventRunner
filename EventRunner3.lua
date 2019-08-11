@@ -14,7 +14,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B44"  -- Aug 10, 2019  
+local _version,_fix = "3.0","B45"  -- Aug 10, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -68,8 +68,8 @@ function main()
 --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
 
 --Nodered.connect(_NodeRed)            -- Setup nodered functionality
---Telegram.bot(TelegBOT)               -- Setup Telegram bot that listens on oncoming messages. Only one per BOT.
---Telegram.msg({TelegCID,TelegBOT})    -- Send msg to Telegram without BOT setup
+--Telegram.bot(_TelegBOT)              -- Setup Telegram bot that listens on oncoming messages. Only one per BOT.
+--Telegram.msg({_TelegCID,_TelegBOT})  -- Send msg to Telegram without BOT setup
 --rule("@{06:00,catch} => Util.checkVersion()") -- Check for new version every morning at 6:00
 --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix)")
 --rule("#ER_version => log('...patching scene'); Util.patchEventRunner()") -- Auto patch new versions...
@@ -276,9 +276,11 @@ function makeEventManager()
     _assert(sceneID,"sceneID is nil to postRemote"); _assert(isEvent(e),"Bad event format to postRemote")
     e._from = _EMULATED and -__fibaroSceneId or __fibaroSceneId
     local payload = encodeRemoteEvent(e)
-    if type(sceneID)=='string' and sceneID:sub(1,4)=='http' then -- external http event (node-red)
-      payload={args={payload[1]}}
-      httpPostEvent(sceneID, payload, e)
+    if type(sceneID)=='string' then
+      if sceneID:sub(1,4)=='http' then -- external http event (node-red)
+        payload={args={payload[1]}}
+        httpPostEvent(sceneID, payload, e)
+      else error("Bad sceneID:"..sceneID) end
     elseif not _EMULATED then                  -- On HC2
       if sceneID < 0 then    -- call emulator 
         if not _emulator.adress then return end
@@ -2031,8 +2033,13 @@ function extraERSetup()
     Telegram._http:request(url,{options = {
           headers = {['Accept']='application/json',['Content-Type']='application/json'},
           data = payload, timeout=2000, method = 'POST'},
-        error = function(status) if status~= "Operation canceled" then print(json.encode(status)) end end,
-        success = function(status) if cont then cont(json.decode(status.data)) end end,
+        error = function(status) if status~= "Operation canceled" then Log(LOG.ERROR,json.encode(status)) end end,
+        success = function(status) 
+          local data = json.decode(status.data)
+          if status.status ~= 200 and data.ok==false then
+            Log(LOG.ERROR,"Telegram error %s, %s",data.error_code,data.description)
+          elseif cont then cont(data) end 
+        end,
       })
   end
   function Telegram._recordUser(username,chatID,bot)
