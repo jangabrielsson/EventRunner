@@ -173,6 +173,7 @@ function setupContext(id)  -- Table of functions and variables available for sce
     type=type,
     next=next,
     bit32=bit32,
+    debug=debug
   }
 end
 

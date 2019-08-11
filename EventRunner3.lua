@@ -14,7 +14,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B45"  -- Aug 10, 2019  
+local _version,_fix = "3.0","B46"  -- Aug 11, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -267,7 +267,10 @@ function makeEventManager()
     HTTP:request(url,{options = {
           headers = {['Accept']='application/json',['Content-Type']='application/json'},
           data = payload, timeout=2000, method = 'POST'},
-        error = function(status) self.post({type='%postEvent%',status='fail', oe=e, _sh=true}) end,
+        error = function(status) 
+          Log(LOG.ERROR,"HTTP error, %s, (%s)",tojson(status),tojson(e))
+          self.post({type='%postEvent%',status='fail', oe=e, _sh=true}) 
+        end,
         success = function(status) self.post({type='%postEvent%',status='success', oe=e, _sh=true}) end,
       })
   end
@@ -2097,7 +2100,8 @@ function extraERSetup()
     if not Telegram._users then Telegram._loadUsers() end
     local id2 = type(id)=='table' and id or Telegram._findUser(table.unpack(type(id)=='table' and id or {id}))
     _assert(id2,"No user with name "..tojson(id))
-    Telegram._request("https://api.telegram.org/bot"..id2[2].."/","sendMessage",{chat_id=id2[1],text=text,reply_markup=keyboard}) 
+    Telegram._request("https://api.telegram.org/bot"..id2[2].."/","sendMessage",{chat_id=id2[1],text=text,reply_markup=keyboard},
+      function(msgs) local m = msgs.result; Telegram._recordUser(m.chat.username,m.chat.id,id2[2]); Telegram._flush() end) 
   end
 
 --------- Node-red support ---------
