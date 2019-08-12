@@ -14,7 +14,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B46"  -- Aug 11, 2019  
+local _version,_fix = "3.0","B47"  -- Aug 12, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -2035,7 +2035,7 @@ function extraERSetup()
     payload = payload and json.encode(payload)
     Telegram._http:request(url,{options = {
           headers = {['Accept']='application/json',['Content-Type']='application/json'},
-          data = payload, timeout=2000, method = 'POST'},
+          data = payload, timeout=2000, checkCertificate = false, method = 'POST'},
         error = function(status) if status~= "Operation canceled" then Log(LOG.ERROR,json.encode(status)) end end,
         success = function(status) 
           local data = json.decode(status.data)
