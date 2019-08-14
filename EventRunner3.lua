@@ -14,7 +14,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B49"  -- Aug 12, 2019  
+local _version,_fix = "3.0","B50"  -- Aug 12, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -274,15 +274,18 @@ function makeEventManager()
       })
   end
 
-  function self.postRemote(sceneID, e) -- Post event to other scenes or node-red
+  function self.postRemote(sceneID, e) -- Post event to other scenes
     _assert(sceneID and tonumber(sceneID),"sceneID is not a number to postRemote:%s",sceneID or ""); 
     _assert(isEvent(e),"Bad event format to postRemote")
-    local payload = Util.encodePostEvent(e)
+    e._from = _EMULATED and -__fibaroSceneId or __fibaroSceneId
+    local payload = encodeRemoteEvent(e)
     if not _EMULATED then                  -- On HC2
       if sceneID < 0 then    -- call emulator 
         if not _emulator.adress then return end
-        httpPostEvent(_emulator.adress.."trigger/"..sceneID,(json.encode(payload)))
-      else fibaro:startScene(sceneID,payload) end -- call other scene on HC2
+        httpPostEvent(_emulator.adress.."trigger/"..sceneID,payload)
+      else 
+        fibaro:startScene(sceneID,payload) 
+      end -- call other scene on HC2
     else -- on emulator
       fibaro:startScene(math.abs(sceneID),payload)
     end
