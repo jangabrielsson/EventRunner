@@ -14,7 +14,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B48"  -- Aug 12, 2019  
+local _version,_fix = "3.0","B49"  -- Aug 12, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -31,10 +31,10 @@ if loadfile then local cr = loadfile("credentials.lua"); if cr then cr() end end
 -- debug flags for various subsystems (global)
 _debugFlags = { 
   post=true,invoke=false,triggers=true,dailys=false,rule=false,ruleTrue=false,
-  fcall=true, fglobal=false, fget=false, fother=false, hue=false, telegram=false, nodered=false,
+  fcall=true, fglobal=false, fget=false, fother=false, hue=true, telegram=false, nodered=false,
 }
 -- options for various subsystems (global)
-_options={}
+_options=_options or {}
 
 -- Hue setup before main() starts. You can add more Hue.connect() inside this if you have more Hue bridges.
 function HueSetup() if _HueUserName and _HueIP then Hue.connect(_HueUserName,_HueIP) end end
@@ -73,7 +73,7 @@ function main()
 --rule("@{06:00,catch} => Util.checkVersion()") -- Check for new version every morning at 6:00
 --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix)")
 --rule("#ER_version => log('...patching scene'); Util.patchEventRunner()") -- Auto patch new versions...
-
+  
   if _EMULATED then 
     --dofile("example_rules3.lua")
   end
@@ -263,7 +263,6 @@ function makeEventManager()
 
   local function httpPostEvent(url,payload, e)
     local HTTP = net.HTTPClient()
-    payload=json.encode(payload)
     HTTP:request(url,{options = {
           headers = {['Accept']='application/json',['Content-Type']='application/json'},
           data = payload, timeout=2000, method = 'POST'},
@@ -276,18 +275,13 @@ function makeEventManager()
   end
 
   function self.postRemote(sceneID, e) -- Post event to other scenes or node-red
-    _assert(sceneID,"sceneID is nil to postRemote"); _assert(isEvent(e),"Bad event format to postRemote")
-    e._from = _EMULATED and -__fibaroSceneId or __fibaroSceneId
-    local payload = encodeRemoteEvent(e)
-    if type(sceneID)=='string' then
-      if sceneID:sub(1,4)=='http' then -- external http event (node-red)
-        payload={args={payload[1]}}
-        httpPostEvent(sceneID, payload, e)
-      else error("Bad sceneID:"..sceneID) end
-    elseif not _EMULATED then                  -- On HC2
+    _assert(sceneID and tonumber(sceneID),"sceneID is not a number to postRemote:%s",sceneID or ""); 
+    _assert(isEvent(e),"Bad event format to postRemote")
+    local payload = Util.encodePostEvent(e)
+    if not _EMULATED then                  -- On HC2
       if sceneID < 0 then    -- call emulator 
         if not _emulator.adress then return end
-        httpPostEvent(_emulator.adress.."trigger/"..sceneID,payload)
+        httpPostEvent(_emulator.adress.."trigger/"..sceneID,(json.encode(payload)))
       else fibaro:startScene(sceneID,payload) end -- call other scene on HC2
     else -- on emulator
       fibaro:startScene(math.abs(sceneID),payload)
@@ -939,6 +933,51 @@ local function makeUtils()
     end
   end
   function self.reverseVar(id) return Util._reverseVarTable[tostring(id)] or id end
+
+  function self.encodePostEvent(event) --> payload for POST
+    event._from = _EMULATED and -__fibaroSceneId or __fibaroSceneId
+    return {args={encodeRemoteEvent(event)[1]}}
+  end
+
+  self.netSync = { HTTPClient = function (log)   
+      local self,queue,HTTP,key = {},{},net.HTTPClient(),0
+      local _request
+      local function dequeue()
+        table.remove(queue,1)
+        local v = queue[1]
+        if v then 
+          Debug(_debugFlags.netSync,"netSync:Pop %s",v[3])
+          setTimeout(function() _request(table.unpack(v)) end,1) 
+        end
+      end
+      function _request(url,params,key)
+        local uerr,usucc = params.error,params.success
+        params.error = function(status)
+          Debug(_debugFlags.netSync,"netSync:Error %s",key)
+          dequeue()
+          if params._logErr then Log(LOG.LOG.ERROR,"%s:%s",log or "netSync:",tojson(status.status)) end
+          if uerr then uerr(status) end
+        end
+        params.success = function(status)
+          Debug(_debugFlags.netSync,"netSync:Success %s",key)
+          dequeue()
+          if usucc then usucc(status) end
+        end
+        Debug(_debugFlags.netSync,"netSync:Calling %s",key)
+        HTTP:request(url,params)
+      end
+      function self:request(url,parameters)
+        key = key+1
+        if next(queue) == nil then
+          queue[1]='RUN'
+          _request(url,parameters,key)
+        else 
+          Debug(_debugFlags.netSync,"netSync:Push %s",key)
+          queue[#queue+1]={url,parameters,key} 
+        end
+      end
+      return self
+    end}
 
   ---- SunCalc -----
   do
@@ -2029,7 +2068,7 @@ function extraERSetup()
 
 --------- Telegram support ---------
 
-  Telegram={ _interval=2, _http=net.HTTPClient(), _users=nil, _userVar="TelegramUsers", _persist=true }
+  Telegram={ _interval=2, _http=netSync.HTTPClient(), _users=nil, _userVar="TelegramUsers", _persist=true }
   function Telegram._request(key,cmd,payload,cont)
     local url = key..cmd
     payload = payload and json.encode(payload)
@@ -2040,7 +2079,7 @@ function extraERSetup()
         success = function(status) 
           local data = json.decode(status.data)
           if status.status ~= 200 and data.ok==false then
-            Log(LOG.ERROR,"Telegram error %s, %s",data.error_code,data.description)
+            Log(LOG.ERROR,"Telegram error: %s, %s",data.error_code,data.description)
           elseif cont then cont(data) end 
         end,
       })
@@ -2108,12 +2147,17 @@ function extraERSetup()
 
   Nodered = { _nrr = {}, _timeout = 4000, _last=nil }
   function Nodered.connect(url) 
-    self = { _url = url }
+    local self = { _url = url, _http=netSync.HTTPClient("Nodered") }
     function self.post(event,sync)
       _assert(Util.isEvent(event),"Arg to nodered.msg is not an event")
       local tag, nrr = Util.gensym("NR"), Nodered._nrr
       event._transID = tag
-      Event.postRemote(self._url,event)
+      local params =  {options = {
+          headers = {['Accept']='application/json',['Content-Type']='application/json'},
+          data = json.encode(Util.encodePostEvent(event)), timeout=timeout or 2000, method = 'POST'},
+        _logErr=true
+      }
+      self._http:request(self._url,params)
       if sync then
         nrr[tag]={}
         nrr[tag][1]=setTimeout(function() nrr[tag]=nil 
@@ -2397,6 +2441,20 @@ function makeHueSupport()
     local groupURL = baseURL.."groups/%s/action"
     local sensorURL = baseURL.."sensors/%s"
 
+    local HTTP = netSync.HTTPClient()
+    function self.request(url,cont,op,payload)
+      op,payload = op or "GET", payload and json.encode(payload) or ""
+      Debug(_debugFlags.hue,"Hue req:%s Payload:%s",url,payload)
+      HTTP:request(url,{
+          options = {headers={['Accept']='application/json',['Content-Type']='application/json'},
+            data = payload, timeout=_HUETIMEOUT, method = op},
+          error = function(status) Log(LOG.ERROR,"ERROR, Hue connection:%s, %s",tojson(status),url) end,
+          success = function(status) 
+            if cont then cont(json.decode(status.data)) end
+          end
+        })
+    end
+    
     function self._setState(hue,prop,val,upd)
       if type(prop)=='table' then 
         for k,v in pairs(prop) do self._setState(hue,k,v,upd) end
@@ -2435,7 +2493,7 @@ function makeHueSupport()
     local function match(t1,t2) if #t1~=#t2 then return false end; for i=1,#t1 do if t1[i]~=t2[i] then return false end end return true end
 
     function self.getFullState(f)
-      Hue.request(baseURL,function(data)
+      self.request(baseURL,function(data)
           for id,d in pairs(data.sensors) do setFullState(sensors,id,d,'state','sensor',sensorURL) end
           for id,d in pairs(data.lights) do setFullState(lights,id,d,'state','light',lightURL) end
           for id,d in pairs(data.groups) do table.sort(d.lights) setFullState(groups,id,d,'action','group',groupURL) end
@@ -2457,7 +2515,7 @@ function makeHueSupport()
       if interval>0 then 
         Debug(_debugFlags.hue,"Monitoring URL:%s",url)
         local function poll() 
-          Hue.request(url,function(state) self._setState(sensor,state.state) sensor._timer=setTimeout(poll,interval) end)
+          self.request(url,function(state) self._setState(sensor,state.state) sensor._timer=setTimeout(poll,interval) end)
         end
         poll()
       end
@@ -2583,14 +2641,14 @@ function makeHueSupport()
     end
 
     function self.turnOn(id) local d,h=devMap[id].hue,devMap[id].hub 
-      self.request(format(d.url,d.id),h.updateState,"PUT",{on=true}) h._setState(d,'on',true) 
+      h.request(format(d.url,d.id),h.updateState,"PUT",{on=true}) h._setState(d,'on',true) 
     end
     function self.turnOff(id) local d,h=devMap[id].hue, devMap[id].hub
-      self.request(format(d.url,d.id),h.updateState,"PUT",{on=false}) h._setState(d,'on',false) 
+      h.request(format(d.url,d.id),h.updateState,"PUT",{on=false}) h._setState(d,'on',false) 
     end
     function self.setColor(id,r,g,b,w) local d,h,x,y=devMap[id].hue,devMap[id].hub,self.rgb2xy(r,g,b); 
       local pl={xy={x,y},bri=w and w/99*254}
-      self.request(format(d.url,d.id),h.updateState,"PUT",pl) h._setState(d,pl) 
+      h.request(format(d.url,d.id),h.updateState,"PUT",pl) h._setState(d,pl) 
     end
     function self.setValue(id,val) local d,h,payload=devMap[id].hue, devMap[id].hub
       if type(val)=='string' and not tonumber(val) then payload={scene=d.scenes[val] or val}
@@ -2603,12 +2661,12 @@ function makeHueSupport()
             local d = h.lights[tonumber(id)]
             local url = (d.url:match("(.*)/state")).."/config/startup/"
             payload=val
-            self.request(format(url,d.id),nil,"PUT",payload)
+            h.request(format(url,d.id),nil,"PUT",payload)
           end
           return
         else payload=val end
       end
-      if payload then self.request(format(d.url,d.id),h.updateState,"PUT",payload) h._setState(d,payload)
+      if payload then h.request(format(d.url,d.id),h.updateState,"PUT",payload) h._setState(d,payload)
       else  Log(LOG.ERROR,"Hue setValue id:%s value:%s",id,val) end
     end
     return self
@@ -2684,6 +2742,7 @@ end
 Util           = makeUtils()
 tojson         = Util.prettyJson
 toTime         = Util.toTime
+netSync        = Util.netSync
 LOG            = Util.LOG
 coroutine      = Util.coroutine
 Event          = makeEventManager()
