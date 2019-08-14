@@ -330,17 +330,20 @@ function Web_functions()
       --printf("IP:%s",ip)
       while true do
         local l,e,j = client:receive()
+        --print(string.format("L:%s, E:%s, J:%s",l or "nil", e or "nil", j or "nil"))
         if l then
           local body,referer,header,e,b
           local method,call = l:match("^(%w+) (.*) HTTP/1.1")
           repeat
             header,e,b = client:receive()
+            --print(string.format("H:%s, E:%s, B:%s",header or "nil", e or "nil", b or "nil"))
             if b and b~="" then body=b end
             referer = header and header:match("^[Rr]eferer:%s*(.*)") or referer
           until header == nil or e == 'closed'
-          if method=='POST' and postHandler then   postHandler(method,client,call,body,referer)
+          if method=='POST' and postHandler then postHandler(method,client,call,body,referer)
           elseif method=='PUT' and putHandler then putHandler(method,client,call,body,referer) 
           elseif method=='GET' and getHandler then getHandler(method,client,call,body,referer) end
+          --client:flush()
           client:close()
           return
         end
@@ -421,7 +424,7 @@ function Web_functions()
       end,
       ["^/trigger/(%-?%d+)"] = function(client,ref,body,id)
         Event.post({type='other', _id=math.abs(tonumber(id)), _args=json.decode(body)}) 
-        client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n")
+        client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n\n")
         return true
       end,
       ["^/trigger$"] = function(client,ref,body)

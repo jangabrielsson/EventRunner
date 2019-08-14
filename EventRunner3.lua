@@ -1,5 +1,6 @@
 --[[
 %% properties
+17 value
 55 value
 56 value
 57 value
@@ -12,9 +13,9 @@ Test
 %% autostart 
 --]] 
 
-if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=10,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
+if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B50"  -- Aug 12, 2019  
+local _version,_fix = "3.0","B51"  -- Aug 14, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -73,7 +74,7 @@ function main()
 --rule("@{06:00,catch} => Util.checkVersion()") -- Check for new version every morning at 6:00
 --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix)")
 --rule("#ER_version => log('...patching scene'); Util.patchEventRunner()") -- Auto patch new versions...
-  
+
   if _EMULATED then 
     --dofile("example_rules3.lua")
   end
@@ -261,19 +262,6 @@ function makeEventManager()
 
   self.triggerHandler = self.post -- default handler for consumer
 
-  local function httpPostEvent(url,payload, e)
-    local HTTP = net.HTTPClient()
-    HTTP:request(url,{options = {
-          headers = {['Accept']='application/json',['Content-Type']='application/json'},
-          data = payload, timeout=2000, method = 'POST'},
-        error = function(status) 
-          Log(LOG.ERROR,"HTTP error, %s, (%s)",tojson(status),tojson(e))
-          self.post({type='%postEvent%',status='fail', oe=e, _sh=true}) 
-        end,
-        success = function(status) self.post({type='%postEvent%',status='success', oe=e, _sh=true}) end,
-      })
-  end
-
   function self.postRemote(sceneID, e) -- Post event to other scenes
     _assert(sceneID and tonumber(sceneID),"sceneID is not a number to postRemote:%s",sceneID or ""); 
     _assert(isEvent(e),"Bad event format to postRemote")
@@ -282,7 +270,14 @@ function makeEventManager()
     if not _EMULATED then                  -- On HC2
       if sceneID < 0 then    -- call emulator 
         if not _emulator.adress then return end
-        httpPostEvent(_emulator.adress.."trigger/"..sceneID,payload)
+        local HTTP = net.HTTPClient()
+        HTTP:request(_emulator.adress.."trigger/"..sceneID,{options = {
+              headers = {['Accept']='application/json',['Content-Type']='application/json'},
+              data = json.encode(payload), timeout=2000, method = 'POST'},
+            -- Can't figure out why we get an and of file - must depend on HC2.lua
+            error = function(status) if status~="End of file" then Log(LOG.ERROR,"Emulator error:%s, (%s)",status,tojson(e)) end end,
+            success = function(status) end,
+          })
       else 
         fibaro:startScene(sceneID,payload) 
       end -- call other scene on HC2
@@ -2457,7 +2452,7 @@ function makeHueSupport()
           end
         })
     end
-    
+
     function self._setState(hue,prop,val,upd)
       if type(prop)=='table' then 
         for k,v in pairs(prop) do self._setState(hue,k,v,upd) end
