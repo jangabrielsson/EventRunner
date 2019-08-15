@@ -15,7 +15,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B52"  -- Aug 15, 2019  
+local _version,_fix = "3.0","B54"  -- Aug 15, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -67,14 +67,13 @@ function main()
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
 --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
-
+  
 --Nodered.connect(_NodeRed)            -- Setup nodered functionality
 --Telegram.bot(_TelegBOT)              -- Setup Telegram bot that listens on oncoming messages. Only one per BOT.
 --Telegram.msg({_TelegCID,_TelegBOT})  -- Send msg to Telegram without BOT setup
 --rule("@{06:00,catch} => Util.checkVersion()") -- Check for new version every morning at 6:00
 --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix)")
 --rule("#ER_version => log('...patching scene'); Util.patchEventRunner()") -- Auto patch new versions...
-
   if _EMULATED then 
     --dofile("example_rules3.lua")
   end
@@ -178,7 +177,11 @@ function makeEventManager()
   self._sections,self.SECTION = {},nil
   local isTimer,isEvent,isRule,coerce,format,toTime = Util.isTimer,Util.isEvent,Util.isRule,Util.coerce,string.format,Util.toTime
   local equal,copy = Util.equal,Util.copy
-
+  local function timer2str(t) 
+    return format("<timer:%s, start:%s, stop:%s>",t[self.TIMER],os.date("%c",t.start),os.date("%c",math.floor(t.start+t.len/1000+0.5))) 
+  end
+  local function mkTimer(f,t) t=t or 0; return {[self.TIMER]=setTimeout(f,t), start=os.time(), len=t, __tostring=timer2str} end
+      
   local constraints = {}
   constraints['=='] = function(val) return function(x) x,val=coerce(x,val) return x == val end end
   constraints['>='] = function(val) return function(x) x,val=coerce(x,val) return x >= val end end
@@ -247,11 +250,11 @@ function makeEventManager()
     if type(e) == 'function' then 
       src = src or "timer "..tostring(e)
       if _debugFlags.postTimers then Debug(true,"Posting timer %s at %s",src,os.date("%a %b %d %X",time)) end
-      return {[self.TIMER]=setTimeout(function() self._callTimerFun(e,src) end, 1000*(time-os.time()))}
+      return mkTimer(function() self._callTimerFun(e,src) end, 1000*(time-os.time()))
     end
     src = src or tojson(e)
     if _debugFlags.post and not e._sh then Debug(true,"Posting %s at %s",tojson(e),os.date("%a %b %d %X",time)) end
-    return {[self.TIMER]=setTimeout(function() self._handleEvent(e) end,1000*(time-os.time()))}
+    return mkTimer(function() self._handleEvent(e) end,1000*(time-os.time()))
   end
 
   function self.cancel(t)
@@ -298,12 +301,14 @@ function makeEventManager()
   end
   _getProp['global'] = function(e,v2) local v,t = _getGlobal(e.name,true) e.value = v2 or v return t end
 
+  local function ruleToStr(r) return r.src end
   function self._mkCombEvent(e,action,doc,rl)
     local rm = {[self.RULE]=e, action=action, src=doc, cache={}, subs=rl}
     rm.enable = function() Util.mapF(function(e) e.enable() end,rl) return rm end
     rm.disable = function() Util.mapF(function(e) e.disable() end,rl) return rm end
     rm.start = function(event) self._invokeRule({rule=rm,event=event}) return rm end
     rm.print = function() Util.map(function(e) e.print() end,rl) end
+    rm.__tostring = ruleToStr
     return rm
   end
 
@@ -356,6 +361,7 @@ function makeEventManager()
     rule.disable = function() rule._disabled = true return rule end
     rule.start = function(event) self._invokeRule({rule=rule,event=event}) return rule end
     rule.print = function() Log(LOG.LOG,"Event(%s) => ..",tojson(e)) end
+    rule.__tostring = ruleToStr
     if self.SECTION then
       local s = self._sections[self.SECTION] or {}
       s[#s+1] = rule
@@ -366,7 +372,7 @@ function makeEventManager()
 
   function self.schedule(time,action,opt)
     opt = opt or {}
-    local test,start,doc = opt.cond, opt.start or false, opt.doc or tostring(action)
+    local test,start,doc = opt.cond, opt.start or false, opt.doc or format("Schedule(%s):%s",time,tostring(action))
     local loop,tp = {type='_scheduler:'..doc, _sh=true}
     local test2,action2 = test and self._compileAction(test,doc,opt.log),self._compileAction(action,doc,opt.log)
     local re = self.event(loop,function(env)
@@ -380,6 +386,8 @@ function makeEventManager()
       [self.RULE] = {}, src=doc, 
       enable = function() if not tp then tp = self.post(loop,(not start) and time or nil,doc) end return res end, 
       disable= function() tp = self.cancel(tp) return res end, 
+      print = re.print,
+      __tostring = ruleToStr
     }
     res.enable()
     return res
@@ -503,12 +511,10 @@ function makeEventManager()
     if call=='toggle' then 
       return fibaro.call(obj,id,fibaro:getValue(id,"value")>"0" and "turnOff" or "turnOn") 
     end
-
     if fibaro._idMap[id] then return fibaro._idMap[id].call(obj,id,call,...) end
-    if not fibaro._actions[id] then
-      local aar = api.get("/devices/"..id)
-      if aar == nil then Log(LOG.ERROR,"No such deviceID:%s",id) return else fibaro._actions[id] = aar.actions end
-    end
+    -- Now we have a real deviceID
+    if select(2,__fibaro_get_device(id)) == 404 then Log(LOG.ERROR,"No such deviceID:%s",id) return end
+    fibaro._actions[id] = fibaro._actions[id] or api.get("/devices/"..id).actions
     if call=='setValue' and not fibaro._actions[id].setValue and fibaro._actions[id].turnOn then
       return fibaro._call(obj,id,tonumber(({...})[1]) > 0 and "turnOn" or "turnOff")
     end
@@ -520,29 +526,21 @@ function makeEventManager()
   local _DEV_PROP_MAP={["IPAddress"]='ip', ["TCPPort"]='port'}
   function fibaro.get(obj,id,prop,...) 
     id = tonumber(id); if not id then error("deviceID not a number",2) end
-    if fibaro._idMap[id] then return fibaro._idMap[id].get(obj,id,prop,...) 
-    else 
-      if not fibaro._properties[id] then
-        local aar = api.get("/devices/"..id)
-        if aar == nil then Log(LOG.ERROR,"No such deviceID:%s",id) return else fibaro._properties[id] = aar.properties end
-      end
-      if not _DEV_PROP_MAP[prop] then
-        _assert(fibaro._properties[id][prop]~=nil,"ID:%d does not support property '%s'",id,prop) 
-      end
-      return fibaro._get(obj,id,prop,...) 
+    if fibaro._idMap[id] then return fibaro._idMap[id].get(obj,id,prop,...) end
+    if select(2,__fibaro_get_device(id)) == 404 then Log(LOG.ERROR,"No such deviceID:%s",id) return end
+    fibaro._properties[id] = fibaro._properties[id] or api.get("/devices/"..id).properties
+    if not _DEV_PROP_MAP[prop] then
+      _assert(fibaro._properties[id][prop]~=nil,"ID:%d does not support property '%s'",id,prop) 
     end
+    return fibaro._get(obj,id,prop,...) 
   end
   function fibaro.getValue(obj,id,prop,...) 
     id = tonumber(id); if not id then error("deviceID not a number",2) end
-    if fibaro._idMap[id] then return (fibaro._idMap[id].get(obj,id,prop,...))
-    else 
-      if not fibaro._properties[id] then
-        local aar = api.get("/devices/"..id)
-        if aar == nil then Log(LOG.ERROR,"No such deviceID:%s",id) return else fibaro._properties[id] = aar.properties end
-      end
-      _assert(fibaro._properties[id][prop]~=nil,"ID:%d does not support property '%s'",id,prop) 
-      return fibaro._getValue(obj,id,prop,...) 
-    end
+    if fibaro._idMap[id] then return (fibaro._idMap[id].get(obj,id,prop,...)) end
+    if select(2,__fibaro_get_device(id)) == 404 then Log(LOG.ERROR,"No such deviceID:%s",id) return end
+    fibaro._properties[id] = fibaro._properties[id] or api.get("/devices/"..id).properties
+    _assert(fibaro._properties[id][prop]~=nil,"ID:%d does not support property '%s'",id,prop) 
+    return fibaro._getValue(obj,id,prop,...) 
   end
 
 -- Logging of fibaro:* calls -------------
@@ -611,11 +609,11 @@ local function makeUtils()
 
   local function prconv(o)
     if type(o)=='table' then
-      if o.__print then return o.__print(o)
+      if o.__tostring then return o.__tostring(o)
       else return tojson(o) end
     else return o end
   end
-  local function prconvTab(args) local r={}; for _,o in ipairs(args) do r[#r+1]=prconvert(o) end return r end
+  local function prconvTab(args) local r={}; for _,o in ipairs(args) do r[#r+1]=prconv(o) end return r end
 
   local function _Msg(color,message,...)
     local args = type(... or 42) == 'function' and {(...)()} or {...}

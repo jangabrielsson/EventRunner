@@ -143,6 +143,7 @@ function setupContext(id)  -- Table of functions and variables available for sce
     __threads=0,           -- Currently number of running threads
     _EMULATED=true,        -- Check if we run in emulated mode
     fibaro=Util.copy(fibaro),  -- scenes may patch fibaro:*...
+    __fibaro_get_device = __fibaro_get_device,
     _System=_System,       -- Available for debugging tasks in emulated mode
     dofile=Runtime.dofile, -- Allow dofile for including code for testing, but use our version that sets context
     loadfile=Runtime.loadfile,
@@ -268,7 +269,7 @@ for i = 0,8 do print(("%s \027[1;%dmXYZ\027[0m bright"):format(38+i, 30+i)) end
 
   local function prconvert(o)
     if type(o)=='table' then
-      if o.__print then return o.__print(o)
+      if o.__tostring then return o.__tostring(o)
       else return tojson(o) end
     else return o end
   end
@@ -1937,8 +1938,9 @@ function Fibaro_functions()
   end
 
   function __fibaroSleep(n) return coroutine.yield(coroutine.running(),n/1000) end
-  function __fibaro_get_device(deviceID,r) 
-    return HC2.getVirtualDevice(deviceID,r) or HC2.getDevice(deviceID,r) 
+  function __fibaro_get_device(deviceID,r)
+    local d = HC2.getVirtualDevice(deviceID,r) or HC2.getDevice(deviceID,r)
+    if d then return d,200 else return nil,404 end
   end
   function __fibaro_get_device_property(deviceID ,propertyName) return HC2.getDeviceProperty(deviceID,propertyName) end
   function __fibaro_get_scene(sceneID,r) return HC2.getScene(sceneID,r) end
