@@ -15,7 +15,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B54"  -- Aug 15, 2019  
+local _version,_fix = "3.0","B55"  -- Aug 15, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -2098,6 +2098,7 @@ function extraERSetup()
       })
   end
   function Telegram._recordUser(username,chatID,bot)
+    if username==nil then return end
     local u = username..":"..chatID..":"..bot
     local names = Telegram._users
     for _,u2 in ipairs(names) do if u==u2 then return end end
@@ -2153,7 +2154,11 @@ function extraERSetup()
     local id2 = type(id)=='table' and id or Telegram._findUser(table.unpack(type(id)=='table' and id or {id}))
     _assert(id2,"No user with name "..tojson(id))
     Telegram._request("https://api.telegram.org/bot"..id2[2].."/","sendMessage",{chat_id=id2[1],text=text,reply_markup=keyboard},
-      function(msgs) local m = msgs.result; Telegram._recordUser(m.chat.username,m.chat.id,id2[2]); Telegram._flush() end) 
+      function(msgs) 
+        local m = msgs.result;
+        if m.chat.username==nil then Log(LOG.LOG,"Telegram warning: missing username,%s",m) end
+        Telegram._recordUser(m.chat.username,m.chat.id,id2[2]); Telegram._flush() 
+        end) 
   end
 
 --------- Node-red support ---------
