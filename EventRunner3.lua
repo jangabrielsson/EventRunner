@@ -15,7 +15,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B51"  -- Aug 14, 2019  
+local _version,_fix = "3.0","B52"  -- Aug 15, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -505,7 +505,10 @@ function makeEventManager()
     end
 
     if fibaro._idMap[id] then return fibaro._idMap[id].call(obj,id,call,...) end
-    fibaro._actions[id] = fibaro._actions[id] or  api.get("/devices/"..id).actions
+    if not fibaro._actions[id] then
+      local aar = api.get("/devices/"..id)
+      if aar == nil then Log(LOG.ERROR,"No such deviceID:%s",id) return else fibaro._actions[id] = aar.actions end
+    end
     if call=='setValue' and not fibaro._actions[id].setValue and fibaro._actions[id].turnOn then
       return fibaro._call(obj,id,tonumber(({...})[1]) > 0 and "turnOn" or "turnOff")
     end
@@ -519,7 +522,10 @@ function makeEventManager()
     id = tonumber(id); if not id then error("deviceID not a number",2) end
     if fibaro._idMap[id] then return fibaro._idMap[id].get(obj,id,prop,...) 
     else 
-      fibaro._properties[id] = fibaro._properties[id] or  api.get("/devices/"..id).properties
+      if not fibaro._properties[id] then
+        local aar = api.get("/devices/"..id)
+        if aar == nil then Log(LOG.ERROR,"No such deviceID:%s",id) return else fibaro._properties[id] = aar.properties end
+      end
       if not _DEV_PROP_MAP[prop] then
         _assert(fibaro._properties[id][prop]~=nil,"ID:%d does not support property '%s'",id,prop) 
       end
@@ -530,7 +536,10 @@ function makeEventManager()
     id = tonumber(id); if not id then error("deviceID not a number",2) end
     if fibaro._idMap[id] then return (fibaro._idMap[id].get(obj,id,prop,...))
     else 
-      fibaro._properties[id] = fibaro._properties[id] or  api.get("/devices/"..id).properties
+      if not fibaro._properties[id] then
+        local aar = api.get("/devices/"..id)
+        if aar == nil then Log(LOG.ERROR,"No such deviceID:%s",id) return else fibaro._properties[id] = aar.properties end
+      end
       _assert(fibaro._properties[id][prop]~=nil,"ID:%d does not support property '%s'",id,prop) 
       return fibaro._getValue(obj,id,prop,...) 
     end
@@ -600,10 +609,18 @@ local function makeUtils()
     end,setTimeout
   end
 
+  local function prconv(o)
+    if type(o)=='table' then
+      if o.__print then return o.__print(o)
+      else return tojson(o) end
+    else return o end
+  end
+  local function prconvTab(args) local r={}; for _,o in ipairs(args) do r[#r+1]=prconvert(o) end return r end
+
   local function _Msg(color,message,...)
     local args = type(... or 42) == 'function' and {(...)()} or {...}
     local tadj = _TIMEADJUST > 0 and os.date("(%X) ") or ""
-    message = #args > 0 and format(message,table.unpack(args)) or message
+    message = #args > 0 and format(message,table.unpack(prconvTab(args))) or prconv(message)
     fibaro:debug(format('<span style="color:%s;">%s%s</span><br>', color, tadj, message))
     return message
   end
@@ -2555,30 +2572,6 @@ function makeHueSupport()
       local name,t,id=hue:match("(%w+):(%a+)=(%d+)")
       local dev = ({SensorID='sensors',LightID='lights',GroupID='groups'})[t]
       return name..":"..self.hubs[name][dev][tonumber(id)].name 
-    end
-
-    local _queue = {}
-    function self.request(url,cont,op,payload)
-      local key = url:match("lights/(%d+)") or tostring({})
-      if next(_queue) == nil then
-        _queue[1]='RUN'
-        self.doRequest(url,cont,op,payload,key)
-      else _queue[#_queue+1]={url,cont,op,payload,key} end
-    end
-    function self.doRequest(url,cont,op,payload,key)
-      op,payload = op or "GET", payload and json.encode(payload) or ""
-      Debug(_debugFlags.hue,"Hue req:%s Payload:%s",url,payload)
-      HTTP:request(url,{
-          options = {headers={['Accept']='application/json',['Content-Type']='application/json'},
-            data = payload, timeout=_HUETIMEOUT, method = op},
-          error = function(status) Log(LOG.ERROR,"ERROR, Hue connection:%s, %s",tojson(status),url) end,
-          success = function(status) 
-            table.remove(_queue,1)
-            local v = _queue[1]
-            if v then setTimeout(function() self.doRequest(table.unpack(v)) end,1) end
-            if cont then cont(json.decode(status.data)) end
-          end
-        })
     end
 
     function self.dump() for _,h in pairs(self.hubs) do h.dump() end end

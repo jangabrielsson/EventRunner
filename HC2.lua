@@ -266,11 +266,20 @@ for i = 0,8 do print(("%s \027[%dmXYZ\027[0m normal"):format(30+i, 30+i)) end
 for i = 0,8 do print(("%s \027[1;%dmXYZ\027[0m bright"):format(38+i, 30+i)) end
 --]]
 
+  local function prconvert(o)
+    if type(o)=='table' then
+      if o.__print then return o.__print(o)
+      else return tojson(o) end
+    else return o end
+  end
+  local function tprconvert(args) local r={}; for _,o in ipairs(args) do r[#r+1]=prconvert(o) end return r end
+
   Util = Util or {}
   function Util.Msg(color,message,...)
     color = _COLOR and _LOGMAP[color] or ""
     local args = type(... or 42) == 'function' and {(...)()} or {...}
-    message = #args>0 and _format(message,table.unpack(args)) or message
+    --message = #args>0 and _format(message,table.unpack(args)) or message
+    message = #args>0 and _format(message,table.unpack(tprconvert(args))) or prconvert(message)
     local env,sceneid = Scene.global(),_HCPrompt
     if env then sceneid = _format("[%s:%s]",env.__fibaroSceneId,env.__orgInstanceNumber) end
     print(_format("%s%s%s %s%s",color,osOrgDate("%a/%b/%d,%H:%M:%S:",osTime()),sceneid,message,_COLOR and _LOGEND or "")) 
