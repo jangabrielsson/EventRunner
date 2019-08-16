@@ -6,7 +6,7 @@
 57 value
 88 value
 %% events
-5 CentralSceneEventx
+5 CentralSceneEvent
 22 GeofenceEvent
 %% globals 
 Test
@@ -15,7 +15,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B58"  -- Aug 16, 2019  
+local _version,_fix = "3.0","B59"  -- Aug 16, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -66,12 +66,11 @@ function main()
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
-  ScriptEngine.listInstructions()
 --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
 
 --Nodered.connect(_NodeRed)            -- Setup nodered functionality
 --Telegram.bot(_TelegBOT)              -- Setup Telegram bot that listens on oncoming messages. Only one per BOT.
---Telegram.msg({_TelegCID,_TelegBOT})  -- Send msg to Telegram without BOT setup
+--Telegram.msg({_TelegCID,_TelegBOT},<string>)  -- Send msg to Telegram without BOT setup
 --rule("@{06:00,catch} => Util.checkVersion()") -- Check for new version every morning at 6:00
 --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix)")
 --rule("#ER_version => log('...patching scene'); Util.patchEventRunner()") -- Auto patch new versions...
@@ -1612,7 +1611,8 @@ function makeEventScriptRuntime()
       safe={off,'value',mapAnd,true},breached={on,'value',mapOr,true},isOpen={on,'value',mapOr,true},isClosed={off,'value',mapAnd,true},
       lux={get,'value',nil,true},temp={get,'value',nil,true},on={call,'turnOn',mapF,true},off={call,'turnOff',mapF,true},
       open={call,'open',mapF,true},close={call,'close',mapF,true},stop={call,'stop',mapF,true},
-      secure={call,'secure',mapF,true},unsecure={call,'unsecure',mapF,true},
+      secure={call,'secure',mapF,false},unsecure={call,'unsecure',mapF,false},
+      isSecure={on,'secured',mapOr,true},isUnsecure={off,'secured',mapAnd,true},
       name={function(id) return fibaro:getName(id) end,nil,nil,false},
       HTname={function(id) return Util.reverseVar(id) end,nil,nil,false},
       roomName={function(id) return fibaro:getRoomNameByDeviceID(id) end,nil,nil,false},
@@ -1630,6 +1630,7 @@ function makeEventScriptRuntime()
           return a
         end,'<nop>',nil,true}
     }
+    getFuns.lock=getFuns.secure;getFuns.unlock=getFuns.unsecure;getFuns.isLocked=getFuns.isSecure;getFuns.isUnlocked=getFuns.isUnsecure
     setFuns={
       R={set,'setR'},G={set,'setG'},B={set,'setB'},W={set,'setW'},value={set,'setValue'},armed={setArmed,'setArmed'},
       time={set,'setTime'},power={set,'setPower'},targetLevel={set,'setTargetLevel'},interval={set,'setInterval'},
