@@ -15,7 +15,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B55"  -- Aug 15, 2019  
+local _version,_fix = "3.0","B56"  -- Aug 16, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -1301,8 +1301,8 @@ local function makeEventScriptParser()
         local body = gStatements(inp,{['end']=true}); matchv(inp,'end',"For loop")
         local v1,v2,i,l = mkVar(var),mkVar(var2),mkVar(),mkVar()
         return {'%frame',{'%progn',{'local',{var,var2,l[2],i[2]},{}},
-            {'setList',{i,l,v1},{'pack',expr}},{'setList',{v1,v2},{'pack',{'%calls',i,l,v1}}}},
-          {'while',v1,{'%progn',body,{'setList',{v1,v2},{'pack',{'%calls',i,l,v1}}}}}}
+            {'setList',{i,l,v1},{'pack',expr}},{'setList',{v1,v2},{'pack',{'%calls',i,l,v1}}},
+          {'while',v1,{'%progn',body,{'setList',{v1,v2},{'pack',{'%calls',i,l,v1}}}}}}}
       else -- for for a = x,y,z  do ... end
         matchv(inp,'=') -- local a,e,s,si=x,y,z; si=sign(s); e*=si while a*si<=e do ... a+=s end
         local inits = {}
@@ -1395,8 +1395,8 @@ function makeEventScriptCompiler(parser)
       else compT(e[5],ops); ops[#ops+1] = {mkOp('%setvar'),1,e[3],e[4]} end
     else
       local args,n = {},1;
-      if type(e[5])~='table' then args[#args+1]={e[5]} else args[#args+1]=false compT(e[5],ops) n=n+1 end
-      if type(e[4])~='table' then args[#args+1]={e[4]} else args[#args+1]=false compT(e[4],ops) n=n+1 end
+      if type(e[4])~='table' then args[2]={e[4]} else args[2]=false compT(e[4],ops) n=n+1 end
+      if type(e[5])~='table' then args[1]={e[5]} else args[1]=false compT(e[5],ops) n=n+1 end
       compT(e[3],ops)
       ops[#ops+1] = {mkOp('%set'..e[2]:sub(2)),n,table.unpack(args)} 
     end
@@ -1701,6 +1701,9 @@ function makeEventScriptRuntime()
   instr['label'] = function(s,n,e,i) local nm,id = s.pop(),s.pop() s.push(fibaro:getValue(ID(id,i),format("ui.%s.value",nm))) end
   instr['slider'] = instr['label']
   instr['redaily'] = function(s,n,e,i) s.push(Rule.restartDaily(s.pop())) end
+  instr['global'] = function(s,n,e,i)  s.push(api.post("/globalVariables/",{name=s.pop()})) end  
+  instr['listglobals'] = function(s,n,e,i) s.push(api.get("/globalVariables/")) end
+  instr['deleteglobal'] = function(s,n,e,i) s.push(api.delete("/globalVariables/"..s.pop())) end
   instr['once'] = function(s,n,e,i) 
     if n==1 then local f; i[4],f = s.pop(),i[4]; s.push(not f and i[4]) 
     elseif n==2 then local f,g,e; e,i[4],f = s.pop(),s.pop(),i[4]; g=not f and i[4]; s.push(g) 
@@ -1947,7 +1950,7 @@ function makeEventScriptRuleCompiler()
             local name,r
             if not log.print then return res end
             if Util.isRule(res) then name,r=res.src,"OK" else name,r=escript,res end
-            Log(LOG.LOG,"%s = %s",name,tojson(r)) 
+            Log(LOG.LOG,"%s = %s",name,r or "nil") 
             return res
           end
         end
@@ -2156,7 +2159,7 @@ function extraERSetup()
     Telegram._request("https://api.telegram.org/bot"..id2[2].."/","sendMessage",{chat_id=id2[1],text=text,reply_markup=keyboard},
       function(msgs) 
         local m = msgs.result;
-        if m.chat.username==nil then Log(LOG.LOG,"Telegram warning: missing username,%s",m) end
+        --if m.chat.username==nil then Log(LOG.LOG,"Telegram warning: missing username,%s",m) end
         Telegram._recordUser(m.chat.username,m.chat.id,id2[2]); Telegram._flush() 
         end) 
   end

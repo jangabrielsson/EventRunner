@@ -1103,8 +1103,9 @@ function HC2_functions()
     end,
     ["POST:globalVariables"]=function(path,data)
       if path=="" then
-        HC2.createGlobal(data.name,data.value)
-        return 200
+        if not __fibaro_get_global_variable(data.name) then
+          return HC2.createGlobal(data.name,data.value),200
+        else return nil,406 end
       else return nil,404 end
     end,
     ["PUT:scenes"]=function(path,data)
@@ -2061,7 +2062,7 @@ function Fibaro_functions()
     return dev.type
   end
 
-  function fibaro:get(deviceID ,propertyName) YIELD() 
+  function fibaro:get(deviceID ,propertyName) --YIELD() 
     local property = __fibaro_get_device_property(deviceID , propertyName)
     if property ==  nil then return  nil end
     return __convertToString(property.value) , property.modified
