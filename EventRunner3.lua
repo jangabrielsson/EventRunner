@@ -15,7 +15,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B56"  -- Aug 16, 2019  
+local _version,_fix = "3.0","B58"  -- Aug 16, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -66,8 +66,9 @@ function main()
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
+  ScriptEngine.listInstructions()
 --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
-  
+
 --Nodered.connect(_NodeRed)            -- Setup nodered functionality
 --Telegram.bot(_TelegBOT)              -- Setup Telegram bot that listens on oncoming messages. Only one per BOT.
 --Telegram.msg({_TelegCID,_TelegBOT})  -- Send msg to Telegram without BOT setup
@@ -181,7 +182,7 @@ function makeEventManager()
     return format("<timer:%s, start:%s, stop:%s>",t[self.TIMER],os.date("%c",t.start),os.date("%c",math.floor(t.start+t.len/1000+0.5))) 
   end
   local function mkTimer(f,t) t=t or 0; return {[self.TIMER]=setTimeout(f,t), start=os.time(), len=t, __tostring=timer2str} end
-      
+
   local constraints = {}
   constraints['=='] = function(val) return function(x) x,val=coerce(x,val) return x == val end end
   constraints['>='] = function(val) return function(x) x,val=coerce(x,val) return x >= val end end
@@ -1302,7 +1303,7 @@ local function makeEventScriptParser()
         local v1,v2,i,l = mkVar(var),mkVar(var2),mkVar(),mkVar()
         return {'%frame',{'%progn',{'local',{var,var2,l[2],i[2]},{}},
             {'setList',{i,l,v1},{'pack',expr}},{'setList',{v1,v2},{'pack',{'%calls',i,l,v1}}},
-          {'while',v1,{'%progn',body,{'setList',{v1,v2},{'pack',{'%calls',i,l,v1}}}}}}}
+            {'while',v1,{'%progn',body,{'setList',{v1,v2},{'pack',{'%calls',i,l,v1}}}}}}}
       else -- for for a = x,y,z  do ... end
         matchv(inp,'=') -- local a,e,s,si=x,y,z; si=sign(s); e*=si while a*si<=e do ... a+=s end
         local inits = {}
@@ -1595,7 +1596,8 @@ function makeEventScriptRuntime()
     local function on(id,prop) return fibaro:get(id,prop) > '0' end
     local function off(id,prop) return fibaro:get(id,prop) == '0' end
     local function last(id,prop) return os.time()-select(2,fibaro:get(id,prop)) end
-    local function eid(id,prop) return _lastEID[prop][id] or {} end
+    local function cce(id,prop,e) e=e.event; return e.type=='property' and e.propertyName=='CentralSceneEvent' and e.deviceID==id and e.value or {} end
+    local function ace(id,prop,e) e=e.event; return e.type=='property' and e.propertyName=='AccessControlEvent' and e.deviceID==id and e.value or {} end
     local function armed(id,prop) return fibaro:get(id,prop) == '1' end
     local function call(id,cmd) fibaro:call(id,cmd); return true end
     local function set(id,cmd,val) fibaro:call(id,cmd,val); return val end
@@ -1606,12 +1608,13 @@ function makeEventScriptRuntime()
       value={get,'value',nil,true},bat={get,'batteryLevel',nil,true},power={get,'power',nil,true},
       isOn={on,'value',mapOr,true},isOff={off,'value',mapAnd,true},isAllOn={on,'value',mapAnd,true},isAnyOff={off,'value',mapOr,true},
       last={last,'value',nil,true},scene={get,'sceneActivation',nil,true},
-      access={eid,'AccessControlEvent',nil,true},central={eid,'CentralSceneEvent',nil,true},
+      access={ace,'AccessControlEvent',nil,true},central={cce,'CentralSceneEvent',nil,true},
       safe={off,'value',mapAnd,true},breached={on,'value',mapOr,true},isOpen={on,'value',mapOr,true},isClosed={off,'value',mapAnd,true},
       lux={get,'value',nil,true},temp={get,'value',nil,true},on={call,'turnOn',mapF,true},off={call,'turnOff',mapF,true},
       open={call,'open',mapF,true},close={call,'close',mapF,true},stop={call,'stop',mapF,true},
       secure={call,'secure',mapF,true},unsecure={call,'unsecure',mapF,true},
       name={function(id) return fibaro:getName(id) end,nil,nil,false},
+      HTname={function(id) return Util.reverseVar(id) end,nil,nil,false},
       roomName={function(id) return fibaro:getRoomNameByDeviceID(id) end,nil,nil,false},
       trigger={function() return true end,'value',nil,true},time={get,'time',nil,true},armed={armed,'armed',mapOr,true},
       manual={function(id) return Event.lastManual(id) end,'value',nil,true},
@@ -1648,8 +1651,8 @@ function makeEventScriptRuntime()
   instr['%prop'] = function(s,n,e,i) local id,f=s.pop(),getFuns[i[3]]
     if i[3]=='dID' then s.push(getFuns['dID'][1](id,e)) return end
     if not f then f={_getFun,i[3]} end
-    if type(id)=='table' then s.push((f[3] or map)(function(id) return f[1](ID(id,i,e._lastR),f[2]) end,id))
-    else s.push(f[1](ID(id,i,e._lastR),f[2])) end
+    if type(id)=='table' then s.push((f[3] or map)(function(id) return f[1](ID(id,i,e._lastR),f[2],e) end,id))
+    else s.push(f[1](ID(id,i,e._lastR),f[2],e)) end
   end
   instr['%setprop'] = function(s,n,e,i) local id,val,prop=s.pop(),getArg(s,i[3]),getArg(s,i[4])
     local f = setFuns[prop] _assert(f,"bad property '%s'",prop or "") 
@@ -1701,6 +1704,7 @@ function makeEventScriptRuntime()
   instr['label'] = function(s,n,e,i) local nm,id = s.pop(),s.pop() s.push(fibaro:getValue(ID(id,i),format("ui.%s.value",nm))) end
   instr['slider'] = instr['label']
   instr['redaily'] = function(s,n,e,i) s.push(Rule.restartDaily(s.pop())) end
+  instr['eval'] = function(s,n) s.push(Rule.eval(s.pop(),{print=false})) end
   instr['global'] = function(s,n,e,i)  s.push(api.post("/globalVariables/",{name=s.pop()})) end  
   instr['listglobals'] = function(s,n,e,i) s.push(api.get("/globalVariables/")) end
   instr['deleteglobal'] = function(s,n,e,i) s.push(api.delete("/globalVariables/"..s.pop())) end
@@ -2027,20 +2031,19 @@ function extraERSetup()
   ScriptEngine.addInstr("month",makeDateInstr(function(s) return "* * * "..s end))  -- month('jan-feb'), month('jan,mar,jun')
   ScriptEngine.addInstr("wday",makeDateInstr(function(s) return "* * * * "..s end)) -- wday('fri-sat'), wday('mon,tue,wed')
 
--- Support for CentralSceneEvent & WeatherChangedEvent
-  _lastEID = {CentralSceneEvent={}, AccessControlEvent={}}
+-- Support for CentralSceneEvent & AccessControlEvent
+  local supportedEvents = {CentralSceneEvent=true, AccessControlEvent=true}
   Event.event({type='event', event={type='$t', data='$data'}}, 
     function(env) 
       local t = env.p.t
-      if _lastEID[t] then
+      if supportedEvents[t] then
         local id = Util.getIDfromEvent[t](env.p.data)
         if not id then return end
         env.p.data.timestamp=os.time()
-        _lastEID[t][id]=env.p.data
         Event.post({type='property',deviceID=id,propertyName=t, value=env.p.data, _sh=true})
       end
     end)
-
+-- support for WeatherChangedEvent - uggly!
   _lastWeatherEvent = {}
   Event.event({type='WeatherChangedEvent'}, 
     function(env) _lastWeatherEvent[env.event.data.change] = env.event.data; _lastWeatherEvent['*'] = env.event.data end)
@@ -2054,8 +2057,10 @@ function extraERSetup()
   Util.defvar('catch',math.huge)
   Util.defvar("defvars",Util.defvars)
   Util.defvar("mapvars",Util.reverseMapDef)
+
   if _EMULATED then Util.getWeekNumber = _System.getWeekNumber
   else Util.getWeekNumber = function(tm) return tonumber(os.date("%V",tm)) end end
+
   function Util.findScenes(str)
     local res = {}
     for _,s1 in ipairs(api.get("/scenes")) do
@@ -2067,12 +2072,13 @@ function extraERSetup()
     end
     return res
   end
--- Sunset/sunrise patch
+
+-- Sunset/sunrise patch -- first time in the day someone asks for sunsethours we calculate and cahche
   local _SUNTIMEDAY = nil
-  local _SUNTIMEVALUES = {sunsetHour=nil,sunriseHour=nil,dawnHour=nil,duskHour=nil}
+  local _SUNTIMEVALUES = {sunsetHour="00:00",sunriseHour="00:00",dawnHour="00:00",duskHour="00:00"}
   Event._registerID(1,nil,function(obj,id,prop) 
       local s = _SUNTIMEVALUES
-      if prop=='sunsetHour' or prop=='sunriseHour' or prop=='dawnHour' or prop=='duskHour' then
+      if _SUNTIMEVALUES[prop] then
         local day = os.date("*t").day
         if day ~= _SUNTIMEDAY then
           _SUNTIMEDAY = day
@@ -2161,7 +2167,7 @@ function extraERSetup()
         local m = msgs.result;
         --if m.chat.username==nil then Log(LOG.LOG,"Telegram warning: missing username,%s",m) end
         Telegram._recordUser(m.chat.username,m.chat.id,id2[2]); Telegram._flush() 
-        end) 
+      end) 
   end
 
 --------- Node-red support ---------
