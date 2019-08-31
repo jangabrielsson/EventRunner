@@ -9,13 +9,14 @@
 5 CentralSceneEvent
 22 GeofenceEvent
 %% globals 
+TimeOfDay
 Test
 %% autostart 
 --]] 
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B60"  -- Aug 16, 2019  
+local _version,_fix = "3.0","B62"  -- Aug 31, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -32,7 +33,7 @@ if loadfile then local cr = loadfile("credentials.lua"); if cr then cr() end end
 -- debug flags for various subsystems (global)
 _debugFlags = { 
   post=true,invoke=false,triggers=true,dailys=false,rule=false,ruleTrue=false,
-  fcall=true, fglobal=false, fget=false, fother=false, hue=true, telegram=false, nodered=false,
+  fcall=true, fglobal=false, fget=false, fother=false, hue=false, telegram=false, nodered=false,
 }
 -- options for various subsystems (global)
 _options=_options or {}
@@ -70,7 +71,8 @@ function main()
 
 --Nodered.connect(_NodeRed)            -- Setup nodered functionality
 --Telegram.bot(_TelegBOT)              -- Setup Telegram bot that listens on oncoming messages. Only one per BOT.
---Telegram.msg({_TelegCID,_TelegBOT},<string>)  -- Send msg to Telegram without BOT setup
+--Telegram.msg({_TelegCID,_TelegBOT},<msg>)  -- Send msg to Telegram without BOT setup
+
 --rule("@{06:00,catch} => Util.checkVersion()") -- Check for new version every morning at 6:00
 --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix)")
 --rule("#ER_version => log('...patching scene'); Util.patchEventRunner()") -- Auto patch new versions...
@@ -159,8 +161,8 @@ do
         if l and l ~= "" and l:sub(1,3) ~= '<@>' then -- Something in the mailbox
           _setGlobal(nil,mb,"") -- clear mailbox
           if _debugFlags.triggers then Debug(true,"Incoming event:"..l) end
-          l = json.decode(l) l._sh=true
-          setTimeout(function() Event.triggerHandler(l) end,5)-- and post it to our "main()"
+          l = json.decode(l) 
+          if type(l)=='table' then l._sh=true setTimeout(function() Event.triggerHandler(l) end,5) end --  post to "main()"
           _CXCS=1
         end
       end
@@ -411,9 +413,9 @@ function makeEventManager()
     local filter = {}
     local function truthTable(t) local res={}; for _,p in ipairs(t) do res[p]=true end return res end
     for id,t in pairs(devices) do filter[id]=truthTable(type(t)=='table' and t or {t}) end
-    INTERVAL = 2
-    lastRefresh = 0
-    function pollRefresh()
+    local INTERVAL = 2
+    local lastRefresh = 0
+    local function pollRefresh()
       states = api.get("/refreshStates?last=" .. lastRefresh)
       if states then
         lastRefresh=states.last
@@ -968,7 +970,7 @@ local function makeUtils()
         params.error = function(status)
           Debug(_debugFlags.netSync,"netSync:Error %s",key)
           dequeue()
-          if params._logErr then Log(LOG.LOG.ERROR,"%s:%s",log or "netSync:",tojson(status.status)) end
+          if params._logErr then Log(LOG.LOG.ERROR,"Error %s:%s",log or "netSync:",tojson(status)) end
           if uerr then uerr(status) end
         end
         params.success = function(status)
@@ -1212,8 +1214,11 @@ local function makeEventScriptParser()
   token("%d+", function (d) return {type="number", sw='num', value=tonumber(d)} end)
   token('"([^"]*)"', function (s) return {type="string", sw='str', value=s} end)
   token("'([^']*)'", function (s) return {type="string", sw='str', value=s} end)
+  token("%-%-.-\n")
+  token("%-%-.*")
   token("[@%$=<>!+%.%-*&|/%^~;:][@=<>&|;:%.]?", function (op) return {type="operator", sw=SW[op] or 'op', value=op} end)
   token("[{}%(%),%[%]#%%]", function (op) return {type="operator", sw=SW[op] or 'op', value=op} end)
+
 
   local function dispatch() for _,m in ipairs(patterns) do if m() then return true end end end
 
@@ -1630,7 +1635,7 @@ function makeEventScriptRuntime()
           return a
         end,'<nop>',nil,true}
     }
-    getFuns.lock=getFuns.secure;getFuns.unlock=getFuns.unsecure;getFuns.isLocked=getFuns.isSecure;getFuns.isUnlocked=getFuns.isUnsecure
+    getFuns.lock=getFuns.secure;getFuns.unlock=getFuns.unsecure;getFuns.isLocked=getFuns.isSecure;getFuns.isUnlocked=getFuns.isUnsecure -- Aliases
     setFuns={
       R={set,'setR'},G={set,'setG'},B={set,'setB'},W={set,'setW'},value={set,'setValue'},armed={setArmed,'setArmed'},
       time={set,'setTime'},power={set,'setPower'},targetLevel={set,'setTargetLevel'},interval={set,'setInterval'},
@@ -2290,11 +2295,12 @@ function extraERSetup()
     return fibaro:countScenes(id)>0 
   end
 
+  local AllERscenes = Util.findScenes(gEventRunnerKey)
   Event.event({{type='autostart'},{type='other'}},
     function(env)
       setTimeout(function() -- Do this after startup so triggers don't pile up
           local event = {type=Event.ANNOUNCE, subs=#Event._subs>0 and Event._subs or nil}
-          for _,id in ipairs(Util.findScenes(gEventRunnerKey)) do 
+          for _,id in ipairs(AllERscenes) do 
             if isRunning(id) then
               Debug(_debugFlags.pubsub,"Announce to ID:%s %s",id,tojson(env.event.subs)); Event._rScenes[id]=true; Event.postRemote(id,event) 
             end
