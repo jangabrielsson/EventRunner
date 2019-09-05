@@ -16,7 +16,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B62"  -- Aug 31, 2019  
+local _version,_fix = "3.0","B63"  -- Sep 5, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -41,7 +41,7 @@ _options=_options or {}
 -- Hue setup before main() starts. You can add more Hue.connect() inside this if you have more Hue bridges.
 function HueSetup() if _HueUserName and _HueIP then Hue.connect(_HueUserName,_HueIP) end end
 
----------- Main --------------------------------------
+---------- Main ------------ Here goes your rules ----------------
 function main()
   local rule,define = Rule.eval, Util.defvar
 
@@ -68,7 +68,7 @@ function main()
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
 --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
-
+  
 --Nodered.connect(_NodeRed)            -- Setup nodered functionality
 --Telegram.bot(_TelegBOT)              -- Setup Telegram bot that listens on oncoming messages. Only one per BOT.
 --Telegram.msg({_TelegCID,_TelegBOT},<msg>)  -- Send msg to Telegram without BOT setup
@@ -770,6 +770,7 @@ local function makeUtils()
   function self.validateChars(str,msg)
     if _VALIDATECHARS then local p = str:find("\xEF\xBB\xBF") if p then error(format("Char:%s, "..msg,p,str)) end end
   end
+  function self.fixMLesc(str) return (str:gsub("(\\%d%d%d)",function(w) return string.char(tonumber(w:sub(2))) end)) end
 
   local gKeys = {type=1,deviceID=2,value=3,val=4,key=5,arg=6,event=7,events=8,msg=9,res=10}
   local gKeysNext = 10
@@ -1673,7 +1674,7 @@ function makeEventScriptRuntime()
   instr['%setlabel'] = function(s,n,e,i) local id,v,lbl = s.pop(),getArg(s,i[3]),getArg(s,i[4])
     fibaro:call(ID(id,i),"setProperty",format("ui.%s.value",lbl),tostring(v)) s.push(v) 
   end
-  instr['%setslider'] = instr['setlabel'] 
+  instr['%setslider'] = instr['%setlabel'] 
 
 -- ER funs
   local simpleFuns={num=tonumber,str=tostring,idname=Util.reverseVar,time=toTime,['type']=type,
@@ -2397,7 +2398,7 @@ end]],_EMULATED and -__fibaroSceneId or __fibaroSceneId,lbl,tag,lbl,ip,port)
       for i=2,#row do 
         local e = row[i]
         r.elements[#r.elements+1]= eCreate[etype](tag,id,e[1],e[2],e[3]); id=id+1
-        if etype=='label' then r.elements[#r.elements].favourite=e[4] or false end
+        if etype=='label' then r.elements[#r.elements].main=e[4] or false end
         if etype~='button' then ui["ui."..e[2]..".value"] = e[3] or "" end
       end
       props.rows[#props.rows+1]=r
@@ -2420,6 +2421,14 @@ end]],_EMULATED and -__fibaroSceneId or __fibaroSceneId,lbl,tag,lbl,ip,port)
         for _,element in pairs(row.elements) do element.buttonIcon=icon end 
       end 
       api.put("/virtualDevices/"..self.id,vd)
+    end
+    function self.setCaption(name,capt)
+      local vd = api.get("/virtualDevices/"..self.id)      
+      for _,row in pairs(vd.properties.rows) do 
+        for _,element in pairs(row.elements) do 
+          if element.name==name then element.caption=capt; api.put("/virtualDevices/"..self.id,vd) return end
+        end 
+      end 
     end
 
     return self
