@@ -16,7 +16,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B63"  -- Sep 5, 2019  
+local _version,_fix = "3.0","B64"  -- Sep 12, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -68,7 +68,7 @@ function main()
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
 --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
-  
+
 --Nodered.connect(_NodeRed)            -- Setup nodered functionality
 --Telegram.bot(_TelegBOT)              -- Setup Telegram bot that listens on oncoming messages. Only one per BOT.
 --Telegram.msg({_TelegCID,_TelegBOT},<msg>)  -- Send msg to Telegram without BOT setup
@@ -162,7 +162,11 @@ do
           _setGlobal(nil,mb,"") -- clear mailbox
           if _debugFlags.triggers then Debug(true,"Incoming event:"..l) end
           l = json.decode(l) 
-          if type(l)=='table' then l._sh=true setTimeout(function() Event.triggerHandler(l) end,5) end --  post to "main()"
+          if type(l)=='table' then 
+            l._sh=true setTimeout(function() Event.triggerHandler(l) end,5) --  post to "main()"
+          else
+            Debug(true,"Bad incoming event:"..l)
+          end 
           _CXCS=1
         end
       end
