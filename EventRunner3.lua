@@ -16,7 +16,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B64"  -- Sep 12, 2019  
+local _version,_fix = "3.0","B65"  -- Sep 21, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -61,7 +61,7 @@ function main()
     other = "other"
   }
 
---or read in "HomeTable" from a fibaro global variable (or scene)
+ --or read in "HomeTable" from a fibaro global variable (or scene)
 --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
 --HT = type(HT) == 'string' and json.decode(HT) or HT
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
@@ -1289,15 +1289,15 @@ local function makeEventScriptParser()
         exprs[1] = {gExpr(inp,{[',']=true,[';']=true})}
         while inp.peek().value==',' do inp.next(); exprs[#exprs+1]= {gExpr(inp,{[',']=true,[';']=true})} end
       end
-      return {'local',vars,exprs}
+      return {'%local',vars,exprs}
     elseif t.value == 'while' then inp.next()
       local test = gExpr(inp,{['do']=true}); matchv(inp,'do',"While loop")
       local body = gStatements(inp,{['end']=true}); matchv(inp,'end',"While loop")
-      return {'%frame',{'while',test,body}}
+      return {'%frame',{'%while',test,body}}
     elseif t.value == 'repeat' then inp.next()
       local body = gStatements(inp,{['until']=true}); matchv(inp,'until',"Repeat loop")
       local test = gExpr(inp,stop)
-      return {'%frame',{'repeat',body,test}}
+      return {'%frame',{'%repeat',body,test}}
     elseif t.value == 'begin' then inp.next()
       local body = gStatements(inp,{['end']=true}); matchv(inp,'end',"Begin block")
       return {'%frame',body} 
@@ -1310,9 +1310,9 @@ local function makeEventScriptParser()
         local expr = gExpr(inp,{['do']=true}); matchv(inp,'do',"For loop")
         local body = gStatements(inp,{['end']=true}); matchv(inp,'end',"For loop")
         local v1,v2,i,l = mkVar(var),mkVar(var2),mkVar(),mkVar()
-        return {'%frame',{'%progn',{'local',{var,var2,l[2],i[2]},{}},
+        return {'%frame',{'%progn',{'%local',{var,var2,l[2],i[2]},{}},
             {'setList',{i,l,v1},{'pack',expr}},{'setList',{v1,v2},{'pack',{'%calls',i,l,v1}}},
-            {'while',v1,{'%progn',body,{'setList',{v1,v2},{'pack',{'%calls',i,l,v1}}}}}}}
+            {'%while',v1,{'%progn',body,{'setList',{v1,v2},{'pack',{'%calls',i,l,v1}}}}}}}
       else -- for for a = x,y,z  do ... end
         matchv(inp,'=') -- local a,e,s,si=x,y,z; si=sign(s); e*=si while a*si<=e do ... a+=s end
         local inits = {}
@@ -1322,8 +1322,8 @@ local function makeEventScriptParser()
         local body = gStatements(inp,{['end']=true}); matchv(inp,'end',"For loop")
         local v,s,e,step = mkVar(var),mkVar(),mkVar(),mkVar()
         if #inits<3 then inits[#inits+1]={1} end
-        local locals = {'local',{var,e[2],step[2],s[2]},inits}
-        return {'%frame',{'%progn',locals,mkSet(s,{'sign',step}),{'*=',e,s},{'while',{'<=',{'*',v,s},e},{'%progn',body,{'+=',v,step}}}}}
+        local locals = {'%local',{var,e[2],step[2],s[2]},inits}
+        return {'%frame',{'%progn',locals,mkSet(s,{'sign',step}),{'*=',e,s},{'%while',{'<=',{'*',v,s},e},{'%progn',body,{'+=',v,step}}}}}
       end
     elseif t.value == 'if' then inp.next()
       local test = gExpr(inp,{['then']=true}); matchv(inp,'then',"If statement")
@@ -1444,11 +1444,11 @@ function makeEventScriptCompiler(parser)
     if #e == 2 then compT(e[2],ops) 
     elseif #e > 2 then for i=2,#e-1 do compT(e[i],ops); ops[#ops+1]=POP end compT(e[#e],ops) end
   end
-  comp['local'] = function(e,ops)
+  comp['%local'] = function(e,ops)
     for _,e1 in ipairs(e[3]) do compT(e1[1],ops) end
     ops[#ops+1]={mkOp('%local'),#e[3],e[2]}
   end
-  comp['while'] = function(e,ops) -- lbl1, test, infskip lbl2, body, jmp lbl1, lbl2
+  comp['%while'] = function(e,ops) -- lbl1, test, infskip lbl2, body, jmp lbl1, lbl2
     local test,body,lbl1,cp=e[2],e[3],gensym('LBL1')
     local jmp={mkOp('%ifnskip'),0,nil,true}
     ops[#ops+1] = {'%addr',0,lbl1}; ops[#ops+1] = POP
@@ -1456,7 +1456,7 @@ function makeEventScriptCompiler(parser)
     compT(body,ops); ops[#ops+1]=POP; ops[#ops+1]={mkOp('%jmp'),0,lbl1}
     jmp[3]=#ops+1-cp
   end
-  comp['repeat'] = function(e,ops) -- -- lbl1, body, test, infskip lbl1
+  comp['%repeat'] = function(e,ops) -- -- lbl1, body, test, infskip lbl1
     local body,test,z=e[2],e[3],#ops
     compT(body,ops); ops[#ops+1]=POP; compT(test,ops)
     ops[#ops+1] = {mkOp('%ifnskip'),0,z-#ops,true}
@@ -1759,8 +1759,10 @@ function makeEventScriptRuntime()
       if flags.expired then s.push(val); flags.expired=nil; return end
       if flags.timer then s.push(false); return end
       flags.timer = setTimeout(function() 
-          flags.expired,flags.timer=true,nil; 
-          e.rule.start(e.rule._event) 
+        --  Event._callTimerFun(function()
+              flags.expired,flags.timer=true,nil; 
+              e.rule.start(e.rule._event) 
+        --      end)
         end,1000*time); 
       s.push(false); return
     else
