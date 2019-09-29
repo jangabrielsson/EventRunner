@@ -16,7 +16,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B65"  -- Sep 21, 2019  
+local _version,_fix = "3.0","B66"  -- Sep 29, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -66,7 +66,7 @@ function main()
 --HT = type(HT) == 'string' and json.decode(HT) or HT
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
-
+  
 --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
 
 --Nodered.connect(_NodeRed)            -- Setup nodered functionality
@@ -2504,6 +2504,8 @@ function makeHueSupport()
         })
     end
 
+    local _defFilter={buttonevent=true, on=true}
+    
     function self._setState(hue,prop,val,upd)
       if type(prop)=='table' then 
         for k,v in pairs(prop) do self._setState(hue,k,v,upd) end
@@ -2511,7 +2513,7 @@ function makeHueSupport()
       end
       local change,id = hue.state[prop]~=nil and hue.state[prop] ~= val, hue.fid
       hue.state[prop],hue.state['lastupdate']=val,os.time()
-      local filter = id and hue._filter
+      local filter = id and hue._filter or _defFilter
       if change and id and filter and filter[prop] then 
         Event.post({type='property',deviceID=id,propertyName=prop,value=val,_hue=true,_sh=_debugFlags.hue}) 
       end
@@ -2553,8 +2555,6 @@ function makeHueSupport()
           if f then f() end
         end)
     end
-
-    local _defFilter={buttonevent=true, on=true}
 
     function self.monitor(sensor,interval,filter)
       local url = sensor.url:sub(#baseURL+1)
