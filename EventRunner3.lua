@@ -16,7 +16,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B66"  -- Sep 29, 2019  
+local _version,_fix = "3.0","B67"  -- Oct 11, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -39,14 +39,14 @@ _debugFlags = {
 _options=_options or {}
 
 -- Hue setup before main() starts. You can add more Hue.connect() inside this if you have more Hue bridges.
-function HueSetup() if _HueUserName and _HueIP then Hue.connect(_HueUserName,_HueIP) end end
+--function HueSetup() if _HueUserName and _HueIP then Hue.connect(_HueUserName,_HueIP,"Hue1") Hue.connect(_HueUserName,_HueIP,"Hue2") end end
 
 ---------- Main ------------ Here goes your rules ----------------
 function main()
   local rule,define = Rule.eval, Util.defvar
 
   if _EMULATED then
-    --_System.speed(true)               -- run emulator faster than real-time
+    _System.speed(true)               -- run emulator faster than real-time
     --_System.setRemote("devices",{5})  -- make device 5 remote (call HC2 with api)
     --_System.installProxy()            -- Install HC2 proxy sending sourcetriggers back to emulator
   end
@@ -61,12 +61,13 @@ function main()
     other = "other"
   }
 
- --or read in "HomeTable" from a fibaro global variable (or scene)
+  --or read in "HomeTable" from a fibaro global variable (or scene)
 --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
 --HT = type(HT) == 'string' and json.decode(HT) or HT
+
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
-  
+
 --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
 
 --Nodered.connect(_NodeRed)            -- Setup nodered functionality
@@ -516,6 +517,8 @@ function makeEventManager()
     if ({turnOff=true,turnOn=true,on=true,off=true,setValue=true})[call] then lastID[id]={script=true,time=os.time()} end
     if call=='toggle' then 
       return fibaro.call(obj,id,fibaro:getValue(id,"value")>"0" and "turnOff" or "turnOn") 
+    elseif call=='dim' then -- fibaro:call(99,'dim',sec,'up',step)
+      return Util.dimLight(id,...)
     end
     if fibaro._idMap[id] then return fibaro._idMap[id].call(obj,id,call,...) end
     -- Now we have a real deviceID
@@ -1646,7 +1649,7 @@ function makeEventScriptRuntime()
       time={set,'setTime'},power={set,'setPower'},targetLevel={set,'setTargetLevel'},interval={set,'setInterval'},
       mode={set,'setMode'},setpointMode={set,'setSetpointMode'},defaultPartyTime={set,'setDefaultPartyTime'},
       scheduleState={set,'setScheduleState'},color={set2,'setColor'},
-      thermostatSetpoint={set2,'setThermostatSetpoint'},schedule={set2,'setSchedule'},
+      thermostatSetpoint={set2,'setThermostatSetpoint'},schedule={set2,'setSchedule'},dim={set2,'dim'},
       msg={set,'sendPush'},defemail={set,'sendDefinedEmailNotification'},btn={set,'pressButton'},
       email={function(id,cmd,val) local h,m = val:match("(.-):(.*)"); fibaro:call(id,'sendEmail',h,m) return val end,""},
       start={function(id,cmd,val) if isEvent(val) then Event.postRemote(id,val) else fibaro:startScene(id,val) return true end end,""},
@@ -1759,10 +1762,10 @@ function makeEventScriptRuntime()
       if flags.expired then s.push(val); flags.expired=nil; return end
       if flags.timer then s.push(false); return end
       flags.timer = setTimeout(function() 
-        --  Event._callTimerFun(function()
-              flags.expired,flags.timer=true,nil; 
-              e.rule.start(e.rule._event) 
-        --      end)
+          --  Event._callTimerFun(function()
+          flags.expired,flags.timer=true,nil; 
+          e.rule.start(e.rule._event) 
+          --      end)
         end,1000*time); 
       s.push(false); return
     else
@@ -2099,6 +2102,39 @@ function extraERSetup()
         end
         return _SUNTIMEVALUES[prop]
       else return fibaro._get(obj,id,prop) end
+    end)
+
+  equations = {
+    linear = function(t, b, c, d) return c * t / d + b; end,
+    inQuad = function(t, b, c, d) t = t / d; return c * math.pow(t, 2) + b; end,
+    inOutQuad = function(t, b, c, d) t = t / d * 2; return t < 1 and c / 2 * math.pow(t, 2) + b or -c / 2 * ((t - 1) * (t - 3) - 1) + b end,
+    outInExpo = function(t, b, c, d) return t < d / 2 and equations.outExpo(t * 2, b, c / 2, d) or equations.inExpo((t * 2) - d, b + c / 2, c / 2, d) end,
+    inExpo = function(t, b, c, d) return t == 0 and b or c * math.pow(2, 10 * (t / d - 1)) + b - c * 0.001 end,
+    outExpo = function(t, b, c, d) return t == d and  b + c or c * 1.001 * (-math.pow(2, -10 * t / d) + 1) + b end,
+    inOutExpo = function(t, b, c, d)
+      if t == 0 then return b elseif t == d then return b + c end
+      t = t / d * 2
+      if t < 1 then return c / 2 * math.pow(2, 10 * (t - 1)) + b - c * 0.0005 else t = t - 1; return c / 2 * 1.0005 * (-math.pow(2, -10 * t) + 2) + b end
+    end,
+  }
+
+  function Util.dimLight(id,sec,dir,step,curve,start,stop)
+    _assert(tonumber(sec), "Bad dim args for deviceID:%s",id)
+    local f = curve and equations[curve] or equations['linear']
+    dir,step = dir == 'down' and -1 or 1, step or 1
+    start,stop = start or 0,stop or 99
+    local t = dir == 1 and 0 or sec
+    Event.post({type='%dimLight',id=id,sec=sec,dir=dir,fun=f,t=dir == 1 and 0 or sec,start=start,stop=stop,step=step})
+  end
+
+  Event.event({type='%dimLight'},function(env)
+      local e = env.event
+      local oldV = tonumber(fibaro:getValue(e.id,"value"))
+      if e.v and oldV ~= e.v then return end -- Someone changed the lightning, stop dimming
+      e.v = math.floor(e.fun(e.t,e.start,e.stop,e.sec)+0.5)
+      fibaro:call(e.id,"setValue",e.v)
+      e.t=e.t+e.dir*e.step
+      if 0 <= e.t and  e.t <= e.sec then Event.post(e,os.time()+e.step) end
     end)
 
 --------- Telegram support ---------
@@ -2505,7 +2541,7 @@ function makeHueSupport()
     end
 
     local _defFilter={buttonevent=true, on=true}
-    
+
     function self._setState(hue,prop,val,upd)
       if type(prop)=='table' then 
         for k,v in pairs(prop) do self._setState(hue,k,v,upd) end
