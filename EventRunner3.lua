@@ -16,7 +16,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B67"  -- Oct 11, 2019  
+local _version,_fix = "3.0","B68"  -- Oct 13, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -61,7 +61,7 @@ function main()
     other = "other"
   }
 
-  --or read in "HomeTable" from a fibaro global variable (or scene)
+--or read in "HomeTable" from a fibaro global variable (or scene)
 --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
 --HT = type(HT) == 'string' and json.decode(HT) or HT
 
@@ -2104,6 +2104,29 @@ function extraERSetup()
       else return fibaro._get(obj,id,prop) end
     end)
 
+  local _remoteTags = {}
+  function Util.defineRPCs(list) local res = {} for f,id in pairs(list) do res[f]=Util.defineRPC(f,id) end return res end
+  function Util.defineRPC(name,id)
+    local tag = Util.gensym("RPC")
+    return function(...)
+      local t = Event.postRemote(id,{type='%%RPCCALL%%',fun=name,tag=tag,args={...}})
+      _remoteTags[tag]={setTimeout(function() _remoteTags[tag]=nil 
+            error(string.format("No response from Remote function, '%s'",name))
+          end,5000)}
+      return {['<cont>']=function(cont) _remoteTags[tag][2]=cont end}
+    end
+  end
+
+  Event.event({type='%%RPCRESP%%'},
+    function(env) local e = env.event
+      if e.tag then
+        local cr = _remoteTags[e.tag] or {}
+        if cr[1] then clearTimeout(cr[1]) end
+        if e.error then error(e.error) else return cr[2](table.unpack(e.value)) end
+        _remoteTags[tag]=nil
+      end
+    end)
+
   equations = {
     linear = function(t, b, c, d) return c * t / d + b; end,
     inQuad = function(t, b, c, d) t = t / d; return c * math.pow(t, 2) + b; end,
@@ -2129,10 +2152,10 @@ function extraERSetup()
 
   Event.event({type='%dimLight'},function(env)
       local e = env.event
-      local oldV = tonumber(fibaro:getValue(e.id,"value"))
-      if e.v and oldV ~= e.v then return end -- Someone changed the lightning, stop dimming
+      local ev,currV = e.v or -1,tonumber(fibaro:getValue(e.id,"value"))
+      if e.v and currV ~= e.v then return end -- Someone changed the lightning, stop dimming
       e.v = math.floor(e.fun(e.t,e.start,e.stop,e.sec)+0.5)
-      fibaro:call(e.id,"setValue",e.v)
+      if ev ~= e.v then fibaro:call(e.id,"setValue",e.v) end
       e.t=e.t+e.dir*e.step
       if 0 <= e.t and  e.t <= e.sec then Event.post(e,os.time()+e.step) end
     end)
