@@ -34,7 +34,7 @@ local SCENE_TEMP =
 %% autostart
 --]].."]]"..[[
 
-if dofile and not _EMULATED then _EMBEDDED=true dofile("HC2.lua") end
+if dofile and not _EMULATED then _EMULATED=true dofile("HC2.lua") end
 
 local trigger = fibaro:getSourceTrigger()
 
