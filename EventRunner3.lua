@@ -5,6 +5,7 @@
 56 value
 57 value
 88 value
+299 value
 %% events
 5 CentralSceneEvent
 22 GeofenceEvent
@@ -16,7 +17,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B68"  -- Oct 13, 2019  
+local _version,_fix = "3.0","B69"  -- Oct 17, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -32,7 +33,7 @@ if loadfile then local cr = loadfile("credentials.lua"); if cr then cr() end end
 
 -- debug flags for various subsystems (global)
 _debugFlags = { 
-  post=true,invoke=false,triggers=true,dailys=false,rule=false,ruleTrue=false,
+  post=true,invoke=false,triggers=true,dailys=false,rule=true,ruleTrue=false,
   fcall=true, fglobal=false, fget=false, fother=false, hue=false, telegram=false, nodered=false,
 }
 -- options for various subsystems (global)
@@ -64,7 +65,7 @@ function main()
 --or read in "HomeTable" from a fibaro global variable (or scene)
 --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
 --HT = type(HT) == 'string' and json.decode(HT) or HT
-
+  
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
@@ -78,7 +79,7 @@ function main()
 --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix)")
 --rule("#ER_version => log('...patching scene'); Util.patchEventRunner()") -- Auto patch new versions...
   if _EMULATED then 
-    --dofile("example_rules3.lua")
+    dofile("example_rules3.lua")
   end
 end
 
@@ -512,14 +513,17 @@ function makeEventManager()
 
   -- We intercept fibaro:call, fibaro:get, and fibaro:getValue - we may change this to an object model
   local _DEFACTIONS={wakeUpDeadDevice=true, setProperty=true}
+  local patchHook = {}
+  function patchHook.toggle(obj,id,call,...) fibaro.call(obj,id,fibaro:getValue(id,"value")>"0" and "turnOff" or "turnOn") return true end
+  function patchHook.dim(obj,id,call,...) Util.dimLight(id,...) return true end 
+  function patchHook.turnOn(obj,id,call,...) if fibaro._checkOp and fibaro:getValue(id,"value")>'0' then return true end end
+  function patchHook.turnOff(obj,id,call,...) if fibaro._checkOp and fibaro:getValue(id,"value")=='0' then return true end end
+  function patchHook.setValue(obj,id,call,val) if fibaro._checkOp and fibaro:getValue(id,"value")==val then return true end end
+  
   function fibaro.call(obj,id,call,...)
     id = tonumber(id); if not id then error("deviceID not a number",2) end
     if ({turnOff=true,turnOn=true,on=true,off=true,setValue=true})[call] then lastID[id]={script=true,time=os.time()} end
-    if call=='toggle' then 
-      return fibaro.call(obj,id,fibaro:getValue(id,"value")>"0" and "turnOff" or "turnOn") 
-    elseif call=='dim' then -- fibaro:call(99,'dim',sec,'up',step)
-      return Util.dimLight(id,...)
-    end
+    if patchHook[call] and patchHook[call](obj,id,call,...) then return end
     if fibaro._idMap[id] then return fibaro._idMap[id].call(obj,id,call,...) end
     -- Now we have a real deviceID
     if select(2,__fibaro_get_device(id)) == 404 then Log(LOG.ERROR,"No such deviceID:%s",id) return end
