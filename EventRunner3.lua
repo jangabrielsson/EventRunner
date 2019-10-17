@@ -511,7 +511,7 @@ function makeEventManager()
   end
   function self._registerID(id,call,get) fibaro._idMap[id]={call=call,get=get} end
 
-  -- We intercept fibaro:call, fibaro:get, and fibaro:getValue - we may change this to an object model
+  -- We intercept fibaro:call, fibaro:get, and fibaro:getValue - we may change this to an object model 
   local _DEFACTIONS={wakeUpDeadDevice=true, setProperty=true}
   local patchHook = {}
   function patchHook.toggle(obj,id,call,...) fibaro.call(obj,id,fibaro:getValue(id,"value")>"0" and "turnOff" or "turnOn") return true end
