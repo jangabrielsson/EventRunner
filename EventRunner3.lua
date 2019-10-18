@@ -17,7 +17,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B69"  -- Oct 17, 2019  
+local _version,_fix = "3.0","B70"  -- Oct 18, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -47,7 +47,7 @@ function main()
   local rule,define = Rule.eval, Util.defvar
 
   if _EMULATED then
-    _System.speed(true)               -- run emulator faster than real-time
+    --_System.speed(true)               -- run emulator faster than real-time
     --_System.setRemote("devices",{5})  -- make device 5 remote (call HC2 with api)
     --_System.installProxy()            -- Install HC2 proxy sending sourcetriggers back to emulator
   end
@@ -65,10 +65,10 @@ function main()
 --or read in "HomeTable" from a fibaro global variable (or scene)
 --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
 --HT = type(HT) == 'string' and json.decode(HT) or HT
-  
+
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
-
+  
 --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
 
 --Nodered.connect(_NodeRed)            -- Setup nodered functionality
@@ -79,7 +79,7 @@ function main()
 --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix)")
 --rule("#ER_version => log('...patching scene'); Util.patchEventRunner()") -- Auto patch new versions...
   if _EMULATED then 
-    dofile("example_rules3.lua")
+    --dofile("example_rules3.lua")
   end
 end
 
@@ -519,7 +519,7 @@ function makeEventManager()
   function patchHook.turnOn(obj,id,call,...) if fibaro._checkOp and fibaro:getValue(id,"value")>'0' then return true end end
   function patchHook.turnOff(obj,id,call,...) if fibaro._checkOp and fibaro:getValue(id,"value")=='0' then return true end end
   function patchHook.setValue(obj,id,call,val) if fibaro._checkOp and fibaro:getValue(id,"value")==val then return true end end
-  
+
   function fibaro.call(obj,id,call,...)
     id = tonumber(id); if not id then error("deviceID not a number",2) end
     if ({turnOff=true,turnOn=true,on=true,off=true,setValue=true})[call] then lastID[id]={script=true,time=os.time()} end
@@ -2286,6 +2286,21 @@ function extraERSetup()
         nrr[tag]=nil
       else Event.post(p.e) end
     end)
+
+  local net = net.HTTPClient()
+  Util.defvar('TimeDiff',0)
+  Event.event({type='%timeDiffLoop%'},
+    function()
+      net:request("http://worldtimeapi.org:80/api/ip",{
+          option = {method='GET',timeout=5000},
+          success = function(resp)
+            if resp.status==200 then Util.defvar('TimeDiff',json.decode(resp.data).unixtime-os.time()) end
+            Event.post({type='%timeDiffLoop%'},'+/06:00')
+          end,
+          error = function(resp) print(resp.status) Event.post({type='%timeDiffLoop%'},'+/06:00') end
+        })
+    end)
+  Event.post({type='%timeDiffLoop%'})
 
 ----------- Sonos speech/mp3
 
