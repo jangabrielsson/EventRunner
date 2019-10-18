@@ -17,7 +17,7 @@ Test
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B70"  -- Oct 18, 2019  
+local _version,_fix = "3.0","B71"  -- Oct 18, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -2287,20 +2287,20 @@ function extraERSetup()
       else Event.post(p.e) end
     end)
 
-  local net = net.HTTPClient()
+  local _netTime = net.HTTPClient()
   Util.defvar('TimeDiff',0)
   Event.event({type='%timeDiffLoop%'},
     function()
-      net:request("http://worldtimeapi.org:80/api/ip",{
+      _netTime:request("http://worldtimeapi.org:80/api/ip",{
           option = {method='GET',timeout=5000},
           success = function(resp)
             if resp.status==200 then Util.defvar('TimeDiff',json.decode(resp.data).unixtime-os.time()) end
-            Event.post({type='%timeDiffLoop%'},'+/06:00')
+            Event.post({type='%timeDiffLoop%',_sh=true},'+/06:00')
           end,
-          error = function(resp) print(resp.status) Event.post({type='%timeDiffLoop%'},'+/06:00') end
+          error = function(resp) print(resp.status) Event.post({type='%timeDiffLoop%',_sh=true},'+/06:00') end
         })
     end)
-  Event.post({type='%timeDiffLoop%'})
+  Event.post({type='%timeDiffLoop%',_sh=true})
 
 ----------- Sonos speech/mp3
 
