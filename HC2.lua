@@ -25,7 +25,7 @@ SOFTWARE.
 json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
-_version,_fix = "0.11","fix10" --Aug 10, 2019    
+_version,_fix = "0.11","fix11" --Oct 21, 2019    
 _sceneName = "HC2 emulator"
 _LOCAL=true                  -- set all resource to local in main(), i.e. no calls to HC2
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
@@ -92,6 +92,8 @@ function main()
   --HC2.registerScene("EventRunnerSub3",21,"EventRunnerSub3.lua")
   --HC2.registerScene("EventRunnerPub3",22,"EventRunnerPub3.lua")
   --HC2.registerScene("Publisher",32,"EventRunnerPub.lua")
+  --HC2.registerScene("Pars",30,"Pars.lua")
+  --HC2.registerScene("Lib",33,"Lib1.lua")
   -- Simple test scene
   --[[
   HC2.registerScene("SceneTest",99,"sceneTest.lua",nil,
@@ -130,7 +132,7 @@ end
 
 _debugFlags = { 
   threads=false, triggers=true, eventserver=true, hc2calls=true, globals=false, web=true,
-  fcall=false, fglobal=false, fget=false, fother=true
+  fcall=true, fglobal=false, fget=false, fother=false
 }
 
 ------------------------------------------------------
@@ -569,7 +571,7 @@ function Scene_functions()
   function YIELD(ms)
     local co = coroutine.running()
     if _SceneContext[co] then 
-      BREAKIDLE=true; coroutine.yield(co,(ms and ms > 0 and ms or 100)/1000) 
+      BREAKIDLE=true; pcall(function() coroutine.yield(co,(ms and ms > 0 and ms or 100)/1000) end)
     end
   end
 -- If we need to access local scene variables
@@ -1383,7 +1385,7 @@ function Runtime_functions()
   Runtime = {}
 
   function Runtime.dofile(file)
-    local code = loadfile(file)
+    local code,tt = loadfile(file)
     if code then
       setfenv(code,_SceneContext[coroutine.running()])
       code()
@@ -1664,7 +1666,12 @@ function System_functions()
   _System.blockPost = function(bool) local last=_BLOCK_POST; _BLOCK_POST=flag; return last end
 
   _System.registerScene = HC2.registerScene
+  function _System.loadScene(name,id,file)
+    HC2.registerScene(name,id,file)
+    Event.post({type='autostart',_id=id})
+  end
   _System.runTriggers  = HC2.runTriggers
+  _System.post  = Event.post
   _System.monitorDevice  = HC2.monitorDevice
   _System.monitorGlobal  = HC2.monitorGlobal
 
@@ -1973,7 +1980,7 @@ function Fibaro_functions()
       if m then if f.ret then return else str=m; break end end
     end 
     local env = Scene.global()
-    print(_format("%s%s %s",osDate("%a/%b/%d,%H:%M:%S:"),env.__debugName,str)) 
+    print(_format("%s%s %s",osDate("%a/%b/%d,%H:%M:%S:"),env and env.__debugName or "INTERN",str)) 
   end
 
   function fibaro:sleep(n) __fibaroSleep(n) end
@@ -2262,10 +2269,11 @@ Expected input:
       response, status, headers = http.request(req)
     end
     http.TIMEOUT = timeout
+    local delay = math.random(1,3000)
     if response == 1 then 
-      if options.success then options.success({status=status, headers=headers, data=table.concat(resp)}) end
+      if options.success then Runtime.setTimeout(function() options.success({status=status, headers=headers, data=table.concat(resp)}) end,delay) end
     else
-      if options.error then options.error(status) end
+      if options.error then Runtime.setTimeout(function() options.error(status) end, delay) end
     end
   end
 
