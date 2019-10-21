@@ -25,7 +25,7 @@ SOFTWARE.
 json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
-_version,_fix = "0.11","fix11" --Oct 21, 2019    
+_version,_fix = "0.11","fix12" --Oct 21, 2019    
 _sceneName = "HC2 emulator"
 _LOCAL=true                  -- set all resource to local in main(), i.e. no calls to HC2
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
@@ -1668,7 +1668,10 @@ function System_functions()
   _System.registerScene = HC2.registerScene
   function _System.loadScene(name,id,file)
     HC2.registerScene(name,id,file)
-    Event.post({type='autostart',_id=id})
+    local s = Scene.scenes[id]
+    for _,t in ipairs(s.triggers) do
+      if t.type=='autostart' then fibaro:startScene(id) return end
+    end
   end
   _System.runTriggers  = HC2.runTriggers
   _System.post  = Event.post
@@ -3521,8 +3524,8 @@ Proxy_functions()
 Scene_functions()
 HC2_functions()
 Runtime_functions()
-System_functions()
 Event_functions()
+System_functions()
 Fibaro_functions()
 ER_functions()
 startup()
