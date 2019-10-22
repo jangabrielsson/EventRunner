@@ -25,7 +25,7 @@ SOFTWARE.
 json library - Copyright (c) 2018 rxi https://github.com/rxi/json.lua
 
 --]]
-_version,_fix = "0.11","fix12" --Oct 21, 2019    
+_version,_fix = "0.11","fix14" --Oct 22, 2019    
 _sceneName = "HC2 emulator"
 _LOCAL=true                  -- set all resource to local in main(), i.e. no calls to HC2
 _EVENTSERVER = 6872          -- To receieve triggers from external systems, HC2, Node-red etc.
@@ -1862,6 +1862,14 @@ function Event_functions()
   end
 
   Event = createEventEngine()
+
+  -- {type='property', deviceID=id, propertyName=name, value=val}
+  -- {type='global', name=name, value=val}
+  -- {type='%CALL%',args={id,'turnOn'}}
+  -- {type='%GLOB%',args={name,value}}
+  Event.event({type='%FIB%'},function(env) 
+      fibaro[env.event.args[1]](fibaro,select(2,table.unpack(env.event.args))) end
+      )
 
   Event.event({type='%%SPEED%%', value='$hours'},
     function(env)
