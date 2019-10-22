@@ -1675,6 +1675,13 @@ function System_functions()
   end
   _System.runTriggers  = HC2.runTriggers
   _System.post  = Event.post
+  _System.fib = {}
+  function _System.fib.call(t,id,...)
+    Event.post({type='%FIB%',args={'call',id,...}},t)
+  end
+  function _System.fib.setGlobal(t,name,value)
+    Event.post({type='%FIB%',args={'setGlobal',name,value}},t)
+  end
   _System.monitorDevice  = HC2.monitorDevice
   _System.monitorGlobal  = HC2.monitorGlobal
 
@@ -1863,10 +1870,6 @@ function Event_functions()
 
   Event = createEventEngine()
 
-  -- {type='property', deviceID=id, propertyName=name, value=val}
-  -- {type='global', name=name, value=val}
-  -- {type='%CALL%',args={id,'turnOn'}}
-  -- {type='%GLOB%',args={name,value}}
   Event.event({type='%FIB%'},function(env) 
       fibaro[env.event.args[1]](fibaro,select(2,table.unpack(env.event.args))) end
       )
