@@ -2,22 +2,17 @@
 %% properties
 17 value
 55 value
-56 value
-57 value
 88 value
-299 value
 %% events
 5 CentralSceneEvent
-22 GeofenceEvent
 %% globals 
 TimeOfDay
-Test
 %% autostart 
 --]] 
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B71"  -- Oct 18, 2019  
+local _version,_fix = "3.0","B73"  -- Oct 23, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -40,7 +35,7 @@ _debugFlags = {
 _options=_options or {}
 
 -- Hue setup before main() starts. You can add more Hue.connect() inside this if you have more Hue bridges.
---function HueSetup() if _HueUserName and _HueIP then Hue.connect(_HueUserName,_HueIP,"Hue1") Hue.connect(_HueUserName,_HueIP,"Hue2") end end
+--function HueSetup() if _HueUserName and _HueIP then Hue.connect(_HueUserName,_HueIP,"Hue") end end
 
 ---------- Main ------------ Here goes your rules ----------------
 function main()
@@ -61,14 +56,14 @@ function main()
     },
     other = "other"
   }
-
+  
 --or read in "HomeTable" from a fibaro global variable (or scene)
 --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
 --HT = type(HT) == 'string' and json.decode(HT) or HT
 
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
-  
+
 --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
 
 --Nodered.connect(_NodeRed)            -- Setup nodered functionality
@@ -2302,6 +2297,24 @@ function extraERSetup()
     end)
   Event.post({type='%timeDiffLoop%',_sh=true})
 
+  do
+    local lastRefresh = 0
+    local function pollRefresh()
+      states = api.get("/refreshStates?last=" .. lastRefresh)
+      if states then
+        lastRefresh=states.last
+        for k,v in pairs(states.changes or {}) do
+          if v.dead~=nil then  
+            Event.post({type='property',propertyName='dead',deviceID=v.id,value=v.dead}) 
+          end
+        end
+      end
+      if not(_EMULATED and _System.speed()=='SPEED') then
+        setTimeout(pollRefresh,60*1000)
+      end
+    end
+    pollRefresh()
+  end
 ----------- Sonos speech/mp3
 
   Sonos = { vdID = 10, buttonID = 28, lang = 'en'}
@@ -2704,7 +2717,7 @@ function makeHueSupport()
           res = dev.state.bri and tostring(math.floor((dev.state.bri/254)*99+0.5)) or '99' 
         else res = '0' end 
       elseif val=='values' then res = dev.state
-      else res =  dev.state[val] and tostring(dev.state[val]) or nil end
+      else res =  dev.state[val]~=nil and tostring(dev.state[val]) or nil end
       time=dev.state.lastupdate or 0
       Debug(_debugFlags.hue,"Get ID:%s %s -> %s",id,val,res)
       return res and res,time

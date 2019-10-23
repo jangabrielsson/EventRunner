@@ -1676,6 +1676,7 @@ function System_functions()
   _System.runTriggers  = HC2.runTriggers
   _System.post  = Event.post
   _System.fib = {}
+  
   function _System.fib.call(t,id,...)
     Event.post({type='%FIB%',args={'call',id,...}},t)
   end
