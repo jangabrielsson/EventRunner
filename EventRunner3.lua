@@ -12,7 +12,7 @@ TimeOfDay
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B73"  -- Oct 23, 2019  
+local _version,_fix = "3.0","B74"  -- Oct 23, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -29,7 +29,7 @@ if loadfile then local cr = loadfile("credentials.lua"); if cr then cr() end end
 -- debug flags for various subsystems (global)
 _debugFlags = { 
   post=true,invoke=false,triggers=true,dailys=false,rule=true,ruleTrue=false,
-  fcall=true, fglobal=false, fget=false, fother=false, hue=false, telegram=false, nodered=false,
+  fcall=true, fglobal=false, fget=false, fother=false, hue=true, telegram=false, nodered=false,
 }
 -- options for various subsystems (global)
 _options=_options or {}
@@ -56,7 +56,7 @@ function main()
     },
     other = "other"
   }
-  
+
 --or read in "HomeTable" from a fibaro global variable (or scene)
 --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
 --HT = type(HT) == 'string' and json.decode(HT) or HT
@@ -2300,7 +2300,7 @@ function extraERSetup()
   do
     local lastRefresh = 0
     local function pollRefresh()
-      states = api.get("/refreshStates?last=" .. lastRefresh)
+    --  states = api.get("/refreshStates?last=" .. lastRefresh)
       if states then
         lastRefresh=states.last
         for k,v in pairs(states.changes or {}) do
@@ -2717,9 +2717,12 @@ function makeHueSupport()
           res = dev.state.bri and tostring(math.floor((dev.state.bri/254)*99+0.5)) or '99' 
         else res = '0' end 
       elseif val=='values' then res = dev.state
-      else res =  dev.state[val]~=nil and tostring(dev.state[val]) or nil end
+      else 
+        res =  dev.state[val]~=nil and tostring(dev.state[val]) or nil
+--        if res=='true' then res = '1' elseif res=='false' then res='0' end
+      end
       time=dev.state.lastupdate or 0
-      Debug(_debugFlags.hue,"Get ID:%s %s -> %s",id,val,res)
+      Debug(_debugFlags.hue,"Get ID:%s %s -> %s",id,val,res or "nil")
       return res and res,time
     end
 
