@@ -1,8 +1,10 @@
 --[[
 %% properties
-17 value
-55 value
+66 value
+85 value
+89 value
 88 value
+99 value
 %% events
 5 CentralSceneEvent
 %% globals 
@@ -12,7 +14,7 @@ TimeOfDay
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B74"  -- Oct 23, 2019  
+local _version,_fix = "3.0","B75"  -- Oct 24, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -52,7 +54,7 @@ function main()
     dev = 
     { bedroom = {lamp = 88,motion = 99},
       phones = {bob = 121},
-      kitchen = {lamp = 66, motion = 77},
+      kitchen = {lamp = 66, motion = 85},
     },
     other = "other"
   }
@@ -65,7 +67,7 @@ function main()
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
 --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
-
+  
 --Nodered.connect(_NodeRed)            -- Setup nodered functionality
 --Telegram.bot(_TelegBOT)              -- Setup Telegram bot that listens on oncoming messages. Only one per BOT.
 --Telegram.msg({_TelegCID,_TelegBOT},<msg>)  -- Send msg to Telegram without BOT setup
@@ -1100,7 +1102,7 @@ local function makeEventScriptParser()
   local mkStack,mkStream,toTime,map,mapkk,gensym=Util.mkStack,Util.mkStream,Util.toTime,Util.map,Util.mapkk,Util.gensym
   local patterns,self = {},{}
   local opers = {['%neg']={14,1},['t/']={14,1,'%today'},['n/']={14,1,'%nexttime'},['+/']={14,1,'%plustime'},['$']={14,1,'%vglob'},
-    ['.']={12.9,2},[':']= {13,2,'%prop'},['..']={9,2,'%betw'},['@']={9,1,'%daily'},['jmp']={9,1},['::']={9,1},--['return']={-0.5,1},
+    ['.']={12.9,2},[':']= {13,2,'%prop'},['..']={9,2,'%betw'},['...']={9,2,'%betwo'},['@']={9,1,'%daily'},['jmp']={9,1},['::']={9,1},--['return']={-0.5,1},
     ['@@']={9,1,'%interv'},['+']={11,2},['-']={11,2},['*']={12,2},['/']={12,2},['%']={12,2},['==']={6,2},['<=']={6,2},['>=']={6,2},['~=']={6,2},
     ['>']={6,2},['<']={6,2},['&']={5,2,'%and'},['|']={4,2,'%or'},['!']={5.1,1,'%not'},['=']={0,2},['+=']={0,2},['-=']={0,2},
     ['*=']={0,2},[';']={-1,2,'%progn'},
@@ -1216,13 +1218,15 @@ local function makeEventScriptParser()
   token("%d%d:%d%d:?%d?%d?",function (t) return {type="number", sw='num', value=toTime(t)} end)
   token("[t+n][/]", function (op) return {type="operator", sw='op', value=op} end)
   token("#[A-Za-z_][%w_]*", function (w) return {type="event", sw='ev', value=w} end)
-  token("[A-Za-z_][%w_]*", function (w) return {type=nopers[w] and 'operator' or "name", sw=nopers[w] and 'op' or 'nam', value=w} end)
+  --token("[A-Za-z_][%w_]*", function (w) return {type=nopers[w] and 'operator' or "name", sw=nopers[w] and 'op' or 'nam', value=w} end)
+  token("[_a-zA-Z\xC3\xA5\xA4\xB6\x85\x84\x96][_0-9a-zA-Z\xC3\xA5\xA4\xB6\x85\x84\x96]*", function (w) return {type=nopers[w] and 'operator' or "name", sw=nopers[w] and 'op' or 'nam', value=w} end)
   token("%d+%.%d+", function (d) return {type="number", sw='num', value=tonumber(d)} end)
   token("%d+", function (d) return {type="number", sw='num', value=tonumber(d)} end)
   token('"([^"]*)"', function (s) return {type="string", sw='str', value=s} end)
   token("'([^']*)'", function (s) return {type="string", sw='str', value=s} end)
   token("%-%-.-\n")
-  token("%-%-.*")
+  token("%-%-.*")  
+  token("%.%.%.",function (op) return {type="operator", sw=SW[op] or 'op', value=op} end)
   token("[@%$=<>!+%.%-*&|/%^~;:][@=<>&|;:%.]?", function (op) return {type="operator", sw=SW[op] or 'op', value=op} end)
   token("[{}%(%),%[%]#%%]", function (op) return {type="operator", sw=SW[op] or 'op', value=op} end)
 
@@ -1248,6 +1252,10 @@ local function makeEventScriptParser()
       return {'%set',lv[1]:sub(1,1)~='%' and '%'..lv[1] or lv[1],lv[2], lv[3] or true, rv}
     else error("Illegal assignment") end
   end
+  postP['%betwo'] = function(e) 
+    local t = Util.gensym("TODAY")
+    return {'%and',{'%betw', e[2],e[3]},{'%and',{'~=',{'%var',t,'script'},{'%var','dayname','script'}},{'%set','%var',t,'script',{'%var','dayname','script'}}}}
+  end 
   postP['if'] = function(e) local c = {'%and',e[2],{'%always',e[3]}} return self.postParse(#e==3 and c or {'%or',c,e[4]}) end
   postP['=>'] = function(e) return {'%rule',{'%quote',e[2]},{'%quote',e[3]}} end
   postP['.'] = function(e) return {'%aref',e[2],e[3]} end
@@ -2026,7 +2034,11 @@ function makeEventScriptRuleCompiler()
   end
 
   -- Scheduler that every night posts 'daily' rules
-  Event.schedule("n/00:00",function(env) for _,d in ipairs(dailysTab) do self.recalcDailys(d.rule) end end)
+  Util.defvar('dayname',os.date("%a"))
+  Event.schedule("n/00:00",function(env) 
+      Util.defvar('dayname',os.date("*t").wday)
+      for _,d in ipairs(dailysTab) do self.recalcDailys(d.rule) end 
+    end)
 
   return self
 end
