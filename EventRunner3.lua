@@ -14,7 +14,7 @@ TimeOfDay
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B75"  -- Oct 24, 2019  
+local _version,_fix = "3.0","B77"  -- Oct 24, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -2014,6 +2014,10 @@ function makeEventScriptRuleCompiler()
   function self.macroSubs(str) for m,s in pairs(_macros) do str = str:gsub(m,s) end return str end
 
   function self.recalcDailys(r,catch)
+    if r==nil and catch==nil then
+      for _,d in ipairs(dailysTab) do self.recalcDailys(d.rule) end
+      return
+    end
     if not r.dailys then return end
     local dailys,newTimers,oldTimers,max = r.dailys,{},r.dailys.timers,math.max
     for _,t in ipairs(oldTimers) do Event.cancel(t[2]) end
