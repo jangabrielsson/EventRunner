@@ -14,7 +14,7 @@ TimeOfDay
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B77"  -- Oct 24, 2019  
+local _version,_fix = "3.0","B78"  -- Nov 11, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -30,14 +30,14 @@ if loadfile then local cr = loadfile("credentials.lua"); if cr then cr() end end
 
 -- debug flags for various subsystems (global)
 _debugFlags = { 
-  post=true,invoke=false,triggers=true,dailys=false,rule=true,ruleTrue=false,
+  post=true,invoke=true,triggers=true,dailys=false,rule=true,ruleTrue=false,
   fcall=true, fglobal=false, fget=false, fother=false, hue=true, telegram=false, nodered=false,
 }
 -- options for various subsystems (global)
 _options=_options or {}
 
 -- Hue setup before main() starts. You can add more Hue.connect() inside this if you have more Hue bridges.
---function HueSetup() if _HueUserName and _HueIP then Hue.connect(_HueUserName,_HueIP,"Hue") end end
+function HueSetup() if _HueUserName and _HueIP then Hue.connect(_HueUserName,_HueIP,"Hue") end end
 
 ---------- Main ------------ Here goes your rules ----------------
 function main()
@@ -52,9 +52,9 @@ function main()
   local HT =  -- Example of in-line "home table"
   {
     dev = 
-    { bedroom = {lamp = 88,motion = 99},
+    { bedroom = {lamp = 88, motion = 99},
       phones = {bob = 121},
-      kitchen = {lamp = 66, motion = 85},
+      kok = {lamp = 66, motion = 85},
     },
     other = "other"
   }
@@ -67,7 +67,7 @@ function main()
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
 --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
-  
+
 --Nodered.connect(_NodeRed)            -- Setup nodered functionality
 --Telegram.bot(_TelegBOT)              -- Setup Telegram bot that listens on oncoming messages. Only one per BOT.
 --Telegram.msg({_TelegCID,_TelegBOT},<msg>)  -- Send msg to Telegram without BOT setup
@@ -76,7 +76,7 @@ function main()
 --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix)")
 --rule("#ER_version => log('...patching scene'); Util.patchEventRunner()") -- Auto patch new versions...
   if _EMULATED then 
-    --dofile("example_rules3.lua")
+    --  dofile("example_rules3.lua")
   end
 end
 
@@ -2316,7 +2316,7 @@ function extraERSetup()
   do
     local lastRefresh = 0
     local function pollRefresh()
-    --  states = api.get("/refreshStates?last=" .. lastRefresh)
+      --  states = api.get("/refreshStates?last=" .. lastRefresh)
       if states then
         lastRefresh=states.last
         for k,v in pairs(states.changes or {}) do
@@ -2521,30 +2521,30 @@ end]],_EMULATED and -__fibaroSceneId or __fibaroSceneId,lbl,tag,lbl,ip,port)
     return vd,ui
   end 
 
-  local function createVDObject(vd) 
-    local self = { id = vd.id, map={} }
-    for _,r in ipairs(vd.properties.rows) do for _,e in ipairs(r.elements) do self.map[e.name]=e.id end end
-    function self.idOf(lbl) return self.map[lbl] end
-    function self.setValue(lbl,val) return fibaro:call(self.id,"setProperty","ui."..lbl..".value",val) end
-    function self.getValue(lbl) return fibaro:getValue(self.id,"ui."..lbl..".value") end
-    function self.setIcon(icon)
-      local vd = api.get("/virtualDevices/"..self.id)
+  local function createVDObject(vd) return self.proxy(vd.id) end
+
+  function self.proxy(id)
+    local _proxy = { id = id, map = {} }
+    local vd = api.get("/virtualDevices/".._proxy.id)     
+    for _,r in ipairs(vd.properties.rows) do for _,e in ipairs(r.elements) do _proxy.map[e.name]=e.id end end
+    function _proxy.idOf(lbl) return _proxy.map[lbl] end
+    function _proxy.setValue(lbl,val) return fibaro:call(_proxy.id,"setProperty","ui."..lbl..".value",val) end
+    function _proxy.getValue(lbl) return fibaro:getValue(_proxy.id,"ui."..lbl..".value") end
+    function _proxy.setCaption(name,capt)    
+      for _,row in pairs(vd.properties.rows) do 
+        for _,element in pairs(row.elements) do 
+          if element.name==name then element.caption=capt; api.put("/virtualDevices/".._proxy.id,vd) return end
+        end 
+      end 
+    end
+    function _proxy.setIcon(icon)
       vd.properties.deviceIcon=icon
       for _,row in pairs(vd.properties.rows) do 
         for _,element in pairs(row.elements) do element.buttonIcon=icon end 
       end 
-      api.put("/virtualDevices/"..self.id,vd)
+      api.put("/virtualDevices/".._proxy.id,vd)
     end
-    function self.setCaption(name,capt)
-      local vd = api.get("/virtualDevices/"..self.id)      
-      for _,row in pairs(vd.properties.rows) do 
-        for _,element in pairs(row.elements) do 
-          if element.name==name then element.caption=capt; api.put("/virtualDevices/"..self.id,vd) return end
-        end 
-      end 
-    end
-
-    return self
+    return _proxy
   end
 
   local _CACHE_FIND_VIRTUALS = nil
