@@ -14,7 +14,7 @@ TimeOfDay
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B79"  -- Nov 12, 2019  
+local _version,_fix = "3.0","B80"  -- Nov 12, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -63,12 +63,15 @@ function main()
 --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
 --HT = type(HT) == 'string' and json.decode(HT) or HT
 
+  Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
+  Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
+ 
 --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
 
 --Nodered.connect(_NodeRed)                    -- Setup nodered functionality
---Telegram.bot(_TelegBOT)                      -- Setup Telegram bot that listens on oncoming messages. Only one per BOT.
+--Telegram.bot(_TelegBOT)                      -- Setup Telegram BOT that listens on oncoming messages. Only one per BOT.
 --Telegram.msg({_TelegCID,_TelegBOT},"Hello")  -- Send msg to Telegram without BOT setup
---rule("#Telegram => log(env.event)")          -- Receive events back from Telegram bot
+--rule("#Telegram => log(env.event)")          -- Receive message from BOT
 
 --rule("@{06:00,catch} => Util.checkVersion()") -- Check for new version every morning at 6:00
 --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix)")
@@ -2231,7 +2234,7 @@ function extraERSetup()
     local function loop()
       Telegram._request(url,"getUpdates",{offset=lastID+1},
         function(messages)
-          if not(type(messages)=='table' and type(messages.result)=='table')) then
+          if not(type(messages)=='table' and type(messages.result)=='table') then
             Log(LOG.LOG,"Telegram: Bad result:%s",messages) return
           end
           for _,m in ipairs(messages.result or {}) do
