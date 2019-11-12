@@ -14,7 +14,7 @@ TimeOfDay
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B78"  -- Nov 11, 2019  
+local _version,_fix = "3.0","B79"  -- Nov 12, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -37,7 +37,7 @@ _debugFlags = {
 _options=_options or {}
 
 -- Hue setup before main() starts. You can add more Hue.connect() inside this if you have more Hue bridges.
-function HueSetup() if _HueUserName and _HueIP then Hue.connect(_HueUserName,_HueIP,"Hue") end end
+--function HueSetup() if _HueUserName and _HueIP then Hue.connect(_HueUserName,_HueIP,"Hue") end end
 
 ---------- Main ------------ Here goes your rules ----------------
 function main()
@@ -63,14 +63,12 @@ function main()
 --local HT = type(_homeTable)=='number' and api.get("/scenes/".._homeTable).lua or fibaro:getGlobalValue(_homeTable) 
 --HT = type(HT) == 'string' and json.decode(HT) or HT
 
-  Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
-  Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
-
 --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
 
---Nodered.connect(_NodeRed)            -- Setup nodered functionality
---Telegram.bot(_TelegBOT)              -- Setup Telegram bot that listens on oncoming messages. Only one per BOT.
---Telegram.msg({_TelegCID,_TelegBOT},<msg>)  -- Send msg to Telegram without BOT setup
+--Nodered.connect(_NodeRed)                    -- Setup nodered functionality
+--Telegram.bot(_TelegBOT)                      -- Setup Telegram bot that listens on oncoming messages. Only one per BOT.
+--Telegram.msg({_TelegCID,_TelegBOT},"Hello")  -- Send msg to Telegram without BOT setup
+--rule("#Telegram => log(env.event)")          -- Receive events back from Telegram bot
 
 --rule("@{06:00,catch} => Util.checkVersion()") -- Check for new version every morning at 6:00
 --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix)")
@@ -2233,7 +2231,10 @@ function extraERSetup()
     local function loop()
       Telegram._request(url,"getUpdates",{offset=lastID+1},
         function(messages)
-          for _,m in ipairs(messages.result) do
+          if not(type(messages)=='table' and type(messages.result)=='table')) then
+            Log(LOG.LOG,"Telegram: Bad result:%s",messages) return
+          end
+          for _,m in ipairs(messages.result or {}) do
             lastID,msg=m.update_id,m.message
             Telegram._recordUser(msg.from.username,msg.chat.id,key)
             Event.post({type=tag,user=msg.from.username,text=msg.text,id={msg.chat.id,key},info=msg.chat,_sh=true})
@@ -2524,10 +2525,11 @@ end]],_EMULATED and -__fibaroSceneId or __fibaroSceneId,lbl,tag,lbl,ip,port)
   local function createVDObject(vd) return self.proxy(vd.id) end
 
   function self.proxy(id)
-    local _proxy = { id = id, map = {} }
+    local _proxy = { id = id, map = {}, rev={} }
     local vd = api.get("/virtualDevices/".._proxy.id)     
-    for _,r in ipairs(vd.properties.rows) do for _,e in ipairs(r.elements) do _proxy.map[e.name]=e.id end end
+    for _,r in ipairs(vd.properties.rows) do for _,e in ipairs(r.elements) do _proxy.map[e.name]=e.id; rev[e.id]=e.name end end
     function _proxy.idOf(lbl) return _proxy.map[lbl] end
+    function _proxy.nameOf(id) return _proxy.rev[id] end
     function _proxy.setValue(lbl,val) return fibaro:call(_proxy.id,"setProperty","ui."..lbl..".value",val) end
     function _proxy.getValue(lbl) return fibaro:getValue(_proxy.id,"ui."..lbl..".value") end
     function _proxy.setCaption(name,capt)    
