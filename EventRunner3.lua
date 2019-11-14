@@ -12,9 +12,9 @@ TimeOfDay
 %% autostart 
 --]] 
 
-if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=24} dofile("HC2.lua") end -- For HC2 emulator
+if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=44} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B80"  -- Nov 12, 2019  
+local _version,_fix = "3.0","B81"  -- Nov 14, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -65,7 +65,7 @@ function main()
 
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
- 
+
 --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
 
 --Nodered.connect(_NodeRed)                    -- Setup nodered functionality
@@ -2260,6 +2260,55 @@ function extraERSetup()
         Telegram._recordUser(m.chat.username,m.chat.id,id2[2]); Telegram._flush() 
       end) 
   end
+
+--------- HTTP request support -----------
+-- rule("a = web.get('http://192.168.101/?json'")
+  Util.web = { _tags={}}
+  Event.event({type='%WEB%',value='$e'},
+    function(env) 
+      local p,tag = env.p,env.event._transID
+      if tag then
+        local ww = Util.web._tags
+        local cr = ww[tag] or {}
+        if cr[1] then clearTimeout(cr[1]) end
+        if cr[2] then cr[2]((json.decode(p.e))) end
+        ww[tag]=nil
+      end
+    end)
+
+  function Util.web.get(url,ct)
+    local http,tag,ww = net.HTTPClient(),Util.gensym("WEB"),Util.web._tags
+    local params = {options = {
+        headers = {['Accept']='application/json',['Content-Type']=ct or 'application/json'},
+        data = nil, timeout=timeout or 5000, method = 'GET'},
+      success = function(resp) 
+        if resp.status<=201 then Event.post({type='%WEB%',value=resp.data,_transID=tag,_sh=true}) end 
+      end,
+      error = function(resp) end
+    }
+    http:request(url,params)
+    ww[tag]={}
+    ww[tag][1]=setTimeout(function() ww[tag]=nil error(format("No response from URL, '%s'",url)) end,5000)
+    return {['<cont>']=function(cont) ww[tag][2]=cont end}
+  end
+
+  function Util.web.get(url)
+    local http,tag,ww = net.HTTPClient(),Util.gensym("WEB"),Util.web._tags
+    local params = {options = {
+        headers = {['Accept']='application/json',['Content-Type']='application/json'},
+        data = nil, timeout=timeout or 2000, method = 'GET'},
+      success = function(resp) 
+        if resp.status<=201 then Event.post({type='%WEB%',value=resp.data,_transID=tag,_sh=true}) end 
+      end,
+      error = function(resp) end
+    }
+    http:request(url,params)
+    ww[tag]={}
+    ww[tag][1]=setTimeout(function() ww[tag]=nil error(format("No response from URL, '%s'",url)) end,5000)
+    return {['<cont>']=function(cont) ww[tag][2]=cont end}
+  end
+
+  Util.defvar("web",Util.web)
 
 --------- Node-red support ---------
 
