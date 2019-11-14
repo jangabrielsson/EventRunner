@@ -65,8 +65,6 @@ function main()
 
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
-
-  rule("log(web.get('http://ip.jsontest8.com/'))")
   
 --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
 
