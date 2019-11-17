@@ -14,7 +14,7 @@ TimeOfDay
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=44} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B82"  -- Nov 14, 2019  
+local _version,_fix = "3.0","B83"  -- Nov 17, 2019  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -2571,7 +2571,7 @@ end]],_EMULATED and -__fibaroSceneId or __fibaroSceneId,lbl,tag,lbl,ip,port)
   function self.proxy(id)
     local _proxy = { id = id, map = {}, rev={} }
     local vd = api.get("/virtualDevices/".._proxy.id)     
-    for _,r in ipairs(vd.properties.rows) do for _,e in ipairs(r.elements) do _proxy.map[e.name]=e.id; rev[e.id]=e.name end end
+    for _,r in ipairs(vd.properties.rows) do for _,e in ipairs(r.elements) do _proxy.map[e.name]=e.id; _proxy.rev[e.id]=e.name end end
     function _proxy.idOf(lbl) return _proxy.map[lbl] end
     function _proxy.nameOf(id) return _proxy.rev[id] end
     function _proxy.setValue(lbl,val) return fibaro:call(_proxy.id,"setProperty","ui."..lbl..".value",val) end
