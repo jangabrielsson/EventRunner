@@ -1,8 +1,6 @@
 --[[
 %% properties
 66 value
-85 value
-89 value
 88 value
 99 value
 %% events
@@ -14,7 +12,7 @@ TimeOfDay
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=44} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B83"  -- Nov 17, 2019  
+local _version,_fix = "3.0","B84"  -- Jan 2, 2020  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -65,7 +63,7 @@ function main()
 
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
-  
+
 --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
 
 --Nodered.connect(_NodeRed)                    -- Setup nodered functionality
@@ -77,7 +75,7 @@ function main()
 --rule("#ER_version => log('New ER version, v:%s, fix:%s',env.event.version,env.event.fix)")
 --rule("#ER_version => log('...patching scene'); Util.patchEventRunner()") -- Auto patch new versions...
   if _EMULATED then 
-    --  dofile("example_rules3.lua")
+    -- dofile("example_rules3.lua")
   end
 end
 
@@ -2320,7 +2318,7 @@ function extraERSetup()
       if sync then
         nrr[tag]={}
         nrr[tag][1]=setTimeout(function() nrr[tag]=nil 
-            error(format("No response from Node-red, '%s'",(tojson(event))))
+            Log(LOG.ERROR,"No response from Node-red, '%s'",event)
           end,Nodered._timeout or _options['NODEREDTIMEOUT'])
         return {['<cont>']=function(cont) nrr[tag][2]=cont end}
       else return true end
@@ -2338,7 +2336,12 @@ function extraERSetup()
         local nrr = Nodered._nrr
         local cr = nrr[tag] or {}
         if cr[1] then clearTimeout(cr[1]) end
-        if cr[2] then cr[2](p.e) else Event.post(p.e) end
+        if cr[2] then 
+          local stat,res = pcall(function() cr[2](p.e) end)
+          if not stat then
+            Log(LOG.ERROR,"Error in Node-red rule for %s, - %s",event,res)
+          end
+        else Event.post(p.e) end
         nrr[tag]=nil
       else Event.post(p.e) end
     end)
