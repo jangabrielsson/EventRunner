@@ -12,7 +12,7 @@ TimeOfDay
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=44} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B84"  -- Jan 2, 2020  
+local _version,_fix = "3.0","B85"  -- Jan 2, 2020  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -498,10 +498,12 @@ function makeEventManager()
   fibaro._call,fibaro._get,fibaro._getValue,fibaro._actions,fibaro._properties=fibaro.call,fibaro.get,fibaro.getValue,{},{}
   local lastID = {}
   function self.lastManual(id)
+    id=tonumber(id)
     lastID[id] = lastID[id] or {time=0}
     if lastID[id].script then return -1 else return os.time()-lastID[id].time end
   end
   function self.trackManual(id,value)
+    id=tonumber(id)
     lastID[id] = lastID[id] or {time=0}
     if lastID[id].script==nil or os.time()-lastID[id].time>1 then lastID[id]={time=os.time()} end -- Update last manual
   end
