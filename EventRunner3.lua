@@ -500,7 +500,8 @@ function makeEventManager()
   local lastID = {}
   
   fibaro._valueTriggers={} -- setup trigger table
-  local devs = api.get("/scenes/"..__fibaroSceneId).triggers.properties or {}
+  local devs = api.get("/scenes/"..__fibaroSceneId)
+  devs = devs and devs.triggers; devs = devs and devs.properties or {}
   for _,d in ipairs(devs) do if d.name=='value' then fibaro._valueTriggers[d.id] = true end end
 
   function self.lastManual(id)
