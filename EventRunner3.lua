@@ -12,7 +12,8 @@ TimeOfDay
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=44} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B85"  -- Jan 2, 2020  
+local _version,_fix = "3.0","B86"  -- Jan 2, 2020  
+aa = api.get("/scenes/"..4).triggers.properties
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -497,16 +498,23 @@ function makeEventManager()
   fibaro._idMap={}
   fibaro._call,fibaro._get,fibaro._getValue,fibaro._actions,fibaro._properties=fibaro.call,fibaro.get,fibaro.getValue,{},{}
   local lastID = {}
+  
+  fibaro._valueTriggers={} -- setup trigger table
+  local devs = api.get("/scenes/"..__fibaroSceneId).triggers.properties or {}
+  for _,d in ipairs(devs) do if d.name=='value' then fibaro._valueTriggers[d.id] = true end end
+
   function self.lastManual(id)
-    id=tonumber(id)
-    lastID[id] = lastID[id] or {time=0}
-    if lastID[id].script then return -1 else return os.time()-lastID[id].time end
+    id=tonumber(id); lastID[id] = lastID[id] or {time=0}
+    return lastID[id].script=='seen' and -1 or os.time()-lastID[id].time 
   end
+
   function self.trackManual(id,value)
-    id=tonumber(id)
-    lastID[id] = lastID[id] or {time=0}
-    if lastID[id].script==nil or os.time()-lastID[id].time>1 then lastID[id]={time=os.time()} end -- Update last manual
+    id=tonumber(id); lastID[id] = lastID[id] or {time=0}
+    if lastID[id].script==true and fibaro._valueTriggers[id] then -- triggered by script
+      lastID[id].script='seen'
+    else lastID[id]={time=os.time()} end
   end
+
   function self._registerID(id,call,get) fibaro._idMap[id]={call=call,get=get} end
 
   -- We intercept fibaro:call, fibaro:get, and fibaro:getValue - we may change this to an object model 
