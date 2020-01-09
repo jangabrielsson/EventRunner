@@ -7,13 +7,13 @@
 5 CentralSceneEvent
 %% globals 
 TimeOfDay
+HumidityBadStart
 %% autostart 
 --]] 
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=44} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B86"  -- Jan 2, 2020  
-aa = api.get("/scenes/"..4).triggers.properties
+local _version,_fix = "3.0","B87"  -- Jan 9, 2020  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -43,7 +43,7 @@ function main()
   local rule,define = Rule.eval, Util.defvar
 
   if _EMULATED then
-    --_System.speed(true)               -- run emulator faster than real-time
+    _System.speed(true)               -- run emulator faster than real-time
     --_System.setRemote("devices",{5})  -- make device 5 remote (call HC2 with api)
     --_System.installProxy()            -- Install HC2 proxy sending sourcetriggers back to emulator
   end
@@ -64,7 +64,7 @@ function main()
 
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
-
+  
 --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
 
 --Nodered.connect(_NodeRed)                    -- Setup nodered functionality
@@ -1121,7 +1121,7 @@ local function makeEventScriptParser()
   local reserved={
     ['sunset']={{'sunset'}},['sunrise']={{'sunrise'}},['midnight']={{'midnight'}},['dusk']={{'dusk'}},['dawn']={{'dawn'}},
     ['now']={{'now'}},['wnum']={{'wnum'}},['env']={{'env'}},
-    ['true']={true},['false']={false},['{}']={{'quote',{}}},['nil']={nil},
+    ['true']={true},['false']={false},['{}']={{'quote',{}}},['nil']={{'%quote',nil}},
   }
   local function apply(t,st) return st.push(st.popn(opers[t.value][2],{t.value})) end
   local _samePrio = {['.']=true,[':']=true}
