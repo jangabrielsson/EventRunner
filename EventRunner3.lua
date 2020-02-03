@@ -1,8 +1,8 @@
 --[[
 %% properties
-66 value
-88 value
-99 value
+339 value 
+345 value 
+55 value 
 %% events
 5 CentralSceneEvent
 %% globals 
@@ -13,7 +13,7 @@ HumidityBadStart
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=44} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B87"  -- Jan 9, 2020  
+local _version,_fix = "3.0","B88"  -- Feb 3, 2020  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -43,7 +43,7 @@ function main()
   local rule,define = Rule.eval, Util.defvar
 
   if _EMULATED then
-    _System.speed(true)               -- run emulator faster than real-time
+    --_System.speed(true)               -- run emulator faster than real-time
     --_System.setRemote("devices",{5})  -- make device 5 remote (call HC2 with api)
     --_System.installProxy()            -- Install HC2 proxy sending sourcetriggers back to emulator
   end
@@ -64,9 +64,9 @@ function main()
 
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
-  
---rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
 
+--rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
+  
 --Nodered.connect(_NodeRed)                    -- Setup nodered functionality
 --Telegram.bot(_TelegBOT)                      -- Setup Telegram BOT that listens on oncoming messages. Only one per BOT.
 --Telegram.msg({_TelegCID,_TelegBOT},"Hello")  -- Send msg to Telegram without BOT setup
@@ -498,7 +498,7 @@ function makeEventManager()
   fibaro._idMap={}
   fibaro._call,fibaro._get,fibaro._getValue,fibaro._actions,fibaro._properties=fibaro.call,fibaro.get,fibaro.getValue,{},{}
   local lastID = {}
-  
+
   fibaro._valueTriggers={} -- setup trigger table
   local devs = api.get("/scenes/"..__fibaroSceneId)
   devs = devs and devs.triggers; devs = devs and devs.properties or {}
@@ -634,6 +634,13 @@ local function makeUtils()
     else return o end
   end
   local function prconvTab(args) local r={}; for _,o in ipairs(args) do r[#r+1]=prconv(o) end return r end
+
+  local function test(color,msg,...)
+    local t = type(...)
+    y = t
+  end
+
+  test(7,"test",function() end)
 
   local function _Msg(color,message,...)
     local args = type(... or 42) == 'function' and {(...)()} or {...}
@@ -1751,7 +1758,7 @@ function makeEventScriptRuntime()
   instr['post'] = function(s,n,ev) local e,t=s.pop(),nil; if n==2 then t=e; e=s.pop() end s.push(Event.post(e,t,ev.rule)) end
   instr['subscribe'] = function(s,n,ev) Event.subscribe(s.pop()) s.push(true) end
   instr['publish'] = function(s,n,ev) local e,t=s.pop(),nil; if n==2 then t=e; e=s.pop() end Event.publish(e,t) s.push(e) end
-  instr['remote'] = function(s,n,ev) local e,u=s.pop(),s.pop(); Event.postRemote(u,e) s.push(true) end
+  instr['remote'] = function(s,n,ev) _assert(n==2,"Wrong number of args to 'remote/2'"); local e,u=s.pop(),s.pop(); Event.postRemote(u,e) s.push(true) end
   instr['cancel'] = function(s,n) Event.cancel(s.pop()) s.push(nil) end
   instr['add'] = function(s,n) local v,t=s.pop(),s.pop() table.insert(t,v) s.push(t) end
   instr['remove'] = function(s,n) local v,t=s.pop(),s.pop() table.remove(t,v) s.push(t) end
