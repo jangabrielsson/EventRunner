@@ -2,7 +2,7 @@
 %% autostart
 --]]
 
-E_VERSION,E_FIX = "Beta 1.0","fix1"
+E_VERSION,E_FIX = "Beta 1.0","fix2"
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=199,maxtime=44} dofile("HC2.lua") end
 if loadfile then local cr = loadfile("credentials.lua") if cr then cr() end end
@@ -787,7 +787,7 @@ function createAutoPatchSupport(quickSelf)
             local v = json.decode(data.data)
             v = v[_EVENTSSRCPATH]
             if vers then v = v.scenes[vers] end
-            if v.version ~= _version or v.fix ~= _fix then
+            if v.version ~= E_VERSION or v.fix ~= E_FIX then
               Event.post({type='Event_version',version=v.version,fix=v.fix or "", _sh=true})
             end
           end
@@ -840,7 +840,7 @@ function QuickApp:initEventExtension(s)
   local deviceID = plugin.mainDeviceId
   local appName = api.get("/devices/"..deviceID).name
   Log(LOG.HEADER,"%s, %s (ID:%s)",appName or "NoName",DEVICE_VERS or "",deviceID)
-  Log(LOG.SYS,"EventExtension %s, %s",E_VERSION,E_FIX)
+  Log(LOG.SYS,"Events %s, %s",E_VERSION,E_FIX)
   s.debug = function(s,...) Log(LOG.LOG,...) end
   Device = createDeviceSupport(s)
   Event = createEventEngine(s)
@@ -854,7 +854,7 @@ function QuickApp:initEventExtension(s)
   Log(LOG.HEADER,"Running")
   Event.pollEvents() 
   Event.post({type='startup'})
-end
+end 
 
 function QuickApp:onInit()
   QuickApp:initEventExtension(self)
