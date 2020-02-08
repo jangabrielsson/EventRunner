@@ -16,7 +16,7 @@
     "description":"A simple test scene of type 2"
     }
   ],
-  "device":[
+  "devices":[
     {"name":"TestDevice1",
     "uid":"77trfbjasf723fbf873fjakf60",
     "version":"v0.1",
