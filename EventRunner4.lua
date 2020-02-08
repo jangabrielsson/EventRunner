@@ -938,7 +938,7 @@ end -- createRemoteFunctionSupport
 
 function createAutoPatchSupport(quickSelf)
   Log(LOG.SYS,"Setting up autopatch support..")
-  local _EVENTSSRCPATH = "Events_1_0.lua"
+  local _EVENTSSRCPATH = "EventRunner4.lua"
 
   function Util.checkVersion(vers)
     local req = net.HTTPClient()
