@@ -1,5 +1,5 @@
 --[[
-%%Library
+%%LibScene
 {
   "id": 26,
   "name": "ttt",
