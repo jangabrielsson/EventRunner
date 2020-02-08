@@ -6,11 +6,11 @@ properties: {
 "mode": "manual",
 "maxRunningInstances": 2,
 "icon": "scene_block",
-"hidden": false
-"protectedByPin": false
-"stopOnAlarm": false
-"restart": true
-"enabled": true
+"hidden": false,
+"protectedByPin": false,
+"stopOnAlarm": false,
+"restart": true,
+"enabled": true,
 }
 conditions: {
     conditions = { 
