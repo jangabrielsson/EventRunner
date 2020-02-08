@@ -1,16 +1,16 @@
 --[[
 %%LibScene
 properties: {
-name: "ttt",
-type: "lua",
-mode: "manual",
-maxRunningInstances: 2,
-icon: "scene_block",
-hidden: false
-protectedByPin: false
-stopOnAlarm: false
-restart: true
-enabled: true
+"name": "ttt",
+"type": "lua",
+"mode": "manual",
+"maxRunningInstances": 2,
+"icon": "scene_block",
+"hidden": false
+"protectedByPin": false
+"stopOnAlarm": false
+"restart": true
+"enabled": true
 }
 conditions: {
     conditions = { 
