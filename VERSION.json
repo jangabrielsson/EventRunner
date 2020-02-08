@@ -12,7 +12,7 @@
     "ICal":{"version":"0.9","fix":"B12"},
     "IOSLocator":{"version":"2.0","fix":"B12"}
   }},
-  "Events_1_0.lua":{
+  "EventRunner4":{
   "version":"Beta 1.0",
   "fix":"fix2",
   },
