@@ -12,7 +12,7 @@
   "stopOnAlarm": false,
   "restart": true,
   "enabled": true,
-  "conditions "{
+  "conditions": {
     conditions = { 
       { id = 41,
         isTrigger = true,
