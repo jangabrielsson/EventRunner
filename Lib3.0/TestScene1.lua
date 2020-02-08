@@ -13,7 +13,7 @@
   "restart": true,
   "enabled": true,
   "conditions": {
-    "conditions" = { 
+    "conditions": [ 
       { "id": 41,
         "isTrigger": true,
         "operator": "==",
@@ -30,11 +30,10 @@
           "interval": 1200
         }
       } 
-    },
+    ],
     "operator": "all"
   }
 }
 --]]
-
 
 fibaro.debug("","Hello world")
