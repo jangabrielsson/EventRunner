@@ -3,16 +3,16 @@
   "description":"Library with scenes and device for HC3",
   "root":"https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/Lib3.0/",
   "scenes":[
-    {"name":"TestScen2",
+    {"name":"TestScene1",
     "uid":"77trfbjasf723fbf873fjakf50",
     "version":"v0.1",
-    "url":"TestScen1.scene",
+    "url":"TestScene1.lua",
     "description":"A simple test scene of type 1"
     },
-    {"name":"TestScen2",
+    {"name":"TestScene2",
     "uid":"77trfbjasf723fbf873fjakf49",
     "version":"v0.2",
-    "url":"TestScen2.scene",
+    "url":"TestScene2.lua",
     "description":"A simple test scene of type 2"
     }
   ],
@@ -20,13 +20,13 @@
     {"name":"TestDevice1",
     "uid":"77trfbjasf723fbf873fjakf60",
     "version":"v0.1",
-    "url":"TestScen1.dev",
+    "url":"TestDevice1.lua",
     "description":"A simple test device of type 1"
     },
     {"name":"TestDevice2",
     "uid":"77trfbjasf723fbf873fjakf61",
     "version":"v0.2",
-    "url":"TestDevice2.dev",
+    "url":"TestDevice2.lua",
     "description":"A simple test device of type 2"
     }
   ]
