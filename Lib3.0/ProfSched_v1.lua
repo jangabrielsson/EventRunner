@@ -3,8 +3,7 @@
 properties: {
 "name": "Profile scheduler",
 "type":"com.fibaro.binarySensor",
-"variables":{
-   },
+"variables":[],
 "UI":[
   [{"button":"time","text":"07:00"},{"button":"profile","text":"Home"}],
   [{"button":"hour1","text":"0"},{"button":"hour2","text":"7"},{"button":"min1","text":"0"},{"button":"min2","text":"0"}],
