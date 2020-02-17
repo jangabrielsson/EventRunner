@@ -1,7 +1,10 @@
 --[[
 %%LibScene
 properties: {
-"name": "Wait for sensor example"
+"name": "Wait for sensor example",
+"mode":"automatic",
+"maxRunningInstances": 2,
+"restart": false
 }
 conditions: {
   conditions = { {
