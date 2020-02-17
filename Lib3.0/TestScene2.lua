@@ -27,4 +27,4 @@ conditions: {
 }
 --]]
 
-fibaro.debug("","Hello world")
+fibaro.debug("","Hello planet")
