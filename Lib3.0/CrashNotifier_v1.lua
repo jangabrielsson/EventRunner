@@ -10,7 +10,7 @@ properties: {
   {"button":"enable","text":"Push error -enabled"},
   {"label":"label1","text":""},
   {"label":"label2","text":""},
-  {"label":"label3","text":""},
+  {"label":"label3","text":""}
   ]
 }
 --]]
