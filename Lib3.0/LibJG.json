@@ -3,6 +3,12 @@
   "description":"Library with scenes and device for HC3",
   "root":"https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/Lib3.0/",
   "scenes":[
+    {"name":"Wait for sensor",
+    "uid":"77trfbjasf723fbf873fjakf59",
+    "version":"v0.1",
+    "url":"WaitForSensor_v1.lua",
+    "description":"Example of how to wait for a sensor to be safe for a specified time before turning off a light"
+    },
   ],
   "devices":[
     {"name":"Crash notifier",
