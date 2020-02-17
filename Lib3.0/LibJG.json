@@ -3,31 +3,19 @@
   "description":"Library with scenes and device for HC3",
   "root":"https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/Lib3.0/",
   "scenes":[
-    {"name":"TestScene1",
-    "uid":"77trfbjasf723fbf873fjakf50",
-    "version":"v0.1",
-    "url":"TestScene1.lua",
-    "description":"A simple test scene of type 1"
-    },
-    {"name":"TestScene2",
-    "uid":"77trfbjasf723fbf873fjakf49",
-    "version":"v0.2",
-    "url":"TestScene2.lua",
-    "description":"A simple test scene of type 2"
-    }
   ],
   "devices":[
-    {"name":"TestDevice1",
+    {"name":"Crash notifier",
     "uid":"77trfbjasf723fbf873fjakf60",
     "version":"v0.1",
-    "url":"TestDevice1.lua",
-    "description":"A simple test device of type 1"
+    "url":"CrashNotifier_v1.lua",
+    "description":"Logs all QuickApps that crashes. Optionally pushes a message to the phone"
     },
-    {"name":"TestDevice2",
+    {"name":"Profiler scheduler",
     "uid":"77trfbjasf723fbf873fjakf61",
-    "version":"v0.2",
-    "url":"TestDevice2.lua",
-    "description":"A simple test device of type 2"
+    "version":"v0.1",
+    "url":"ProfSched_v1.lua",
+    "description":"A simple app to schedule profiles during the day"
     }
   ]
 }
