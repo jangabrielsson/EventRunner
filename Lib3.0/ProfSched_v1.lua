@@ -4,7 +4,7 @@ properties: {
 "name": "Profile scheduler",
 "type":"com.fibaro.binarySensor",
 "variables":[],
-"UI":[ [{"button":"time","text":""},{"button":"profile","text":"Home"}],[{"button":"hour1","text":"0"},{"button":"hour2","text":"7"},{"button":"min1","text":"0"},{"button":"min2","text":"0"}],[{"button":"save","text":"Save"},{"button":"enabled","text":"Enabled"}] ]}
+"UI":[ [{"button":"time","text":"07:00"},{"button":"profile","text":"Home"}],[{"button":"hour1","text":"0"},{"button":"hour2","text":"7"},{"button":"min1","text":"0"},{"button":"min2","text":"0"}],[{"button":"save","text":"Save"},{"button":"enabled","text":"Enabled"}] ]}
 --]]
 
 local data = {}  -- Should be stored/retrieved from a quickVar
