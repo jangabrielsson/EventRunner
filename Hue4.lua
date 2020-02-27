@@ -1,3 +1,6 @@
+-------- Start EventScript4 ------------------
+INSTALLED_MODULES['Hue4.lua']={isInstalled=true,installedVersion=0.1}
+
 function createHueSupport()
   local self = {}
   local _setTimeout = fibaro._setTimeout
@@ -206,3 +209,4 @@ function createHueSupport()
 
   return self
 end
+-------- End EventScript4 ------------------

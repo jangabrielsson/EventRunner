@@ -1,3 +1,5 @@
+-------- Start EventScript4 ------------------
+INSTALLED_MODULES['EventScript4.lua']={isInstalled=true,installedVersion=0.1}
 function setUpEventScript()
 
   self = Util
@@ -1088,3 +1090,4 @@ function setUpEventScript()
     Log(LOG.SYS,"Setting up EventScript support..")
   end
 end
+-------- End EventScript4 ------------------

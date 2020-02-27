@@ -1031,30 +1031,70 @@ function add1000(x) return x+1000 end -- test
 
 INSTALLED_MODULES = {}
 local function installExternalModules()
-  if dofile then
+  if false and dofile then
     for _,f in ipairs(MODULES or {}) do dofile(f) INSTALLED_MODULES[f]={name=f} end
   else
 --[[
       ['EventScript4.lua'] = {version=0.01},
       ['Hue4.lua'] = {version=0.01},
 --]]
-    local function installModules(files)
+    local function installModule(files,sources,cont)
+      if #files == 0 then cont(sources)
+      else 
+        local file = files[1]; 
+        table.remove(files,1)
+        local req = net.HTTPClient()
+        req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/"..file.name,{
+            options = {method = 'GET', checkCertificate = false, timeout=20000},
+            success = function(data) 
+              if data.status == 200 then 
+                sources[#sources+1] = data.data
+                installModule(files,sources,cont)
+              end 
+            end,
+            error = function(status) Log(LOG.WARNING,"Can't access external module %s (%s)",file,status) end
+          })
+      end
+    end
+
+    local function installModules(files,cont)
+      local code = api.get("/devices/"..fibaro.ID).properties.mainFunction
+      local modulespace = (code or ""):match("%-%->MODULES>%-+(.-)%-%-<MODULES")
+      if modulespace then
+        local start = code:match("(.-%-%>MODULES>%-+)")
+        local edn = code:match("(%-%-<MODULES<.*)")
+        if start and edn then
+          local sources = {}
+          installModule(files,sources,function()
+              table.insert(sources,1,start)
+              sources[#sources+1]=edn
+              sources = table.concat(sources,"\n")
+              ---print(sources)
+              local stat,res = api.put("/devices/"..fibaro.ID,{properties = {mainFunction = sources }})
+              print("OK")
+            end)
+        end
+      end
     end
 
     local function checkVersion(info)
-      local removes,install={},{}
+      local removes,install,existing={},{},{}
       for _,f in ipairs(MODULES) do 
         local ins = INSTALLED_MODULES[f] or {name=f}; INSTALLED_MODULES[f]=ins
         ins.shouldInstall = true
       end
       for name,m in pairs(INSTALLED_MODULES) do
+        m.name = name
         if m.isInstalled and not m.shouldInstall then removes[#removes+1]=m 
         elseif m.shouldInstall and not m.isInstalled then install[#install+1]=m 
         elseif (info[name] and info[name].version) and  m.isInstalled and  m.shouldInstall and (m.installedVersion or 0) ~= info[name].version then 
           removes[#removes+1]=m; install[#install+1]=m  
-        end
+        elseif m.shouldInstall and m.isInstalled then existing[#existing+1]= m end
       end
-      if #removes > 0 or #install> 0 then installModules(install) end
+      if #removes > 0 or #install> 0 then 
+        for _,m in ipairs(existing) do install[#install+1]=m end
+        installModules(install)
+      end
     end
 
     local req = net.HTTPClient()
@@ -1066,10 +1106,12 @@ local function installExternalModules()
   end
 end
 
---MODULES>-----------------------------
---INSTALLED_MODULES['EventScript4.lua']={isInstalled=true,installedVersion=0.01}
+-->MODULES>-----------------------------
+INSTALLED_MODULES['EventScript4.lua']={isInstalled=true,installedVersion=0.1}
+INSTALLED_MODULES['EventScript.lua']={isInstalled=true,installedVersion=0.001}
+
 --....
---<MODULE-----------------------------
+--<MODULE<-----------------------------
 
 --------------- getting triggers from HC3 ---------------------
 
@@ -1196,8 +1238,10 @@ local function initEventExtension(self)
     fibaro._pollForTriggers(TRIGGERPOLLINTERVALL) 
     Event.post({type='startup'})
   end
-  if createHueSupport then Hue = createHueSupport() end
-  Hue.connect(_HueUserName,_HueIP,nil,cont)
+  if createHueSupport then 
+    Hue = createHueSupport() 
+    Hue.connect(_HueUserName,_HueIP,nil,cont)
+  else cont() end
 end 
 
 function QuickApp:onInit()
