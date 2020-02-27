@@ -215,7 +215,7 @@ function createHueSupport()
             local val = fibaro._EventCache.devices[prop..id]
             if val then
               return true,{val.value,val.modified}
-            else return false end
+            else return false end 
           end)
         return
       end
