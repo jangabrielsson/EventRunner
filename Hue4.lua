@@ -207,6 +207,7 @@ function createHueSupport()
     error("Missing Hue name "..name)
   end
 
+  Log(LOG.SYS,"Setting up Hue support..")
   return self
 end
 -------- End EventScript4 ------------------
