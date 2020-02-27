@@ -2,7 +2,7 @@
 INSTALLED_MODULES['EventScript4.lua']={isInstalled=true,installedVersion=0.1}
 function setUpEventScript()
 
-  self = Util
+  local self = Util
   function self.map(f,l,s) s = s or 1; local r={} for i=s,table.maxn(l) do r[#r+1] = f(l[i]) end return r end
   function self.mapAnd(f,l,s) s = s or 1; local e=true for i=s,table.maxn(l) do e = f(l[i]) if not e then return false end end return e end 
   function self.mapOr(f,l,s) s = s or 1; for i=s,table.maxn(l) do local e = f(l[i]) if e then return e end end return false end

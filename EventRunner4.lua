@@ -10,7 +10,7 @@ E_VERSION,E_FIX = 0.1,"fix4"
 _HC3IPADDRESS = "192.168.1.57" -- Needs to be defined on the HC3 as /seetings/networks seems broken...
 MODULES = {"EventScript4.lua","Hue4.lua"} -- Modules we want to load
 
-_debugFlags = { triggers = true, post=false, fcall=true  } 
+_debugFlags = { triggers = true, post=false, rule=false, fcall=true  } 
 
 function main()
   local rule = Rule.eval
@@ -26,34 +26,37 @@ function main()
 
   Nodered.connect("http://192.168.1.50:1880/ER_HC3")
   Nodered.post({type='echo1',value=42})
-  rule("#echo1 => log('ECHO:%s',env.event)")
+--  rule("#echo1 => log('ECHO:%s',env.event)")
 
   Util.defvars(HT)
   Util.reverseMapDef(HT)
 
-  rule("keyfob:central => log('Key:%s',env.event.value.keyId)")
-  rule("motion:value => log('Motion:%s',motion:value)")
-  rule("temp:temp => log('Temp:%s',temp:temp)")
-  rule("lux:lux => log('Lux:%s',lux:lux)")
-  rule("motionHC2:value => log('MotionHC2:%s',motionHC2:value)")
-  rule("tempHC2:temp => log('TempHC2:%s',tempHC2:temp)")
-  rule("lightHC2:value => log('lightHC2:%s',lightHC2:value)")
+  a = rule("keyfob:central => log('Key:%s',env.event.value.keyId)")
+  a.print()
+--  rule("motion:value => log('Motion:%s',motion:value)")
+--  rule("temp:temp => log('Temp:%s',temp:temp)")
+--  rule("lux:lux => log('Lux:%s',lux:lux)")
+--  rule("motionHC2:value => log('MotionHC2:%s',motionHC2:value)")
+--  rule("tempHC2:temp => log('TempHC2:%s',tempHC2:temp)")
+--  rule("lightHC2:value => log('lightHC2:%s',lightHC2:value)")
 
-  rule("keyfob:central & wday('wed') => log('OK')")
+--  rule("keyfob:central & wday('wed') => log('OK')")
 
-  rule("#UI{name='$name'} => log('Clicked:%s',name)") -- Name of UI button clicked
+--  rule("#UI{name='$name'} => log('Clicked:%s',name)") -- Name of UI button clicked
 
   --Hue.dump()
   Hue.define("Middle window",1000)
   Hue.define("Dimmer switch",1001)
   Hue.define("Living room sensor",1002)
 
-  rule("1000:value => log('Light %d changed value to %s',env.event.deviceID,env.event.value)")
-  rule("1001:value => log('Switch %d changed value to %s',env.event.deviceID,env.event.value)")
-  rule("1002:value => log('Motion %d changed value to %s',env.event.deviceID,env.event.value)")
+  -- rule("1000:value => log('Light %d changed value to %s',env.event.deviceID,env.event.value)")
+  a = rule("1001:value => log('Switch %d changed value to %s',env.event.deviceID,env.event.value)")
+  a.print()
+  a=nil
+  -- rule("1002:value => log('Motion %d changed value to %s',env.event.deviceID,env.event.value)")
 
-  rule("Util.checkEventRunnerVersion()")
-  rule("#ER_version => log('New ER version:%s',env.event)")
+--  rule("Util.checkEventRunnerVersion()")
+--  rule("#ER_version => log('New ER version:%s',env.event)")
 end
 
 function QuickApp:turnOn() self:updateProperty("value", true) end
@@ -175,6 +178,7 @@ function createEventEngine() -- Event extension
   end
 
   function self.event(e,action,src) 
+    local front = false
     e = type(e)=='string' and str2event(e) or e
     src = src or (type(e)=='table' and format("Event(%s) => ..",e) or tostring(e))
     if type(e) == 'table' and e[1] then 
@@ -218,7 +222,7 @@ function createEventEngine() -- Event extension
   end
 
   function self.post(e,time,src) -- time in 'toTime' format, see below.
-    _assert(isEvent(e) or type(e) == 'function', "Bad2 event format %s",tojson(e))
+    if not(isEvent(e) or type(e) == 'function') then error("Bad event format "..tojson(e),3) end
     time = toTime(time or os.time())
     if time < os.time() then return nil end
     if type(e) == 'function' then 
@@ -247,7 +251,7 @@ function createEventEngine() -- Event extension
     end
     res.enable = function() 
       if tp then res.disable() end
-      nextTime, count = os.time(),0
+      nextTime, res.count = os.time(),0
       if sync then nextTime = math.floor(nextTime/interval)*interval+interval end
       tp = setTimeout(_loop,1000*(nextTime-os.time()))
       return res
@@ -305,7 +309,7 @@ function createEventEngine() -- Event extension
 
 -- {{e1,e2,e3},{e4,e5,e6}} env={event=_,p=_,locals=_,rule.src=_,last=_}
   function self._handleEvent(e) -- running a posted event
-    -- Log("E:%s",tojson(e))
+    --Log("E:%s",tojson(e))
     if _getProp[e.type] then _getProp[e.type](e,e.value) end  -- patch events
     local _match,hasKeys = self._match,fromHash[e.type] and fromHash[e.type](e) or {e.type}
     for _,hashKey in ipairs(hasKeys) do
@@ -391,6 +395,23 @@ function createUtils()
       local c=0
       for k in pairs(tbl) do c=c+1 end
       return c
+    end
+  end
+
+  local VIRTUALDEVICES = {}
+  function self.defineVirtualDevice(id,call,get) VIRTUALDEVICES[id]={call=call,get=get} end
+  do
+    oldGet,oldCall = fibaro.get,fibaro.call
+    function fibaro.call(id,action,...) local d = VIRTUALDEVICES[id]
+      if d and d.call and d.call(id,action,...) then return
+      else oldCall(id,action,...) end
+    end
+    function fibaro.get(id,prop,...) local g = VIRTUALDEVICES[id]
+      if g and g.get then 
+        local stat,res = g.get(id,prop,...)
+        if state then return table.unpack(res) end
+      end
+      return oldGet(id,prop,...)
     end
   end
 
@@ -773,7 +794,7 @@ function createRemoteSupport()
   Event.event({type='%sendEvent%'},function(env)
       local event = env.event.event
       event._from = Event.deviceID
-      even._time = os.time()
+      event._time = os.time()
       if env.event.fc then
         fibaro.call(env.event.to,"ER_remoteEvent",json.encode(event))
       else
@@ -918,19 +939,16 @@ function extraSetup()
   -- Sunset/sunrise patch -- first time in the day someone asks for sunsethours we calculate and cahche
   local _SUNTIMEDAY = nil
   local _SUNTIMEVALUES = {sunsetHour="00:00",sunriseHour="00:00",dawnHour="00:00",duskHour="00:00"}
-  do
-    oldGet = fibaro.getValue
-    function fibaro.getValue(id,prop)
-      if id ~= 1 or not _SUNTIMEVALUES[prop] then return oldGet(id,prop) end
+  Util.defineVirtualDevice(1,nil,function(id,prop,...)
+      if not _SUNTIMEVALUES[prop] then return nil end
       local s = _SUNTIMEVALUES
       local day = os.date("*t").day
       if day ~= _SUNTIMEDAY then
         _SUNTIMEDAY = day
         s.sunriseHour,s.sunsetHour,s.dawnHour,s.duskHour=Util.sunCalc()
       end
-      return _SUNTIMEVALUES[prop]
-    end
-  end
+      return true,{_SUNTIMEVALUES[prop],os.time()}
+    end)
 
   local DEBUGKEYS = {debugTriggers=true,debugRules=true,debugPost=true}
 
@@ -970,7 +988,7 @@ function extraSetup()
       if _EMULATED then event._IP=event._IP..":".._EVENTSERVER end
       local params =  {options = {
           headers = {['Accept']='application/json',['Content-Type']='application/json'},
-          data = json.encode(event), timeout=timeout or 4000, method = 'POST'},
+          data = json.encode(event), timeout=4000, method = 'POST'},
         _logErr=true
       }
       self._http:request(self._url,params)
@@ -978,7 +996,7 @@ function extraSetup()
         nrr[tag]={}
         nrr[tag][1]=setTimeout(function() nrr[tag]=nil 
             Log(LOG.ERROR,"No response from Node-red, '%s'",event)
-          end,Nodered._timeout or _options['NODEREDTIMEOUT'])
+          end,Nodered._timeout)
         return {['<cont>']=function(cont) nrr[tag][2]=cont end}
       else return true end
     end
@@ -1157,7 +1175,7 @@ function fibaro._pollForTriggers(interval)
         post({type='property', deviceID=d.id, propertyName=d.property, value=d.newValue, old=d.oldValue})
       end
     end,
-    CentralSceneEvent = function(self,d) EventCache.centralSceneEvents[d.deviceId]=d; post({type='centralSceneEvent', data=d}) end,
+    CentralSceneEvent = function(self,d) EventCache.centralSceneEvents[d.deviceId]=d; d.icon=nil post({type='centralSceneEvent', data=d}) end,
     AccessControlEvent = function(self,d) EventCache.caccessControlEvent[d.id]=d; post({type='accessControlEvent', data=d}) end,
     CustomEvent = function(self,d) 
       if d.name == tickEvent then return 
@@ -1187,8 +1205,8 @@ function fibaro._pollForTriggers(interval)
 
   local function checkEvents(events)
     for _,e in ipairs(events) do
-      if EventTypes[e.type] then EventTypes[e.type](self,e.data)
-      else fibaro.debug("",format("Unhandled event:%s -- please report",json.encode(e))) end
+      if EventTypes[e.type] then EventTypes[e.type](_,e.data)
+      else fibaro.debug("",string.format("Unhandled event:%s -- please report",json.encode(e))) end
     end
   end
 

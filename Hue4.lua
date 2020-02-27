@@ -4,7 +4,7 @@ INSTALLED_MODULES['Hue4.lua']={isInstalled=true,installedVersion=0.1}
 function createHueSupport()
   local self = {}
   local _setTimeout = fibaro._setTimeout
-  
+
   --------------------------- Hue state changes -------------------------
   local HueData = { lights = {}, sensors = {}, groups = {}, scenes={} }
   local LIGHTPROPS = {on=true,reachable=true,bri=true}
@@ -210,6 +210,13 @@ function createHueSupport()
       if k:match(hub) and v.d.name == name then
         DEVICEMAP = DEVICEMAP or {}
         DEVICEMAP[k]=deviceID
+        Util.defineVirtualDevice(deviceID,nil,
+          function(id,prop,...)
+            local val = fibaro._EventCache.devices[prop..id]
+            if val then
+              return true,{val.value,val.modified}
+            else return false end
+          end)
         return
       end
     end
