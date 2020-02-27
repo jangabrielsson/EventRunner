@@ -1,132 +1,64 @@
---[[
-%% autostart
---]]
-
-E_VERSION,E_FIX = "Beta 1.0","fix2"
-
-if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=199,maxtime=44} dofile("HC2.lua") end
-if loadfile then local cr = loadfile("credentials.lua") if cr then cr() end end
-if dofile then dofile("HC3_support.lua") end
-
-if _EMULATED then
-  _System.speed(true)                 -- run emulator faster than real-time
-  --_System.setRemote("devices",{5})  -- make device 5 remote (call HC3 with api)
+if dofile then
+  dofile("fibaroapiHC3.lua")
+  local cr = loadfile("credentials.lua"); if cr then cr() end
+  require('mobdebug').coro()  
 end
 
-_debugFlags = { post=true, netSync = false  } 
+E_VERSION,E_FIX = "Beta 1.0","fix4"
+MODULES = {"EventScript4.lua","Hue4.lua"}
 
-DEVICE_VERS = "0.1"
+_debugFlags = { triggers = true, post=false, fcall=true  } 
 
-function QuickApp:turnOn()
-  self:updateProperty("value", true)
+function main()
+  local rule = Rule.eval
+
+  HT = { keyfob = 26, motion= 21,
+    temp = 22, lux = 23,
+    motionHC2 = 44,
+    lightHC2 = 45, 
+    tempHC2 = 46}
+
+  Nodered.connect("http://192.168.1.50:1880/ER_HC3")
+  Nodered.post({type='echo1',value=42})
+  rule("#echo1 => log('ECHO:%s',env.event)")
+
+  Util.defvars(HT)
+  Util.reverseMapDef(HT)
+
+  rule("keyfob:central => log('Key:%s',env.event.value.keyId)")
+  rule("motion:value => log('Motion:%s',motion:value)")
+  rule("temp:temp => log('Temp:%s',temp:temp)")
+  rule("lux:lux => log('Lux:%s',lux:lux)")
+  rule("motionHC2:value => log('MotionHC2:%s',motionHC2:value)")
+  rule("tempHC2:temp => log('TempHC2:%s',tempHC2:temp)")
+  rule("lightHC2:value => log('lightHC2:%s',lightHC2:value)")
+
+  rule("keyfob:central & wday('wed') => log('OK')")
+
+  rule("#UI{name='$name'} => log('Clicked:%s',name)") -- Name of UI button clicked
+
+  --Hue.dump()
+  Hue.define("Middle window",1000)
+  Hue.define("Dimmer switch",1001)
+  Hue.define("Living room sensor",1002)
+
+  rule("1000:value => log('Light %d changed value to %s',env.event.deviceID,env.event.value)")
+  rule("1001:value => log('Switch %d changed value to %s',env.event.deviceID,env.event.value)")
+  rule("1002:value => log('Motion %d changed value to %s',env.event.deviceID,env.event.value)")
 end
 
-function QuickApp:turnOff()
-  self:updateProperty("value", false)    
-end
-
-function QuickApp:main() 
-
-  function test1(a,b) return a+b end  
-  function test2(x) return x+1 end 
-
-  dofile("example_rules3.lua")
-  
-  Util.checkVersion()
-  Event.event({type='Event_version'},
-    function(env)
-      Log(LOG.LOG,"New version %s %s",env.event.version,env.event.fix)
-      Util.patchEventRunner() 
-    end)
-
-  fibaro.call(69,"setValue",true) 
-  Log(LOG.LOG,"Breached:%s",fibaro.getValue(69,"value"))
-  setTimeout(function()fibaro.call(69,"setValue",false) Log(LOG.LOG,"Breached:%s",fibaro.getValue(69,"value")) end, 2000)
-
-  exportFunctions{
-    {name='test1', doc="Adds 2 numbers"},
-    {name='test2', doc="Adds 1"}
-  }
-  local eh = Event.event({type='property',deviceID=755}, -- Triggering on an 'fake' event we post later
-    function(env) self:debug("755") end)
-
-  self:debug(eh) -- Printing out event handler
-
-  self:debug("Hello") -- Just logging a message
-
-  Event.event({type='customevent'}, -- Triggering on all custom event
-    function(env) self:debug('Got %s',json.encode(env.event)) end)
-
-  Event.event({type='property', deviceID=49, propertyName='value'}, -- Triggering on a device value change
-    function(env) self:debug('Got %s',json.encode(env.event)) end)
-
-  Event.post({type='property',deviceID=755},"+/00:00:02") -- Posting fakse event 2s into the future to trigger our handler
-
-  -- Send an custom event to ourselves in 5 seconds (we can also send to other devices/scenes)
-  Event.publishEvent(Event.deviceID,{type='Greeting', msg='Hello'},"+/00:00:05")
-
-  -- Send an custom event to ourselves in 5 seconds (we can also send to other devices/scenes)
-  Event.publishEvent(Event.deviceID,{type='Greeting', msg='God morning!'},"n/sunrise+00:10")
-
-  -- Pickup custom event sent earlier
-  Event.event({type='Greeting'},function(env)
-      self:debug("Greeting '%s' from deviceID:%s",env.event.msg,env.event._from)
-    end)
-
-  -- Homemade loop, loop 10 times and flick a light
-  Event.event({type='loop', index='$i'},
-    function(env)
-      if env.p.i < 10 then
-        if fibaro.getValue(56,"value") then fibaro.call(56,'turnOff') else fibaro.call(56,'turnOn') end
-        Event.post({type='loop', index=env.p.i+1},"+/00:00:02")
-      end
-    end)
-  --QuickApp:post({type='loop', index=0},"+/00:00:02")
-
-  local i = 0 -- Loop 10 times with :schedule construct
---   QuickApp:loop("+/00:00:02",
---     function(env)
---       self:debug("Loop %s",i)
---       i=i+1
---     end
---     ,true
---   )
-
-end --main
-
-function QuickApp:main2()
-
-  local s = Event.loop("00:00:03",function(r) Log(LOG.LOG,"X:%s",r.count) end).disable() -- loop every minute. start disabled
-  Event.post(s.enable,"+/00:00:01")  -- enable loop after 2min
-  Event.post(s.disable,"+/00:00:20") -- disable loop after 10min
-  Log(LOG.LOG,s) -- print rule
-
-  Event.cron("0/15 8-12 * *",function(r) Log(LOG.LOG,"Y:%s",r.count) end) -- cron style loop
-
-  Event.event({type='property', deviceID=88, propertyName='value'},  -- trigger on device property changing
-    function(env) Log(LOG.LOG,"Device %s value is %s",env.event.deviceID,env.event.value) end)
-
-  Event.event({type='global', name='myVar'},                         -- trigger on global changing value
-    function(env) Log(LOG.LOG,"Global '%s' value is %s",env.event.name,env.event.value) end)
-
-  Event.event({type='customevent', name='myEvent'},        -- trigger on custom event being emitted
-    function(env) 
-      local name = env.event.name
-      Log(LOG.LOG,"Custom event '%s' description is %s",name,Event.getCustomEventDescription(name))
-    end)
-
-  Event.event({type='quickvar', name='myQuickvar'}, -- trigger on quickVar changing value
-    function(env) Log(LOG.LOG,"QuickVar '%s' description is %s",env.event.name,env.event.value) end)
-
-end
+function QuickApp:turnOn() self:updateProperty("value", true) end
+function QuickApp:turnOff() self:updateProperty("value", false) end
 
 ------------------- EventSupport - Don't change! -------------------- 
 
-function createEventEngine(quickSelf) -- Event extension
+TRIGGERPOLLINTERVALL = 1000
+
+function createEventEngine() -- Event extension
   Log(LOG.SYS,"Setting up event engine..")
   local self,_handlers = {},{}
   self._sections,self.SECTION = {},nil
-  self.BREAK, self.TIMER, self.RULE ='%%BREAK%%', '%%TIMER%%', '%%RULE%%'
+  self.BREAK, self.TIMER, self.RULE, self.INTERVAL ='%%BREAK%%', '%%TIMER%%', '%%RULE%%', 1000
   local equal,format,map,mapF,copy,toTime =  Util.equal, string.format, Util.map, Util.mapF, Util.copy, Util.toTime
 
   local function isTimer(t) return type(t) == 'table' and t[Event.TIMER] end
@@ -294,7 +226,7 @@ function createEventEngine(quickSelf) -- Event extension
     if t then clearTimeout(t[self.TIMER]) end 
     return nil 
   end
-  
+
   function self.loop(time,fun,sync)
     local nextTime,interval,tp = os.time(),toTime(time),nil
     local res = {[self.RULE] = {}, count = 0}
@@ -383,76 +315,11 @@ function createEventEngine(quickSelf) -- Event extension
     end
   end
 
-  function self.pollEvents()
-    local lastRefresh = 0
-    local function pollRefresh()
-      local states = api.get("/refreshStates?last=" .. lastRefresh)
-      if states then
-        lastRefresh=states.last
-        --if states.changes and #states.changes>0 then self.checkChanges(states.changes) end
-        if states.events and #states.events>0 then self.checkEvents(states.events) end
-      end
-      setTimeout(pollRefresh,1000)
-      self.postCustomEvent(self.tickEvent)  -- hack because refreshState hang if no events...
-    end
-    setTimeout(pollRefresh,1000)
-  end
-
-  function self.checkChanges(changes)
-    for _,c in ipairs(changes) do
-      Log(LOG.SYS,"Change:"..json.encode(c))
-    end
-  end
-
-  EventTypes = {
-    WeatherChangedEvent = function(self,d) Log(LOG.LOG,"%s, %s -> %s",d.change,d.oldValue,d.newValue) end,
-    GlobalVariableChangedEvent = function(self,d)
-      --Log(LOG.LOG,"Global %s, %s -> %s",d.variableName,d.oldValue,d.newValue)
-      self.post({type='global', name=d.variableName, value=d.newValue, old=d.oldValue, _sh=true})
-    end,
-    DevicePropertyUpdatedEvent = function(self,d)
-      if d.property=='quickAppVariables' then 
-        local old={}; for _,v in ipairs(d.oldValue) do old[v.name] = v.value end -- Todo: optimize
-        for _,v in ipairs(d.newValue) do
-          if v.value ~= old[v.name] then
-            --Log(LOG.LOG,"QuickVar:%s,  %s -> %s",v.name,old[v.name],v.value )
-            self.post({type='quickvar', name=v.name, value=v.value, old=old[v.name], _sh=true})
-          end
-        end
-      else
-        if d.property:match("^ui%.") then return end
-        --Log(LOG.LOG,"Device:%s:%s, %s -> %s",d.id,d.property,d.oldValue,d.newValue) 
-        self.post({type='property', deviceID=d.id, propertyName=d.property, value=d.newValue, old=d.oldValue, _sh=true})
-      end
-    end,
-    CustomEvent = function(self,d) 
-      if d.name == self.tickEvent then return end
-      --Log(LOG.LOG,"CustomEvent:%s",d.name)
-      self.post({type='customevent', name=d.name, _sh=true})
-    end,
-    PluginChangedViewEvent = function(self,d) end,
-    WizardStepStateChangedEvent = function(self,d) end,
-    UpdateReadyEvent = function(self,d) end,
-    SceneRunningInstancesEvent = function(self,d) end,
-    DeviceRemovedEvent = function(self,d) Log(LOG.LOG,"Device %s removed",d.id) end,
-    DeviceCreatedEvent = function(self,d) Log(LOG.LOG,"Device %s created",d.id) end,
-    DeviceModifiedEvent = function(self,d) Log(LOG.LOG,"Device %s modified",d.id) end,
-    SceneStartedEvent = function(self,d) Log(LOG.LOG,"Scene %s started",d.id) end,
-    SceneFinishedEvent = function(self,d) Log(LOG.LOG,"Scene %s finished",d.id) end,
-    SceneRemovedEvent = function(self,d) Log(LOG.LOG,"Scene %s removed (%s)",d.id,d.name) end,
-    PluginProcessCrashedEvent = function(self,d) Log(LOG.LOG,"Device %s crashed",d.deviceId) end,
-    onUIEvent = function(self,d) 
-      --Log(LOG.LOG,"Device %s %s (UI)",d.deviceId,d.elementName) 
-      self.post({type='uievent', deviceID=d.deviceId, name=d.elementName})
-    end,
-  }
-
-  function self.checkEvents(events)
-    for _,e in ipairs(events) do
-      if EventTypes[e.type] then EventTypes[e.type](self,e.data)
-      else Log(LOG.SYS,"Unhandled event:%s -- please report",json.encode(e)) end
-    end
-  end
+  self.event({type='centralSceneEvent'},function(env)
+      if not env.event.data.keyId then return end
+      self.post({type='property',deviceID=env.event.data.deviceId,
+          propertyName='CentralSceneEvent',value=env.event.data, _sh = env.event._sh})
+    end)
 
   function self.getCustomEvent(name) return api.get("/customEvents/"..name) end
   function self.getCustomEventDescription(name) 
@@ -465,30 +332,35 @@ function createEventEngine(quickSelf) -- Event extension
   return self
 end -- eventEngine
 
-function createDeviceSupport(quickSelf)
+function createDeviceSupport()
   Log(LOG.SYS,"Setting up device support..")
+  local qs = fibaro.QD
   local self = { deviceID = plugin.mainDeviceId }
-  function self.updateProperty(prop,value) return quickSelf:updateProperty(prop,value)  end
-  function self.updateView(componentID, property, value) return quickSelf:updateView(componentID, property, value)  end
-  function self.setVariable(name,value) return quickSelf:setVariable(name,value) end
-  function self.getVariable(name) return quickSelf:getVariable(name) end
+  function self.updateProperty(prop,value) return qs:updateProperty(prop,value)  end
+  function self.updateView(componentID, property, value) return qs:updateView(componentID, property, value)  end
+  function self.setVariable(name,value) return qs:setVariable(name,value) end
+  function self.getVariable(name) return qs:getVariable(name) end
+  local uiCallbacks = api.get("/devices/"..self.deviceID).properties.uiCallbacks or {}
+  for _,e in ipairs(uiCallbacks) do 
+    local name = e.name.."Clicked"
+    if qs[name] then 
+      local old = qs[name]; qs[name] = function(self,arg) Event.post({type='UI',name=e.name,value=arg}) old(self,arg) end
+    else
+      qs[name] = function(self,arg) Event.post({type='UI',name=e.name,value=arg}) end
+    end
+  end
   return self
 end
 
-if (_VERSION or ""):match("5%.3") then
-  function table.maxn(tbl)
-    local c=0
-    for k in pairs(tbl) do c=c+1 end
-    return c
-  end
-end
 
-function createUtils(quickSelf)
+function createUtils()
   local self,format = {},string.format
+
   function self.map(f,l,s) s = s or 1; local r={} for i=s,table.maxn(l) do r[#r+1] = f(l[i]) end return r end
   function self.mapAnd(f,l,s) s = s or 1; local e=true for i=s,table.maxn(l) do e = f(l[i]) if not e then return false end end return e end 
   function self.mapOr(f,l,s) s = s or 1; for i=s,table.maxn(l) do local e = f(l[i]) if e then return e end end return false end
   function self.mapF(f,l,s) s = s or 1; local e=true for i=s,table.maxn(l) do e = f(l[i]) end return e end
+
   local function transform(obj,tf)
     if type(obj) == 'table' then
       local res = {} for l,v in pairs(obj) do res[l] = transform(v,tf) end 
@@ -504,8 +376,46 @@ function createUtils(quickSelf)
     for k2,v2 in pairs(e2) do if e1[k2] == nil or not equal(e1[k2],v2) then return false end end
     return true
   end
-  self.equal,self.copy,self.transform = equal,copy,transform
 
+  if (_VERSION or ""):match("5%.3") then
+    function table.maxn(tbl)
+      local c=0
+      for k in pairs(tbl) do c=c+1 end
+      return c
+    end
+  end
+
+  if not _EMULATED then
+    local _oldSetTimeout = setTimeout
+    local stat,res = pcall(function() x() end)
+    local line = 514-res:match("lua:(%d+)") -- '4' should be the line number of the previous line
+    function setTimeout(fun,ms)
+      return _oldSetTimeout(function()
+          stat,res = pcall(fun)
+          if not stat then
+            local cline,msg = res:match("lua:(%d+):(.*)")
+            print(string.format("Error in setTimeout (line:%d):%s",line+cline,msg)) 
+          end
+        end,ms)
+    end
+  end
+
+  local function patchF(name)
+    local oldF,flag = fibaro[name],"f"..name
+    fibaro[name] = function(...)
+      local args = {...}
+      local res = {oldF(...)}
+      if _debugFlags[flag] then
+        args = #args==0 and "" or json.encode(args):sub(2,-2)
+        Log(LOG.LOG,"fibaro.%s(%s) => %s",name,args,#res==0 and "nil" or #res==1 and res[1] or res)
+      end
+      return table.unpack(res)
+    end
+  end
+
+  patchF("call")
+
+  function urldecode(str) return str:gsub('%%(%x%x)',function (x) return string.char(tonumber(x,16)) end) end
   function split(s, sep)
     local fields = {}
     sep = sep or " "
@@ -527,6 +437,7 @@ function createUtils(quickSelf)
     return #args > 1 and oldformat(table.unpack(args)) or args[1]
   end
   format = string.format 
+  function self.gensym(s) return (s or "G")..oldtostring({}):match("0x(.*)") end
 
   local function logHeader(len,str)
     if #str % 2 == 1 then str=str.." " end
@@ -534,13 +445,13 @@ function createUtils(quickSelf)
     return string.rep("-",len/2-n/2).." "..str.." "..string.rep("-",len/2-n/2)
   end
 
-  local orgDebug = quickSelf.debug
-  LOG = { LOG="[L] ", ULOG="[U] ", SYS="[Sys] ", DEBUG="[D] ", ERROR='[ERROR] ', HEADER='HEADER'}
+  local orgDebug = fibaro.QD.debug
+  LOG = { LOG="[L] ", ULOG="[U] ", WARNING="[W] ", SYS="[Sys] ", DEBUG="[D] ", ERROR='[ERROR] ', HEADER='HEADER'}
   function Debug(flag,...) if flag then Log(LOG.DEBUG,...) end end
   function Log(flag,...)
     local str = format(...)
     if flag == LOG.HEADER then str = logHeader(100,str) else str=flag..str end
-    for _,s in ipairs(split(str,"\n")) do orgDebug(quickSelf,s) end
+    for _,s in ipairs(split(str,"\n")) do orgDebug(fibaro.QD,s) end
     return str
   end
 
@@ -630,6 +541,9 @@ function createUtils(quickSelf)
     return table.concat(res)
   end
 
+  self.S1 = {click = "16", double = "14", tripple = "15", hold = "12", release = "13"}
+  self.S2 = {click = "26", double = "24", tripple = "25", hold = "22", release = "23"} 
+
   self.netSync = { HTTPClient = function (log)   
       local self,queue,HTTP,key = {},{},net.HTTPClient(),0
       local _request
@@ -672,8 +586,8 @@ function createUtils(quickSelf)
       return self
     end}
 
-  if _EMULATED then self.getWeekNumber = _System.getWeekNumber
-  else self.getWeekNumber = function(tm) return tonumber(os.date("%V",tm)) end end
+--  if _EMULATED then self.getWeekNumber = _System.getWeekNumber
+--  else self.getWeekNumber = function(tm) return tonumber(os.date("%V",tm)) end end
 
   function self.dateTest(dateStr)
     local days = {sun=1,mon=2,tue=3,wed=4,thu=5,fri=6,sat=7}
@@ -754,148 +668,171 @@ function createUtils(quickSelf)
   end
 
 ---- SunCalc -----
-  do
-    local function sunturnTime(date, rising, latitude, longitude, zenith, local_offset)
-      local rad,deg,floor = math.rad,math.deg,math.floor
-      local frac = function(n) return n - floor(n) end
-      local cos = function(d) return math.cos(rad(d)) end
-      local acos = function(d) return deg(math.acos(d)) end
-      local sin = function(d) return math.sin(rad(d)) end
-      local asin = function(d) return deg(math.asin(d)) end
-      local tan = function(d) return math.tan(rad(d)) end
-      local atan = function(d) return deg(math.atan(d)) end
 
-      local function day_of_year(date)
-        local n1 = floor(275 * date.month / 9)
-        local n2 = floor((date.month + 9) / 12)
-        local n3 = (1 + floor((date.year - 4 * floor(date.year / 4) + 2) / 3))
-        return n1 - (n2 * n3) + date.day - 30
-      end
+  local function sunturnTime(date, rising, latitude, longitude, zenith, local_offset)
+    local rad,deg,floor = math.rad,math.deg,math.floor
+    local frac = function(n) return n - floor(n) end
+    local cos = function(d) return math.cos(rad(d)) end
+    local acos = function(d) return deg(math.acos(d)) end
+    local sin = function(d) return math.sin(rad(d)) end
+    local asin = function(d) return deg(math.asin(d)) end
+    local tan = function(d) return math.tan(rad(d)) end
+    local atan = function(d) return deg(math.atan(d)) end
 
-      local function fit_into_range(val, min, max)
-        local range,count = max - min
-        if val < min then count = floor((min - val) / range) + 1; return val + count * range
-        elseif val >= max then count = floor((val - max) / range) + 1; return val - count * range
-        else return val end
-      end
-
-      -- Convert the longitude to hour value and calculate an approximate time
-      local n,lng_hour,t =  day_of_year(date), longitude / 15, nil
-      if rising then t = n + ((6 - lng_hour) / 24) -- Rising time is desired
-      else t = n + ((18 - lng_hour) / 24) end -- Setting time is desired
-      local M = (0.9856 * t) - 3.289 -- Calculate the Sun^s mean anomaly
-      -- Calculate the Sun^s true longitude
-      local L = fit_into_range(M + (1.916 * sin(M)) + (0.020 * sin(2 * M)) + 282.634, 0, 360)
-      -- Calculate the Sun^s right ascension
-      local RA = fit_into_range(atan(0.91764 * tan(L)), 0, 360)
-      -- Right ascension value needs to be in the same quadrant as L
-      local Lquadrant = floor(L / 90) * 90
-      local RAquadrant = floor(RA / 90) * 90
-      RA = RA + Lquadrant - RAquadrant; RA = RA / 15 -- Right ascension value needs to be converted into hours
-      local sinDec = 0.39782 * sin(L) -- Calculate the Sun's declination
-      local cosDec = cos(asin(sinDec))
-      local cosH = (cos(zenith) - (sinDec * sin(latitude))) / (cosDec * cos(latitude)) -- Calculate the Sun^s local hour angle
-      if rising and cosH > 1 then return "N/R" -- The sun never rises on this location on the specified date
-      elseif cosH < -1 then return "N/S" end -- The sun never sets on this location on the specified date
-
-      local H -- Finish calculating H and convert into hours
-      if rising then H = 360 - acos(cosH)
-      else H = acos(cosH) end
-      H = H / 15
-      local T = H + RA - (0.06571 * t) - 6.622 -- Calculate local mean time of rising/setting
-      local UT = fit_into_range(T - lng_hour, 0, 24) -- Adjust back to UTC
-      local LT = UT + local_offset -- Convert UT value to local time zone of latitude/longitude
-      return os.time({day = date.day,month = date.month,year = date.year,hour = floor(LT),min = math.modf(frac(LT) * 60)})
+    local function day_of_year(date)
+      local n1 = floor(275 * date.month / 9)
+      local n2 = floor((date.month + 9) / 12)
+      local n3 = (1 + floor((date.year - 4 * floor(date.year / 4) + 2) / 3))
+      return n1 - (n2 * n3) + date.day - 30
     end
 
-    local function getTimezone() local now = os.time() return os.difftime(now, os.time(os.date("!*t", now))) end
-
-    function self.sunCalc(time)
-      local hc2Info = api.get("/settings/location") or {}
-      local lat = hc2Info.latitude
-      local lon = hc2Info.longitude
-      local utc = getTimezone() / 3600
-      local zenith,zenith_twilight = 90.83, 96.0 -- sunset/sunrise 90°50′, civil twilight 96°0′
-
-      local date = os.date("*t",time or os.time())
-      if date.isdst then utc = utc + 1 end
-      local rise_time = os.date("*t", sunturnTime(date, true, lat, lon, zenith, utc))
-      local set_time = os.date("*t", sunturnTime(date, false, lat, lon, zenith, utc))
-      local rise_time_t = os.date("*t", sunturnTime(date, true, lat, lon, zenith_twilight, utc))
-      local set_time_t = os.date("*t", sunturnTime(date, false, lat, lon, zenith_twilight, utc))
-      local sunrise = format("%.2d:%.2d", rise_time.hour, rise_time.min)
-      local sunset = format("%.2d:%.2d", set_time.hour, set_time.min)
-      local sunrise_t = format("%.2d:%.2d", rise_time_t.hour, rise_time_t.min)
-      local sunset_t = format("%.2d:%.2d", set_time_t.hour, set_time_t.min)
-      return sunrise, sunset, sunrise_t, sunset_t
+    local function fit_into_range(val, min, max)
+      local range,count = max - min
+      if val < min then count = floor((min - val) / range) + 1; return val + count * range
+      elseif val >= max then count = floor((val - max) / range) + 1; return val - count * range
+      else return val end
     end
+
+    -- Convert the longitude to hour value and calculate an approximate time
+    local n,lng_hour,t =  day_of_year(date), longitude / 15, nil
+    if rising then t = n + ((6 - lng_hour) / 24) -- Rising time is desired
+    else t = n + ((18 - lng_hour) / 24) end -- Setting time is desired
+    local M = (0.9856 * t) - 3.289 -- Calculate the Sun^s mean anomaly
+    -- Calculate the Sun^s true longitude
+    local L = fit_into_range(M + (1.916 * sin(M)) + (0.020 * sin(2 * M)) + 282.634, 0, 360)
+    -- Calculate the Sun^s right ascension
+    local RA = fit_into_range(atan(0.91764 * tan(L)), 0, 360)
+    -- Right ascension value needs to be in the same quadrant as L
+    local Lquadrant = floor(L / 90) * 90
+    local RAquadrant = floor(RA / 90) * 90
+    RA = RA + Lquadrant - RAquadrant; RA = RA / 15 -- Right ascension value needs to be converted into hours
+    local sinDec = 0.39782 * sin(L) -- Calculate the Sun's declination
+    local cosDec = cos(asin(sinDec))
+    local cosH = (cos(zenith) - (sinDec * sin(latitude))) / (cosDec * cos(latitude)) -- Calculate the Sun^s local hour angle
+    if rising and cosH > 1 then return "N/R" -- The sun never rises on this location on the specified date
+    elseif cosH < -1 then return "N/S" end -- The sun never sets on this location on the specified date
+
+    local H -- Finish calculating H and convert into hours
+    if rising then H = 360 - acos(cosH)
+    else H = acos(cosH) end
+    H = H / 15
+    local T = H + RA - (0.06571 * t) - 6.622 -- Calculate local mean time of rising/setting
+    local UT = fit_into_range(T - lng_hour, 0, 24) -- Adjust back to UTC
+    local LT = UT + local_offset -- Convert UT value to local time zone of latitude/longitude
+    return os.time({day = date.day,month = date.month,year = date.year,hour = floor(LT),min = math.modf(frac(LT) * 60)})
   end
 
+  local function getTimezone() local now = os.time() return os.difftime(now, os.time(os.date("!*t", now))) end
+
+  function self.sunCalc(time)
+    local hc2Info = api.get("/settings/location") or {}
+    local lat = hc2Info.latitude
+    local lon = hc2Info.longitude
+    local utc = getTimezone() / 3600
+    local zenith,zenith_twilight = 90.83, 96.0 -- sunset/sunrise 90°50′, civil twilight 96°0′
+
+    local date = os.date("*t",time or os.time())
+    if date.isdst then utc = utc + 1 end
+    local rise_time = os.date("*t", sunturnTime(date, true, lat, lon, zenith, utc))
+    local set_time = os.date("*t", sunturnTime(date, false, lat, lon, zenith, utc))
+    local rise_time_t = os.date("*t", sunturnTime(date, true, lat, lon, zenith_twilight, utc))
+    local set_time_t = os.date("*t", sunturnTime(date, false, lat, lon, zenith_twilight, utc))
+    local sunrise = format("%.2d:%.2d", rise_time.hour, rise_time.min)
+    local sunset = format("%.2d:%.2d", set_time.hour, set_time.min)
+    local sunrise_t = format("%.2d:%.2d", rise_time_t.hour, rise_time_t.min)
+    local sunset_t = format("%.2d:%.2d", set_time_t.hour, set_time_t.min)
+    return sunrise, sunset, sunrise_t, sunset_t
+  end
+
+  if not _EMULATED then
+    local _IPADDRESS = nil
+    function self.getIPaddress()
+      local nets = api.get("/settings/network").networkConfig or {}
+      if nets.wlan0.enabled then
+        _IPADDRESS =  nets.wlan0.ipConfig.ip
+      elseif nets.eth0.enabled then
+        _IPADDRESS =  nets.eth0.ipConfig.ip
+      else
+        error("Can't find IP address")
+      end
+      return _IPADDRESS
+    end
+  else 
+    self.getIPaddress = fibaro._getIPaddress 
+  end
+
+  self.equal,self.copy,self.transform,self.toTime,self.hm2sec,self.midnight  = equal,copy,transform,toTime,hm2sec,midnight
   tojson = self.prettyJson
-  self.toTime = toTime
-  self.midnight = midnight
-  self.hm2sec = hm2sec
   return self
 end -- Utils
 
-function createRemoteEventSupport()
-  Log(LOG.SYS,"Setting up remote event support..")
+function createRemoteSupport()
+  Log(LOG.SYS,"Setting up remote  support..")
   local function printSendEvent(e) return string.format("to %d %s",e.to,e.event) end
+
+  local ces = api.get("/customEvents") -- Remove stale events
+  for _,ce in ipairs(ces) do
+    if Event.isMyAddress(ce.name) then Event.deleteCustomEvent(ce.name) end
+  end
 
   Event.event({type='%sendEvent%'},function(env)
       local event = env.event.event
       event._from = Event.deviceID
-      if env.event.stype == 'device' then
-        fibaro.call(env.event.to,'recieveEvent',event)
-      elseif env.event.stype == 'custom' then
+      even._time = os.time()
+      if env.event.fc then
+        fibaro.call(env.event.to,"ER_remoteEvent",json.encode(event))
+      else
         local address = Event.makeAddress(env.event.to)
         Event.createCustomEvent(address,json.encode(event))
         Event.postCustomEvent(address)
-        setTimeout(function() Event.deleteCustomEvent(address) end,4*1000) -- Remove after 4s
+        if env.event.to=="000" then
+          setTimeout(function() Event.deleteCustomEvent(address) end,6*1000) -- Remove after 4s
+        end
       end
     end)
 
-  function Event.postEvent2Device(toid,event,time) 
-    Event.post({type='%sendEvent%',to=toid,event=event, stype='device', __tostring=printSendEvent},time) 
-  end  
-  function Event.postEvent2Scene(toid,event,time) 
-    Event.post({type='%sendEvent%',to=toid, event=event, stype='scene', __tostring=printSendEvent},time) 
-  end 
-  function Event.publishEvent(toid,event,time) 
-    Event.post({type='%sendEvent%',to=toid,event=event, stype='custom',  __tostring=printSendEvent},time) 
+  function Event.postRemote(toid,event,time) 
+    Event.post({type='%sendEvent%',to=toid,event=event, fc=true, __tostring=printSendEvent},time) 
   end
   function Event.broadcastEvent(event,time) 
-    Event.post({type='%sendEvent%',to="000", event=event, stype='custom', __tostring=printSendEvent},time) 
+    Event.post({type='%sendEvent%',to="000", event=event, __tostring=printSendEvent},time) 
   end
 
-  function QuickApp:recieveEvent(e)
-    local stat,res = pcall(function() return (json.decode(e)) end)
-    if stat and Event.isEvent(res) then Event.post(res)
-    else LogErr("Bad arg to 'recieveEvent' "..tostring(e)) end
+  function QuickApp:ER_remoteEvent(e)
+    local stat,res = true,e
+    if type(e) == 'string' then 
+      stat,res = type(e)=='table' and pcall(function() return (json.decode(e)) end)
+    end
+    if stat and Event.isEvent(res) then 
+      if res._time and res._time+5 < os.time() then 
+        Log(LOG.WARNING,"Slow events %s, %ss",e,os.time()-res._time) 
+      end
+      res._time = nil
+      Event.post(res)
+    else Log(LOG.ERROR,"Bad arg to 'recieveEvent' "..tostring(e)) end
   end
 
   Event.event({type='customevent'}, -- Triggering on a custom event
     function(env) 
-      local address = env.event.name
-      if Event.isMyAddress(address) or Event.isBroadcastAddress(address) then
-        local ce = Event.getCustomEvent(address)
-        Event.post(json.decode(ce.userDescription))
-        Event.deleteCustomEvent(address)
+      local ev = env.event
+      local address,broadcast = ev.name,Event.isBroadcastAddress(ev.name)
+      if Event.isMyAddress(address) or broadcast then
+        if ev.value then fibaro.QD:ER_remoteEvent(ev.value) end
+        if not broadcast then Event.deleteCustomEvent(address) end
         return Event.BREAK
       end
     end)
-end
 
-function createRemoteFunctionSupport(quickSelf)
-  Log(LOG.SYS,"Setting up remote function support..")
-  local TIMEOUT = 3
+  ---- Remote calls
+
+  local TIMEOUT = 4
 
   function defineRemoteFun(name,deviceID,tab) (tab or _G or _ENV)[name] = function(...) return funCall(deviceID,name,{...}) end end
 
-  function exportFunctions(funList) quickSelf:setVariable("ExportedFuns",json.encode(funList)) end
+  function exportFunctions(funList) fibaro.QD:setVariable("ExportedFuns",json.encode(funList)) end
   function importFunctions(deviceID,tab,log)
-    log = log==nil and true or log
-    for _,v in ipairs((api.get("/devices/"..deviceID) or {}).properties.quickAppVariables or {}) do
+    log = log==nil and true or log    
+    for _,v in ipairs(fibaro.getValue(deviceID,'quickAppVariables') or {}) do
       if v.name == "ExportedFuns" then
         for _,ef in ipairs(json.decode(v.value) or {}) do
           ef = type(ef)=='string' and {name=ef} or ef
@@ -905,12 +842,14 @@ function createRemoteFunctionSupport(quickSelf)
         return
       end
     end
-    quickSelf:debug("No exported functions from deviceID:"..deviceID)
+    fibaro.QD:debug("No exported functions from deviceID:"..deviceID)
   end
 
-  local FUNRES = "FUNRES"..Event.deviceID
+  local FUNRES = "RPC"..Event.deviceID
   local ASYNC = {"ASYNC"}
+
   api.post("/globalVariables/",{name=FUNRES})
+
   function funCall(deviceID,fun,args)
     if args[1]==ASYNC then return deviceID,fun end
     local timeout,res = os.time()+TIMEOUT,nil
@@ -928,7 +867,7 @@ function createRemoteFunctionSupport(quickSelf)
   end
 
 -- Receieve function call and return reponse
-  function QuickApp:funCall(call)
+  function QuickApp:funCall(call) -- Receieve a remote funcall
     local stat,res = pcall(function() return {_G[call.name](table.unpack(call.args))} end)
     --Log(LOG.LOG,"RES:%s - %s",res,call.from)
     fibaro.setGlobalVariable(call.from,json.encode({stat,res}))
@@ -936,7 +875,7 @@ function createRemoteFunctionSupport(quickSelf)
 
 end -- createRemoteFunctionSupport 
 
-function createAutoPatchSupport(quickSelf)
+function createAutoPatchSupport()
   Log(LOG.SYS,"Setting up autopatch support..")
   local _EVENTSSRCPATH = "EventRunner4.lua"
 
@@ -948,6 +887,7 @@ function createAutoPatchSupport(quickSelf)
           if data.status == 200 then
             local v = json.decode(data.data)
             v = v[_EVENTSSRCPATH]
+            if not v then return end
             if vers then v = v.scenes[vers] end
             if v.version ~= E_VERSION or v.fix ~= E_FIX then
               Event.post({type='Event_version',version=v.version,fix=v.fix or "", _sh=true})
@@ -989,7 +929,7 @@ function createAutoPatchSupport(quickSelf)
         --io.output(f)
         --io.write(oldSrc..nbody)
         --io.close(f)
-      else quickSelf:updateProperty("mainFunction",oldSrc..nbody) end
+      else fibaro.QD:updateProperty("mainFunction",oldSrc..nbody) end
     end
   end
 end
@@ -1011,45 +951,266 @@ function extraSetup()
       return _SUNTIMEVALUES[prop]
     end
   end
+
+  local DEBUGKEYS = {debugTriggers=true,debugRules=true,debugPost=true}
+
+  local function updateDebugKey(key,upd)
+    local name = key:match("debug(.*)")
+    local dkey = name:lower()
+    if upd then _debugFlags[dkey] = not _debugFlags[dkey] end
+    fibaro.QD:updateView(key,"text",name..":"..(_debugFlags[dkey] and "ON" or "OFF"))
+  end
+
+  for k,_ in pairs(DEBUGKEYS) do updateDebugKey(k) end
+
+  Event.event({type='UI'},function(env)
+      local b = env.event.name
+      if DEBUGKEYS[b] then updateDebugKey(b,true) end
+    end)
+
+--------- Node-red support ---------
+
+  Nodered = { _nrr = {}, _timeout = 4000, _last=nil }
+  function Nodered.connect(url) 
+    local isEvent,gensym = Event.isEvent,Util.gensym
+    local self = { _url = url, _http=Util.netSync.HTTPClient("Nodered") }
+    function self.post(event,sync)
+      _assert(isEvent(event),"Arg to nodered.msg is not an event")
+      local tag, nrr = gensym("NR"), Nodered._nrr
+      event._transID = tag
+      event._from = fibaro.ID
+      event._async = true
+      event._IP = Util.getIPaddress()
+      if _EMULATED then event._IP=event._IP..":".._EVENTSERVER end
+      local params =  {options = {
+          headers = {['Accept']='application/json',['Content-Type']='application/json'},
+          data = json.encode(event), timeout=timeout or 4000, method = 'POST'},
+        _logErr=true
+      }
+      self._http:request(self._url,params)
+      if sync then
+        nrr[tag]={}
+        nrr[tag][1]=setTimeout(function() nrr[tag]=nil 
+            Log(LOG.ERROR,"No response from Node-red, '%s'",event)
+          end,Nodered._timeout or _options['NODEREDTIMEOUT'])
+        return {['<cont>']=function(cont) nrr[tag][2]=cont end}
+      else return true end
+    end
+    Nodered._last = self
+    return self
+  end
+
+  function Nodered.receive(ev)
+    local tag = ev._transID
+    if tag then
+      ev._IP,ev._async,ev._from = nil,nil,nil
+      local nrr = Nodered._nrr
+      local cr = nrr[tag] or {}
+      if cr[1] then clearTimeout(cr[1]) end
+      if cr[2] then 
+        local stat,res = pcall(function() cr[2](ev) end)
+        if not stat then
+          Log(LOG.ERROR,"Error in Node-red rule for %s, - %s",ev,res)
+        end
+      else Event.post(ev) end
+      nrr[tag]=nil
+    else Event.post(ev) end
+  end
+
+  function Nodered.post(event,sync)
+    _assert(Nodered._last,"Missing nodered URL - make Nodered.connect(<url>) at beginning of scene")
+    return Nodered._last.post(event,sync)
+  end
+
+  function QuickApp:fromNodeRed(ev) Nodered.receive(ev) end
+
 end
 
 function add100(x) return x+100 end   -- test
 function add1000(x) return x+1000 end -- test
 
-local function setUpEventScript()
-  if dofile then dofile("ERinclude.lua") end
-  if makeEventScriptParser then ScriptParser = makeEventScriptParser() end
-  if makeEventScriptCompiler then ScriptCompiler = makeEventScriptCompiler(ScriptParser) end
-  if makeEventScriptRuntime then ScriptEngine = makeEventScriptRuntime() end
-  if makeEventScriptRuleCompiler then Rule = makeEventScriptRuleCompiler() end
+INSTALLED_MODULES = {}
+local function installExternalModules()
+  if dofile then
+    for _,f in ipairs(MODULES or {}) do dofile(f) INSTALLED_MODULES[f]={name=f} end
+  else
+--[[
+      ['EventScript4.lua'] = {version=0.01},
+      ['Hue4.lua'] = {version=0.01},
+--]]
+    local function installModules(files)
+    end
+
+    local function checkVersion(info)
+      local removes,install={},{}
+      for _,f in ipairs(MODULES) do 
+        local ins = INSTALLED_MODULES[f] or {name=f}; INSTALLED_MODULES[f]=ins
+        ins.shouldInstall = true
+      end
+      for name,m in pairs(INSTALLED_MODULES) do
+        if m.isInstalled and not m.shouldInstall then removes[#removes+1]=m 
+        elseif m.shouldInstall and not m.isInstalled then install[#install+1]=m 
+        elseif (info[name] and info[name].version) and  m.isInstalled and  m.shouldInstall and (m.installedVersion or 0) ~= info[name].version then 
+          removes[#removes+1]=m; install[#install+1]=m  
+        end
+      end
+      if #removes > 0 or #install> 0 then installModules(install) end
+    end
+
+    local req = net.HTTPClient()
+    req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/VERSION4.json",{
+        options = {method = 'GET', checkCertificate = false, timeout=20000},
+        success = function(data) if data.status == 200 then checkVersion(json.decode(data.data)) end end,
+        error = function(status) Log(LOG.WARNING,"Can't access external version info (%s)",status) end
+      })
+  end
 end
 
-function QuickApp:initEventExtension(s)
-  Util = createUtils(s) 
+--MODULES>-----------------------------
+--INSTALLED_MODULES['EventScript4.lua']={isInstalled=true,installedVersion=0.01}
+--....
+--<MODULE-----------------------------
+
+--------------- getting triggers from HC3 ---------------------
+
+if not _EMULATED then  fibaro._EventCache = { polling=false, devices={}, globals={}, centralSceneEvents={}} end
+fibaro._setTimeout = setTimeout
+local _setTimeout = setTimeout
+
+function fibaro._cacheDeviceProp(deviceID,prop,value)
+  fibaro._EventCache.devices[prop..deviceID]={value=value,modified=os.time()}
+end
+
+function fibaro._pollForTriggers(interval)
+  local EventCache = fibaro._EventCache
+  local INTERVAL = interval or 1000 -- every second, could do more often...
+  local tickEvent = "TICK"
+
+  local function post(ev)
+    if _debugFlags.triggers then Debug(true,"Incoming event:%s",ev) end
+    ev._sh=true
+    Event._handleEvent(ev) 
+  end 
+
+  api.post("/customEvents",{name=tickEvent,userDescription="Tock!"})
+
+  local EventTypes = { -- There are more, but these are what I seen so far...
+    WeatherChangedEvent = function(self,d) post({type='WeatherChangedEvent',value=d}) end,
+    GlobalVariableChangedEvent = function(self,d)
+      EventCache.globals[d.variableName]={name=d.variableName, value = d.newValue, modified=os.time()}
+      post({type='global', name=d.variableName, value=d.newValue, old=d.oldValue})
+    end,
+    DevicePropertyUpdatedEvent = function(self,d)
+      if d.property=='quickAppVariables' then 
+        local old={}; for _,v in ipairs(d.oldValue) do old[v.name] = v.value end -- Todo: optimize
+        for _,v in ipairs(d.newValue) do
+          if v.value ~= old[v.name] then
+            post({type='quickvar', name=v.name, value=v.value, old=old[v.name]})
+          end
+        end
+      else
+        --if d.property:match("^ui%.") then return end
+        if d.property == "icon" then return end
+        EventCache.devices[d.property..d.id]={value=d.newValue, modified=os.time()}     
+        post({type='property', deviceID=d.id, propertyName=d.property, value=d.newValue, old=d.oldValue})
+      end
+    end,
+    CentralSceneEvent = function(self,d) EventCache.centralSceneEvents[d.deviceId]=d; post({type='centralSceneEvent', data=d}) end,
+    AccessControlEvent = function(self,d) EventCache.caccessControlEvent[d.id]=d; post({type='accessControlEvent', data=d}) end,
+    CustomEvent = function(self,d) 
+      if d.name == tickEvent then return 
+      elseif fibaro._handleEvent and fibaro._handleEvent({type='customevent',name=d.name}) then return
+      else
+        local value = api.get("/customEvents/"..d.name) 
+        post({type='customevent', name=d.name, value=value and value.userDescription}) 
+      end 
+    end,
+    PluginChangedViewEvent = function(self,d) post({type='PluginChangedViewEvent', value=d}) end,
+    WizardStepStateChangedEvent = function(self,d) post({type='WizardStepStateChangedEvent', value=d})  end,
+    UpdateReadyEvent = function(self,d) post({type='UpdateReadyEvent', value=d}) end,
+    SceneRunningInstancesEvent = function(self,d) post({type='SceneRunningInstancesEvent', value=d}) end,
+    DeviceRemovedEvent = function(self,d)  post({type='DeviceRemovedEvent', value=d}) end,
+    DeviceChangedRoomEvent = function(self,d)  post({type='DeviceChangedRoomEvent', value=d}) end,    
+    DeviceCreatedEvent = function(self,d)  post({type='DeviceCreatedEvent', value=d}) end,
+    DeviceModifiedEvent = function(self,d) post({type='DeviceModifiedEvent', value=d}) end,
+    SceneStartedEvent = function(self,d)   post({type='SceneStartedEvent', value=d}) end,
+    SceneFinishedEvent = function(self,d)  post({type='SceneFinishedEvent', value=d})end,
+    SceneRemovedEvent = function(self,d)  post({type='SceneRemovedEvent', value=d}) end,
+    PluginProcessCrashedEvent = function(self,d) post({type='PluginProcessCrashedEvent', value=d}) end,
+    onUIEvent = function(self,d) 
+      Log(LOG.LOG,"UI %s",d)
+      post({type='uievent', deviceID=d.deviceId, name=d.elementName}) 
+    end,
+  }
+
+  local function checkEvents(events)
+    for _,e in ipairs(events) do
+      if EventTypes[e.type] then EventTypes[e.type](self,e.data)
+      else fibaro.debug("",format("Unhandled event:%s -- please report",json.encode(e))) end
+    end
+  end
+
+  local function pollEvents()
+    local lastRefresh = 0
+    EventCache.polling = true -- Our loop will populate cache with values - no need to fetch from HC3
+    local function pollRefresh()
+      --print("*")
+      local states = api.get("/refreshStates?last=" .. lastRefresh)
+      if states then
+        lastRefresh=states.last
+        if states.events and #states.events>0 then checkEvents(states.events) end
+      end
+      _setTimeout(pollRefresh,INTERVAL)
+      fibaro.emitCustomEvent(tickEvent)  -- hack because refreshState hang if no events...
+    end
+    _setTimeout(pollRefresh,INTERVAL)
+  end
+
+  Log(LOG.SYS,"Polling for triggers..")
+  pollEvents()
+end
+
+local function initEventExtension(self)
+  fibaro.QD = self -- If we need to call any function on self:*, Note, call is of form fibaro.QD:getVariable(<varname>)
+  fibaro.ID = plugin.mainDeviceId -- The device's device id
+  Util = createUtils() 
   local deviceID = plugin.mainDeviceId
   local appName = api.get("/devices/"..deviceID).name
-  Log(LOG.HEADER,"%s, %s (ID:%s)",appName or "NoName",DEVICE_VERS or "",deviceID)
+  Log(LOG.HEADER,"%s, %s (ID:%s)",appName or "NoName",APP_VERS or "",fibaro.ID)
   Log(LOG.SYS,"Events %s, %s",E_VERSION,E_FIX)
-  s.debug = function(s,...) Log(LOG.LOG,...) end
-  Device = createDeviceSupport(s)
-  Event = createEventEngine(s)
-  createRemoteEventSupport(s)
-  createRemoteFunctionSupport(s)
-  createAutoPatchSupport(s)
+  self.debug = function(self,...) Log(LOG.LOG,...) end
+  Device = createDeviceSupport()
+  Event = createEventEngine()
+  createRemoteSupport()
+  createAutoPatchSupport()
   extraSetup()
-  setUpEventScript()
-
-  Log(LOG.SYS,"Sunrise:%s,  Sunset:%s",(fibaro.get(1,"sunriseHour")),(fibaro.get(1,"sunsetHour")))
-  Log(LOG.HEADER,"Setting up rules (main)")
-  s:main() -- call main
-  Event.createCustomEvent(Event.tickEvent,"Tock!") -- hack because refreshState hang if no events available... 
-  Log(LOG.HEADER,"Running")
-  Event.pollEvents() 
-  Event.post({type='startup'})
+  if _EMULATED then Web_functions(Util.getIPaddress()) end
+  installExternalModules()
+  if setUpEventScript then setUpEventScript() end  
+  local function cont()
+    Log(LOG.SYS,"Sunrise:%s,  Sunset:%s",(fibaro.get(1,"sunriseHour")),(fibaro.get(1,"sunsetHour")))
+    Log(LOG.HEADER,"Setting up rules (main)")
+    main(self) -- call main
+    Event.createCustomEvent(Event.tickEvent,"Tock!") -- hack because refreshState hang if no events available... 
+    Log(LOG.HEADER,"Running")
+    fibaro._pollForTriggers(TRIGGERPOLLINTERVALL) 
+    Event.post({type='startup'})
+  end
+  if createHueSupport then Hue = createHueSupport() end
+  Hue.connect(_HueUserName,_HueIP,nil,cont)
 end 
 
 function QuickApp:onInit()
-  QuickApp:initEventExtension(self)
+  initEventExtension(self)
 end
 
-if dofile then QuickApp:onInit() end
+if dofile then
+  local UI = {
+    {label='name',text="ER 4.0 beta v0.1"},
+    {button='debugTriggers', text='Triggers:ON'},
+    {button='debugPost', text='Post:ON'},
+    {button='debugRules', text='Rules:ON'},
+  }
+  DEVICEID = fibaro._createProxy("EventRunner4",nil,UI,{})
+  fibaro._start(DEVICEID,nil) 
+end
