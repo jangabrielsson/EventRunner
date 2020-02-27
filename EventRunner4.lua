@@ -1,22 +1,28 @@
 if dofile then
   dofile("fibaroapiHC3.lua")
   local cr = loadfile("credentials.lua"); if cr then cr() end
+  QuickApp._quickVars["Hue_User"]=_HueUserName
+  QuickApp._quickVars["Hue_IP"]=_HueIP
   require('mobdebug').coro()  
 end
 
-E_VERSION,E_FIX = "Beta 1.0","fix4"
-MODULES = {"EventScript4.lua","Hue4.lua"}
+E_VERSION,E_FIX = 0.1,"fix4"
+_HC3IPADDRESS = "192.168.1.57" -- Needs to be defined on the HC3 as /seetings/networks seems broken...
+MODULES = {"EventScript4.lua","Hue4.lua"} -- Modules we want to load
 
 _debugFlags = { triggers = true, post=false, fcall=true  } 
 
 function main()
   local rule = Rule.eval
 
-  HT = { keyfob = 26, motion= 21,
+  HT = { 
+    keyfob = 26, 
+    motion= 21,
     temp = 22, lux = 23,
     motionHC2 = 44,
     lightHC2 = 45, 
-    tempHC2 = 46}
+    tempHC2 = 46
+  }
 
   Nodered.connect("http://192.168.1.50:1880/ER_HC3")
   Nodered.post({type='echo1',value=42})
@@ -45,6 +51,9 @@ function main()
   rule("1000:value => log('Light %d changed value to %s',env.event.deviceID,env.event.value)")
   rule("1001:value => log('Switch %d changed value to %s',env.event.deviceID,env.event.value)")
   rule("1002:value => log('Motion %d changed value to %s',env.event.deviceID,env.event.value)")
+
+  rule("Util.checkEventRunnerVersion()")
+  rule("#ER_version => log('New ER version:%s',env.event)")
 end
 
 function QuickApp:turnOn() self:updateProperty("value", true) end
@@ -385,21 +394,6 @@ function createUtils()
     end
   end
 
-  if not _EMULATED then
-    local _oldSetTimeout = setTimeout
-    local stat,res = pcall(function() x() end)
-    local line = 514-res:match("lua:(%d+)") -- '4' should be the line number of the previous line
-    function setTimeout(fun,ms)
-      return _oldSetTimeout(function()
-          stat,res = pcall(fun)
-          if not stat then
-            local cline,msg = res:match("lua:(%d+):(.*)")
-            print(string.format("Error in setTimeout (line:%d):%s",line+cline,msg)) 
-          end
-        end,ms)
-    end
-  end
-
   local function patchF(name)
     local oldF,flag = fibaro[name],"f"..name
     fibaro[name] = function(...)
@@ -407,7 +401,7 @@ function createUtils()
       local res = {oldF(...)}
       if _debugFlags[flag] then
         args = #args==0 and "" or json.encode(args):sub(2,-2)
-        Log(LOG.LOG,"fibaro.%s(%s) => %s",name,args,#res==0 and "nil" or #res==1 and res[1] or res)
+        Log(LOG.DEBUG,"fibaro.%s(%s) => %s",name,args,#res==0 and "nil" or #res==1 and res[1] or res)
       end
       return table.unpack(res)
     end
@@ -745,8 +739,9 @@ function createUtils()
   end
 
   if not _EMULATED then
-    local _IPADDRESS = nil
+    local _IPADDRESS = _HC3IPADDRESS
     function self.getIPaddress()
+      if _IPADDRESS then return _IPADDRESS end
       local nets = api.get("/settings/network").networkConfig or {}
       if nets.wlan0.enabled then
         _IPADDRESS =  nets.wlan0.ipConfig.ip
@@ -879,18 +874,15 @@ function createAutoPatchSupport()
   Log(LOG.SYS,"Setting up autopatch support..")
   local _EVENTSSRCPATH = "EventRunner4.lua"
 
-  function Util.checkVersion(vers)
+  function Util.checkEventRunnerVersion(vers)
     local req = net.HTTPClient()
-    req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/VERSION.json",
-      {options = {method = 'GET', checkCertificate = false, timeout=20000},
+    req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/VERSION4.json",{
+        options = {method = 'GET', checkCertificate = false, timeout=20000},
         success=function(data)
-          if data.status == 200 then
-            local v = json.decode(data.data)
-            v = v[_EVENTSSRCPATH]
-            if not v then return end
-            if vers then v = v.scenes[vers] end
-            if v.version ~= E_VERSION or v.fix ~= E_FIX then
-              Event.post({type='Event_version',version=v.version,fix=v.fix or "", _sh=true})
+          if data.status == 200 then 
+            local info = json.decode(data.data)
+            if info[_EVENTSSRCPATH].version ~= E_VERSION then
+              Event.post({type='ER_version',version=info[_EVENTSSRCPATH].version, _sh=true})
             end
           end
         end})
@@ -901,35 +893,23 @@ function createAutoPatchSupport()
   function Util.patchEventRunner(newSrc)
     if newSrc == nil then
       local req = net.HTTPClient()
-      req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/".._EVENTSSRCPATH,
-        {options = {method = 'GET', checkCertificate = false, timeout=20000},
-          success=function(data)
-            if data.status == 200 then
-              local src = data.data
-              Util.patchEventRunner(src)
-            end
-          end,
+      req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/".._EVENTSSRCPATH,{
+          options = {method = 'GET', checkCertificate = false, timeout=20000},
+          success=function(data) if data.status == 200 then Util.patchEventRunner(data.data) end end,
           error=function(status) Log(LOG.ERROR,"Get src code from Github: %s",status) end
         })
-    else
-      local oldSrc=""
-      if __fullFileName then
-        --local f = io.open(__fullFileName)
-        --if not f then return end
-        --oldSrc = f:read("*all")
-      else oldSrc = api.get("/devices/"..Device.deviceID).properties.mainFunction end
-      local obp = oldSrc:find(_EVENTSDELIMETER)
-      oldSrc = oldSrc:sub(1,obp-1)
-      local nbp = newSrc:find(_EVENTSDELIMETER)
-      local nbody = newSrc:sub(nbp)
-      oldSrc = oldSrc:gsub("(E_VERSION,E_FIX = .-\n)",newSrc:match("(E_VERSION,E_FIX = .-\n)"))
-      Log(LOG.SYS,"Patching scene to latest version")
-      if __fullFileName then
-        --local f = io.open(__fullFileName, "w")
-        --io.output(f)
-        --io.write(oldSrc..nbody)
-        --io.close(f)
-      else fibaro.QD:updateProperty("mainFunction",oldSrc..nbody) end
+      return
+    end
+    local oldSrc = api.get("/devices/"..fibaro.ID).properties.mainFunction
+    local obp = oldSrc:find(_EVENTSDELIMETER)
+    oldSrc = oldSrc:sub(1,obp-1) -- Save start of old file - contains user stuff
+    local nbp = newSrc:find(_EVENTSDELIMETER)
+    local nbody = newSrc:sub(nbp) -- copy rest of new file - contains updated stuff
+    oldSrc = oldSrc:gsub("(E_VERSION,E_FIX = .-\n)",newSrc:match("(E_VERSION,E_FIX = .-\n)"))
+    Log(LOG.SYS,"Patching scene to latest version")
+    if not _EMULATED then
+      local stat,res = api.put("/devices/"..fibaro.ID,{properties = {mainFunction = oldSrc..nbody}})
+      if not stat then Log(LOG.ERROR,"Could update mainFunction (%s)",res) end
     end
   end
 end
@@ -967,6 +947,12 @@ function extraSetup()
       local b = env.event.name
       if DEBUGKEYS[b] then updateDebugKey(b,true) end
     end)
+
+  function Event.subscribe(event,h) 
+
+  end
+
+  function Event.publish(event) Event.broadcastEvent(event) end
 
 --------- Node-red support ---------
 
@@ -1060,21 +1046,18 @@ local function installExternalModules(cont)
 
     local function installModules(files,cont)
       local code = api.get("/devices/"..fibaro.ID).properties.mainFunction
-      local modulespace = (code or ""):match("%-%->MODULES>%-+(.-)%-%-<MODULES")
-      if modulespace then
-        local start = code:match("(.-%-%>MODULES>%-+)")
-        local edn = code:match("(%-%-<MODULES<.*)")
-        if start and edn then
-          local sources = {}
-          installModule(files,sources,function()
-              table.insert(sources,1,start)
-              sources[#sources+1]=edn
-              sources = table.concat(sources,"\n")
-              ---print(sources)
-              local stat,res = api.put("/devices/"..fibaro.ID,{properties = {mainFunction = sources }})
-              cont()
-            end,cont)
-        end
+      local start = code:match("(.-%-%>MODULES>%-+)")
+      local edn = code:match("(%-%-<MODULES<.*)")
+      if start and edn then
+        local sources = {}
+        installModule(files,sources,function()
+            table.insert(sources,1,start)
+            sources[#sources+1]=edn
+            sources = table.concat(sources,"\n")
+            ---print(sources)
+            local stat,res = api.put("/devices/"..fibaro.ID,{properties = {mainFunction = sources }})
+            cont()
+          end,cont)
       end
     end
 
@@ -1093,6 +1076,8 @@ local function installExternalModules(cont)
         elseif m.shouldInstall and m.isInstalled then existing[#existing+1]= m end
       end
       if #removes > 0 or #install> 0 then 
+        for _,m in ipairs(removes) do Log(LOG.SYS,"Removing module %s",m.name) end
+        for _,m in ipairs(install) do Log(LOG.SYS,"Installing module %s",m.name) end
         for _,m in ipairs(existing) do install[#install+1]=m end
         installModules(install,cont)
       else cont() end
@@ -1111,11 +1096,26 @@ end
 --INSTALLED_MODULES['EventScript4.lua']={isInstalled=true,installedVersion=0.1}
 --INSTALLED_MODULES['EventScript.lua']={isInstalled=true,installedVersion=0.001}
 --....
---<MODULE<-----------------------------
+--<MODULES<-----------------------------
 
 --------------- getting triggers from HC3 ---------------------
 
-if not _EMULATED then  fibaro._EventCache = { polling=false, devices={}, globals={}, centralSceneEvents={}} end
+if not _EMULATED then  
+  fibaro._EventCache = { polling=false, devices={}, globals={}, centralSceneEvents={}} 
+  local _oldSetTimeout = setTimeout
+  local stat,res = pcall(function() x() end)
+  local line = 399-res:match("lua:(%d+)") -- '4' should be the line number of the previous line
+  function setTimeout(fun,ms)
+    return _oldSetTimeout(function()
+        stat,res = pcall(fun)
+        if not stat then
+          local cline,msg = res:match("lua:(%d+):(.*)")
+          print(string.format("Error in setTimeout (line:%d):%s",line+cline,msg)) 
+        end
+      end,ms)
+  end
+end
+
 fibaro._setTimeout = setTimeout
 local _setTimeout = setTimeout
 
@@ -1214,12 +1214,13 @@ end
 
 local function initEventExtension(self)
   fibaro.QD = self -- If we need to call any function on self:*, Note, call is of form fibaro.QD:getVariable(<varname>)
-  fibaro.ID = plugin.mainDeviceId -- The device's device id
+  fibaro.ID = plugin.mainDeviceId or 99 -- The device's device id
   Util = createUtils() 
   local deviceID = plugin.mainDeviceId
   local appName = api.get("/devices/"..deviceID).name
   Log(LOG.HEADER,"%s, %s (ID:%s)",appName or "NoName",APP_VERS or "",fibaro.ID)
   Log(LOG.SYS,"Events %s, %s",E_VERSION,E_FIX)
+  Log(LOG.SYS,"IP address:%s",Util.getIPaddress())  
   self.debug = function(self,...) Log(LOG.LOG,...) end
   Device = createDeviceSupport()
   Event = createEventEngine()
@@ -1231,15 +1232,19 @@ local function initEventExtension(self)
       local function cont()
         Log(LOG.SYS,"Sunrise:%s,  Sunset:%s",(fibaro.get(1,"sunriseHour")),(fibaro.get(1,"sunsetHour")))
         Log(LOG.HEADER,"Setting up rules (main)")
-        main(self) -- call main
+        local stat,res = pcall(function()
+            main(self) -- call main
+          end)
+        if not stat then error("Main ERROR:"..res) end
         Event.createCustomEvent(Event.tickEvent,"Tock!") -- hack because refreshState hang if no events available... 
         Log(LOG.HEADER,"Running")
         fibaro._pollForTriggers(TRIGGERPOLLINTERVALL) 
         Event.post({type='startup'})
       end
-      if createHueSupport then 
+      local HueUser,HueIP = self:getVariable("Hue_User"),self:getVariable("Hue_IP")
+      if createHueSupport and HueUser and HueIP then 
         Hue = createHueSupport() 
-        Hue.connect(_HueUserName,_HueIP,nil,cont)
+        Hue.connect(HueUser,HueIP,nil,cont)
       else cont() end
     end)
 end 

@@ -90,7 +90,7 @@ function createHueSupport()
     ['start'] = function(e) -- {type='start', user=<user>, ip=<ip>}
       local ip,user,hub,cont = e.ip,e.user,e.hub,e.cont
       HueRequest = createHueReq(user,ip)
-      HueRequest("",'GET',nil,{type='init',hub=hub, cont=cont},{type='startErr',hub=hub, cont=cont}) 
+      HueRequest("",'GET',nil,{type='init',hub=hub, cont=cont, ip=ip},{type='startErr',hub=hub, cont=cont, ip=ip}) 
     end,
 
     ['init'] = function(e)
@@ -98,7 +98,10 @@ function createHueSupport()
       buildDeviceList(data,e.hub)
       post({type='poll',hub=e.hub},INTERVAL)
       --print(json.encode(e))
-      if e.cont then e.cont() end
+      if e.cont then 
+        Log(LOG.SYS,"Hue connected to %s",e.ip)
+        e.cont() 
+      end
     end,
 
     ['poll'] = function(e)
@@ -155,7 +158,7 @@ function createHueSupport()
       if DEVICEMAP[e.key] then 
         local deviceID,value=DEVICEMAP[e.key],e.value
         fibaro._cacheDeviceProp(deviceID,"value",value)
-        Event.post({type='property',deviceID=deviceID, propertyName='value',value=value}) 
+        Event.post({type='property',deviceID=deviceID, propertyName='value',value=value and 1 or 0}) 
       end
     end,
     ['temperature'] = function(e)
@@ -176,12 +179,13 @@ function createHueSupport()
     end,
 
     ['errPoll'] = function(e)
-      Debug(true,"Error:"..json.encode(e))
+      Log(LOG.ERROR,"Error:"..json.encode(e))
       post({type='poll',hub=e.hub},3*INTERVAL)
     end,
 
     ['startErr'] = function(e)
-      print(json.encode(e))
+      Log(LOG.ERROR,"Error connecting to Hue at %s (%s)",e.ip,e.value)
+      e.cont()
     end,
   }
 
@@ -189,8 +193,13 @@ function createHueSupport()
   function post(ev,t) _setTimeout(function() main(ev) end,t or 0) end
 
   function self.connect(name,ip,hub,cont)
-    hub = hub or "Hue"
-    post({type='start', user=name, ip = ip, hub=hub, cont=cont})
+    if not(name and ip) then 
+      Log(LOG.ERROR,"Missing Hue credentials") 
+      cont()
+    else
+      hub = hub or "Hue"
+      post({type='start', user=name, ip = ip, hub=hub, cont=cont})
+    end
   end
 
   function self.dump() for _,d in ipairs(HUELIST) do Debug(true,tostring(d)) end end
