@@ -144,7 +144,6 @@ function createHueSupport()
     end,
 
     ['lightChange'] = function(e)
-      --Debug(true,"Light[%s]=%s, value:%s",e.hueID,e.on,e.value)
       if DEVICEMAP[e.key] then
         local deviceID,value=DEVICEMAP[e.key],e.on and math.floor((e.value/254*99+0.5)) or 0
         fibaro._cacheDeviceProp(deviceID,"value",value)
@@ -153,7 +152,6 @@ function createHueSupport()
     end,
 
     ['button'] = function(e)
-      --Debug(true,"Button[%s]=%s",e.hueID,e.value)
       if DEVICEMAP[e.key] then 
         local deviceID,value=DEVICEMAP[e.key],e.value
         fibaro._cacheDeviceProp(deviceID,"value",value)
@@ -161,7 +159,6 @@ function createHueSupport()
       end
     end,
     ['presence'] = function(e)
-      --Debug(true,"Presence[%s]=%s",e.hueID,e.value)
       if DEVICEMAP[e.key] then 
         local deviceID,value=DEVICEMAP[e.key],e.value
         fibaro._cacheDeviceProp(deviceID,"value",value)
@@ -177,7 +174,6 @@ function createHueSupport()
       end
     end,
     ['lightlevel'] = function(e) --TODO: Lightlevel needs to be adjustes
-      --Debug(true,"Lightsensor[%s]=%s (dark:%s,daylight:%s)",e.hueID,e.value,e.dark,e.daylight)
       if DEVICEMAP[e.key] then 
         local deviceID,value=DEVICEMAP[e.key],e.value
         fibaro._cacheDeviceProp(deviceID,"value",value)
@@ -200,9 +196,7 @@ function createHueSupport()
   function post(ev,t) _setTimeout(function() main(ev) end,t or 0) end
 
   function self.connect(name,ip,hub,cont)
-    if not(name and ip) then 
-      Log(LOG.ERROR,"Missing Hue credentials") 
-      cont()
+    if not(name and ip) then Log(LOG.ERROR,"Missing Hue credentials") cont()
     else
       hub = hub or "Hue"
       post({type='start', user=name, ip = ip, hub=hub, cont=cont})
@@ -223,12 +217,8 @@ function createHueSupport()
   end
 
   local HueCommands = {
-    turnOn = function(req,hub,id) 
-      req("lights/"..id.."/state","PUT",{on=true},nil,nil)
-    end,
-    turnOff = function(req,hub,id) 
-      req("lights/"..id.."/state","PUT",{on=false},nil,nil)
-    end,
+    turnOn = function(req,hub,id) req("lights/"..id.."/state","PUT",{on=true},nil,nil) end,
+    turnOff = function(req,hub,id) req("lights/"..id.."/state","PUT",{on=false},nil,nil) end,
     setColor = function(req,hub,id,r,g,b,w) 
       local x,y=rgb2xy(r,g,b); 
       local pl={xy={x,y},bri=w and w/99*254}
@@ -245,13 +235,6 @@ function createHueSupport()
       elseif type(val)=='table' then
         if val.startup then
           Log(LOG.WARNING,"Hue startup not implemented")
---          local lights = d.lights and #d.lights>0 and d.lights or {d.id}
---          for _,id in ipairs(lights) do
---            local d = h.lights[tonumber(id)]
---            local url = (d.url:match("(.*)/state")).."/config/startup/"
---            payload=val
---            h.request(format(url,d.id),nil,"PUT",payload)
---          end
           return
         else payload=val end
       end
@@ -262,7 +245,6 @@ function createHueSupport()
       end
     end
   }
-
   function self.define(name,deviceID,hub)
     hub = hub or "Hue"
     for k,v in pairs(HUEMAP) do
@@ -288,7 +270,6 @@ function createHueSupport()
     end
     error("Missing Hue name "..name)
   end
-
   Log(LOG.SYS,"Setting up Hue support..")
   return self
 end

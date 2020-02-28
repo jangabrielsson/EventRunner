@@ -1138,6 +1138,7 @@ local function installExternalModules(cont)
             sources = table.concat(sources,"\n")
             ---print(sources)
             local stat,res = api.put("/devices/"..fibaro.ID,{properties = {mainFunction = sources }})
+            if not stat then Log(LOG.ERROR,"Failed updating mainFunction: %s",res) end
             cont()
           end,cont)
       end
