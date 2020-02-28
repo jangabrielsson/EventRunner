@@ -11,9 +11,10 @@ function createHueSupport()
   local SENSORPROPS = {temperature=true,buttonevent=true,presence=true,lightlevel=true,dark=true,daylight=true}
   local INTERVAL = 1000 -- Interval to poll Hue hub
 
-  local HUEMAP = {}      -- Map from hueKey to deviceInfo
-  local DEVICEMAP = nil  -- hueKey -> deviceID for installed devices
-  local HUELIST = {}           -- List of all Hue devices
+  local HUEMAP = {}        -- Map from hueKey to deviceInfo
+  local DEVICEMAP = nil    -- hueKey -> deviceID for installed devices
+  local REVDEVICEMAP = {}  -- hueKey -> deviceID for installed devices
+  local HUELIST = {}       -- List of all Hue devices
 
   local CHANGEMAP = {
     ["ZLLSwitch"] = function(ns,os) 
@@ -67,17 +68,23 @@ function createHueSupport()
     for k,v in pairs(list.groups or {}) do
       if CHANGEMAP[v.type] then HUEMAP[mkKey(hub,'group',k)]={hueID=k, type='groups',d=v} end
     end
+    for k,v in pairs(list.scenes or {}) do
+      local s = {hueID=k, type='scenes',d=v}
+      HUEMAP[mkKey(hub,'scene',v.name)]= s; HUEMAP[mkKey(hub,'scene',k)]= s
+    end
     for k,v in pairs(HUEMAP) do v.key = k; v.__tostring=dev2str; HUELIST[#HUELIST+1]=v end
   end
 
 --------------------------- Main Event loop -------------------------
   local main,post,_HTTP
 
+  local HUEREQS = {}
+
   local function createHueReq(user,ip)
-    local baseURL="http://"..ip..":80/api/"..user.."/"
+    local HTTP,baseURL=nil,"http://"..ip..":80/api/"..user.."/"
     return function(url,op,payload,success,error)
-      _HTTP ,op,payload = _HTTP or Util.netSync.HTTPClient(), op or "GET", payload and json.encode(payload) or ""
-      _HTTP:request(baseURL..url,{
+      HTTP ,op,payload = _HTTP or Util.netSync.HTTPClient(), op or "GET", payload and json.encode(payload) or ""
+      HTTP:request(baseURL..url,{
           options = {headers={['Accept']='application/json',['Content-Type']='application/json'},
             data = payload, timeout=_HUETIMEOUT or 5000, method = op},
           error = function(status) if error then error.value = status post(error) end end,
@@ -89,8 +96,8 @@ function createHueSupport()
   local EVENTS = {
     ['start'] = function(e) -- {type='start', user=<user>, ip=<ip>}
       local ip,user,hub,cont = e.ip,e.user,e.hub,e.cont
-      HueRequest = createHueReq(user,ip)
-      HueRequest("",'GET',nil,{type='init',hub=hub, cont=cont, ip=ip},{type='startErr',hub=hub, cont=cont, ip=ip}) 
+      HUEREQS[hub] = createHueReq(user,ip)
+      HUEREQS[hub]("",'GET',nil,{type='init',hub=hub, cont=cont, ip=ip},{type='startErr',hub=hub, cont=cont, ip=ip}) 
     end,
 
     ['init'] = function(e)
@@ -105,7 +112,7 @@ function createHueSupport()
     end,
 
     ['poll'] = function(e)
-      HueRequest("",nil,nil,{type='checkChanges',hub=e.hub},{type='errPoll',hub=e.hub})
+      HUEREQS[e.hub]("",nil,nil,{type='checkChanges',hub=e.hub},{type='errPoll',hub=e.hub})
     end,
 
     ['checkChanges'] = function(e)
@@ -204,13 +211,72 @@ function createHueSupport()
 
   function self.dump() for _,d in ipairs(HUELIST) do Debug(true,tostring(d)) end end
 
+  local function rgb2xy(r,g,b)
+    r,g,b = r/254,g/254,b/254
+    r = (r > 0.04045) and ((r + 0.055) / (1.0 + 0.055)) ^ 2.4 or (r / 12.92)
+    g = (g > 0.04045) and ((g + 0.055) / (1.0 + 0.055)) ^ 2.4 or (g / 12.92)
+    b = (b > 0.04045) and ((b + 0.055) / (1.0 + 0.055)) ^ 2.4 or (b / 12.92)
+    local X = r*0.649926+g*0.103455+b*0.197109
+    local Y = r*0.234327+g*0.743075+b*0.022598
+    local Z = r*0.0000000+g*0.053077+b*1.035763
+    return X/(X+Y+Z), Y/(X+Y+Z)
+  end
+
+  local HueCommands = {
+    turnOn = function(req,hub,id) 
+      req("lights/"..id.."/state","PUT",{on=true},nil,nil)
+    end,
+    turnOff = function(req,hub,id) 
+      req("lights/"..id.."/state","PUT",{on=false},nil,nil)
+    end,
+    setColor = function(req,hub,id,r,g,b,w) 
+      local x,y=rgb2xy(r,g,b); 
+      local pl={xy={x,y},bri=w and w/99*254}
+      req("lights/"..id.."/state","PUT",pl,nil,nil)
+    end,
+    setValue = function(req,hub,id,val)
+      local payload
+      if type(val)=='string' and not tonumber(val) then 
+        local k = HUEMAP[mkKey(hub,"scene",val)]
+        if k then payload={scene = k.hueID} 
+        else Log(LOG.WARNING,"Hue scene '%s' not found (deviceID:%s)",val,id) return end
+      elseif tonumber(val)==0 then payload={on=false} 
+      elseif tonumber(val) then payload={on=true,bri=math.floor((val/99)*254)}
+      elseif type(val)=='table' then
+        if val.startup then
+          Log(LOG.WARNING,"Hue startup not implemented")
+--          local lights = d.lights and #d.lights>0 and d.lights or {d.id}
+--          for _,id in ipairs(lights) do
+--            local d = h.lights[tonumber(id)]
+--            local url = (d.url:match("(.*)/state")).."/config/startup/"
+--            payload=val
+--            h.request(format(url,d.id),nil,"PUT",payload)
+--          end
+          return
+        else payload=val end
+      end
+      if payload then 
+        req("lights/"..id.."/state","PUT",payload,nil,nil) 
+      else  
+        Log(LOG.ERROR,"Hue setValue id:%s value:%s",id,val) 
+      end
+    end
+  }
+
   function self.define(name,deviceID,hub)
     hub = hub or "Hue"
     for k,v in pairs(HUEMAP) do
       if k:match(hub) and v.d.name == name then
         DEVICEMAP = DEVICEMAP or {}
         DEVICEMAP[k]=deviceID
-        Util.defineVirtualDevice(deviceID,nil,
+        REVDEVICEMAP[deviceID]={id=v.hueID,hub=hub}
+        Util.defineVirtualDevice(deviceID,
+          function(id,action,...)
+            if REVDEVICEMAP[id] and HueCommands[action] then
+              local d=REVDEVICEMAP[id]
+              HueCommands[action](HUEREQS[d.hub],d.hub,d.id,...) return true else return false 
+            end 
+          end,
           function(id,prop,...)
             local val = fibaro._EventCache.devices[prop..id]
             if val then

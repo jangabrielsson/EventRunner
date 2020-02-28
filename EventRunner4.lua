@@ -12,7 +12,7 @@ MODULES = {"EventScript4.lua","Hue4.lua"} -- Modules we want to load
 
 _debugFlags = { triggers = true, post=false, rule=false, fcall=true  } 
 
-function main()
+function main()    -- EventScript versio
   local rule = Rule.eval
 
   HT = { 
@@ -24,39 +24,103 @@ function main()
     tempHC2 = 46
   }
 
-  Nodered.connect("http://192.168.1.50:1880/ER_HC3")
-  Nodered.post({type='echo1',value=42})
---  rule("#echo1 => log('ECHO:%s',env.event)")
-
   Util.defvars(HT)
   Util.reverseMapDef(HT)
 
-  a = rule("keyfob:central => log('Key:%s',env.event.value.keyId)")
-  a.print()
---  rule("motion:value => log('Motion:%s',motion:value)")
---  rule("temp:temp => log('Temp:%s',temp:temp)")
---  rule("lux:lux => log('Lux:%s',lux:lux)")
---  rule("motionHC2:value => log('MotionHC2:%s',motionHC2:value)")
---  rule("tempHC2:temp => log('TempHC2:%s',tempHC2:temp)")
---  rule("lightHC2:value => log('lightHC2:%s',lightHC2:value)")
+  rule("keyfob:central => log('Key:%s',env.event.value.keyId)")
+  rule("motion:value => log('Motion:%s',motion:value)")
+  rule("temp:temp => log('Temp:%s',temp:temp)")
+  rule("lux:lux => log('Lux:%s',lux:lux)")
+  rule("motionHC2:value => log('MotionHC2:%s',motionHC2:value)")
+  rule("tempHC2:temp => log('TempHC2:%s',tempHC2:temp)")
+  rule("lightHC2:value => log('lightHC2:%s',lightHC2:value)")
 
---  rule("keyfob:central & wday('wed') => log('OK')")
+  rule("keyfob:central.keyId==3 => 1000:on") 
+  rule("keyfob:central.keyId==4 => 1000:off") 
+  rule("keyfob:central.keyId==5 => log('Last:%s',1000:last)") 
 
---  rule("#UI{name='$name'} => log('Clicked:%s',name)") -- Name of UI button clicked
+  rule("#UI{name='$name'} => log('Clicked:%s',name)") -- Name of UI button clicked
 
-  --Hue.dump()
-  Hue.define("Middle window",1000)
-  Hue.define("Dimmer switch",1001)
-  Hue.define("Living room sensor",1002)
+  if Hue then -- Hue only defined if we are connected
+    --Hue.dump()
+    Hue.define("Middle window",1000) -- Hue name to fictive deviceID number
+    Hue.define("Dimmer switch",1001)
+    Hue.define("Living room sensor",1002)
+  end
 
-  -- rule("1000:value => log('Light %d changed value to %s',env.event.deviceID,env.event.value)")
-  a = rule("1001:value => log('Switch %d changed value to %s',env.event.deviceID,env.event.value)")
-  a.print()
-  a=nil
-  -- rule("1002:value => log('Motion %d changed value to %s',env.event.deviceID,env.event.value)")
+  rule("1000:value => log('Light %d changed value to %s',env.event.deviceID,env.event.value)")
+  rule("1001:value => log('Switch %d changed value to %s',env.event.deviceID,env.event.value)")
+  rule("1002:value => log('Motion %d changed value to %s',env.event.deviceID,env.event.value)")
+
+  Nodered.connect("http://192.168.1.50:1880/ER_HC3")
+  --Nodered.post({type='echo1',value=42})
+  rule("#echo1 => log('ECHO:%s',env.event)")
+
+  rule("#alarm{property='armed', value=true, id='$id'} => log('Zone %d armed',id)")
+  rule("#alarm{property='armed', value=false, id='$id'} => log('Zone %d disarmed',id)")
+  rule("#alarm{property='homeArmed', value=true} => log('Home armed')")
+  rule("#alarm{property='homeArmed', value=false} => log('Home disarmed')")
+  rule("#alarm{property='homeBreached', value=true} => log('Home breached')")
+  rule("#alarm{property='homeBreached', value=false} => log('Home safe')")
+
+  rule("#weather{property='$prop', value='$val'} => log('%s = %s',prop,val)")
+
+  rule("#profile{property='activeProfile', value='$val'} => log('New profile:%s',val)")
 
 --  rule("Util.checkEventRunnerVersion()")
 --  rule("#ER_version => log('New ER version:%s',env.event)")
+end
+
+function mainLua()  -- Lua version
+
+  HT = { 
+    keyfob = 26, 
+    motion= 21,
+    temp = 22, lux = 23,
+    motionHC2 = 44,
+    lightHC2 = 45, 
+    tempHC2 = 46
+  }
+
+  Event.event({type='property', deviceId=HT.keyfob, propertyName='CentralSceneEvent'},
+    function(env)
+      Log(LOG.LOG,"Key:%s",env.event.value.keyId)
+    end)
+
+  Event.event({type='property', deviceId=HT.keyfob, propertyName='CentralSceneEvent', value={keyId=3}},
+    function(env)
+      fibaro.call(1000,"turnOn")
+    end)
+
+  Event.event({type='UI', name='$name'},
+    function(env)
+      Log(LOG.LOG,"Clicked:%s",env.p.name)
+    end)
+
+  if Hue then -- Hue only defined if we are connected
+    --Hue.dump()
+    Hue.define("Middle window",1000) -- Hue name to fictive deviceID number
+    Hue.define("Dimmer switch",1001)
+    Hue.define("Living room sensor",1002)
+  end
+
+  Event.event({type='property', deviceId=1000, propertyName='value', value='$value'},
+    function(env)
+      Log(LOG.LOG,'Light %d changed value to %s',env.event.deviceID,value)
+    end)
+
+  Nodered.connect("http://192.168.1.50:1880/ER_HC3")
+  --Nodered.post({type='echo1',value=42})
+  Event.event({type='echo1'},
+    function(env)
+      Log(LOG.LOG,'ECHO:%s',env.event)
+    end)
+
+  Event.event({type='alarm', property='armed', value=true, id='$id'},
+    function(env)
+      Log(LOG.LOG,'Zone %d armed',env.p.id)
+    end)
+
 end
 
 function QuickApp:turnOn() self:updateProperty("value", true) end
@@ -409,7 +473,7 @@ function createUtils()
     function fibaro.get(id,prop,...) local g = VIRTUALDEVICES[id]
       if g and g.get then 
         local stat,res = g.get(id,prop,...)
-        if state then return table.unpack(res) end
+        if stat then return table.unpack(res) end
       end
       return oldGet(id,prop,...)
     end
@@ -1097,6 +1161,7 @@ local function installExternalModules(cont)
         for _,m in ipairs(removes) do Log(LOG.SYS,"Removing module %s",m.name) end
         for _,m in ipairs(install) do Log(LOG.SYS,"Installing module %s",m.name) end
         for _,m in ipairs(existing) do install[#install+1]=m end
+        Log(LOG.SYS,"Restarting...")
         installModules(install,cont)
       else cont() end
     end
@@ -1155,7 +1220,11 @@ function fibaro._pollForTriggers(interval)
   api.post("/customEvents",{name=tickEvent,userDescription="Tock!"})
 
   local EventTypes = { -- There are more, but these are what I seen so far...
-    WeatherChangedEvent = function(self,d) post({type='WeatherChangedEvent',value=d}) end,
+    AlarmPartitionArmedEvent = function(self,d) post({type='alarm', property='armed', id = d.partitionId, value=d.armed}) end,
+    AlarmPartitionBreachedEvent = function(self,d) post({type='alarm', property='breached', id = d.partitionId, value=d.breached}) end,
+    HomeArmStateChangedEvent = function(self,d) post({type='alarm', property='homeArmed', value=d.newValue}) end,
+    HomeBreachedEvent = function(self,d) post({type='alarm', property='homeBreached', value=d.breached}) end,
+    WeatherChangedEvent = function(self,d) post({type='weather',property=d.change, value=d.newValue, old=d.oldValue}) end,
     GlobalVariableChangedEvent = function(self,d)
       EventCache.globals[d.variableName]={name=d.variableName, value = d.newValue, modified=os.time()}
       post({type='global', name=d.variableName, value=d.newValue, old=d.oldValue})
@@ -1201,12 +1270,18 @@ function fibaro._pollForTriggers(interval)
       Log(LOG.LOG,"UI %s",d)
       post({type='uievent', deviceID=d.deviceId, name=d.elementName}) 
     end,
+    ActiveProfileChangedEvent = function(self,d) 
+      post({type='profile',property='activeProfile',value=d.newActiveProfile, old=d.oldActiveProfile}) 
+    end,
   }
+
+  fibaro._eventTypes = EventTypes
 
   local function checkEvents(events)
     for _,e in ipairs(events) do
-      if EventTypes[e.type] then EventTypes[e.type](_,e.data)
-      else fibaro.debug("",string.format("Unhandled event:%s -- please report",json.encode(e))) end
+      local eh = EventTypes[e.type]
+      if eh then eh(_,e.data)
+      elseif eh==nil then fibaro.debug("",string.format("Unhandled event:%s -- please report",json.encode(e))) end
     end
   end
 
@@ -1235,6 +1310,7 @@ local function initEventExtension(self)
   fibaro.ID = plugin.mainDeviceId or 99 -- The device's device id
   Util = createUtils() 
   local deviceID = plugin.mainDeviceId
+  if not fibaro.debug then fibaro.debug = function(...) self:debug(...) end end
   local appName = api.get("/devices/"..deviceID).name
   Log(LOG.HEADER,"%s, %s (ID:%s)",appName or "NoName",APP_VERS or "",fibaro.ID)
   Log(LOG.SYS,"Events %s, %s",E_VERSION,E_FIX)
