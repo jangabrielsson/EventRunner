@@ -88,7 +88,8 @@ function createHueSupport()
           options = {headers={['Accept']='application/json',['Content-Type']='application/json'},
             data = payload, timeout=_HUETIMEOUT or 5000, method = op},
           error = function(status) if error then error.value = status post(error) end end,
-          success = function(status) if success then success.value = status post(success) end end,
+          success = function(status) 
+            if success then success.value = status post(success) end end,
         })
     end
   end
@@ -99,9 +100,12 @@ function createHueSupport()
       HUEREQS[hub] = createHueReq(user,ip)
       HUEREQS[hub]("",'GET',nil,{type='init',hub=hub, cont=cont, ip=ip},{type='startErr',hub=hub, cont=cont, ip=ip}) 
     end,
-
     ['init'] = function(e)
       local data = json.decode(e.value.data)
+      if data[1] and data[1].error then
+        post({type='startErr',hub=e.hub,cont=e.cont, ip=e.ip, value = data[1].error})
+        return
+      end
       buildDeviceList(data,e.hub)
       post({type='poll',hub=e.hub},INTERVAL)
       --print(json.encode(e))
@@ -188,7 +192,7 @@ function createHueSupport()
 
     ['startErr'] = function(e)
       Log(LOG.ERROR,"Error connecting to Hue at %s (%s)",e.ip,e.value)
-      e.cont()
+      e.cont(true)
     end,
   }
 

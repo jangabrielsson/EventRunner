@@ -925,12 +925,15 @@ function createRemoteSupport()
     fibaro.QD:debug("No exported functions from deviceID:"..deviceID)
   end
 
-  local FUNRES = "RPC"..Event.deviceID
+  local FUNRES = nil
   local ASYNC = {"ASYNC"}
 
   api.post("/globalVariables/",{name=FUNRES})
-
   function funCall(deviceID,fun,args)
+    if not FUNRES then
+        FUNRES = "RPC"..Event.deviceID
+        api.post("/globalVariables/",{name=FUNRES,value=""})
+    end
     if args[1]==ASYNC then return deviceID,fun end
     local timeout,res = os.time()+TIMEOUT,nil
     fibaro.setGlobalVariable(FUNRES,"")
@@ -1210,7 +1213,7 @@ end
 function fibaro._pollForTriggers(interval)
   local EventCache = fibaro._EventCache
   local INTERVAL = interval or 1000 -- every second, could do more often...
-  local tickEvent = "TICK"
+  local tickEvent = "ERTICK"
 
   local function post(ev)
     if _debugFlags.triggers then Debug(true,"Incoming event:%s",ev) end
@@ -1218,7 +1221,8 @@ function fibaro._pollForTriggers(interval)
     Event._handleEvent(ev) 
   end 
 
-  api.post("/customEvents",{name=tickEvent,userDescription="Tock!"})
+  --api.post("/customEvents",{name=tickEvent,userDescription="Tock!"})
+  api.post("/globalVariables",{name=tickEvent,value="Tock!"})
 
   local EventTypes = { -- There are more, but these are what I seen so far...
     AlarmPartitionArmedEvent = function(self,d) post({type='alarm', property='armed', id = d.partitionId, value=d.armed}) end,
@@ -1228,6 +1232,7 @@ function fibaro._pollForTriggers(interval)
     WeatherChangedEvent = function(self,d) post({type='weather',property=d.change, value=d.newValue, old=d.oldValue}) end,
     GlobalVariableChangedEvent = function(self,d)
       EventCache.globals[d.variableName]={name=d.variableName, value = d.newValue, modified=os.time()}
+      if d.variableName == tickEvent then return end
       post({type='global', name=d.variableName, value=d.newValue, old=d.oldValue})
     end,
     DevicePropertyUpdatedEvent = function(self,d)
@@ -1297,7 +1302,8 @@ function fibaro._pollForTriggers(interval)
         if states.events and #states.events>0 then checkEvents(states.events) end
       end
       _setTimeout(pollRefresh,INTERVAL)
-      fibaro.emitCustomEvent(tickEvent)  -- hack because refreshState hang if no events...
+      --fibaro.emitCustomEvent(tickEvent)  -- hack because refreshState hang if no events...
+      fibaro.setGlobalVariable(tickEvent,tostring(os.clock())
     end
     _setTimeout(pollRefresh,INTERVAL)
   end
@@ -1324,7 +1330,8 @@ local function initEventExtension(self)
   extraSetup()
   installExternalModules(function()
       if setUpEventScript then setUpEventScript() end  
-      local function cont()
+      local function cont(err)
+        if err then Hue = nil end
         Log(LOG.SYS,"Sunrise:%s,  Sunset:%s",(fibaro.get(1,"sunriseHour")),(fibaro.get(1,"sunsetHour")))
         Log(LOG.HEADER,"Setting up rules (main)")
         local stat,res = pcall(function()

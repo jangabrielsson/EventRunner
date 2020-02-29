@@ -1069,19 +1069,18 @@ function setUpEventScript()
     Event.event({type='%MIDNIGHT'},function(env) 
         Util.defvar('dayname',os.date("*t").wday)
         for _,d in ipairs(dailysTab) do self.recalcDailys(d.rule) end 
-        Event.post("n/00:00")
+        Event.post(env.event,"n/00:00")
       end)
     Event.post({type='%MIDNIGHT',_sh=true},"n/00:00")
     return self
   end
-
 --- SceneActivation constants
   Util.defvar('S1',Util.S1)
   Util.defvar('S2',Util.S2)
   Util.defvar('catch',math.huge)
   Util.defvar("defvars",Util.defvars)
   Util.defvar("mapvars",Util.reverseMapDef)
-
+  
   if makeEventScriptParser then ScriptParser = makeEventScriptParser() end
   if makeEventScriptCompiler then ScriptCompiler = makeEventScriptCompiler(ScriptParser) end
   if makeEventScriptRuntime then ScriptEngine = makeEventScriptRuntime() end
