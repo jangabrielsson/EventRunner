@@ -997,7 +997,10 @@ function createAutoPatchSupport()
     Log(LOG.SYS,"Patching scene to latest version")
     if not _EMULATED then
       local stat,res = api.put("/devices/"..fibaro.ID,{properties = {mainFunction = oldSrc..nbody}})
-      if not stat then Log(LOG.ERROR,"Could update mainFunction (%s)",res) end
+      if not stat then 
+        Log(LOG.ERROR,"Could update mainFunction (%s)",res) 
+        Log(LOG.SYS"Restarting...")
+      end
     end
   end
 end
@@ -1141,7 +1144,11 @@ local function installExternalModules(cont)
             sources = table.concat(sources,"\n")
             ---print(sources)
             local stat,res = api.put("/devices/"..fibaro.ID,{properties = {mainFunction = sources }})
-            if not stat then Log(LOG.ERROR,"Failed updating mainFunction: %s",res) end
+            if not stat then 
+              Log(LOG.ERROR,"Failed updating mainFunction: %s",res) 
+              Log(LOG.SYS,"Restarting <1min...")
+              os.exit()
+            end
             cont()
           end,cont)
       end
@@ -1303,7 +1310,7 @@ function fibaro._pollForTriggers(interval)
       end
       _setTimeout(pollRefresh,INTERVAL)
       --fibaro.emitCustomEvent(tickEvent)  -- hack because refreshState hang if no events...
-      fibaro.setGlobalVariable(tickEvent,tostring(os.clock())
+      fibaro.setGlobalVariable(tickEvent,tostring(os.clock()))
     end
     _setTimeout(pollRefresh,INTERVAL)
   end

@@ -1,8 +1,48 @@
-FIBAROAPIHC3_VERSION = "0.36"
+--[[
+EventRunner. HC3 SDK
+Copyright (c) 2020 Jan Gabrielsson
+Email: jan@gabrielsson.com
+MIT License
 
---_HC3_IP = "localhost"
---_HC3_USER =  "foo"
---_HC3_PWD = "bar"
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+json -- Copyright (c) 2019 rxi
+--]]
+
+FIBAROAPIHC3_VERSION = "0.40"
+
+--_HC3_IP   = "localhost"
+--_HC3_USER = "foo" 
+--_HC3_PWD  = "bar"
+
+--[[
+  Best way is to conditionally include this file at the top of your lua file
+  if dofile then
+     dofile("fibaroapiHC3.lua")
+     local cr = loadfile("credentials.lua"); if cr then cr() end
+     QuickApp._quickVars["Hue_User"]=_HueUserName
+     QuickApp._quickVars["Hue_IP"]=_HueIP
+  end
+  We load another file, credentials.lua, where we define lua globals like _HC3_IP, _HC3_USER etc.
+  This way the credentials are not visible in your code and you will not accidently upload them :-)
+  You can also predefine quickvars that are accessible with self:getVariable() when your code starts up
+--]]
 
 -- "Fibaro-User-PIN: 777"  ??
 
@@ -34,8 +74,10 @@ fibaro.alarm(partition_id, action)
 fibaro.setTimeout(ms, func)
 fibaro.emitCustomEvent(name)
 fibaro.wakeUpDeadDevice
+fibaro.sleep(ms) -- simple busy wait...
 
 net.HTTPClient()
+net.TCPSocket()
 api.get(call) 
 api.put(call <, data>) 
 api.post(call <, data>)
@@ -524,6 +566,7 @@ QuickApp = {
 }
 
 function fibaro._sleep(s) local t = ostime()+s; while ostime() <= t do end end
+fibaro.sleep = fibaro._sleep -- Note: Should we make a smarter sleep that yields?
 
 --[[
 {
@@ -1018,6 +1061,7 @@ function fibaro._pollForTriggers(interval)
     DeviceModifiedEvent = function(self,d) post({type='DeviceModifiedEvent', value=d}) end,
     SceneStartedEvent = function(self,d)   post({type='SceneStartedEvent', value=d}) end,
     SceneFinishedEvent = function(self,d)  post({type='SceneFinishedEvent', value=d})end,
+    -- {"data":{"id":219},"type":"RoomModifiedEvent"}
     SceneRemovedEvent = function(self,d)  post({type='SceneRemovedEvent', value=d}) end,
     PluginProcessCrashedEvent = function(self,d) post({type='PluginProcessCrashedEvent', value=d}) end,
     onUIEvent = function(self,d) post({type='uievent', deviceID=d.deviceId, name=d.elementName}) end,
@@ -1072,17 +1116,17 @@ end
 
 do
   local ELMS = {
-    button = function(d)
-      return {name=d.name,style={weight="0.50"},text=d.text,type="button"}
+    button = function(d,w)
+      return {name=d.name,style={weight=w or "0.50"},text=d.text,type="button"}
     end,
     slider = function(d)
-      return {name=d.name,max=d.max,min=d.min,style={weight="1.2"},text=d.text,type="slider"}
+      return {name=d.name,max=tostring(d.max),min=tostring(d.min),style={weight="1.2"},text=d.text,type="slider"}
     end,
     label = function(d)
       return {name=d.name,style={weight="1.2"},text=d.text,type="label"}
     end,
-    space = function(d)
-      return {style={weight=d.weight or "0.5"},type="space"}
+    space = function(d,w)
+      return {style={weight=w or "0.50"},type="space"}
     end
   }
 
@@ -1090,12 +1134,13 @@ do
     local comp = {}
     if elms[1] then
       local c = {}
-      for _,e in ipairs(elms) do c[#c+1]=ELMS[e.type](e) end
+      local width = string.format("%.2f",1/#elms)
+      for _,e in ipairs(elms) do c[#c+1]=ELMS[e.type](e,width) end
       comp[#comp+1]={components=c,style={weight="1.2"},type='horizontal'}
-      comp[#comp+1]=ELMS['space']({})
+      comp[#comp+1]=ELMS['space']({},"0.5")
     else
-      comp[#comp+1]=ELMS[elms.type](elms)
-      comp[#comp+1]=ELMS['space']({})
+      comp[#comp+1]=ELMS[elms.type](elms,"1.2")
+      comp[#comp+1]=ELMS['space']({},"0.5")
     end
     return {components=comp,style={weight=weight or "1.2"},type="vertical"}
   end
@@ -1107,7 +1152,7 @@ do
     { ['$jason'] = {
         body = {
           header = {
-            style = {height = 200},
+            style = {height = tostring(#list*50)},
             title = "quickApp_device_23"
           },
           sections = {
@@ -1119,6 +1164,19 @@ do
         }
       }
     }
+  end
+
+  function fibaro._changeViewLayout(id,UI)
+    traverse(UI,
+      function(e)
+        if e.button then e.name,e.type=e.button,'button'
+        elseif e.slider then e.name,e.type=e.slider,'slider'
+        elseif e.label then e.name,e.type=e.label,'label'
+        elseif e.space then e.weight,e.type=e.space,'space' end
+      end)
+    local viewLayout = mkViewLayout(UI)
+    return fibaro.call(id,"updateProperty","viewLayout",viewLayout) 
+    --api.post("/devices/"..id,{properties = {viewLayout = viewLayout}})
   end
 
   local function makeInitialProperties(code,UI,vars)
