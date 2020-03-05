@@ -12,7 +12,7 @@ MODULES = {"EventScript4.lua","Hue4.lua"} -- Modules we want to load
 
 _debugFlags = { triggers = true, post=false, rule=false, fcall=true  } 
 
-function main()    -- EventScript versio
+function main()    -- EventScript version
   local rule = Rule.eval
 
   HT = { 
@@ -931,8 +931,8 @@ function createRemoteSupport()
   api.post("/globalVariables/",{name=FUNRES})
   function funCall(deviceID,fun,args)
     if not FUNRES then
-        FUNRES = "RPC"..Event.deviceID
-        api.post("/globalVariables/",{name=FUNRES,value=""})
+      FUNRES = "RPC"..Event.deviceID
+      api.post("/globalVariables/",{name=FUNRES,value=""})
     end
     if args[1]==ASYNC then return deviceID,fun end
     local timeout,res = os.time()+TIMEOUT,nil
@@ -1363,12 +1363,14 @@ function QuickApp:onInit()
 end
 
 if dofile then
-  local UI = {
-    {label='name',text="ER 4.0 beta v0.1"},
-    {button='debugTriggers', text='Triggers:ON'},
-    {button='debugPost', text='Post:ON'},
-    {button='debugRules', text='Rules:ON'},
+  fibaro._start{
+    name="EventRunner4",
+    proxy=true,
+    UI = {
+      {label='name',text="ER 4.0 beta v0.1"},
+      {button='debugTriggers', text='Triggers:ON'},
+      {button='debugPost', text='Post:ON'},
+      {button='debugRules', text='Rules:ON'},
+    }
   }
-  DEVICEID = fibaro._createProxy("EventRunner4",nil,UI,{})
-  fibaro._start(DEVICEID,nil) 
 end

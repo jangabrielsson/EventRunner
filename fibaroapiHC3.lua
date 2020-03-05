@@ -1,5 +1,5 @@
 --[[
-EventRunner. HC3 SDK
+FibaroAPI HC3 SDK
 Copyright (c) 2020 Jan Gabrielsson
 Email: jan@gabrielsson.com
 MIT License
@@ -25,7 +25,8 @@ SOFTWARE.
 json -- Copyright (c) 2019 rxi
 --]]
 
-FIBAROAPIHC3_VERSION = "0.40"
+FIBAROAPIHC3_VERSION = "0.50"
+print(("HC3 SDK v%s"):format(FIBAROAPIHC3_VERSION))
 
 --_HC3_IP   = "localhost"
 --_HC3_USER = "foo" 
@@ -111,25 +112,42 @@ Scene events:
 json.encode(expr)
 json.decode(string)
 
-fibaro._start(<QuickApp ID>,<poll intervall>,<speedtime>) -- start timers
-fibaro._createProxy(<name>,<type>,<UI>,<quickVars>)       -- create QuickApp proxy on HC3
+fibaro._start{                        -- start QuickApp/Scene
+              id=<QuickApp ID>,       -- default 999
+              poll=<poll intervall>,  -- default false
+              type=<type>,            -- default "com.fibaro.binarySwitch"
+              speed=<speedtime>,      -- default false
+              proxy=<boolean>         -- default false
+              UI=<UI table>,          -- default {}
+              quickvars=<table>,      -- default {}
+              } 
+fibaro._createProxy(<name>,<type>,<UI>,<quickVars>)       -- create QuickApp proxy on HC3 (usually called with fibaro._start)
 fibaro._post(ev,t)                                        -- post event/sourceTrigger 
-fibaro._createQuickApp(<name>,<type>,<body>,<UI>,<quickVars>,<dry run>) 
+fibaro._createQuickApp{               -- creates and deploys QuickApp on HC3
+              name=<string>,            
+              type=<string>,
+              code=<string>,
+              UI=<table>,
+              quickvars=<table>,
+              dryrun=<boolean>
+              } 
 --]]
 
 local https = require ("ssl.https") 
 local http = require("socket.http")
 local socket = require("socket")
 local ltn12 = require("ltn12")
+local _EVENTSERVER = 6872
 
 local ostime = os.time
 local osclock = os.clock
 local osdate = os.date
 
 _EMULATED = true
+_debugFlags = {fcall=true, fget=true, post=true}
 
 local _timeAdjust=0
-function os.time(t) return t and ostime(t) or ostime()+_timeAdjust end
+function os.time(t) return t and ostime(t) or ostime()+math.floor(_timeAdjust+0.5) end
 function os.date(f,t) return t and osdate(f,t) or osdate(f,os.time()) end
 
 local function urlencode (str) 
@@ -320,7 +338,7 @@ function fibaro.__houseAlarm() end
 
 ------------- Timer support ---------------------
 
-local timers,idle = nil,nil
+local timers = nil
 local function milliTime() return ostime() end
 
 local function insertTimer(t) -- {fun,time,next}
@@ -336,15 +354,14 @@ local function insertTimer(t) -- {fun,time,next}
 end
 
 local function runTimers()
-  while timers ~= nil or idle do
+  while timers ~= nil do
     ::REDO::
     local t,now = timers,milliTime()
     if t==nil or t.time > now then 
-      socket.sleep(0.01)
-      if idle then idle() end
+      socket.sleep(0.01) -- 10ms
       goto REDO 
     end
-    local ct = osclock()
+    ---local ct = osclock() - can we add a millisecond part?
     timers=timers.next
     --print(t.text or tostring(t))
     t.fun()
@@ -354,7 +371,7 @@ end
 local function makeTimer(time,fun,txt) return {['%%TIMER%%']=true, time=time,fun=fun, text=txt} end
 local function isTimer(timer) return type(timer)=='table' and timer['%%TIMER%%'] end
 
-function clearTimeout(timer)
+function _clearTimeout(timer)
   __assert(timer == nil or isTimer(timer),"Bad timer to clearTimeout:%s",tostring(timer))
   if timer==nil then return end
   if timers == timer then
@@ -377,7 +394,19 @@ local function _setTimeout(fun,ms,txt)
   end
 end
 
+local function coprocess(ms,fun,name,...)
+  local args = {...}
+  local p = coroutine.create(function() fun(table.unpack(args)) end)
+  local function process()
+    local res = coroutine.resume(p)
+    local stat = coroutine.status(p) -- run every ms
+    if stat then _setTimeout(process,ms) end  -- check exit
+  end
+  process()
+end
+
 setTimeout = _setTimeout 
+clearTimeout = _clearTimeout 
 
 function setInterval(fun,ms)
   local ref={}
@@ -453,8 +482,9 @@ local function safeDecode(x)
   return stat and res
 end
 
-api={} -- Emulation of api.get/put/post
+api={} -- Emulation of api.get/put/post/delete
 local function rawCall(method,call,data,cType,hs)
+  if fibaro._offline then return fibaro._offlineApi(method,call,data,cType,hs) end
   local resp = {}
   local req={ method=method, timeout=5000,
     url = "http://".._HC3_IP.."/api"..call,
@@ -530,6 +560,32 @@ HomeCenter =  {
   } 
 }
 
+local function split(s, sep)
+  local fields = {}
+  sep = sep or " "
+  local pattern = string.format("([^%s]+)", sep)
+  string.gsub(s, pattern, function(c) fields[#fields + 1] = c end)
+  return fields
+end
+local function urldecode(str) return str:gsub('%%(%x%x)',function (x) return string.char(tonumber(x,16)) end) end
+
+local function patchFibaro(name)
+  local oldF,flag = fibaro[name],"f"..name
+  fibaro[name] = function(...)
+    local args = {...}
+    local res = {oldF(...)}
+    if _debugFlags[flag] then
+      args = #args==0 and "" or json.encode(args):sub(2,-2)
+      fibaro.debug("",format("fibaro.%s(%s) => %s",name,args,#res==0 and "nil" or #res==1 and res[1] or res))
+    end
+    return table.unpack(res)
+  end
+end
+
+local function traceFibaro()
+  patchFibaro("call")
+  patchFibaro("get")
+end
 ---------------------- QuickApp ------------------------
 
 QuickApp = {
@@ -537,7 +593,7 @@ QuickApp = {
   _props = {},
   _quickVars = {},
   getVariable = function(self,name) 
-    if plugin.mainDeviceId then
+    if plugin.isProxy then
       local d = api.get("/devices/"..plugin.mainDeviceId) or {properties={}}
       for _,v in ipairs(d.properties.quickAppVariables or {}) do
         if v.name==name then return v.value end
@@ -546,27 +602,42 @@ QuickApp = {
     else return QuickApp._quickVars[name] end
   end,
   setVariable = function(self,name,value) 
-    if plugin.mainDeviceId then
+    if plugin.isProxy then
       fibaro.call(plugin.mainDeviceId,"setVariable",name,json.encode(value))
     end
     QuickApp._quickVars[name] = tostring(value) -- set local too
   end,
   updateView = function(self,elm,t,value) 
-    if plugin.mainDeviceId then
+    if plugin.isProxy then
       fibaro.call(plugin.mainDeviceId,"updateView",elm,t,value)
     end
   end,
   updateProperty = function(self,prop,value) 
-    if plugin.mainDeviceId then
+    if plugin.isProxy then
       fibaro.call(plugin.mainDeviceId,"updateProperty",prop,value)
     else 
       QuickApp._props[prop]=tostring(value)
     end
+  end,
+  addInterfaces = function(interfaces)
+    if plugin.isProxy then
+      api.post("/devices/addInterface",{deviceID={plugin.mainDeviceId},interfaces=interfaces})
+    end
   end
 }
 
-function fibaro._sleep(s) local t = ostime()+s; while ostime() <= t do end end
-fibaro.sleep = fibaro._sleep -- Note: Should we make a smarter sleep that yields?
+function fibaro._sleep(ms) local t = ostime()+ms;  while ostime() <= t do socket.sleep(0.01) end end
+function fibaro.sleep(ms)
+  if fibaro._speeding then 
+    _timeAdjust=_timeAdjust+ms/1000 return
+  else
+    local t = os.time()+ms/1000; 
+    while os.time() < t do 
+      if idle then idle() end
+      socket.sleep(0.01) 
+    end 
+  end
+end
 
 --[[
 {
@@ -823,22 +894,6 @@ weather
 climate
 --]]
 
-local EVENTREMAPPER = {
-  ['property'] = function(e) return {type='device', id=e.deviceID, property=e.propertyName, value = e.value} end,
-  ['customevent'] = function(e) return {type='custom-event', name=e.name} end,
-  ['date'] = function(e) return e end,
-  ['manual'] = function(e) return e end,
-  ['global'] = function(e) return {type='global-variable', property=e.name, value=e.value} end,
-  ['centralSceneEvent'] = function(e) 
-    return {
-      type='device', 
-      property='centralSceneEvent', 
-      id=e.data.deviceId, 
-      value={keyId=e.data.keyId, keyAttribute=e.data.keyAttribute} 
-    }
-  end,
-}
-
 local function toTime(str) local h,m=str:match("(%d+):(%d+)") return 60*h+m end
 local SUN = {}
 local function createCTX()
@@ -861,9 +916,6 @@ local function runScene(t)
   function fibaro._handleEvent(e)
     local ctx = createCTX()
 
-    if EVENTREMAPPER[e.type] then
-      e = EVENTREMAPPER[e.type](e)
-    else return end -- ignore events we don't handle yet
     if e.type=='device' and e.property=='centralSceneEvent' then
       ctx.centralSceneEvent = e
     end
@@ -922,10 +974,11 @@ local function setupSpeedTime(speedTime)
     return t
   end
 
-  function setTimeout(f,t) -- redefine global seppedTime
+  function setTimeout(f,t) -- globally redefine global setTimeout
     if t >= 0 then return addTimer(makeTimer(t/1000,f)) end
   end
-  function clearTimeout(ref)
+
+  function clearTimeout(ref)  -- globally redefine global clearTimeout
     __assert(ref == nil or isTimer(ref),"Bad timer to clearTimeout:%s",tostring(ref))
     if ref == fastTimer then
       fastTimer = fastTimer.next
@@ -938,40 +991,56 @@ local function setupSpeedTime(speedTime)
     end
   end
 
-  function idle() -- Idle loop - we check in the orginal runTimer loop
-    if os.time() >= maxTime then print(os.date("%c")) fibaro.debug("","Max time - exit")  os.exit() 
-    end
-    if fastTimer then
-      _setTimeout(fastTimer.fun,0) -- schedule next time in lines
-      _timeAdjust=_timeAdjust+(fastTimer.time-lastFast) -- increase delay
-      lastFast=fastTimer.time
-      fastTimer = fastTimer.next
-    else 
-      _timeAdjust=_timeAdjust+2 -- 2s?
-    end
-  end
+  coprocess(0,function()
+      while true do
+        if os.time() >= maxTime then print(os.date("%c")) fibaro.debug("","Max time - exit")  os.exit() end
+        if fastTimer then
+          _setTimeout(fastTimer.fun,0) -- schedule next time in lines
+          _timeAdjust=_timeAdjust+(fastTimer.time-lastFast) -- increase delay
+          lastFast=fastTimer.time
+          fastTimer = fastTimer.next
+        else 
+          _timeAdjust=_timeAdjust+5 -- 2s?
+        end
+        coroutine.yield()
+      end
+    end,"speedTime")
 end
 
-function fibaro._start(ID,t,speedTime)
+function fibaro._start(args)
+  plugin.mainDeviceId = args.id or 999
+  plugin.type = args.type or "com.fibaro.binarySwitch"
+  plugin.isProxy = args.proxy 
 
-  if speedTime then setupSpeedTime(tonumber(speedTime) or 48) end
+  local name = args.name or "My App"
+  local pollInterval = args.poll
+  local UI = args.UI or {}
+  local quickvars = args.quickvars or {}
+  fibaro._speeding = args.speed
+  local startWeb = args.startWeb==nil and true or args.startWeb
 
-  if CONDITIONS and ACTIONS then return runScene(t) end
+  if fibaro._speeding then setupSpeedTime(tonumber(fibaro._speeding)) end
+  if args.traceFibaro then traceFibaro() end
 
-  if t then fibaro._pollForTriggers(tonumber(t) and t or 2000) end
-  if not ID then plugin.mainDeviceId =nil end
-  if ID and tonumber(ID) then
-    plugin.mainDeviceId = ID
-    local es,mm = (api.get("/customEvents") or {}),"PROXY"..ID
+  if CONDITIONS and ACTIONS then return runScene(pollInterval) end -- Run a scene
+
+  if plugin.isProxy then
+    plugin.mainDeviceId = fibaro._createProxy(name,plugin.type,UI,quickvars)
+  end
+
+  if pollInterval then fibaro._pollForTriggers(tonumber(pollInterval) or 2000) end
+
+  if plugin.isProxy then
+    local es,mm = (api.get("/customEvents") or {}),"PROXY"..plugin.mainDeviceId
     for _,e in ipairs(es) do  -- clear stale events left behind
       if e.name:match(mm) then 
         fibaro.debug("","Removing stale event "..e.name); fibaro._sleep(1)
         api.delete("/customEvents/"..e.name) 
       end
     end
-    plugin.type = ID and fibaro.getType(ID) or "com.fibaro.binarySwitch"
-    function fibaro._handleEvent(e)
-      if e.type=='customevent' then
+
+    function fibaro._handleEvent(e) -- If we have a HC3 proxy, we listen for UI events (PROXY)
+      if e.type=='customevent' then -- (Default is to get them from callAction...)
         local id,elm = e.name:match("PROXY(%d+)")
         if id and id~="" and ID==tonumber(id) then
           local ed = api.get("/customEvents/"..e.name)
@@ -984,14 +1053,12 @@ function fibaro._start(ID,t,speedTime)
           api.delete("/customEvents/"..e.name)
           return true
         end
-      elseif e.type == 'property' and e.deviceID == ID then
-        --if dev then dev(e.propertyName,e.value) end
-        --fibaro.debug("","PROP:"..json.encode(e))
       end
     end
   end
-  Web_functions(fibaro._getIPaddress())
-  if QuickApp.onInit then _setTimeout(function() QuickApp:onInit() end,1) end
+
+  if startWeb then Web_functions(fibaro._getIPaddress()) end
+  if QuickApp.onInit then _setTimeout(function() QuickApp:onInit() end,1) end -- start :onInit if we have one...
   fibaro._runTimers()
 end
 
@@ -1014,6 +1081,7 @@ function fibaro._cleanUpVarsAndEvents()
   fibaro.debug("","Deleted "..c2.." PROXY events")
 end
 --------------- getting triggers from HC3 ---------------------
+
 function fibaro._pollForTriggers(interval)
   local EventCache = fibaro._EventCache
   local INTERVAL = interval or 1000 -- every second, could do more often...
@@ -1032,7 +1100,7 @@ function fibaro._pollForTriggers(interval)
     GlobalVariableChangedEvent = function(self,d)
       EventCache.globals[d.variableName]={name=d.variableName, value = d.newValue, modified=os.time()}
       if d.variableName == tickEvent then return end
-      post({type='global', name=d.variableName, value=d.newValue, old=d.oldValue})
+      post({type='global-variable', property=d.variableName, value=d.newValue, old=d.oldValue})
     end,
     DevicePropertyUpdatedEvent = function(self,d)
       if d.property=='quickAppVariables' then 
@@ -1044,13 +1112,20 @@ function fibaro._pollForTriggers(interval)
         end
       else
         --if d.property:match("^ui%.") then return end
+        if d.property == 'icon' then return end
         EventCache.devices[d.property..d.id]={value=d.newValue, modified=os.time()}     
-        post({type='property', deviceID=d.id, propertyName=d.property, value=d.newValue, old=d.oldValue})
+        post({type='device', id=d.id, propertyName=d.property, value=d.newValue, old=d.oldValue})
       end
     end,
-    CentralSceneEvent = function(self,d) EventCache.centralSceneEvents[d.deviceId]=d; post({type='centralSceneEvent', data=d}) end,
-    AccessControlEvent = function(self,d) EventCache.caccessControlEvent[d.id]=d; post({type='accessControlEvent', data=d}) end,
-    CustomEvent = function(self,d) if d.name == tickEvent then return else post({type='customevent', name=d.name}) end end,
+    CentralSceneEvent = function(self,d) 
+      EventCache.centralSceneEvents[d.deviceId]=d 
+      post({type='device', property='centralSceneEvent', id=d.deviceId, value = {keyId=d.keyId, keyAttribute=d.keyAttribute}}) 
+    end,
+    AccessControlEvent = function(self,d) 
+      EventCache.caccessControlEvent[d.id]=d
+      post({type='device', property='accessControlEvent', id = data.deviceID, value=data}) 
+      end,
+    CustomEvent = function(self,d) if d.name == tickEvent then return else post({type='custom-event', name=d.name}) end end,
     PluginChangedViewEvent = function(self,d) post({type='PluginChangedViewEvent', value=d}) end,
     WizardStepStateChangedEvent = function(self,d) post({type='WizardStepStateChangedEvent', value=d})  end,
     UpdateReadyEvent = function(self,d) post({type='UpdateReadyEvent', value=d}) end,
@@ -1099,7 +1174,7 @@ function fibaro._pollForTriggers(interval)
 
   if not fibaro._handleEvent then
     function fibaro._handleEvent(e)
-      fibaro.debug("",json.encode(e))
+      if _debugFlags.trigger then fibaro.debug("","Incoming trigger:"..json.encode(e)) end
     end
   end 
 
@@ -1113,11 +1188,34 @@ local function traverse(o,f)
     for _,e in ipairs(o) do traverse(e,f) end
   else f(o) end
 end
-
+local function map(f,l) for _,e in ipairs(l) do f(e) end end
 do
   local ELMS = {
     button = function(d,w)
       return {name=d.name,style={weight=w or "0.50"},text=d.text,type="button"}
+    end,
+    select = function(d,w)
+      if d.options then map(function(e) e.type='option' end,d.options) end
+      return {name=d.name,style={weight=w or "0.50"},text=d.text,type="select", selectionType='single',
+        options = d.options or {{value="1", type="option", text="option1"}, {value = "2", type="option", text="option2"}},
+        values = d.values or { "option1" }
+      }
+    end,
+    multi = function(d,w)
+      if d.options then map(function(e) e.type='option' end,d.options) end
+      return {name=d.name,style={weight=w or "0.50"},text=d.text,type="select", selectionType='multi',
+        options = d.options or {{value="1", type="option", text="option2"}, {value = "2", type="option", text="option3"}},
+        values = d.values or { "option3" }
+      }
+    end,
+    image = function(d,w)
+      return {name=d.name,style={dynamic="1"},type="image", url=d.url}
+    end,
+    switch = function(d,w)
+      return {name=d.name,style={weight=w or "0.50"},type="switch", value=d.value or "true"}
+    end,
+    option = function(d,w)
+      return {name=d.name, type="option", value=d.value or "Hupp"}
     end,
     slider = function(d)
       return {name=d.name,max=tostring(d.max),min=tostring(d.min),style={weight="1.2"},text=d.text,type="slider"}
@@ -1145,14 +1243,14 @@ do
     return {components=comp,style={weight=weight or "1.2"},type="vertical"}
   end
 
-  local function mkViewLayout(list)
+  local function mkViewLayout(list,height)
     local items = {}
     for _,i in ipairs(list) do items[#items+1]=mkRow(i) end
     return 
     { ['$jason'] = {
         body = {
           header = {
-            style = {height = tostring(#list*50)},
+            style = {height = tostring(height or #list*50)},
             title = "quickApp_device_23"
           },
           sections = {
@@ -1166,31 +1264,54 @@ do
     }
   end
 
-  function fibaro._changeViewLayout(id,UI)
+  local function transformUI(UI) -- { button=<text> } => {type="button", name=<text>}
     traverse(UI,
       function(e)
         if e.button then e.name,e.type=e.button,'button'
         elseif e.slider then e.name,e.type=e.slider,'slider'
+        elseif e.select then e.name,e.type=e.select,'select'
+        elseif e.switch then e.name,e.type=e.switch,'switch'
+        elseif e.multi then e.name,e.type=e.multi,'multi'
+        elseif e.option then e.name,e.type=e.option,'option'
+        elseif e.image then e.name,e.type=e.image,'image'
         elseif e.label then e.name,e.type=e.label,'label'
         elseif e.space then e.weight,e.type=e.space,'space' end
       end)
-    local viewLayout = mkViewLayout(UI)
-    return fibaro.call(id,"updateProperty","viewLayout",viewLayout) 
-    --api.post("/devices/"..id,{properties = {viewLayout = viewLayout}})
   end
 
-  local function makeInitialProperties(code,UI,vars)
+  function fibaro._updateViewLayout(id,UI,forceUpdate)
+    transformUI(UI)
+    local cb = api.get("/devices/"..id).properties.uiCallbacks or {}
+    local viewLayout = mkViewLayout(UI)
+    local newcb = {}
+    newcb = {}
+    --- "callback": "self:button1Clicked()",
+    traverse(UI,
+      function(e)
+        if e.name then newcb[#newcb+1]={callback="self:"..e.name.."Clicked(value)",eventType="pressed",name=e.name} end
+      end)
+    if forceUpdate then 
+      cb = newcb -- just replace uiCallbacks with new elements callbacks
+    else
+      local mapOrg = {}
+      for _,c in ipairs(cb) do mapOrg[c.name]=c.callback end -- existing callbacks, map name->callback
+      for _,c in ipairs(newcb) do if mapOrg[c.name] then c.callback=mapOrg[c.name] end end
+      cb = newcb -- save exiting elemens callbacks
+    end
+    if not cb[1] then cb = nil end
+    return api.put("/devices/"..id,{
+        properties = {
+          viewLayout = viewLayout,
+          uiCallbacks = cb},
+      })
+  end
+
+  local function makeInitialProperties(code,UI,vars,height)
     local ip = {}
     vars = vars or {}
     ip.mainFunction = code
-    traverse(UI,
-      function(e)
-        if e.button then e.name,e.type=e.button,'button'
-        elseif e.slider then e.name,e.type=e.slider,'slider'
-        elseif e.label then e.name,e.type=e.label,'label'
-        elseif e.space then e.weight,e.type=e.space,'space' end
-      end)
-    ip.viewLayout = mkViewLayout(UI)
+    transformUI(UI)
+    ip.viewLayout = mkViewLayout(UI,height)
     local cb = {}
     --- "callback": "self:button1Clicked()",
     traverse(UI,
@@ -1205,25 +1326,29 @@ do
     return ip
   end
 
-  -- Name of device - string
-  -- Type of device - string, default "com.fibaro.binarySwitch"
-  -- budy - string, Lua code
+  -- name of device - string
+  -- type of device - string, default "com.fibaro.binarySwitch"
+  -- code - string, Lua code
   -- UI -- table with UI elements
   --      {{{button='button1", text="L"},{button='button2'}}, -- 2 buttons  1 row
   --      {{slider='slider1", text="L", min=100,max=99}},     -- 1 slider 1 row
   --      {{label="label1",text="L"}}}                        -- 1 label 1 row
-  -- variables - quickAppVariables, {<var1>=<value1>,<var2>=<value2>,...}
+  -- quickvars - quickAppVariables, {<var1>=<value1>,<var2>=<value2>,...}
   -- dryRun - if true only returns the quickapp without deploying
 
-  function fibaro._createQuickApp(name,Type,body,UI,variables,dryRun)
+  function fibaro._createQuickApp(args)
     local d = {} -- Our device
-    d.name = name or "NoName"
-    d.type = Type or "com.fibaro.binarySensor"
+    d.name = args.name or "QuickApp"
+    d.type = args.type or "com.fibaro.binarySensor"
+    local body = args.code or ""
+    local UI = args.UI or {}
+    local variables = args.quickvars or {}
+    local dryRun = args.dryRun or false
     d.apiVersion = "1.0"
-    d.initialProperties = makeInitialProperties(body,UI,variables)
+    d.initialProperties = makeInitialProperties(body,UI,variables,args.height)
     if dryRun then return d end
     fibaro.debug("","Creating device...")--..json.encode(d)) 
-    if not next(d.initialProperties.uiCallbacks) then
+    if not d.initialProperties.uiCallbacks[1] then
       d.initialProperties.uiCallbacks = nil
     end
     local d1,res = api.post("/quickApp/",d)
@@ -1272,19 +1397,40 @@ function fibaro._createProxy(name,tp,UI,vars)
   end
   local funs = {}; for n,_ in pairs(funs1) do funs[#funs+1]=n end
   table.sort(funs)
-  local code = {
-    "function EVENT(ev)",
-    " COUNT = (COUNT or 0)+1",
-    ' local name="PROXY"..plugin.mainDeviceId.."_"..COUNT',
-    ' api.delete("/customEvents/"..name)',
-    ' api.post("/customEvents",{name=name,userDescription=json.encode(ev)})',
-    " fibaro.emitCustomEvent(name)",
-    "end",
-    "function QuickApp:ACTION(name) self[name] = function(self,...) EVENT({name=name,args={...}}) end end"
-  }
+  local code
+  if PROXYWITHEVENTS then
+    code = {
+      "function EVENT(ev)",
+      " COUNT = (COUNT or 0)+1",
+      ' local name="PROXY"..plugin.mainDeviceId.."_"..COUNT',
+      ' api.delete("/customEvents/"..name)',
+      ' api.post("/customEvents",{name=name,userDescription=json.encode(ev)})',
+      " fibaro.emitCustomEvent(name)",
+      "end",
+      "function QuickApp:ACTION(name) self[name] = function(self,...) EVENT({name=name,args={...}}) end end"
+    }
+  else
+    code = {}
+    code[1] = [[
+  local function urlencode (str) 
+  return str and string.gsub(str ,"([^% w])",function(c) return string.format("%%% 02X",string.byte(c))  end) 
+end
+local function CALLIDE(actionName,...)
+    local args = "" 
+    for i,v in ipairs({...}) do 
+      args = args..'&arg'..tostring(i)..'='..urlencode(json.encode(v))  
+    end 
+    url = "http://"..IP.."/api"
+    net.HTTPClient():request(url.."/callAction?deviceID="..plugin.mainDeviceId.."&name="..actionName..args,{})
+end
+function QuickApp:ACTION(name) self[name] = function(self,...) CALLIDE(name,...) end end
+]]
+  end
+
   for _,f in ipairs(funs) do code[#code+1]=string.format("QuickApp:ACTION('%s')",f) end
   code[#code+1]= "function QuickApp:onInit()"
-  code[#code+1]= " self:debug('"..name.."')"
+  code[#code+1]= " self:debug('"..name.."',' deviceId:',plugin.mainDeviceId)"
+  code[#code+1]= " IP = self:getVariable('IP')"
   code[#code+1]= "end"
   code[#code+1]= [[
 INSTALLED_MODULES={}
@@ -1298,7 +1444,7 @@ INSTALLED_MODULES['EventScript.lua']={isInstalled=true,installedVersion=0.001}
 
   code = table.concat(code,"\n")
 
-  if ID then
+  if ID then -- ToDo: Re-use ID if it exists.
     local d = device
     if d.properties.mainFunction == code then 
       fibaro.debug("","Proxy: Not changed, reusing QuickApp proxy")
@@ -1306,11 +1452,12 @@ INSTALLED_MODULES['EventScript.lua']={isInstalled=true,installedVersion=0.001}
     end
     fibaro.debug("","Proxy: Changed, re-creating")
     api.delete("/devices/"..d.id)
-    return fibaro._createQuickApp(name,tp,code,UI,{})
   end
   fibaro.debug("","Proxy: Creating new proxy")
-  return fibaro._createQuickApp(name,tp,code,UI,{})
+  local vars2 = {["IP"]=fibaro._getIPaddress()..":".._EVENTSERVER}
+  return fibaro._createQuickApp{name=name,type=tp,code=code,UI=UI,quickvars=vars2}
 end
+
 ----------- json ---------------
 --
 -- Copyright (c) 2019 rxi
@@ -1701,18 +1848,6 @@ end
 -- Webserver GUI
 ---------------------------------------------------------------
 
---ProcessManager.create(clientHandler,"client",client,getHandler,postHandler,putHandler)
-local function coprocess(fun,name,...)
-  local args = {...}
-  local p = coroutine.create(function() fun(table.unpack(args)) end)
-  local function process()
-    local res = coroutine.resume(p)
-    local stat = coroutine.status(p)
-    if stat then _setTimeout(process,10) end
-  end
-  process()
-end
-
 local LOG = {}
 local function Log(t,...) fibaro.debug("[L] ",string.format(...)) end
 
@@ -1766,7 +1901,7 @@ function Web_functions(ipAddress)
           client, err = server:accept()
           if err == 'timeout' then coroutine.yield() end
         until err ~= 'timeout'
-        coprocess(clientHandler,"client",client,getHandler,postHandler,putHandler)
+        coprocess(10,clientHandler,"client",client,getHandler,postHandler,putHandler)
       end
     end
 
@@ -1778,7 +1913,7 @@ function Web_functions(ipAddress)
       --printf("http://%s:%s/test",ipAdress,port)
       server:settimeout(0,'b')
       server:setoption('keepalive',true)
-      coprocess(socketServer,"server",server,getHandler,postHandler,putHandler)
+      coprocess(10,socketServer,"server",server,getHandler,postHandler,putHandler)
       Log(LOG.LOG,"Created %s at %s:%s",name,self.ipAddress,port)
     end
 
@@ -1797,6 +1932,11 @@ function Web_functions(ipAddress)
         local stat,res=pcall(function() QuickApp[action](QuickApp,table.unpack(res)) end)
         if not stat then Log(LOG.LOG,"Bad eventCall:%s",res) end
         return true
+      end,
+    },
+    ["POST"] = {
+      ["/fibaroapiHC3/event"] = function(client,ref,body,id,action,args)
+        --- ToDo
       end,
     }
   }
@@ -1818,8 +1958,526 @@ function Web_functions(ipAddress)
   end
 
 -- Setup webserver 
-  _EVENTSERVER = 6872
   local GUIServer = createWebserver(ipAddress)
   GUIServer.createServer("Event server",_EVENTSERVER,GUIhandler,GUIhandler)
 end
 
+------------------------ Offline support -------------------------
+
+local function DEFAULT(v,d) if v~=nil then return v else return d end end
+fibaro._offline = DEFAULT(fibaro._offline,false)
+fibaro._defaultDevice = DEFAULT(fibaro._defaultDevice,"com.fibaro.binarySwitch")
+fibaro._autocreateDevices = DEFAULT(fibaro._autocreateDevices,true)
+fibaro._autocreateGlobals = DEFAULT(fibaro._autocreateGlobals,true)
+
+-- We setup our own /refreshState handler and other REST API handlers and keep our own reosurce states
+function setupOfflineSupport()
+  QUEUESIZE = 200
+
+  local resources = {
+    devices = {},
+    globalVariables = {},
+    customEvents = {}
+  }
+
+  local function createRefreshStateQueue(size)
+    local self = {}
+    local QLAST = 300
+    local function mkQeueu(size)
+      self = { size=size, queue={} }
+      local queue,head,tail = self.queue,1,1
+      function self.pop()
+        if head==tail then return end
+        local e = queue[head]
+        head = head-1; if head==0 then head = size end
+        return e
+      end
+      function self.push(e) 
+        head=head % size + 1
+        if head==tail then tail = tail % size + 1 end
+        queue[head]=e
+      end
+      function self.dump()
+        local h1,t1 = head,tail
+        local e = self.pop()
+        while e do print(json.encode(e)) e = self.pop() end
+        head,tail = h1,t1
+      end
+      return self
+    end
+
+    self.eventQueue=mkQeueu(size) --- 1..QUEUELENGTH
+    local eventQueue = self.eventQueue
+
+    function self.addEvents(events) -- {last=num,events={}}
+      QLAST=QLAST+1
+      events = events[1] and events or {events}
+      eventQueue.push({last=QLAST, events=events})
+    end
+
+    function self.getEvents(last)
+      local res1,res2 = {},{}
+      while true do
+        local e = eventQueue.pop()     ----    5,6,7,8    6
+        if e and e.last > last then res1[#res1+1]=e
+        else break end
+      end
+      if #res1==0 then return { last=last } end
+      last = res1[1].last   ----  { 1, 2, 3, 4, 5}
+      for i=#res1,1,-1 do
+        local es = res1[i].events or {}
+        for j=#es,1,-1 do res2[#res2+1]=es[j] end
+      end
+      return {last = last, events = res2}
+    end
+    self.dump = eventQueue.dump
+    return self
+  end
+
+  local refreshStates = createRefreshStateQueue(QUEUESIZE)
+
+  local OFFLINE_HANDLERS = {
+    ["GET"] = {
+      ["/callAction%?deviceID=(%d+)&name=(%w+)(.*)"] = function(call,data,cType,body,id,action,args)
+        res = {}
+        args = split(args,"&")
+        for _,a in ipairs(args) do
+          local i,v = a:match("^arg(%d+)=(.*)")
+          res[tonumber(i)]=urldecode(v)
+        end
+        local d = resources.devices[id]
+        local stat,err = pcall(function()
+            d.actions[action](table.unpack(res))
+          end)
+        if not stat then error(format("Bad call:%s(%s)",action,json.encode(res):sub(2,-2)),4) end
+        return 200
+      end,
+      ["/devices/(%d+)$"] = function(call,data,cType,body,id) return resources.devices[id] end,
+      ["/devices/?$"] = function(call,data,cType,body,name) return resources.devices end,    
+      ["/globalVariables/(.+)"] = function(call,data,cType,body,name) return resources.globalVariables[name] end,
+      ["/globalVariables/?$"] = function(call,data,cType,body,name) return resources.globalVariables end,
+      ["/customEvents/(.+)"] = function(call,data,cType,body,name) return resources.customEvents[name] end,
+      ["/customEvents/?$"] = function(call,data,cType,body,name) return resources.customEvents end,
+      ["/refreshStates%?last=(%d+)"] = function(call,data,cType,body,last)
+        return refreshStates.getEvents(tonumber(last))
+      end,
+    },
+    ["POST"] = {
+      ["/globalVariables/?$"] = function(call,data,cType,body) 
+        data = json.decode(data)
+        data.modified = os.time()
+        resources.globalVariables[data.name] = data 
+      end,
+    },
+    ["PUT"] = {
+      ["/globalVariables/(.+)"] = function(call,data,cType,body,name) 
+        resources.globalVariables[name]._setValue(json.decode(data))
+      end,
+    },
+    ["DELETE"] = {
+      --- ToDo
+    },
+  }
+
+  local function offlineApi(method,call,data,cType,hs)
+    for p,h in pairs(OFFLINE_HANDLERS[method] or {}) do
+      local match = {call:match(p)}
+      if match and #match>0 then
+        return h(call,data,cType,body,table.unpack(match))
+      end
+    end
+    fibaro.warning("","API not supported yet: "..method..":"..call)
+  end
+
+  fibaro._offlineApi = offlineApi
+
+  local typeHierarchy = { -- Need to keep this to see if we support the basetype...
+    children = {
+      {children = {}, type = "com.fibaro.zwaveDevice"}, 
+      {children = {}, type = "com.fibaro.zwaveController"}, 
+      {children = {
+          {children = {}, type = "com.fibaro.yrWeather"}, 
+          {children = {}, type = "com.fibaro.WeatherProvider"}
+        }, 
+        type = "com.fibaro.weather"
+      }, 
+      {children = {}, type = "com.fibaro.usbPort"}, 
+      {children = {}, type = "com.fibaro.setPointForwarder"}, 
+      {children = {
+          {children = {
+              {children = {}, type = "com.fibaro.windSensor"}, 
+              {children = {}, type = "com.fibaro.temperatureSensor"}, 
+              {children = {}, type = "com.fibaro.seismometer"}, 
+              {children = {}, type = "com.fibaro.rainSensor"}, 
+              {children = {}, type = "com.fibaro.powerSensor"}, 
+              {children = {}, type = "com.fibaro.lightSensor"}, 
+              {children = {}, type = "com.fibaro.humiditySensor"}
+            }, 
+            type = "com.fibaro.multilevelSensor"
+          }, 
+          {children = {
+              {children = {
+                  {children = {}, type = "com.fibaro.satelZone"}, 
+                  {children = {
+                      {children = {{children = {}, type = "com.fibaro.FGMS001v2"}}, 
+                        type = "com.fibaro.FGMS001"}
+                      },type = "com.fibaro.motionSensor" }, 
+                  {children = {}, type = "com.fibaro.envisaLinkZone"}, 
+                  {children = {}, type = "com.fibaro.dscZone"}, 
+                  {children = {
+                      {children = {}, type = "com.fibaro.windowSensor"}, 
+                      {children = {}, type = "com.fibaro.rollerShutterSensor"}, 
+                      {children = {}, type = "com.fibaro.gateSensor"}, 
+                      {children = {}, type = "com.fibaro.doorSensor"}, 
+                      {children = {}, type = "com.fibaro.FGDW002"}
+                      },type = "com.fibaro.doorWindowSensor" }
+                  }, type = "com.fibaro.securitySensor" }, 
+              {children = {}, type = "com.fibaro.safetySensor"}, 
+              {children = {}, type = "com.fibaro.rainDetector"}, 
+              {children = {
+                  {children = {}, type = "com.fibaro.heatDetector"}, 
+                  {children = {
+                      {children = { {children = {}, type = "com.fibaro.FGSS001"} }, 
+                        type = "com.fibaro.smokeSensor"
+                      }, 
+                      {children = {
+                          {children = {}, type = "com.fibaro.FGCD001"}
+                        }, 
+                        type = "com.fibaro.coDetector"
+                      }
+                    }, 
+                    type = "com.fibaro.gasDetector"}, 
+                  {children = {{children = {}, type = "com.fibaro.FGFS101"}}, 
+                    type = "com.fibaro.floodSensor"
+                  }, 
+                  {children = {}, type = "com.fibaro.fireDetector"}
+                }, 
+                type = "com.fibaro.lifeDangerSensor"
+              }
+            }, 
+            type = "com.fibaro.binarySensor"
+          }, 
+          {children = {}, type = "com.fibaro.accelerometer"}
+        }, 
+        type = "com.fibaro.sensor"
+      }, 
+      {children = {
+          {children = {
+              {children = {}, type = "com.fibaro.mobotix"}, 
+              {children = {}, type = "com.fibaro.heliosGold"}, 
+              {children = {}, type = "com.fibaro.heliosBasic"}, 
+              {children = {}, type = "com.fibaro.alphatechFarfisa"}
+            }, 
+            type = "com.fibaro.intercom"
+          }, 
+          {children = {
+              {children = {}, type = "com.fibaro.schlage"}, 
+              {children = {}, type = "com.fibaro.polyControl"}, 
+              {children = {}, type = "com.fibaro.kwikset"}, 
+              {children = {}, type = "com.fibaro.gerda"}
+            }, 
+            type = "com.fibaro.doorLock"
+          }, 
+          {children = {
+              {children = {
+                  {children = {
+                      {children = {}, type = "com.fibaro.fibaroIntercom"}
+                    }, 
+                    type = "com.fibaro.videoGate"
+                  }
+                }, 
+                type = "com.fibaro.ipCamera"
+              }
+            },
+            type = "com.fibaro.camera"
+          }, 
+          {children = {
+              {children = {}, type = "com.fibaro.satelPartition"}, 
+              {children = {}, type = "com.fibaro.envisaLinkPartition"}, 
+              {children = {}, type = "com.fibaro.dscPartition"}
+            }, 
+            type = "com.fibaro.alarmPartition"
+          }
+        }, 
+        type = "com.fibaro.securityMonitoring"
+      }, 
+      {children = {}, type = "com.fibaro.samsungSmartAppliances"}, 
+      {children = {}, type = "com.fibaro.russoundXZone4"}, 
+      {children = {}, type = "com.fibaro.russoundXSource"}, 
+      {children = {}, type = "com.fibaro.russoundX5"}, 
+      {children = {}, type = "com.fibaro.russoundMCA88X"},
+      {children = {}, type = "com.fibaro.russoundController"}, 
+      {children = {}, type = "com.fibaro.powerMeter"}, 
+      {children = {}, type = "com.fibaro.planikaFLA3"}, 
+      {children = {{children = {}, type = "com.fibaro.xbmc"}, 
+          {children = {}, type = "com.fibaro.wakeOnLan"}, 
+          {children = {}, type = "com.fibaro.sonosSpeaker"}, 
+          {children = {}, type = "com.fibaro.russoundXZone4Zone"}, 
+          {children = {}, type = "com.fibaro.russoundXSourceZone"}, 
+          {children = {}, type = "com.fibaro.russoundX5Zone"}, 
+          {children = {}, type = "com.fibaro.russoundMCA88XZone"},
+          {children = {
+              {children = {}, type = "com.fibaro.davisVantage"}}, 
+            type = "com.fibaro.receiver"
+          }, 
+          {children = {}, type = "com.fibaro.philipsTV"}, 
+          {children = {}, type = "com.fibaro.nuvoZone"}, 
+          {children = {}, type = "com.fibaro.nuvoPlayer"}, 
+          {children = {}, type = "com.fibaro.initialstate"}, 
+          {children = {}, type = "com.fibaro.denonHeosZone"}, 
+          {children = {}, type = "com.fibaro.denonHeosGroup"}
+        }, 
+        type = "com.fibaro.multimedia"},
+      {children = {
+          {children = {}, type = "com.fibaro.waterMeter"}, 
+          {children = {}, type = "com.fibaro.gasMeter"}, 
+          {children = {}, type = "com.fibaro.energyMeter"}
+        }, 
+        type = "com.fibaro.meter"
+      }, 
+      {children = {}, type = "com.fibaro.logitechHarmonyHub"}, 
+      {children = {}, type = "com.fibaro.logitechHarmonyActivity"}, 
+      {children = {}, type = "com.fibaro.logitechHarmonyAccount"}, 
+      {children = {
+          {children = {
+              {children = {}, type = "com.fibaro.thermostatHorstmann"}
+            }, 
+            type = "com.fibaro.thermostatDanfoss"
+          }, 
+          {children = {}, type = "com.fibaro.FGT001"}
+        },
+        type = "com.fibaro.hvacSystem"
+      }, 
+      {children = {}, type = "com.fibaro.hunterDouglasScene"}, 
+      {children = {}, type = "com.fibaro.hunterDouglas"}, 
+      {children = {}, type = "com.fibaro.humidifier"}, 
+      {children = {
+          {children = {}, type = "com.fibaro.samsungWasher"}, 
+          {children = {}, type = "com.fibaro.samsungRobotCleaner"},
+          {children = {}, type = "com.fibaro.samsungRefrigerator"}, 
+          {children = {}, type = "com.fibaro.samsungOven"}, 
+          {children = {}, type = "com.fibaro.samsungDryer"}, 
+          {children = {}, type = "com.fibaro.samsungDishwasher"},
+          {children = {}, type = "com.fibaro.samsungAirPurifier"}, 
+          {children = {
+              {children = {
+                  {children = {}, type = "com.fibaro.samsungAirConditioner"}, 
+                  {children = {}, type = "com.fibaro.coolAutomationHvac"}
+                }, 
+                type = "com.fibaro.setPoint"
+              }, 
+              {children = {{children = {}, type = "com.fibaro.operatingModeHorstmann"}}, 
+                type = "com.fibaro.operatingMode"
+              }, 
+              {children = {}, type = "com.fibaro.fanMode"}
+              }, type = "com.fibaro.hvac"
+          }
+        }, 
+        type = "com.fibaro.homeAutomation"
+      }, 
+      {children = {}, type = "com.fibaro.genericZwaveDevice"},
+      {children = {}, type = "com.fibaro.denonHeos"}, 
+      {children = {}, type = "com.fibaro.coolAutomation"}, 
+      {children = {
+          {children = {}, type = "com.fibaro.satelAlarm"}, 
+          {children = {}, type = "com.fibaro.envisaLinkAlarm"}, 
+          {children = {}, type = "com.fibaro.dscAlarm"}
+        }, 
+        type = "com.fibaro.alarm"
+      }, 
+      {children = {
+          {children = {
+              {children = {}, type = "com.fibaro.FGR221"}, 
+              {children = {
+                  {children = {}, type = "com.fibaro.FGWR111"},
+                  {children = {}, type = "com.fibaro.FGRM222"},
+                  {children = {}, type = "com.fibaro.FGR223"}
+                }, 
+                type = "com.fibaro.FGR"
+              }
+            }, 
+            type = "com.fibaro.rollerShutter"
+          }, 
+          {children = {}, type = "com.fibaro.remoteSwitch"},
+          {children = {
+              {children = {
+                  {children = {}, type = "com.fibaro.FGPB101"},
+                  {children = {}, type = "com.fibaro.FGKF601"}, 
+                  {children = {}, type = "com.fibaro.FGGC001"}
+                }, 
+                type = "com.fibaro.remoteSceneController"
+              }
+            }, 
+            type = "com.fibaro.remoteController"
+          }, 
+          {children = {
+              {children = {}, type = "com.fibaro.sprinkler"}, 
+              {children = {}, type = "com.fibaro.satelOutput"}, 
+              {children = {
+                  {children = {
+                      {children = {}, type = "com.fibaro.philipsHueLight"},
+                      {children = {}, type = "com.fibaro.philipsHue"}, 
+                      {children = {}, type = "com.fibaro.FGRGBW442CC"}, 
+                      {children = {}, type = "com.fibaro.FGRGBW441M"}
+                    }, 
+                    type = "com.fibaro.colorController"
+                  }, 
+                  {children = {}, type = "com.fibaro.FGWD111"}, 
+                  {children = {}, type = "com.fibaro.FGD212"}
+                }, 
+                type = "com.fibaro.multilevelSwitch"
+              }, 
+              {children = {
+                  {children = {}, type = "com.fibaro.FGWPI121"}, 
+                  {children = {}, type = "com.fibaro.FGWPG121"}, 
+                  {children = {}, type = "com.fibaro.FGWPG111"}, 
+                  {children = {}, type = "com.fibaro.FGWPB121"}, 
+                  {children = {}, type = "com.fibaro.FGWPB111"}, 
+                  {children = {}, type = "com.fibaro.FGWP102"}, 
+                  {children = {}, type = "com.fibaro.FGWP101"}
+                }, 
+                type = "com.fibaro.FGWP"}, 
+              {children = {}, type = "com.fibaro.FGWOEF011"}, 
+              {children = {}, type = "com.fibaro.FGWDS221"}
+              }, type = "com.fibaro.binarySwitch"
+          }, 
+          {children = {}, type = "com.fibaro.barrier"}
+        }, 
+        type = "com.fibaro.actor"}, 
+      {children = {}, type = "com.fibaro.FGRGBW442"},
+      {children = {}, type = "com.fibaro.FGBS222"}
+    }, 
+    type = "com.fibaro.device"
+  }
+
+  local function getHierarchy(tp,tree)
+    if tree.type==tp then return {tp}
+    else
+      for _,c in ipairs(tree.children) do
+        local m = getHierarchy(tp,c)
+        if m then table.insert(m,tree.type) return m end
+      end
+    end
+  end
+
+--[[
+    {type='AlarmPartitionArmedEvent' = function(self,d) post({type='alarm', property='armed', id = d.partitionId, value=d.armed}) end,
+    {type='AlarmPartitionBreachedEvent' = function(self,d) post({type='alarm', property='breached', id = d.partitionId, value=d.breached}) end,
+    {type='HomeArmStateChangedEvent', data = {newValue=<val1>}}
+    {type='HomeBreachedEvent, data = {breached=<val>}}
+    {type='WeatherChangedEvent', data={change=<prop>,newValue=<val1>, oldValue=<val2>}}
+    {type='GlobalVariableChangedEvent', data={variableName=<name>, newValue=<val1>, oldValue=<val2>}}
+    {type='DevicePropertyUpdatedEvent', data={id=<deviceID>,newValue=<val1>,oldValue=<val2>,property=<name>}}
+    {type='CentralSceneEvent, data={}}
+    {type='AccessControlEvent', fata{}}
+    {type='CustomEvent' data = {name=<name>}}
+    {type='ActiveProfileChangedEvent', data={newActiveProfile=<val1>, oldActiveProfile=<val2>}}
+--]]
+
+  local function propChange(self,prop,newValue)
+    local oldValue = self.properties[prop]
+    if oldValue ~= newValue then
+      refreshStates.addEvents(
+        {type='DevicePropertyUpdatedEvent', data={id=tonumber(self.id),newValue=newValue,oldValue=oldValue,property=prop}}
+      )
+    end
+  end
+
+  local deviceTypes = {
+    ["com.fibaro.binarySwitch"] = function(self)
+      self.properties.value = false
+      self.actions.turnOn = function() propChange(self,"value",true) end
+      self.actions.turnOff = function() propChange(self,"value",false) end
+    end,
+    ["com.fibaro.multilevelSwitch"] = function(self)
+      self.properties.value = 0
+      self.actions.turnOn = function() propChange(self,"value",99) end
+      self.actions.turnOff = function() propChange(self,"value",0) end
+      self.actions.setValue = function(value) self.value.properties = value end
+    end,
+    ["com.fibaro.binarySensor"] = function(self)
+      self.properties.value = false
+      self.actions.turnOn = function() propChange(self,"value",true) end
+      self.actions.turnOff = function() propChange(self,"value",false) end
+    end,
+    ["com.fibaro.multilevelSensor"] = function(self)
+      self.properties.value = 0
+      self.actions.turnOn = function() propChange(self,"value",99) end
+      self.actions.turnOff = function() propChange(self,"value",0) end
+      self.actions.setValue = function(value) self.value.properties = value end
+    end,
+  }
+
+  local hierarchyCache = {}
+  local function createDevice(id)
+    local self = {
+      id = id, 
+      name = "<noname>", 
+      type=fibaro._defaultDevice, 
+      properties = {
+        value=nil, 
+        modified=os.time() 
+      },
+      actions = {}
+    }
+    local tps = hierarchyCache[self.type]
+    if tps == nil then
+      tps = getHierarchy(self.type,typeHierarchy)
+      if #tps == 0 then error("Unsupported device type:"..self.type) end
+      for _,t in ipairs(tps) do if deviceTypes[t] then bt = t break end end
+      if not bt then error("Unsupported device type:"..self.type) end
+      self.baseType = bt
+    else self.baseType = tps end
+
+    deviceTypes[self.baseType](self)
+    return self
+  end
+
+  local function createGlobal(name,value)
+    local self = {name=name, value=value, modified=os.time() }
+    function self._setValue(val)
+      local oldValue = self.value 
+      self.value,self.modified = val.value,os.time()
+      if self.value ~= oldValue then
+        refreshStates.addEvents(
+          {type='GlobalVariableChangedEvent', data={variableName=self.name, newValue=self.value, old=oldValue}}
+        )
+      end
+    end
+    return self
+  end
+
+  local function createCustomEvent(name,value)
+    local self = {name=name, userDescription=value, modified=os.time() }
+    return self
+  end
+
+  local function addCreator(tab,fun)
+    setmetatable(tab, {
+        __newindex = function(mytable, key, value)
+          return rawset(mytable, key, fun(key))
+        end,
+        __index = function(mytable, key)
+          if not rawget(mytable,key) then
+            rawset(mytable, key, fun(key))
+          end
+          return  rawget(mytable,key)
+        end
+      })
+  end
+
+  addCreator(resources.devices,createDevice)
+  addCreator(resources.globalVariables,createGlobal)
+  addCreator(resources.customEvents,createCustomEvent)
+
+--fibaro._createDevice(99,"com.fibaro.multilevelSwitch")
+  function fibaro._createDevice(id,tp)
+    tp = tp or fibaro._defaultDevice
+    fibaro._defaultDevice,temp=tp,fibaro._defaultDevice
+    local _ = resources.devices[tostring(id)]
+    fibaro._defaultDevice=temp
+  end
+
+end
+
+setupOfflineSupport()
