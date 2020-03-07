@@ -6,9 +6,9 @@ if dofile then
   require('mobdebug').coro()  
 end
 
-E_VERSION,E_FIX = 0.1,"fix4"
+E_VERSION,E_FIX = 0.1,"fix5"
 _HC3IPADDRESS = "192.168.1.57" -- Needs to be defined on the HC3 as /seetings/networks seems broken...
-MODULES = {"EventScript4.lua","Hue4.lua"} -- Modules we want to load
+MODULES = {"EventScript4.lua"} -- Modules we want to load
 
 _debugFlags = { triggers = true, post=false, rule=false, fcall=true  } 
 
@@ -106,7 +106,7 @@ function mainLua()  -- Lua version
 
   Event.event({type='property', deviceId=1000, propertyName='value', value='$value'},
     function(env)
-      Log(LOG.LOG,'Light %d changed value to %s',env.event.deviceID,value)
+      Log(LOG.LOG,'Light %d changed value to %s',env.event.deviceID,env.p.value)
     end)
 
   Nodered.connect("http://192.168.1.50:1880/ER_HC3")
@@ -465,7 +465,7 @@ function createUtils()
   local VIRTUALDEVICES = {}
   function self.defineVirtualDevice(id,call,get) VIRTUALDEVICES[id]={call=call,get=get} end
   do
-    oldGet,oldCall = fibaro.get,fibaro.call
+    local oldGet,oldCall = fibaro.get,fibaro.call
     function fibaro.call(id,action,...) local d = VIRTUALDEVICES[id]
       if d and d.call and d.call(id,action,...) then return
       else oldCall(id,action,...) end
@@ -665,7 +665,7 @@ function createUtils()
       return self
     end}
 
---  if _EMULATED then self.getWeekNumber = _System.getWeekNumber
+--  if hc3_emulator.emulated then self.getWeekNumber = _System.getWeekNumber
 --  else self.getWeekNumber = function(tm) return tonumber(os.date("%V",tm)) end end
 
   function self.dateTest(dateStr)
@@ -823,7 +823,7 @@ function createUtils()
     return sunrise, sunset, sunrise_t, sunset_t
   end
 
-  if not _EMULATED then
+  if not hc3_emulator.emulated then
     local _IPADDRESS = _HC3IPADDRESS
     function self.getIPaddress()
       if _IPADDRESS then return _IPADDRESS end
@@ -838,7 +838,7 @@ function createUtils()
       return _IPADDRESS
     end
   else 
-    self.getIPaddress = fibaro._getIPaddress 
+    self.getIPaddress = hc3_emulator.getIPaddress 
   end
 
   self.equal,self.copy,self.transform,self.toTime,self.hm2sec,self.midnight  = equal,copy,transform,toTime,hm2sec,midnight
@@ -928,7 +928,6 @@ function createRemoteSupport()
   local FUNRES = nil
   local ASYNC = {"ASYNC"}
 
-  api.post("/globalVariables/",{name=FUNRES})
   function funCall(deviceID,fun,args)
     if not FUNRES then
       FUNRES = "RPC"..Event.deviceID
@@ -995,7 +994,7 @@ function createAutoPatchSupport()
     local nbody = newSrc:sub(nbp) -- copy rest of new file - contains updated stuff
     oldSrc = oldSrc:gsub("(E_VERSION,E_FIX = .-\n)",newSrc:match("(E_VERSION,E_FIX = .-\n)"))
     Log(LOG.SYS,"Patching scene to latest version")
-    if not _EMULATED then
+    if not hc3_emulator.emulated then
       local stat,res = api.put("/devices/"..fibaro.ID,{properties = {mainFunction = oldSrc..nbody}})
       if not stat then 
         Log(LOG.ERROR,"Could update mainFunction (%s)",res) 
@@ -1055,7 +1054,7 @@ function extraSetup()
       event._from = fibaro.ID
       event._async = true
       event._IP = Util.getIPaddress()
-      if _EMULATED then event._IP=event._IP..":".._EVENTSERVER end
+      if hc3_emulator.emulated then event._IP=event._IP..":"..hc3_emulator.webPort end
       local params =  {options = {
           headers = {['Accept']='application/json',['Content-Type']='application/json'},
           data = json.encode(event), timeout=4000, method = 'POST'},
@@ -1194,7 +1193,7 @@ end
 
 --------------- getting triggers from HC3 ---------------------
 
-if not _EMULATED then  
+if not hc3_emulator.emulated then  
   fibaro._EventCache = { polling=false, devices={}, globals={}, centralSceneEvents={}} 
   local _oldSetTimeout = setTimeout
   local stat,res = pcall(function() x() end)
@@ -1208,9 +1207,9 @@ if not _EMULATED then
         end
       end,ms)
   end
-end
+else fibaro._EventCache = hc3_emulator.EventCache end
 
-fibaro._setTimeout = setTimeout
+fibaro.setTimeout = setTimeout
 local _setTimeout = setTimeout
 
 function fibaro._cacheDeviceProp(deviceID,prop,value)
@@ -1363,7 +1362,8 @@ function QuickApp:onInit()
 end
 
 if dofile then
-  fibaro._start{
+  hc3_emulator.offline = true
+  hc3_emulator.start{
     name="EventRunner4",
     proxy=true,
     UI = {
