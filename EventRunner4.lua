@@ -12,22 +12,13 @@ MODULES = {"EventScript4.lua"} -- Modules we want to load
 
 _debugFlags = { triggers = true, post=false, rule=false, fcall=true  } 
 
-function main()    -- EventScript version
+function main()
   local rule = Rule.eval
-
-  HT = { 
-    keyfob = 26, 
-    motion= 21,
-    temp = 22, lux = 23,
-    motionHC2 = 44,
-    lightHC2 = 45, 
-    tempHC2 = 46
-  }
-
-  Util.defvars(HT)
-  Util.reverseMapDef(HT)
-
-  rule("motion:breached => log('Motion:%s',motion:value)")
+  Livingbath_sensor = 99
+  Livingbath_door = 100
+  Livingbathlight = 101
+  
+  rule("trueFor(00:01,Livingbath_sensor:safe & Livingbath_door:value) => !inlivingBathroom & Livingbathlight:off")
 end
 
 function main2()    -- EventScript version
@@ -58,17 +49,6 @@ function main2()    -- EventScript version
   rule("keyfob:central.keyId==5 => log('Last:%s',1000:last)") 
 
   rule("#UI{name='$name'} => log('Clicked:%s',name)") -- Name of UI button clicked
-
-  if Hue then -- Hue only defined if we are connected
-    --Hue.dump()
-    Hue.define("Middle window",1000) -- Hue name to fictive deviceID number
-    Hue.define("Dimmer switch",1001)
-    Hue.define("Living room sensor",1002)
-  end
-
-  rule("1000:value => log('Light %d changed value to %s',env.event.deviceID,env.event.value)")
-  rule("1001:value => log('Switch %d changed value to %s',env.event.deviceID,env.event.value)")
-  rule("1002:value => log('Motion %d changed value to %s',env.event.deviceID,env.event.value)")
 
   Nodered.connect("http://192.168.1.50:1880/ER_HC3")
   --Nodered.post({type='echo1',value=42})
@@ -113,18 +93,6 @@ function mainLua()  -- Lua version
   Event.event({type='UI', name='$name'},
     function(env)
       Log(LOG.LOG,"Clicked:%s",env.p.name)
-    end)
-
-  if Hue then -- Hue only defined if we are connected
-    --Hue.dump()
-    Hue.define("Middle window",1000) -- Hue name to fictive deviceID number
-    Hue.define("Dimmer switch",1001)
-    Hue.define("Living room sensor",1002)
-  end
-
-  Event.event({type='property', deviceId=1000, propertyName='value', value='$value'},
-    function(env)
-      Log(LOG.LOG,'Light %d changed value to %s',env.event.deviceID,env.p.value)
     end)
 
   Nodered.connect("http://192.168.1.50:1880/ER_HC3")
@@ -1381,10 +1349,10 @@ function QuickApp:onInit()
 end
 
 if dofile then
-  --hc3_emulator.offline=true
+  hc3_emulator.offline=true
   hc3_emulator.start{
     name="EventRunner4",
-    proxy=true,
+    --proxy=true,
     UI = {
       {label='name',text="ER 4.0 beta v0.1"},
       {button='debugTriggers', text='Triggers:ON'},

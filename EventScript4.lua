@@ -980,7 +980,7 @@ function setUpEventScript()
           end
         end
       end
-      res=#events>1 and Event._mkCombEvent(src,action,src,events) or events[1]
+      res=#events>1 and Event.comboEvent(src,action,events,src) or events[1]
       res.dailys = sdaily
       if sdaily then sdaily.rule=res end
       res.print = function()

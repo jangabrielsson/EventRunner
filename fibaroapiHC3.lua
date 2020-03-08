@@ -29,7 +29,7 @@ Sources:
 json -- Copyright (c) 2019 rxi
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.64"
+local FIBAROAPIHC3_VERSION = "0.65"
 
 --hc3_emulator.credentials = { ip = <IP>, user = <username>, pwd = <password>}
 
@@ -1003,9 +1003,9 @@ INSTALLED_MODULES['EventScript.lua']={isInstalled=true,installedVersion=0.001}
     local UI = args.UI or {}
     local quickvars = args.quickvars or {}
 
-    if plugin.isProxy then
+    if plugin.isProxy and not args.quickApp then
       plugin.mainDeviceId = createProxy(name,plugin.type,UI,quickvars)
-    end
+    else Log(LOG.SYS,"Connected to HC3 device %s",plugin.mainDeviceId) end
 
     if args.poll then Trigger.startPolling(tonumber(args.poll ) or 2000) end
 
