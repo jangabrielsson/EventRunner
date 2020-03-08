@@ -590,9 +590,10 @@ function setUpEventScript()
     local getFuns,setFuns={},{}
     local _getFun = function(id,prop) return fibaro.get(id,prop) end
     do
+      local function BN(x) return (type(x)=='boolean' and x and '1' or '0') or x end
       local get = _getFun
-      local function on(id,prop) return fibaro.get(id,prop) > '0' end
-      local function off(id,prop) return fibaro.get(id,prop) == '0' end
+      local function on(id,prop) return BN(fibaro.get(id,prop)) > '0' end
+      local function off(id,prop) return BN(fibaro.get(id,prop)) == '0' end
       local function last(id,prop) return os.time()-select(2,fibaro.get(id,prop)) end
       local function cce(id,prop,e) e=e.event; return e.type=='property' and e.propertyName=='CentralSceneEvent' and e.deviceID==id and e.value or {} end
       local function ace(id,prop,e) e=e.event; return e.type=='property' and e.propertyName=='AccessControlEvent' and e.deviceID==id and e.value or {} end

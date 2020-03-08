@@ -27,6 +27,24 @@ function main()    -- EventScript version
   Util.defvars(HT)
   Util.reverseMapDef(HT)
 
+  rule("motion:breached => log('Motion:%s',motion:value)")
+end
+
+function main2()    -- EventScript version
+  local rule = Rule.eval
+
+  HT = { 
+    keyfob = 26, 
+    motion= 21,
+    temp = 22, lux = 23,
+    motionHC2 = 44,
+    lightHC2 = 45, 
+    tempHC2 = 46
+  }
+
+  Util.defvars(HT)
+  Util.reverseMapDef(HT)
+
   rule("keyfob:central => log('Key:%s',env.event.value.keyId)")
   rule("motion:value => log('Motion:%s',motion:value)")
   rule("temp:temp => log('Temp:%s',temp:temp)")
@@ -417,7 +435,8 @@ function createDeviceSupport()
   function self.updateView(componentID, property, value) return qs:updateView(componentID, property, value)  end
   function self.setVariable(name,value) return qs:setVariable(name,value) end
   function self.getVariable(name) return qs:getVariable(name) end
-  local uiCallbacks = api.get("/devices/"..self.deviceID).properties.uiCallbacks or {}
+  local uis,err = api.get("/devices/"..self.deviceID)
+  local uiCallbacks = uis.properties.uiCallbacks or {}
   for _,e in ipairs(uiCallbacks) do 
     local name = e.name.."Clicked"
     if qs[name] then 
@@ -823,7 +842,7 @@ function createUtils()
     return sunrise, sunset, sunrise_t, sunset_t
   end
 
-  if not hc3_emulator.emulated then
+  if not hc3_emulator then
     local _IPADDRESS = _HC3IPADDRESS
     function self.getIPaddress()
       if _IPADDRESS then return _IPADDRESS end
@@ -994,7 +1013,7 @@ function createAutoPatchSupport()
     local nbody = newSrc:sub(nbp) -- copy rest of new file - contains updated stuff
     oldSrc = oldSrc:gsub("(E_VERSION,E_FIX = .-\n)",newSrc:match("(E_VERSION,E_FIX = .-\n)"))
     Log(LOG.SYS,"Patching scene to latest version")
-    if not hc3_emulator.emulated then
+    if not hc3_emulator then
       local stat,res = api.put("/devices/"..fibaro.ID,{properties = {mainFunction = oldSrc..nbody}})
       if not stat then 
         Log(LOG.ERROR,"Could update mainFunction (%s)",res) 
@@ -1054,7 +1073,7 @@ function extraSetup()
       event._from = fibaro.ID
       event._async = true
       event._IP = Util.getIPaddress()
-      if hc3_emulator.emulated then event._IP=event._IP..":"..hc3_emulator.webPort end
+      if hc3_emulator then event._IP=event._IP..":"..hc3_emulator.webPort end
       local params =  {options = {
           headers = {['Accept']='application/json',['Content-Type']='application/json'},
           data = json.encode(event), timeout=4000, method = 'POST'},
@@ -1193,7 +1212,7 @@ end
 
 --------------- getting triggers from HC3 ---------------------
 
-if not hc3_emulator.emulated then  
+if not hc3_emulator then  
   fibaro._EventCache = { polling=false, devices={}, globals={}, centralSceneEvents={}} 
   local _oldSetTimeout = setTimeout
   local stat,res = pcall(function() x() end)
@@ -1362,7 +1381,7 @@ function QuickApp:onInit()
 end
 
 if dofile then
-  hc3_emulator.offline = true
+  --hc3_emulator.offline=true
   hc3_emulator.start{
     name="EventRunner4",
     proxy=true,
