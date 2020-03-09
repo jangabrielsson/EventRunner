@@ -29,7 +29,7 @@ Sources:
 json -- Copyright (c) 2019 rxi
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.65"
+local FIBAROAPIHC3_VERSION = "0.66"
 
 --hc3_emulator.credentials = { ip = <IP>, user = <username>, pwd = <password>}
 
@@ -182,7 +182,12 @@ function module.FibaroAPI()
   end
 
   function assert(value,errmsg) if not value then error(errmsg,3) end end
-  function assertf(value,errmsg,...) if not value then error(format(errmsg,...),3) end end
+  function assertf(value,errmsg,...) 
+    if not value then 
+      local args = {...}
+      if #args==0 then error(errmsg,3) else error(format(errmsg,...),3) end
+    end 
+  end
   function __assert_type(value,typeOfValue ) 
     if type(value) ~= typeOfValue then  -- Wrong parameter type, string required. Provided param 'nil' is type of nil
       error(format("Wrong parameter type, %s required. Provided param '%s' is type of %s",
@@ -1483,10 +1488,10 @@ function module.Utilities()
 
   LOG = { LOG="|LOG  |", WARNING="|WARN |", SYS="|SYS  |", DEBUG="|SDBG |", ERROR='|ERROR|', HEADER='HEADER'}
   function Debug(flag,...) if flag then Log(LOG.DEBUG,...) end end
-  function Log(flag,...)
+  function Log(flag,arg1,...)
     local args={...}
     local stat,res = pcall(function() 
-        local str = format(table.unpack(args))
+        local str = #args==0 and arg1 or format(arg1,table.unpack(args))
         if flag == LOG.HEADER then print(logHeader(100,str))
         else print(format("%s %s: %s",flag,os.date("%d.%m.%Y %X"),str)) end
         return str
@@ -1494,7 +1499,7 @@ function module.Utilities()
     if not stat then print(res) end
   end
 
-  function self.printf(...) print(format(...)) end
+  function self.printf(arg1,...) local args={...} if #args==0 then print(arg1) else print(format(arg1,...)) end end
   function self.split(s, sep)
     local fields = {}
     sep = sep or " "
