@@ -22,14 +22,15 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-Contributions:
+Contributions & bugfixes:
 -  @petergebruers, forum.fibaro.com
 
 Sources:
-json -- Copyright (c) 2019 rxi
+json        -- Copyright (c) 2019 rxi
+persistence -- Copyright (c) 2010 Gerhard Roethlin
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.66"
+local FIBAROAPIHC3_VERSION = "0.70"
 
 --hc3_emulator.credentials = { ip = <IP>, user = <username>, pwd = <password>}
 
@@ -137,7 +138,7 @@ local http = require("socket.http")
 local socket = require("socket")
 local ltn12 = require("ltn12")
 
-local _debugFlags = {fcall=true, fget=true, post=true, trigger=true} 
+local _debugFlags = {fcall=true, fget=true, post=true, trigger=true, timers=false, refreshLoop=false, creation=true} 
 
 local Util,Timer,QA,Scene,Web,Trigger,Offline     -- local modules
 fibaro,json,plugin,QuickApp = {},{},nil,nil       -- global exports
@@ -156,19 +157,17 @@ hc3_emulator = {
 }
 
 local _HC3_IP,_HC3_USER,_HC3_PWD
-local ostime = os.time
-local osclock = os.clock
-local osdate = os.date
+local ostime,osdate,osdate = os.time,os.clock,os.date
 local _timeAdjust = 0
 local LOG,Log,Debug,assert,assertf
-local module = {}
+local module,commandLines = {},{}
 local HC3_handleEvent = nil        -- Event hook...
 local typeHierarchy = nil
 local format = string.format
 
 -------------- Fibaro API functions ------------------
 function module.FibaroAPI()
-  local EventCache,safeDecode = hc3_emulator.EventCache,Util.safeDecode
+  local cache,safeDecode = Trigger.cache,Util.safeDecode
 
   local function __convertToString(value) 
     if  type(value) == 'boolean' then 
@@ -199,25 +198,26 @@ function module.FibaroAPI()
   function __fibaro_get_room (roomID) __assert_type(roomID,"number") return api.get("/rooms/"..roomID) end
   function __fibaro_get_scene(sceneID) __assert_type(sceneID,"number") return api.get("/scenes/"..sceneID) end
   function __fibaro_get_global_variable(varName) __assert_type(varName ,"string") 
-    local c = EventCache.polling and EventCache.globals[varName] or api.get("/globalVariables/"..varName) 
-    EventCache.globals[varName] = c
+    local c = cache.read('globals',varName) or api.get("/globalVariables/"..varName) 
+    cache.write('globals',varName,c)
     return c
   end
   function __fibaro_get_device_property(deviceId ,propertyName)
     __assert_type(deviceId,"number")
     __assert_type(propertyName,"string")
     local key = propertyName..deviceId
-    local c = EventCache.polling and EventCache.devices[key] or api.get("/devices/"..deviceId.."/properties/"..propertyName) 
-    EventCache.devices[key] = c
+    local c = cache.read('devices',key) or api.get("/devices/"..deviceId.."/properties/"..propertyName) 
+    cache.write('devices',key,c)
     return c
   end
 
 --[DEBUG] 14.02.2020 17:46:16:
   local function fibaro_debug(t,type,str) assert(str,"Missing tag for debug") print(format("[%s] %s: %s",t,os.date("%d.%m.%Y %X"),str)) end
-  function fibaro.debug(type,str) fibaro_debug("DEBUG",type,str) end
-  function fibaro.warning(type,str) fibaro_debug("WARNING",type,str) end
-  function fibaro.trace(type,str) fibaro_debug("TRACE",type,str) end
-  function fibaro.error(type,str) fibaro_debug("ERROR",type,str) end
+  local function d2str(...) local r={...} for i=1,#r do r[i]=tostring(r[i]) end return table.concat(r," ") end 
+  function fibaro.debug(type,...)  fibaro_debug("DEBUG",type,d2str(...)) end
+  function fibaro.warning(type,...)  fibaro_debug("WARNING",type,d2str(...)) end
+  function fibaro.trace(type,...) fibaro_debug("TRACE",type,d2str(...)) end
+  function fibaro.error(type,...) fibaro_debug("ERROR",type,d2str(...)) end
 
   function fibaro.getName(deviceID) 
     __assert_type(deviceID,'number') 
@@ -240,11 +240,11 @@ function module.FibaroAPI()
   end
 
   function fibaro.call(deviceID, actionName, ...) 
+    __assert_type(actionName ,"string") 
     if type(deviceID)=='table' then 
       for _,d in ipairs(deviceID) do fibaro.call(d, actionName, ...) end
     else
       __assert_type(deviceID ,"number") 
-      __assert_type(actionName ,"string") 
       local a = {args={},delay=0} 
       for i,v in ipairs({...})do 
         a.args[i]=v
@@ -369,10 +369,13 @@ function module.FibaroAPI()
   function fibaro.sleep(ms)
     __assert_type(ms,'number') 
     if hc3_emulator.speeding then 
-      _timeAdjust=_timeAdjust+ms/1000 return
+      _timeAdjust=_timeAdjust+ms/1000 
+      --Timer.runSystemTimers()
+      return
     else
       local t = os.time()+ms/1000; 
       while os.time() < t do 
+        --Timer.runSystemTimers()
         socket.sleep(0.01)       -- without waking up QA/scene timers
       end                        -- ToDo: we probably need 2 timer queues...
     end
@@ -450,17 +453,13 @@ function module.FibaroAPI()
   end
 
   function rawCall(method,call,data,cType,hs)
-    if not _HC3_IP then -- We delay it to here...
-      local c = hc3_emulator.credentials
-      _HC3_IP, _HC3_USER, _HC3_PWD = c.ip, c.user, c.pwd
-    end
     if hc3_emulator.offline then return Offline.api(method,call,data,cType,hs) end
     local resp = {}
     local req={ method=method, timeout=5000,
-      url = "http://".._HC3_IP.."/api"..call,
+      url = "http://"..hc3_emulator.credentials.ip.."/api"..call,
       sink = ltn12.sink.table(resp),
-      user=_HC3_USER,
-      password=_HC3_PWD,
+      user=hc3_emulator.credentials.user,
+      password=hc3_emulator.credentials.pwd,
       headers={}
     }
     req.headers["Accept"] = 'application/json'
@@ -535,12 +534,47 @@ function module.Timer()
       end
       ---local ct = osclock() - can we add a millisecond part?
       timers=timers.next
-      if t.txt then Log(LOG.SYS,"Timer:"..t.txt) end
+      --Log(LOG.SYS,"CT:%s",t)
+      if _debugFlags.timers and t.tag then Log(LOG.SYS,"T:"..tostring(t)) end
       t.fun()
     end
   end
 
-  local function makeTimer(time,fun,txt) return {['%%TIMER%%']=true, time=time,fun=fun, text=txt,t0=_timeAdjust+time} end
+  function self.runSystemTimers() -- Called from sleep and other places to keep system timers going
+    if timers == nil then return end
+    local t0,now = timers,milliTime()
+    while t0 and t0.isSystem and t0.time <= now do
+      t0.fun() t0=t0.next 
+    end
+    while t0.next and t0.next.time <= now do
+      if t0.next.isSystem then ---  t0 -> t1 -> nil
+        t0.next.fun()
+        t0.next = t0.next.next
+      end
+      t0=t0.next
+    end
+  end
+
+  local function dumpTimers()
+    local t = timers 
+    while(t) do Log(LOG.LOG,t) t=t.next end
+  end
+
+  local TimerMetatable = {
+    __tostring = function(self)
+      return format("<%sTimer:%s, exp:%s%s>", 
+        self.isSystem and "Sys" or "", 
+        self.tostr:sub(10), 
+        os.date("%H:%M:%S",math.floor(0.5+self.t0)), 
+        self.tag and (", tag:'"..self.tag.."'") or "")
+    end
+  }
+
+  local function makeTimer(time,fun,props)  
+    local t = {['%%TIMER%%']=true, time=time, fun=fun, tag=props and props.tag, t0=_timeAdjust+time}
+    t.tostr = tostring(t) setmetatable(t,TimerMetatable)
+    return t
+  end
   local function isTimer(timer) return type(timer)=='table' and timer['%%TIMER%%'] end
 
   function self.clearTimeout(timer)
@@ -557,22 +591,22 @@ function module.Timer()
     end
   end
 
-  function self.setTimeout(fun,ms,text)
+  function self.setTimeout(fun,ms,tag)
     assert(type(fun)=='function' and type(ms)=='number',"Bad argument to setTimeout")
     if ms >= 0 then
-      local t = makeTimer(ms/1000+milliTime(),fun,text)
+      local t = makeTimer(ms/1000+milliTime(),fun,{tag=tag})
       insertTimer(t)
       return t
     end
   end
 
-  function self.coprocess(ms,fun,name,...)
+  function self.coprocess(ms,fun,tag,...)
     local args = {...}
     local p = coroutine.create(function() fun(table.unpack(args)) end)
     local function process()
       local res,err = coroutine.resume(p)
       local stat = coroutine.status(p) -- run every ms
-      if stat~="dead" then self.setTimeout(process,ms) end  -- ToDo: check exit
+      if stat~="dead" then self.setTimeout(process,ms,tag).isSystem=true end  -- ToDo: check exit
       if stat == 'dead' and err then
         Log(LOG.ERROR,err)
         Log(LOG.ERROR,debug.traceback(p))
@@ -581,16 +615,16 @@ function module.Timer()
     process()
   end
 
-  function self.setInterval(fun,ms)
+  function self.setInterval(fun,ms,tag)
     assert(type(fun)=='function' and type(ms)=='number',"Bad argument to setInterval")
     local ref={}
     local function loop()
       if ref[1] then
         fun()
-        ref[1]=setTimeout(loop,ms)
+        ref[1]=setTimeout(loop,ms,tag)
       end
     end
-    ref[1] = setTimeout(loop,ms)
+    ref[1] = setTimeout(loop,ms,tag)
     return ref
   end
 
@@ -617,10 +651,10 @@ function module.Timer()
       return t
     end
 
-    function setTimeout(f,t,text) -- globally redefine global setTimeout
-      assert(type(f)=='function' and type(t)=='number',"Bad argument to setTimeout")
+    function setTimeout(fun,t,tag) -- globally redefine global setTimeout
+      assert(type(fun)=='function' and type(t)=='number',"Bad argument to setTimeout")
       --Log(LOG.LOG,"S %s:%d",text or "",t/1000)
-      if t >= 0 then return addTimer(makeTimer(t/1000,f,text,_timeAdjust+t/1000)) end
+      if t >= 0 then return addTimer(makeTimer(t/1000,fun,{tag=tag})) end
     end
 
     function clearTimeout(ref)  -- globally redefine global clearTimeout
@@ -641,12 +675,12 @@ function module.Timer()
           if os.time() >= maxTime then Log(LOG.SYS,"Max time - exit")  os.exit() end
           if fastTimer then
             local t0 = fastTimer.t0
-            Timer.setTimeout(fastTimer.fun,0,fastTimer.text) -- schedule next time in lines
+            Timer.setTimeout(fastTimer.fun,0,fastTimer.tag) -- schedule next time in lines
             --Log(LOG.LOG,"E %s",fastTimer.text or "")
             _timeAdjust=fastTimer.t0 -- adjust time
             fastTimer = fastTimer.next
             while fastTimer and fastTimer.t0==t0 do
-              Timer.setTimeout(fastTimer.fun,0,fastTimer.text)
+              Timer.setTimeout(fastTimer.fun,0,fastTimer.tag)
               --Log(LOG.LOG,"E %s",fastTimer.text or "")
               fastTimer = fastTimer.next
             end
@@ -658,15 +692,21 @@ function module.Timer()
       end,"speedTime")
   end
 
-  -- Redefine time functions so we can "control" time
+-- Redefine time functions so we can "control" time
   function os.time(t) return t and ostime(t) or ostime()+math.floor(_timeAdjust+0.5) end
   function os.date(f,t) return t and osdate(f,t) or osdate(f,os.time()) end
+
+  function self.setEmulatorTime(t)
+    local diff = t-os.time()
+    _timeAdjust = _timeAdjust + diff
+  end
 
   setTimeout = self.setTimeout
   clearTimeout = self.clearTimeout
   setInterval = self.setInterval
   clearInterval = self.clearInterval
 
+  hc3_emulator.dumpTimers = dumpTimers
   return self
 end
 
@@ -1003,14 +1043,16 @@ INSTALLED_MODULES['EventScript.lua']={isInstalled=true,installedVersion=0.001}
       if args.quickApp and not api.get("/devices/"..plugin.mainDeviceId) then
         error(format("hc3_emulator.start: QuickApp with id %s doesn't exist on HC3",plugin.mainDeviceId))
       end
+
+      if plugin.isProxy and not args.quickApp then
+        plugin.mainDeviceId = createProxy(name,plugin.type,UI,quickvars)
+      else Log(LOG.SYS,"Connected to HC3 device %s",plugin.mainDeviceId) end
+
     end
     local name = args.name or "My App"
+    Log(LOG.HEADER,"QuickApp '%s', deviceID:%s started at %s",name,plugin.mainDeviceId,os.date("%c"))
     local UI = args.UI or {}
     local quickvars = args.quickvars or {}
-
-    if plugin.isProxy and not args.quickApp then
-      plugin.mainDeviceId = createProxy(name,plugin.type,UI,quickvars)
-    else Log(LOG.SYS,"Connected to HC3 device %s",plugin.mainDeviceId) end
 
     if args.poll then Trigger.startPolling(tonumber(args.poll ) or 2000) end
 
@@ -1230,7 +1272,7 @@ function module.Scene()
         if c.isTrigger then triggers[id] = property end
         return function(ctx) 
           local cv = __fibaro_get_device_property(id,property)
-          return comp(cv,value)
+          return comp(cv and cv.value,value)
         end
       end,
       ['device:centralSceneEvent'] = function(c,all)
@@ -1317,7 +1359,8 @@ climate
 
   local function runScene(args)
     local condition,triggers,dates = compileCondition(hc3_emulator.conditions)
-    printf("Scene started at %s",os.date("%c"))
+    hc3_emulator.runSceneAtStart = hc3_emulator.runSceneAtStart or args.runSceneAtStart
+    Log(LOG.HEADER,"Scene started at %s",os.date("%c"))
     if hc3_emulator.runSceneAtStart or next(hc3_emulator.conditions)==nil then
       Timer.setTimeout(function() HC3_handleEvent({type = "manual", property = "execute"}) end,0)
     end
@@ -1336,6 +1379,7 @@ climate
       e.type=='global-variable' and triggers[e.property] or
       e.type=='date' 
       then
+        Log(LOG.DEBUG,"Scene trigger:%s",json.encode(e))
         if condition(ctx) then
           sourceTrigger = e
           Timer.setTimeout(hc3_emulator.actions,0)
@@ -1368,8 +1412,11 @@ end
 --------------- Trigger functions and support --------
 function module.Trigger()
   local self = {}
-  local EventCache = hc3_emulator.EventCache
   local tickEvent = "ERTICK"
+
+  local cache = { polling=false, devices={}, globals={}, centralSceneEvents={}} -- Caching values when we poll to reduce traffic to HC3...
+  function cache.write(type,key,value) cache[type][key]=value end
+  function cache.read(type,key) return hc3_emulator.speeding and hc3_emulator.polling and cache[type][key] end
 
   local function post(event) if HC3_handleEvent then HC3_handleEvent(event) end end
 
@@ -1380,7 +1427,7 @@ function module.Trigger()
     HomeBreachedEvent = function(self,d) post({type='alarm', property='homeBreached', value=d.breached}) end,
     WeatherChangedEvent = function(self,d) post({type='weather',property=d.change, value=d.newValue, old=d.oldValue}) end,
     GlobalVariableChangedEvent = function(self,d)
-      EventCache.globals[d.variableName]={name=d.variableName, value = d.newValue, modified=os.time()}
+      cache.write('globals',d.variableName,{name=d.variableName, value = d.newValue, modified=os.time()})
       if d.variableName == tickEvent then return end
       post({type='global-variable', property=d.variableName, value=d.newValue, old=d.oldValue})
     end,
@@ -1395,16 +1442,16 @@ function module.Trigger()
       else
         --if d.property:match("^ui%.") then return end
         if d.property == 'icon' then return end
-        EventCache.devices[d.property..d.id]={value=d.newValue, modified=os.time()}     
+        cache.write('devices',d.property..d.id,{value=d.newValue, modified=os.time()})    
         post({type='device', id=d.id, property=d.property, value=d.newValue, old=d.oldValue})
       end
     end,
     CentralSceneEvent = function(self,d) 
-      EventCache.centralSceneEvents[d.deviceId]=d 
+      cache.write('centralSceneEvents',d.deviceId,d) 
       post({type='device', property='centralSceneEvent', id=d.deviceId, value = {keyId=d.keyId, keyAttribute=d.keyAttribute}}) 
     end,
     AccessControlEvent = function(self,d) 
-      EventCache.caccessControlEvent[d.id]=d
+      cache.write('accessControlEvent',d.id,d)
       post({type='device', property='accessControlEvent', id = d.deviceID, value=d}) 
     end,
     CustomEvent = function(self,d) if d.name == tickEvent then return else post({type='custom-event', name=d.name}) end end,
@@ -1435,23 +1482,29 @@ function module.Trigger()
     end
   end
 
-  local function pollEvents(interval)
-    local INTERVAL = interval or 1000 -- every second, could do more often...
-    local lastRefresh = 0
-    api.post("/globalVariables",{name=tickEvent,value="Tock!"})
-    EventCache.polling = true -- Our loop will populate cache with values - no need to fetch from HC3
-    local function pollRefresh()
-      --Log(LOG.SYS,"*")
-      local states = api.get("/refreshStates?last=" .. lastRefresh)
-      if states then
-        lastRefresh=states.last
-        if states.events and #states.events>0 then checkEvents(states.events) end
-      end
-      Timer.setTimeout(pollRefresh,INTERVAL,"MAIN")
-      fibaro.setGlobalVariable(tickEvent,tostring(os.clock())) -- emit hangs
---    fibaro.emitCustomEvent(tickEvent)  -- hack because refreshState hang if no events...
+  local lastRefresh = 0
+
+  local function pollOnce()
+    if _debugFlags.refreshLoop then Log(LOG.DEBUG,"*") end
+    local states = api.get("/refreshStates?last=" .. lastRefresh)
+    if states then
+      lastRefresh=states.last
+      if states.events and #states.events>0 then checkEvents(states.events) end
     end
-    Timer.setTimeout(pollRefresh,INTERVAL)
+  end
+
+  local function pollEvents(interval)
+    local INTERVAL = 500--interval or 1000 -- every second, could do more often...
+
+    api.post("/globalVariables",{name=tickEvent,value="Tock!"})
+    cache.polling = true -- Our loop will populate cache with values - no need to fetch from HC3
+
+    local function pollRefresh()
+      pollOnce()
+      Timer.setTimeout(pollRefresh,INTERVAL,"RefreshState").isSystem=true
+      fibaro.setGlobalVariable(tickEvent,tostring(os.clock())) -- emit hangs
+    end
+    Timer.setTimeout(pollRefresh,0).isSystem=true
   end
 
   if not HC3_handleEvent then -- default handle event routine
@@ -1463,11 +1516,13 @@ function module.Trigger()
   function hc3_emulator.post(ev,t)
     assert(type(ev)=='table' and ev.type,"Bad event format:"..ev)
     t = t or 0
-    setTimeout(function() HC3_handleEvent(ev) end,t)
+    setTimeout(function() HC3_handleEvent(ev) end,t).isSystem=true
   end
 
   self.eventTypes = EventTypes
   self.startPolling = pollEvents
+  self.pollOneEvent = pollOnce
+  self.cache = cache
   return self
 end
 
@@ -1499,6 +1554,20 @@ function module.Utilities()
     if not stat then print(res) end
   end
 
+  function self.parseDate(dateStr) --- Format 10:00:00 5/12/2020
+    local h,m,s = dateStr:match("(%d+):(%d+):?(%d*)")
+    local d,mon,y = dateStr:match("(%d+)/(%d+)/?(%d*)")
+    s = s~="" and s or 0
+    local t = os.date("*t")
+    t.hour = tonumber(h) or t.hour
+    t.min = tonumber(m) or t.min
+    t.sec = tonumber(s) or t.sec
+    t.day = tonumber(d) or t.day
+    t.month = tonumber(mon) or t.month
+    t.year = tonumber(year) or t.year
+    return os.time(t)
+  end
+
   function self.printf(arg1,...) local args={...} if #args==0 then print(arg1) else print(format(arg1,...)) end end
   function self.split(s, sep)
     local fields = {}
@@ -1523,7 +1592,7 @@ function module.Utilities()
 
   function self.traceFibaro()
     patchFibaro("call")
-    patchFibaro("get")
+    -- patchFibaro("get")
   end
 
   function self.cleanUpVarsAndEvents()
@@ -1544,8 +1613,6 @@ function module.Utilities()
     Log(LOG.SYS,"Deleted %s RPC variables",c1)
     Log(LOG.SYS,"Deleted %s PROXY events",c2)
   end
-
-
 
   local IPADDRESS = nil
   function self.getIPaddress()
@@ -1991,7 +2058,7 @@ function module.WebAPI()
         client, err = server:accept()
         if err == 'timeout' then coroutine.yield() end
       until err ~= 'timeout'
-      coprocess(10,clientHandler,"client",client,getHandler,postHandler,putHandler)
+      coprocess(10,clientHandler,"Web:client",client,getHandler,postHandler,putHandler)
     end
   end
 
@@ -2003,7 +2070,7 @@ function module.WebAPI()
     --printf("http://%s:%s/test",ipAdress,port)
     server:settimeout(0,'b')
     server:setoption('keepalive',true)
-    coprocess(10,socketServer,"server",server,getHandler,postHandler,putHandler)
+    coprocess(10,socketServer,"Web:server",server,getHandler,postHandler,putHandler)
     Log(LOG.SYS,"Created %s at %s:%s",name,self.ipAddress,port)
   end
 
@@ -2021,6 +2088,12 @@ function module.WebAPI()
         client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n\n")
         return true
       end,
+      ["/web/(.*)"] = function(client,ref,body,call)
+        if call=="" then call="main" end
+        local page = Pages.getPath(call)
+        if page~=nil then client:send(page) return true
+        else return false end
+      end
     },
     ["POST"] = {
       ["/fibaroapiHC3/event"] = function(client,ref,body,id,action,args)
@@ -2058,13 +2131,89 @@ function module.WebAPI()
     createServer("Event server",hc3_emulator.webPort,GUIhandler,GUIhandler)
   end
 
+  Pages = { pages={} }
+  function Pages.lr(t,id) local r = HC2.getRsrc(t,id,true) return r and r._local and "L" or "R" end
+
+  function Pages.register(path,page)
+    local file = page:match("^file:(.*)")
+    if file then
+      local f = io.open(file)
+      if not f then error("No such file:"..file) end
+      local page = f:read("*all")
+    end
+    Pages.pages[path]={page=page, path=path} 
+    return Pages.pages[path]
+  end
+
+  function Pages.getPath(path)
+    local p = Pages.pages[path]
+    if p and not p.cpage then
+      Pages.compile(p)
+    end
+    if p then return Pages.render(p)
+    else return null end
+  end
+
+  function Pages.renderError(msg) return _format(Pages.P_ERROR1,msg) end
+
+  function Pages.render(p)
+    if p.static and p.static~=true then return p.static end
+    local stat,res = pcall(function()
+        return p.cpage:gsub("<<<(%d+)>>>",
+          function(i)
+            return p.funs[tonumber(i)]()
+          end)
+      end)
+    if not stat then return Pages.renderError(res)
+    else p.static=res return res end
+  end
+
+  function Pages.compile(p)
+    local funs={}
+    p.cpage=p.page:gsub("<<<(.-)>>>",
+      function(code)
+        local f = _format("do %s end",code)
+        f,m = loadstring(f)
+        if m then printf("ERROR RENDERING PAGE %s, %s",p.path,m) end
+        funs[#funs+1]=f
+        return (_format("<<<%s>>>",#funs))
+      end)
+    p.funs=funs
+  end
+
+  Pages.P_ERROR1 =
+[[HTTP/1.1 200 OK
+Content-Type: text/html
+Cache-Control: no-cache, no-store, must-revalidate
+<!DOCTYPE html><html><head><title>Error</title><meta charset="utf-8"></head><body><pre>%s</pre></body></html>
+]]
+
+  Pages.P_MAIN =
+[[HTTP/1.1 200 OK
+Content-Type: text/html
+Cache-Control: no-cache, no-store, must-revalidate
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>HC3 SDK</title>
+    <meta charset="utf-8">
+</head>
+<body>
+<pre>Sorry, not implemented yet</pre>
+</body>
+</html>
+]]
+
+  Pages.register("main",Pages.P_MAIN).static=true
+
   return self
 end
 
 --------------- Offline support ----------------------
 function module.Offline()
   -- We setup our own /refreshState handler and other REST API handlers and keep our own reosurce states
-  local self,split,urldecode,QUEUESIZE = {},Util.split,Util.urldecode,200
+  local self,cache,split,urldecode,QUEUESIZE = {},Trigger.cache,Util.split,Util.urldecode,200
   local refreshStates = nil
 
   ---------------- Resource DB --------------------
@@ -2072,17 +2221,18 @@ function module.Offline()
     local self,cache = {},{}
     local resources= {
       devices = {},
+      scenes = {},
       globalVariables = {},
       customEvents = {},
       rooms = {},
-      scenes = {},
       sections = {},
-      settings = {
-        info = {},
-        location = {longitude=13.404954,latitude=52.520008}, -- Berlin
-        network = {},
-        led = {},
-      },
+      profiles = {},
+      settings = {info = {}, location={}, network={}, led={}},
+      users={},
+      weather={},
+      iosDevices={},
+      home={},
+      categories={},
       alarms = {
         v1 = {
           devices = {},
@@ -2097,7 +2247,7 @@ function module.Offline()
     local auto = { devices = true, globals = true, customevent = true }
     self.resources,self.auto = resources,auto
 
-    --{name=false, id=false, properties = { value=function(v1,v2) end }}
+    function self.setDB(db) resources=db self.resources=db end
 
     local function splitPath(path) local p = split(path,"/") p = #p==1 and p[1] or p; cache[path]=p return p end
     local function copyOver(o1,o2,cm,r)
@@ -2122,21 +2272,26 @@ function module.Offline()
       end
     end
     local creator,modifier,actions= {},{},{}
+    function self.addCreator(rsrc,fun) local r = get(rsrc) creator[r]=fun end
+    function self.addModifier(rsrc,tab) local r = get(rsrc) modifier[r]=tab end
+    function self.addActions(rsrc,a) actions[rsrc]=a end
+    function self.getActions(rsrc) return actions[rsrc] or {} end
+
     function self.delete(rsrc,key)
       local r = get(rsrc)
-      key=tostring(key)
       if r[key] then actions[r[key]]=nil; r[key]=nil return nil,200 else return nil,404 end
     end
-    function self.add(rsrc,key,value)
+
+    function self.add(rsrc,key,value) -- error if exists
       local r = get(rsrc)
-      key = tostring(key)
       if r[key] then return nil,409 end
-      r[key]=value
-      return value,200
+      self.get(rsrc,key)
+      self.modify(rsrc,key,value)
+      return r[key],200
     end
-    function self.modify(rsrc,key,value)
+
+    function self.modify(rsrc,key,value) -- creates if creator
       local r = get(rsrc)
-      key = tostring(key)
       if not r[key] then 
         local v,err = self.get(rsrc,key)
         if err~=200 then return v,err end
@@ -2146,14 +2301,10 @@ function module.Offline()
       else r[key]=value end
       return r[key],200
     end
-    function self.addCreator(rsrc,fun) local r = get(rsrc) creator[r]=fun end
-    function self.addModifier(rsrc,tab) local r = get(rsrc) modifier[r]=tab end
-    function self.addActions(rsrc,a) actions[rsrc]=a end
-    function self.getActions(rsrc) return actions[rsrc] or {} end
-    function self.get(rsrc,key)
+
+    function self.get(rsrc,key) -- creates if creator
       local r = get(rsrc)
       if key then
-        key = tostring(key)
         if r[key] then return r[key],200
         elseif creator[r] then
           local v = creator[r](key)
@@ -2190,29 +2341,53 @@ function module.Offline()
   local deviceTypes = {
     ["com.fibaro.binarySwitch"] = function(self)
       self.properties.value = false
+      self.properties.state = false
       self.actions = {turnOn=0, turnOff=0}
       local actions = {}
       function actions.turnOn() actions.setValue("value",true) end
       function actions.turnOff() actions.setValue("value",false) end
-      function actions.setValue(prop,value) db.modify("/devices",self.id,{properties={value=value}}) end -- could be more efficient
+      function actions.setValue(prop,value) 
+        if prop=='value' or prop=='state' then
+          db.modify("/devices",self.id,{properties ={value=value}}) 
+          db.modify("/devices",self.id,{properties ={state=value}}) 
+          cache.write('devices',prop..self.id,{value=value,modified=os.time()})
+        end
+      end -- could be more efficient
       return actions
     end,
     ["com.fibaro.multilevelSwitch"] = function(self)
       self.properties.value = 0
       self.actions = {turnOn=0, turnOff=0, setValue=2}
       local actions = {}
-      function actions.turnOn() actions.setValue(self,"value",99) end
-      function actions.turnOff() actions.setValue(self,"value",0) end
-      function actions.setValue(prop,value) db.modify("/devices",self.id,{properties={value=value}}) end
+      function actions.turnOn() actions.setValue("value",99) end
+      function actions.turnOff() actions.setValue("value",0) end
+      function actions.setValue(prop,value) 
+        db.modify("/devices",self.id,{properties={[prop]=value}}) 
+        if prop=='value' then 
+          db.modify("/devices",self.id,{properties={state=value>0}}) 
+        end 
+        if hc3_emulator.speeding then 
+          cache.write('devices','state'..self.id,{value=value>0,modified=os.time()})
+          cache.write('devices',prop..self.id,{value=value,modified=os.time()})
+        end
+      end
       return actions
     end,
     ["com.fibaro.binarySensor"] = function(self)
       self.properties.value = false
+      self.properties.state = false
+      self.lastBreached = 0
       self.actions = {turnOn=0, turnOff=0}
       local actions = {}
       function actions.turnOn() actions.setValue("value",true) end
       function actions.turnOff() actions.setValue("value",false) end
-      function actions.setValue(prop,value) db.modify("/devices",self.id,{properties={value=value}}) end
+      function actions.setValue(prop,value) 
+        if prop=='value' or prop=='state' then
+          self.lastBreached = os.time()
+          db.modify("/devices",self.id,{properties ={value=value}}) 
+          db.modify("/devices",self.id,{properties ={state=value}}) 
+        end
+      end
       return actions
     end,
     ["com.fibaro.multilevelSensor"] = function(self)
@@ -2221,7 +2396,12 @@ function module.Offline()
       local actions = {}
       function actions.turnOn() actions.setValue("value",99) end
       function actions.turnOff() actions.setValue("value",0) end
-      function actions.setValue(prop,value) db.modify("/devices",self.id,{properties={value=value}}) end
+      function actions.setValue(prop,value) 
+        db.modify("/devices",self.id,{properties={[prop]=value}}) 
+        if prop=='value' then 
+          db.modify("/devices",self.id,{properties={state=value>0}}) 
+        end 
+      end
       return actions
     end,
   }
@@ -2247,13 +2427,31 @@ function module.Offline()
   end
 
   local function createDevice(dev)
-    dev.properties = dev.properties or {}
-    dev.name = dev.name or ""
-    dev.type = dev.type or "com.fibaro.binarySwitch"
-    dev.baseType = getBaseType(dev.type)
-    if not (dev.id and dev.baseType) then return end
-    db.addActions(dev,deviceTypes[dev.baseType](dev))
+    if dev.id == 1 then
+      dev.id=1
+      dev.properties={sunsetHour="20:00",sunriseHour="06:00"}
+      dev.type="com.fibaro.zwavePrimaryController"
+      dev.baseType=""
+    else
+      dev.properties = dev.properties or {}
+      dev.created = os.time()
+      dev.modified = dev.created
+      dev.name = dev.name or ""
+      dev.type = dev.type or hc3_emulator.defaultDevice or "com.fibaro.binarySwitch"
+      dev.baseType = getBaseType(dev.type)
+      if not (dev.id and dev.baseType) then return end
+      db.addActions(dev,deviceTypes[dev.baseType](dev))
+    end
+    Debug(dev.id ~= 1 and _debugFlags.creation,"DeviceId:%s (%s) created",dev.id,dev.type)
     return dev
+  end
+
+  local initExemptions = { ['HC_User']=true,['com.fibaro.zwavePrimaryController']=true}
+  function self.initExistingDevice(dev)
+    if initExemptions[dev.type] then return end
+    local baseType = getBaseType(dev.type)
+    dev.baseType = baseType or "com.fibaro.multilevelSwitch" 
+    if dev.baseType~="" then db.addActions(dev,deviceTypes[dev.baseType](dev)) end
   end
 
   local function pr(o) print(json.encode(o)) end
@@ -2278,38 +2476,44 @@ function module.Offline()
 
   local function propChange(prop,oldValue,newValue,d)
     if oldValue ~= newValue then
+      d.modified = os.time()
       refreshStates.addEvents(
         {type='DevicePropertyUpdatedEvent', data={id=tonumber(d.id),newValue=newValue,oldValue=oldValue,property=prop}}
       )
+      Trigger.pollOneEvent()
     end
   end
 
-  db.addCreator("/devices",function(id) return db.auto.devices and createDevice({id=tonumber(id)}) end)
-  db.addCreator("/globalVariables",function(name) return db.auto.globals and createGlobalVariable({name=name}) end)
-  db.addCreator("/customEvents",function(name) return db.auto.customevents and createCustomEvent({name=name}) end)
-  db.addModifier("/globalVariables",
-    {
-      name=false, 
-      value=function(_,oldValue,newValue,v) 
-        if oldValue ~= newValue then
-          refreshStates.addEvents(
-            {type='GlobalVariableChangedEvent', data={variableName=v.name, newValue=newValue, old=oldValue}}
-          )
+  function self.setupDBhooks()
+    db.addCreator("/devices",function(id) return db.auto.devices and createDevice({id=tonumber(id)}) end)
+    db.addCreator("/globalVariables",function(name) return db.auto.globals and createGlobalVariable({name=name}) end)
+    db.addCreator("/customEvents",function(name) return db.auto.customevents and createCustomEvent({name=name}) end)
+    db.addModifier("/globalVariables",
+      {
+        name=false, 
+        value=function(_,oldValue,newValue,v) 
+          if oldValue ~= newValue then
+            refreshStates.addEvents(
+              {type='GlobalVariableChangedEvent', data={variableName=v.name, newValue=newValue, old=oldValue}}
+            )
+            Trigger.pollOneEvent()
+          end
         end
-      end
-    })
-  db.addModifier("/devices",
-    {
-      name=false, 
-      id=false, 
-      type=false, 
-      properties = {
-        value=propChange,
-        color=propChange,
-      }
-    })
+      })
+    db.addModifier("/devices",
+      {
+        name=false, 
+        id=false, 
+        type=false, 
+        properties = {
+          value=propChange,
+          color=propChange,
+        }
+      })
+  end
+  self.setupDBhooks()
 
-  --------------- refreshState handling ---------------
+--------------- refreshState handling ---------------
   local function createRefreshStateQueue(size)
     local self = {}
     local QLAST = 300
@@ -2367,13 +2571,13 @@ function module.Offline()
   refreshStates = createRefreshStateQueue(QUEUESIZE)
   self.refreshStates = refreshStates
 
-  ---------------- api.* handlers
-
+---------------- api.* handlers
+  local function arr(tab) local res={} for _,v in pairs(tab) do res[#res+1]=v end return res end
   local OFFLINE_HANDLERS = {
     ["GET"] = {
       ["/callAction%?deviceID=(%d+)&name=(%w+)(.*)"] = function(call,data,cType,id,action,args)
         local res = {}
-        args = split(args,"&")
+        args,id = split(args,"&"),tonumber(id)
         for _,a in ipairs(args) do
           local i,v = a:match("^arg(%d+)=(.*)")
           res[tonumber(i)]=urldecode(v)
@@ -2388,18 +2592,23 @@ function module.Offline()
         end
         return nil,200
       end,
-      ["/devices/(%d+)$"] = function(call,data,cType,id) return db.get("/devices",id) end,
-      ["/devices/?$"] = function(call,data,cType,name) return db.get("/devices") end,    
+      ["/devices/(%d+)/properties/(.+)$"] = function(call,data,cType,deviceID,property) 
+        local d,err1 = db.get("/devices",tonumber(deviceID))
+        if err1 and err1~=200 then return nil,err1 end
+        return {value=d.properties[property],modified=d.modified},200
+      end,
+      ["/devices/(%d+)$"] = function(call,data,cType,id) return db.get("/devices",tonumber(id)) end,
+      ["/devices/?$"] = function(call,data,cType,name) return arr(db.get("/devices")) end,    
       ["/globalVariables/(.+)"] = function(call,data,cType,name) return db.get("/globalVariables",name) end,
-      ["/globalVariables/?$"] = function(call,data,cType,name) return db.get("/globalVariables") end,
+      ["/globalVariables/?$"] = function(call,data,cType,name) return arr(db.get("/globalVariables")) end,
       ["/customEvents/(.+)"] = function(call,data,cType,name) return db.get("/customEvents",name) end,
-      ["/customEvents/?$"] = function(call,data,cType,name) return db.get("/customEvents") end,
-      ["/scenes/(%d+)"] = function(call,data,cType,id) return db.get("/scenes",id) end,
-      ["/scenes/?$"] = function(call,data,cType,name) return db.get("/scenes") end,
-      ["/rooms/(%d+)"] = function(call,data,cType,id) return db.get("/rooms",id) end,
-      ["/rooms/?$"] = function(call,data,cType,name) return db.get("/rooms") end,
-      ["/sections/(%d+)"] = function(call,data,cType,id) return db.get("/sections",id) end,
-      ["/sections/?$"] = function(call,data,cType,name) return db.get("/sections") end,
+      ["/customEvents/?$"] = function(call,data,cType,name) return arr(db.get("/customEvents")) end,
+      ["/scenes/(%d+)"] = function(call,data,cType,id) return db.get("/scenes",tonumber(id)) end,
+      ["/scenes/?$"] = function(call,data,cType,name) return arr(db.get("/scenes")) end,
+      ["/rooms/(%d+)"] = function(call,data,cType,id) return db.get("/rooms",tonumber(id)) end,
+      ["/rooms/?$"] = function(call,data,cType,name) return arr(db.get("/rooms")) end,
+      ["/sections/(%d+)"] = function(call,data,cType,id) return db.get("/sections",tonumber(id)) end,
+      ["/sections/?$"] = function(call,data,cType,name) return arr(db.get("/sections")) end,
       ["/refreshStates%?last=(%d+)"] = function(call,data,cType,last) return refreshStates.getEvents(tonumber(last)),200 end,
       ["/settings/location/?$"] = function(_) return db.get("/settings/location/") end
     },
@@ -2423,11 +2632,11 @@ function module.Offline()
       ["/sections/?$"] = function(call,data,_) -- Create section.
         data = json.decode(data) 
         return db.add("/sections",data.id,data)
-      end,
+      end,   
       ["/devices/(%d+)/action/(.+)$"] = function(call,data,cType,deviceID,action) 
         data = json.decode(data)
-        local d,err1 = db.get("/devices",deviceID)
-        if err1 then return d,err1 end
+        local d,err1 = db.get("/devices",tonumber(deviceID))
+        if err1 and err1~=200 then return d,err1 end
         local fun = db.getActions(d)[action]
         local stat,err2 = pcall(function() fun(table.unpack(data.args)) end)
         if not stat then 
@@ -2453,7 +2662,7 @@ function module.Offline()
       end,
       ["/devices/(%d+)"] = function(call,data,cType,id) -- modify value
         data = json.decode(data)
-        return db.modify("/devices",id,data)
+        return db.modify("/devices",tonumber(id),data)
       end,
     },
     ["DELETE"] = {
@@ -2464,16 +2673,16 @@ function module.Offline()
         return db.delete("/customEvents",name)
       end,
       ["/devices/(%d+)"] = function(call,data,cType,id) 
-        return db.delete("/device",id)
+        return db.delete("/device",tonumber(id))
       end,
       ["/devices/(%d+)"] = function(call,data,cType,id) 
-        return db.delete("/rooms",id)
+        return db.delete("/rooms",tonumber(id))
       end,
       ["/devices/(%d+)"] = function(call,data,cType,id) 
-        return db.delete("/sections",id)
+        return db.delete("/sections",tonumber(id))
       end,
       ["/devices/(%d+)"] = function(call,data,cType,id) 
-        return db.delete("/scenes",id)
+        return db.delete("/scenes",tonumber(id))
       end,
     },
   }
@@ -2510,17 +2719,273 @@ function module.Offline()
   end
 
 --hc3_emulator.createDevice(99,"com.fibaro.multilevelSwitch")
-  function self.createDevice(id,tp)
+  function self.createDevice(id,tp,name)
     assert(hc3_emulator.offline,"createDevice can only run offline")
-    db.add("/devices",id,{id=id,type=tp})
+    local temp
+    temp,hc3_emulator.defaultDevice = hc3_emulator.defaultDevice,tp or hc3_emulator.defaultDevice
+    local d = db.add("/devices",id,{id=id,type=tp,name=name})
+    hc3_emulator.defaultDevice = temp
+    return d
   end
+
+  local function userDev(d0)
+    local u,d = {},d0
+    for k,v in pairs(db.getActions(d)) do u[k]=v end
+    function u.breach(secRestore)
+      u.turnOn()
+      setTimeout(function() u.turnOff() end,1000*secRestore)
+    end
+    function u.delay(s)
+      local res = {}
+      for k,v in pairs(u) do 
+        res[k]=function(...) local a={...} setTimeout(function() v(table.unpack(a)) end,s*1000) end
+      end 
+      return res
+    end
+    return u
+  end
+
+  hc3_emulator.create = {}
+  function hc3_emulator.create.motionSensor(id,name) return userDev(self.createDevice(id,"com.fibaro.motionSensor",name)) end
+  function hc3_emulator.create.tempSensor(id,name) return userDev(self.createDevice(id,"com.fibaro.temperatureSensor",name)) end
+  function hc3_emulator.create.doorSensor(id,name) return userDev(self.createDevice(id,"com.fibaro.doorSensor",name)) end
+  function hc3_emulator.create.luxSensor(id,name) return userDev(self.createDevice(id,"com.fibaro.lightSensor",name)) end
+  function hc3_emulator.create.dimmer(id,name) return userDev(self.createDevice(id,"com.fibaro.multilevelSwitch",name)) end
+  function hc3_emulator.create.light(id,name) return userDev(self.createDevice(id,"com.fibaro.binarySwitch",name)) end
 
   self.api = offlineApi
   return self
 
 end -- Offline
 
-hc3_emulator.EventCache = { polling=false, devices={}, globals={}, centralSceneEvents={}} -- Caching values when we poll to reduce traffic to HC3...
+-------------- OfflineDB functions ------------------
+function module.OfflineDB()
+  local fname = "HC3sdk.db"
+  local self,persistence = {},nil
+  local cr = not hc3_emulator.credentials and loadfile("credentials.lua"); if cr then cr() end
+
+  function self.copyFromHC3()
+    local function mapIDS(r)
+      if type(r)~='table' or r[1]==nil then return r end
+      local v = r[1]
+      if not (v.id or v.name or v.partionId) then return end
+      local res={}
+      for k,r0 in ipairs(r) do 
+        res[r0.id or r0.name or r0.partionId]=r0 
+      end
+      return res
+    end
+    local resources = Offline.db.resources
+    local stat,res = pcall(function()
+        local function copy(resources,path)
+          for k,v in pairs(resources) do
+            if next(v)==nil then 
+              Log(LOG.LOG,"Reading %s",path..k)
+              resources[k]=mapIDS(api.get(path..k))
+            else copy(v,path..k.."/")
+            end
+          end
+        end
+        copy(resources,"/")
+      end)
+    if not stat then
+      Log(LOG.ERROR,"Failed copying HC3 data:%s",res)
+    else
+      Log(LOG.LOG,"Writing HC3 resources to file (%s)",fname)
+      persistence.store(fname,resources)
+    end
+  end
+
+  function self.loadDB()
+    local r = persistence.load(fname)
+    for _,dev in pairs(r.devices) do
+      Offline.initExistingDevice(dev)
+    end
+    Offline.db.setDB(r)
+    Offline.setupDBhooks()
+    Log(LOG.SYS,"Loaded database '%s'",fname)
+  end
+
+-----------------------------
+-- persistence
+-- Copyright (c) 2010 Gerhard Roethlin
+
+--------------------
+-- Private methods
+  local write, writeIndent, writers, refCount;
+
+  persistence = {
+    store = function (path, ...)
+      local file, e;
+      if type(path) == "string" then
+        -- Path, open a file
+        file, e = io.open(path, "w");
+        if not file then
+          return error(e);
+        end
+      else
+        -- Just treat it as file
+        file = path;
+      end
+      local n = select("#", ...);
+      -- Count references
+      local objRefCount = {}; -- Stores reference that will be exported
+      for i = 1, n do
+        refCount(objRefCount, (select(i,...)));
+      end;
+      -- Export Objects with more than one ref and assign name
+      -- First, create empty tables for each
+      local objRefNames = {};
+      local objRefIdx = 0;
+      file:write("-- Persistent Data\n");
+      file:write("local multiRefObjects = {\n");
+      for obj, count in pairs(objRefCount) do
+        if count > 1 then
+          objRefIdx = objRefIdx + 1;
+          objRefNames[obj] = objRefIdx;
+          file:write("{};"); -- table objRefIdx
+        end;
+      end;
+      file:write("\n} -- multiRefObjects\n");
+      -- Then fill them (this requires all empty multiRefObjects to exist)
+      for obj, idx in pairs(objRefNames) do
+        for k, v in pairs(obj) do
+          file:write("multiRefObjects["..idx.."][");
+          write(file, k, 0, objRefNames);
+          file:write("] = ");
+          write(file, v, 0, objRefNames);
+          file:write(";\n");
+        end;
+      end;
+      -- Create the remaining objects
+      for i = 1, n do
+        file:write("local ".."obj"..i.." = ");
+        write(file, (select(i,...)), 0, objRefNames);
+        file:write("\n");
+      end
+      -- Return them
+      if n > 0 then
+        file:write("return obj1");
+        for i = 2, n do
+          file:write(" ,obj"..i);
+        end;
+        file:write("\n");
+      else
+        file:write("return\n");
+      end;
+      file:close();
+    end;
+
+    load = function (path)
+      local f, e = loadfile(path);
+      if f then
+        return f();
+      else
+        return nil, e;
+      end;
+    end;
+  }
+
+-- Private methods
+
+-- write thing (dispatcher)
+  write = function (file, item, level, objRefNames)
+    writers[type(item)](file, item, level, objRefNames);
+  end;
+
+-- write indent
+  writeIndent = function (file, level)
+    for i = 1, level do
+      file:write("\t");
+    end;
+  end;
+
+-- recursively count references
+  refCount = function (objRefCount, item)
+    -- only count reference types (tables)
+    if type(item) == "table" then
+      -- Increase ref count
+      if objRefCount[item] then
+        objRefCount[item] = objRefCount[item] + 1;
+      else
+        objRefCount[item] = 1;
+        -- If first encounter, traverse
+        for k, v in pairs(item) do
+          refCount(objRefCount, k);
+          refCount(objRefCount, v);
+        end;
+      end;
+    end;
+  end;
+
+-- Format items for the purpose of restoring
+  writers = {
+    ["nil"] = function (file, item)
+      file:write("nil");
+    end;
+    ["number"] = function (file, item)
+      file:write(tostring(item));
+    end;
+    ["string"] = function (file, item)
+      file:write(string.format("%q", item));
+    end;
+    ["boolean"] = function (file, item)
+      if item then
+        file:write("true");
+      else
+        file:write("false");
+      end
+    end;
+    ["table"] = function (file, item, level, objRefNames)
+      local refIdx = objRefNames[item];
+      if refIdx then
+        -- Table with multiple references
+        file:write("multiRefObjects["..refIdx.."]");
+      else
+        -- Single use table
+        file:write("{\n");
+        for k, v in pairs(item) do
+          writeIndent(file, level+1);
+          file:write("[");
+          write(file, k, level+1, objRefNames);
+          file:write("] = ");
+          write(file, v, level+1, objRefNames);
+          file:write(";\n");
+        end
+        writeIndent(file, level);
+        file:write("}");
+      end;
+    end;
+    ["function"] = function (file, item)
+      -- Does only work for "normal" functions, not those
+      -- with upvalues or c functions
+      local dInfo = debug.getinfo(item, "uS");
+      if dInfo.nups > 0 then
+        file:write("nil --[[functions with upvalue not supported]]");
+      elseif dInfo.what ~= "Lua" then
+        file:write("nil --[[non-lua function not supported]]");
+      else
+        local r, s = pcall(string.dump,item);
+        if r then
+          file:write(string.format("loadstring(%q)", s));
+        else
+          file:write("nil --[[function could not be dumped]]");
+        end
+      end
+    end;
+    ["thread"] = function (file, item)
+      file:write("nil --[[thread]]\n");
+    end;
+    ["userdata"] = function (file, item)
+      file:write("nil --[[userdata]]\n");
+    end;
+  }
+
+  commandLines['copyFromHC3']=self.copyFromHC3
+  self.persistence = persistence
+
+  return self
+end -- OfflineDB
 
 typeHierarchy = { -- Need to keep this to see if we support the basetype...
   children = {
@@ -2781,7 +3246,7 @@ typeHierarchy = { -- Need to keep this to see if we support the basetype...
   type = "com.fibaro.device"
 }
 
---------------- Modules ------------------------------
+--------------- Load modules  and start ------------------------------
 Util    = module.Utilities()
 json    = module.Json()
 Timer   = module.Timer()
@@ -2791,6 +3256,12 @@ QA      = module.QuickApp()
 Scene   = module.Scene()
 Web     = module.WebAPI()
 Offline = module.Offline()
+DB      = module.OfflineDB() 
+
+if arg[1] and commandLines[arg[1]] then  -- When fibaroapiHC3.lua is used as a command from ZBS
+  commandLines[arg[1]](arg) 
+  os.exit()
+end
 
 local function DEFAULT(v,d) if v~=nil then return v else return d end end
 hc3_emulator.offline = DEFAULT(hc3_emulator.offline,false)
@@ -2803,6 +3274,8 @@ hc3_emulator.createQuickApp = QA.createQuickApp
 hc3_emulator.createProxy = QA.createProxy
 hc3_emulator.getIPaddress = Util.getIPaddress
 hc3_emulator.createDevice = Offline.createDevice --(id,tp)
+hc3_emulator.cache = Trigger.cache 
+hc3_emulator.copyFromHC3 = DB.copyFromHC3
 
 function hc3_emulator.start(args)
   if not hc3_emulator.offline and not hc3_emulator.credentials then
@@ -2816,10 +3289,24 @@ function hc3_emulator.start(args)
   if hc3_emulator.speeding then Log(LOG.SYS,"Speeding %s hours",hc3_emulator.speeding) end
   if not (args.startWeb==false) then Web.start(Util.getIPaddress()) end
 
-  if hc3_emulator.conditions and hc3_emulator.actions then 
-    Scene.start(args)  -- Run a scene
-  else 
-    QA.start(args) 
+  hc3_emulator.startTime = args.startTime or hc3_emulator.startTime 
+  if type(hc3_emulator.startTime) == 'string' then 
+    Timer.setEmulatorTime(Util.parseDate(hc3_emulator.startTime)) 
   end
+
+  if hc3_emulator.offline and args.loadDB then DB.loadDB() end
+
+  Timer.setTimeout(function() 
+      if type(hc3_emulator.preamble) == 'function' then -- Stuff to run before starting up QA/Scene
+        hc3_emulator.inhibitTriggers = true -- preamble stuff don't generate triggers
+        hc3_emulator.preamble() 
+        hc3_emulator.inhibitTriggers = false
+      end
+      if hc3_emulator.conditions and hc3_emulator.actions then 
+        Scene.start(args)  -- Run a scene
+      else 
+        QA.start(args) 
+      end
+    end,0)
   Timer.start()
 end
