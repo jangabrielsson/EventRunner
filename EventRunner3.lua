@@ -3,6 +3,8 @@
 339 value 
 345 value 
 55 value 
+88 value
+203 value
 %% events
 5 CentralSceneEvent
 %% globals 
@@ -11,9 +13,9 @@ HumidityBadStart
 %% autostart 
 --]] 
 
-if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=44} dofile("HC2.lua") end -- For HC2 emulator
+if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=200} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B88"  -- Feb 3, 2020  
+local _version,_fix = "3.0","B89"  -- Mar 25, 2020  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -29,7 +31,7 @@ if loadfile then local cr = loadfile("credentials.lua"); if cr then cr() end end
 
 -- debug flags for various subsystems (global)
 _debugFlags = { 
-  post=true,invoke=true,triggers=true,dailys=false,rule=true,ruleTrue=false,
+  post=true,invoke=true,triggers=true,dailys=false,rule=false,ruleTrue=false,
   fcall=true, fglobal=false, fget=false, fother=false, hue=true, telegram=false, nodered=false,
 }
 -- options for various subsystems (global)
@@ -44,7 +46,7 @@ function main()
 
   if _EMULATED then
     --_System.speed(true)               -- run emulator faster than real-time
-    --_System.setRemote("devices",{5})  -- make device 5 remote (call HC2 with api)
+    _System.setRemote("devices",{17})  -- make device 5 remote (call HC2 with api)
     --_System.installProxy()            -- Install HC2 proxy sending sourcetriggers back to emulator
   end
 
@@ -66,7 +68,7 @@ function main()
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
 --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
-  
+
 --Nodered.connect(_NodeRed)                    -- Setup nodered functionality
 --Telegram.bot(_TelegBOT)                      -- Setup Telegram BOT that listens on oncoming messages. Only one per BOT.
 --Telegram.msg({_TelegCID,_TelegBOT},"Hello")  -- Send msg to Telegram without BOT setup
@@ -528,6 +530,7 @@ function makeEventManager()
   function patchHook.setValue(obj,id,call,val) if fibaro._checkOp and fibaro:getValue(id,"value")==val then return true end end
 
   function fibaro.call(obj,id,call,...)
+    local args = (({...})[1])
     id = tonumber(id); if not id then error("deviceID not a number",2) end
     if ({turnOff=true,turnOn=true,on=true,off=true,setValue=true})[call] then lastID[id]={script=true,time=os.time()} end
     if patchHook[call] and patchHook[call](obj,id,call,...) then return end
@@ -1694,7 +1697,9 @@ function makeEventScriptRuntime()
   end
   instr['%setprop'] = function(s,n,e,i) local id,val,prop=s.pop(),getArg(s,i[3]),getArg(s,i[4])
     local f = setFuns[prop] _assert(f,"bad property '%s'",prop or "") 
-    if type(id)=='table' then Util.mapF(function(id) f[1](ID(id,i,e._lastR),f[2],val,e) end,id); s.push(true)
+    local vp = 0
+    local vf = type(val) == 'table' and type(id)=='table' and val[1] and function() vp=vp+1 return val[vp] end or function() return val end 
+    if type(id)=='table' then Util.mapF(function(id) f[1](ID(id,i,e._lastR),f[2],vf(),e) end,id); s.push(true)
     else s.push(f[1](ID(id,i,e._lastR),f[2],val,e)) end
   end
   instr['%rule'] = function(s,n,e,i) local b,h=s.pop(),s.pop(); s.push(Rule.compRule({'=>',h,b,e.log},e)) end
