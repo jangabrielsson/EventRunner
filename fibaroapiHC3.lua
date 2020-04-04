@@ -30,7 +30,7 @@ json        -- Copyright (c) 2019 rxi
 persistence -- Copyright (c) 2010 Gerhard Roethlin
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.70"
+local FIBAROAPIHC3_VERSION = "0.75"
 
 --hc3_emulator.credentials = { ip = <IP>, user = <username>, pwd = <password>}
 
@@ -138,10 +138,10 @@ local http = require("socket.http")
 local socket = require("socket")
 local ltn12 = require("ltn12")
 
-local _debugFlags = {fcall=true, fget=true, post=true, trigger=true, timers=false, refreshLoop=false, creation=true} 
+local _debugFlags = {fcall=true, fget=true, post=true, trigger=true, timers=nil, refreshLoop=false, creation=true} 
 
-local Util,Timer,QA,Scene,Web,Trigger,Offline     -- local modules
-fibaro,json,plugin,QuickApp = {},{},nil,nil       -- global exports
+local Util,Timer,QA,Scene,Web,Trigger,Offline,DB   -- local modules
+fibaro,json,plugin,QuickApp = {},{},nil,nil        -- global exports
 
 hc3_emulator = { 
   version = FIBAROAPIHC3_VERSION,
@@ -156,8 +156,7 @@ hc3_emulator = {
 --start
 }
 
-local _HC3_IP,_HC3_USER,_HC3_PWD
-local ostime,osdate,osdate = os.time,os.clock,os.date
+local ostime,osclock,osdate,tostring = os.time,os.clock,os.date,tostring
 local _timeAdjust = 0
 local LOG,Log,Debug,assert,assertf
 local module,commandLines = {},{}
@@ -362,7 +361,7 @@ function module.FibaroAPI()
 
   function fibaro.__houseAlarm() end -- ToDo:
 
-  function fibaro._sleep(ms) 
+  function fibaro._sleep(ms) -- raw sleep, ignoring sleep.
     local t = ostime()+ms;  -- Use real clock
     while ostime() <= t do socket.sleep(0.01) end   -- save batteries...
   end
@@ -397,7 +396,7 @@ function module.FibaroAPI()
     function self:request(url,options)
       local resp = {}
       options = options or {}
-      for k,v in pairs(moptions or {}) do options[k]=v end
+      for k,v in pairs(moptions or {}) do options.options[k]=v end
       local req = options.options or {}
       req.url = url
       req.headers = req.headers or {}
@@ -427,8 +426,51 @@ function module.FibaroAPI()
     end
     return self
   end
+  local HTTPSyncClient = net.HTTPClient
 
-  function net.TCPSocket(opts) error("TCPSocket - Not implemented yet")
+  function net.HTTPAsyncClient(moptions)     -- It is synchronous, but synchronous is a speciell case of asynchronous.. :-)
+    local self = {}                    -- Not sure I got all the options right..
+    function self:request(url,options)
+      local resp = {}
+      options = options or {}
+      for k,v in pairs(moptions or {}) do options.options[k]=v end
+      local req = options.options or {}
+      req.url = url
+      req.headers = req.headers or {}
+      req.sink = ltn12.sink.table(resp)
+      if req.data then
+        req.headers["Content-Length"] = #req.data
+        req.source = ltn12.source.string(req.data)
+      end
+      local response, status, headers, timeout, oldTimeout = nil,'timeout'
+      --http.TIMEOUT,timeout=req.timeout and math.floor(req.timeout/1000) or http.TIMEOUT, http.TIMEOUT
+      oldTimeout,timeout=http.TIMEOUT,os.time()+(req.timeout and math.floor(req.timeout/1000) or http.TIMEOUT or 60)
+      local reqFun = url:lower():match("^https") and https.request or http.request
+      local function getHTTP()
+        http.TIMEOUT=1
+        response, status, headers = http.request(req)
+        http.TIMEOUT=oldTimeout
+        if status=='timeout' and os.time()<=timeout then
+          setTimeout(getHTTP,1)
+        else 
+          if response==1 then
+            if options.success then 
+              Timer.setTimeout(function() options.success({status=status, headers=headers, data=table.concat(resp)}) end,0) 
+            end
+          else
+            if options.error then 
+              Timer.setTimeout(function() options.error(status) end,0)
+            end
+          end
+        end
+      end
+      getHTTP()
+      return
+    end
+    return self
+  end
+
+  function net.TCPSocket(opts) --error("TCPSocket - Not implemented yet")
     local self = { opts = opts }
     local sock = socket.tcp()
     function self:connect(ip, port, opts) 
@@ -473,7 +515,8 @@ function module.FibaroAPI()
     if hs then for k,v in pairs(hs) do req.headers[k]=v end end
     local r, c, h = http.request(req)
     if not r then
-      error(format("Error connnecting to HC3: '%s' - URL: '%s'.",c,req.url))
+      return nil,c, h
+      --error(format("Error connnecting to HC3: '%s' - URL: '%s'.",c,req.url))
     end
     if c>=200 and c<300 then
       return resp[1] and safeDecode(table.concat(resp)) or nil,c
@@ -482,21 +525,46 @@ function module.FibaroAPI()
     --error(format("HC3 returned error '%d %s' - URL: '%s'.",c,resp[1] or "",req.url))
   end
 
-  HomeCenter =  {   -- ToDo
-    PopupService =  { 
-      publish =  function ( request ) 
-        local response = api.post( '/popups' , request ) 
+--[[
+fibaro.homeCenter = { climate={}, notificationService={}, popupService={}, systemService={} }
+function fibaro.homeCenter.climate.setClimateZoneToScheduleMode(...) end
+function fibaro.homeCenter.climate.setClimateZoneToManualMode(...) end
+function fibaro.homeCenter.climate.setClimateZoneToVacationMode(...) end
+function fibaro.homeCenter.notificationService.remove(noificationId)
+  return api.delete("/panels/notifications/"..noificationId)
+end
+function fibaro.homeCenter.notificationService.update(id,notification) 
+  return api.post("/panels/notifications/"..id,noification)
+end
+function fibaro.homeCenter.notificationService.publish(notification) 
+  return api.post("/panels/notifications",noification)
+end
+function fibaro.homeCenter.popupService.publish(request) 
+  local response = api.post("/popups",request) 
+  return response
+end
+function fibaro.homeCenter.systemService.suspend() 
+end
+function fibaro.homeCenter.systemService.reboot() 
+  local client = net.HTTPClient() 
+  client:request("http://localhost/reboot.php") 
+end
+--]]
+  fibaro.homeCenter = {   -- ToDo
+    PopupService = { 
+      publish = function(request) 
+        local response = api.post("/popups",request) 
         return response
       end 
-    } , 
-    SystemService =  { 
-      reboot =  function ( ) 
+    }, 
+    SystemService = { 
+      reboot = function() 
         local client = net.HTTPClient() 
-        client:request ("http://localhost/reboot.php") 
-      end , 
-      shutdown =  function ( ) 
+        client:request("http://localhost/reboot.php") 
+      end,
+      shutdown = function() 
         local client = net.HTTPClient() 
-        client:request ( "http://localhost/shutdown.php" ) 
+        client:request("http://localhost/shutdown.php") 
       end 
     } 
   }
@@ -912,7 +980,7 @@ function module.QuickApp()
   --      {{slider='slider1", text="L", min=100,max=99}},     -- 1 slider 1 row
   --      {{label="label1",text="L"}}}                        -- 1 label 1 row
   -- quickvars - quickAppVariables, {<var1>=<value1>,<var2>=<value2>,...}
-  -- dryRun - if true only returns the quickapp without deploying
+  -- dryrun - if true only returns the quickapp without deploying
 
   local function createQuickApp(args)
     local d = {} -- Our device
@@ -921,7 +989,7 @@ function module.QuickApp()
     local body = args.code or ""
     local UI = args.UI or {}
     local variables = args.quickvars or {}
-    local dryRun = args.dryRun or false
+    local dryRun = args.dryrun or false
     d.apiVersion = "1.0"
     d.initialProperties = makeInitialProperties(body,UI,variables,args.height)
     if dryRun then return d end
@@ -956,8 +1024,11 @@ function module.QuickApp()
       end
     else
       device = api.get("/devices/"..name)
-      ID = device.id
-      name = device.name
+      if device then
+        ID = device.id
+        name = device.name
+        Log(LOG.SYS,"Proxy: Existing ID:"..ID)
+      end
     end
     tp = tp or "com.fibaro.binarySensor"
     vars = vars or {}
@@ -1009,15 +1080,6 @@ function QuickApp:ACTION(name) self[name] = function(self,...) CALLIDE(name,...)
     code[#code+1]= " self:debug('"..name.."',' deviceId:',plugin.mainDeviceId)"
     code[#code+1]= " IP = self:getVariable('IP')"
     code[#code+1]= "end"
-    code[#code+1]= [[
-INSTALLED_MODULES={}
--->MODULES>-----------------------------
-INSTALLED_MODULES['EventScript4.lua']={isInstalled=true,installedVersion=0.1}
-INSTALLED_MODULES['EventScript.lua']={isInstalled=true,installedVersion=0.001}
-
---....
---<MODULES<-----------------------------
-  ]]
 
     code = table.concat(code,"\n")
 
@@ -1028,6 +1090,9 @@ INSTALLED_MODULES['EventScript.lua']={isInstalled=true,installedVersion=0.001}
         return d.id 
       end
       Log(LOG.SYS,"Proxy: Changed, re-creating")
+      if nil then -- ToDo
+        api.put("/devices/"..ID,{properties={mainFunction=code,quickAppVariables=8}})
+      end
       api.delete("/devices/"..d.id)
     end
     Log(LOG.SYS,"Proxy: Creating new proxy")
@@ -1038,6 +1103,10 @@ INSTALLED_MODULES['EventScript.lua']={isInstalled=true,installedVersion=0.001}
   local function runQuickApp(args)
     plugin.mainDeviceId = args.id or 999
     plugin.type = args.type or "com.fibaro.binarySwitch"
+    local UI = args.UI or {}
+    local quickvars = args.quickvars or {}
+    local name = args.name or "My App"
+
     if not hc3_emulator.offline then
       plugin.isProxy = args.proxy or args.quickApp
       if args.quickApp and not api.get("/devices/"..plugin.mainDeviceId) then
@@ -1046,13 +1115,10 @@ INSTALLED_MODULES['EventScript.lua']={isInstalled=true,installedVersion=0.001}
 
       if plugin.isProxy and not args.quickApp then
         plugin.mainDeviceId = createProxy(name,plugin.type,UI,quickvars)
-      else Log(LOG.SYS,"Connected to HC3 device %s",plugin.mainDeviceId) end
+      elseif plugin.isProxy then Log(LOG.SYS,"Connected to HC3 device %s",plugin.mainDeviceId) end
 
     end
-    local name = args.name or "My App"
     Log(LOG.HEADER,"QuickApp '%s', deviceID:%s started at %s",name,plugin.mainDeviceId,os.date("%c"))
-    local UI = args.UI or {}
-    local quickvars = args.quickvars or {}
 
     if args.poll then Trigger.startPolling(tonumber(args.poll ) or 2000) end
 
@@ -1072,7 +1138,7 @@ INSTALLED_MODULES['EventScript.lua']={isInstalled=true,installedVersion=0.001}
             local ed = api.get("/customEvents/"..e.name)
             local fun = json.decode(ed.userDescription)
             if QuickApp[fun.name] then 
-              Timer.setTimeout(function() QuickApp[fun.name](QuickApp,table.unpack(fun.args)) end,1)
+              Timer.setTimeout(function() QuickApp[fun.name](QuickApp,table.unpack(fun.args)) end,0)
             else
               Log(LOG.WARNING,"Unhandled PROXY CALL:"..json.encode(ed.userDescription))
             end
@@ -1083,7 +1149,7 @@ INSTALLED_MODULES['EventScript.lua']={isInstalled=true,installedVersion=0.001}
       end
     end
 
-    if QuickApp.onInit then Timer.setTimeout(function() QuickApp:onInit() end,1) end -- start :onInit if we have one...
+    if QuickApp.onInit then Timer.setTimeout(function() QuickApp:onInit() end,0) end -- start :onInit if we have one...
   end
 
   -- Export functions
@@ -1564,7 +1630,7 @@ function module.Utilities()
     t.sec = tonumber(s) or t.sec
     t.day = tonumber(d) or t.day
     t.month = tonumber(mon) or t.month
-    t.year = tonumber(year) or t.year
+    t.year = tonumber(y) or t.year
     return os.time(t)
   end
 
@@ -1614,6 +1680,19 @@ function module.Utilities()
     Log(LOG.SYS,"Deleted %s PROXY events",c2)
   end
 
+  function self.base64(data)
+    local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+    return ((data:gsub('.', function(x) 
+            local r,b='',x:byte() for i=8,1,-1 do r=r..(b%2^i-b%2^(i-1)>0 and '1' or '0') end
+            return r;
+          end)..'0000'):gsub('%d%d%d?%d?%d?%d?', function(x)
+          if (#x < 6) then return '' end
+          local c=0
+          for i=1,6 do c=c+(x:sub(i,i)=='1' and 2^(6-i) or 0) end
+          return b:sub(c+1,c+1)
+        end)..({ '', '==', '=' })[#data%3+1])
+  end
+
   local IPADDRESS = nil
   function self.getIPaddress()
     if IPADDRESS then return IPADDRESS end
@@ -1626,6 +1705,85 @@ function module.Utilities()
     return IPADDRESS
   end
 
+  ------------------- Sunset/Sunrise ---------------
+-- \fibaro\usr\share\lua\5.2\common\lustrous.lua ﻿based on the United States Naval Observatory
+
+  local function sunturnTime(date, rising, latitude, longitude, zenith, local_offset)
+    local rad,deg,floor = math.rad,math.deg,math.floor
+    local frac = function(n) return n - floor(n) end
+    local cos = function(d) return math.cos(rad(d)) end
+    local acos = function(d) return deg(math.acos(d)) end
+    local sin = function(d) return math.sin(rad(d)) end
+    local asin = function(d) return deg(math.asin(d)) end
+    local tan = function(d) return math.tan(rad(d)) end
+    local atan = function(d) return deg(math.atan(d)) end
+
+    local function day_of_year(date)
+      local n1 = floor(275 * date.month / 9)
+      local n2 = floor((date.month + 9) / 12)
+      local n3 = (1 + floor((date.year - 4 * floor(date.year / 4) + 2) / 3))
+      return n1 - (n2 * n3) + date.day - 30
+    end
+
+    local function fit_into_range(val, min, max)
+      local range,count = max - min
+      if val < min then count = floor((min - val) / range) + 1; return val + count * range
+      elseif val >= max then count = floor((val - max) / range) + 1; return val - count * range
+      else return val end
+    end
+
+    -- Convert the longitude to hour value and calculate an approximate time
+    local n,lng_hour,t =  day_of_year(date), longitude / 15, nil
+    if rising then t = n + ((6 - lng_hour) / 24) -- Rising time is desired
+    else t = n + ((18 - lng_hour) / 24) end -- Setting time is desired
+    local M = (0.9856 * t) - 3.289 -- Calculate the Sun^s mean anomaly
+    -- Calculate the Sun^s true longitude
+    local L = fit_into_range(M + (1.916 * sin(M)) + (0.020 * sin(2 * M)) + 282.634, 0, 360)
+    -- Calculate the Sun^s right ascension
+    local RA = fit_into_range(atan(0.91764 * tan(L)), 0, 360)
+    -- Right ascension value needs to be in the same quadrant as L
+    local Lquadrant = floor(L / 90) * 90
+    local RAquadrant = floor(RA / 90) * 90
+    RA = RA + Lquadrant - RAquadrant; RA = RA / 15 -- Right ascension value needs to be converted into hours
+    local sinDec = 0.39782 * sin(L) -- Calculate the Sun's declination
+    local cosDec = cos(asin(sinDec))
+    local cosH = (cos(zenith) - (sinDec * sin(latitude))) / (cosDec * cos(latitude)) -- Calculate the Sun^s local hour angle
+    if rising and cosH > 1 then return "N/R" -- The sun never rises on this location on the specified date
+    elseif cosH < -1 then return "N/S" end -- The sun never sets on this location on the specified date
+
+    local H -- Finish calculating H and convert into hours
+    if rising then H = 360 - acos(cosH)
+    else H = acos(cosH) end
+    H = H / 15
+    local T = H + RA - (0.06571 * t) - 6.622 -- Calculate local mean time of rising/setting
+    local UT = fit_into_range(T - lng_hour, 0, 24) -- Adjust back to UTC
+    local LT = UT + local_offset -- Convert UT value to local time zone of latitude/longitude
+    return os.time({day = date.day,month = date.month,year = date.year,hour = floor(LT),min = math.modf(frac(LT) * 60)})
+  end
+
+  local function getTimezone() local now = os.time() return os.difftime(now, os.time(os.date("!*t", now))) end
+
+  local function sunCalc(time)
+    local hc3Location = api.get("/settings/location")
+    local lat = hc3Location.latitude or 0
+    local lon = hc3Location.longitude or 0
+    local utc = getTimezone() / 3600
+    local zenith,zenith_twilight = 90.83, 96.0 -- sunset/sunrise 90°50′, civil twilight 96°0′
+
+    local date = os.date("*t",time or os.time())
+    if date.isdst then utc = utc + 1 end
+    local rise_time = osdate("*t", sunturnTime(date, true, lat, lon, zenith, utc))
+    local set_time = osdate("*t", sunturnTime(date, false, lat, lon, zenith, utc))
+    local rise_time_t = osdate("*t", sunturnTime(date, true, lat, lon, zenith_twilight, utc))
+    local set_time_t = osdate("*t", sunturnTime(date, false, lat, lon, zenith_twilight, utc))
+    local sunrise = format("%.2d:%.2d", rise_time.hour, rise_time.min)
+    local sunset = format("%.2d:%.2d", set_time.hour, set_time.min)
+    local sunrise_t = format("%.2d:%.2d", rise_time_t.hour, rise_time_t.min)
+    local sunset_t = format("%.2d:%.2d", set_time_t.hour, set_time_t.min)
+    return sunrise, sunset, sunrise_t, sunset_t
+  end
+
+  self.sunCalc = sunCalc
   return self
 end
 
@@ -2074,7 +2232,9 @@ function module.WebAPI()
     Log(LOG.SYS,"Created %s at %s:%s",name,self.ipAddress,port)
   end
 
-  local GUI_HANDLERS = {
+  local Pages = nil
+
+  local GUI_HANDLERS = {  -- External calls
     ["GET"] = {
       ["/api/callAction%?deviceID=(%d+)&name=(%w+)(.*)"] = function(client,ref,body,id,action,args)
         local res = {}
@@ -2132,7 +2292,6 @@ function module.WebAPI()
   end
 
   Pages = { pages={} }
-  function Pages.lr(t,id) local r = HC2.getRsrc(t,id,true) return r and r._local and "L" or "R" end
 
   function Pages.register(path,page)
     local file = page:match("^file:(.*)")
@@ -2151,10 +2310,10 @@ function module.WebAPI()
       Pages.compile(p)
     end
     if p then return Pages.render(p)
-    else return null end
+    else return nil end
   end
 
-  function Pages.renderError(msg) return _format(Pages.P_ERROR1,msg) end
+  function Pages.renderError(msg) return format(Pages.P_ERROR1,msg) end
 
   function Pages.render(p)
     if p.static and p.static~=true then return p.static end
@@ -2172,11 +2331,11 @@ function module.WebAPI()
     local funs={}
     p.cpage=p.page:gsub("<<<(.-)>>>",
       function(code)
-        local f = _format("do %s end",code)
+        local f = format("do %s end",code)
         f,m = loadstring(f)
-        if m then printf("ERROR RENDERING PAGE %s, %s",p.path,m) end
+        if m then Log(LOG.ERROR,"ERROR RENDERING PAGE %s, %s",p.path,m) end
         funs[#funs+1]=f
-        return (_format("<<<%s>>>",#funs))
+        return (format("<<<%s>>>",#funs))
       end)
     p.funs=funs
   end
@@ -2315,8 +2474,8 @@ function module.Offline()
         local res = {}
         if type(next(r))=='table' then
           for k,v in pairs(r) do res[#res+1]=v end
-          return res
-        else return r end
+          return res,200
+        else return r,200 end
       end
     end
     return self
@@ -2571,7 +2730,7 @@ function module.Offline()
   refreshStates = createRefreshStateQueue(QUEUESIZE)
   self.refreshStates = refreshStates
 
----------------- api.* handlers
+---------------- api.* handlers -- simulated calls to offline version of resources
   local function arr(tab) local res={} for _,v in pairs(tab) do res[#res+1]=v end return res end
   local OFFLINE_HANDLERS = {
     ["GET"] = {
@@ -2607,6 +2766,8 @@ function module.Offline()
       ["/scenes/?$"] = function(call,data,cType,name) return arr(db.get("/scenes")) end,
       ["/rooms/(%d+)"] = function(call,data,cType,id) return db.get("/rooms",tonumber(id)) end,
       ["/rooms/?$"] = function(call,data,cType,name) return arr(db.get("/rooms")) end,
+      ["/iosUser/(%d+)"] = function(call,data,cType,id) return db.get("/rooms",tonumber(id)) end,
+      ["/rooms/?$"] = function(call,data,cType,name) return arr(db.get("/rooms")) end,
       ["/sections/(%d+)"] = function(call,data,cType,id) return db.get("/sections",tonumber(id)) end,
       ["/sections/?$"] = function(call,data,cType,name) return arr(db.get("/sections")) end,
       ["/refreshStates%?last=(%d+)"] = function(call,data,cType,last) return refreshStates.getEvents(tonumber(last)),200 end,
@@ -2633,7 +2794,7 @@ function module.Offline()
         data = json.decode(data) 
         return db.add("/sections",data.id,data)
       end,   
-      ["/devices/(%d+)/action/(.+)$"] = function(call,data,cType,deviceID,action) 
+      ["/devices/(%d+)/action/(.+)$"] = function(call,data,cType,deviceID,action) -- call device action
         data = json.decode(data)
         local d,err1 = db.get("/devices",tonumber(deviceID))
         if err1 and err1~=200 then return d,err1 end
@@ -2675,13 +2836,13 @@ function module.Offline()
       ["/devices/(%d+)"] = function(call,data,cType,id) 
         return db.delete("/device",tonumber(id))
       end,
-      ["/devices/(%d+)"] = function(call,data,cType,id) 
+      ["/rooms/(%d+)"] = function(call,data,cType,id) 
         return db.delete("/rooms",tonumber(id))
       end,
-      ["/devices/(%d+)"] = function(call,data,cType,id) 
+      ["/sections/(%d+)"] = function(call,data,cType,id) 
         return db.delete("/sections",tonumber(id))
       end,
-      ["/devices/(%d+)"] = function(call,data,cType,id) 
+      ["/scenes/(%d+)"] = function(call,data,cType,id) 
         return db.delete("/scenes",tonumber(id))
       end,
     },
@@ -2753,6 +2914,26 @@ function module.Offline()
   function hc3_emulator.create.dimmer(id,name) return userDev(self.createDevice(id,"com.fibaro.multilevelSwitch",name)) end
   function hc3_emulator.create.light(id,name) return userDev(self.createDevice(id,"com.fibaro.binarySwitch",name)) end
 
+  function self.start()
+    if #db.get("/settings/location")==0 then
+      db.modify("/settings","location",{latitude=52.520008,longitude=13.404954}) -- Berlin
+    end
+    local function setupSuntimes()
+      local sunrise,sunset = Util.sunCalc()
+      db.modify("/devices",1,{properties={sunriseHour=sunrise,sunsetHour=sunset}})
+    end
+    local t = os.date("*t")
+    t.min,t.hour,t.sec=0,0,0
+    t = os.time(t)+24*60*60
+    local function midnight()
+      setupSuntimes()
+      t = t+24*60*60
+      setTimeout(midnight,1000*(t-os.time()))
+    end
+    setTimeout(midnight,1000*(t-os.time()))
+    setupSuntimes()
+  end
+
   self.api = offlineApi
   return self
 
@@ -2763,6 +2944,19 @@ function module.OfflineDB()
   local fname = "HC3sdk.db"
   local self,persistence = {},nil
   local cr = not hc3_emulator.credentials and loadfile("credentials.lua"); if cr then cr() end
+
+  function self.downloadFibaroAPI()
+    net.HTTPClient():request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/fibaroapiHC3.lua",{
+        options={method="GET", checkCertificate = false, timeout=5000},
+        sucess=function(res) 
+          Log(LOG.LOG,"Writing file fibaroapiHC3.lua")
+          local f = io.open("fibaroapiHC3.lua","w")
+          f:write(res.data)
+          f:close()
+          end,
+        error=function(res) Log(LOG.LOG,"Unable to read file fibaroapiHC3.lua:"..res) end,
+        })
+  end
 
   function self.copyFromHC3()
     local function mapIDS(r)
@@ -2982,6 +3176,7 @@ function module.OfflineDB()
   }
 
   commandLines['copyFromHC3']=self.copyFromHC3
+  commandLines['downloadFibaroAPI']=self.downloadFibaroAPI
   self.persistence = persistence
 
   return self
@@ -3282,7 +3477,6 @@ function hc3_emulator.start(args)
     error("Missing HC3 credentials -- hc3_emulator.credentials{ip=<IP>,user=<string>,pwd=<string>}")
   end
   hc3_emulator.speeding = args.speed==true and 48 or tonumber(args.speed)
-  if hc3_emulator.speeding then Timer.speedTime(hc3_emulator.speeding) end
   if args.traceFibaro then Util.traceFibaro() end
 
   Log(LOG.SYS,"HC3 SDK v%s",hc3_emulator.version)
@@ -3294,19 +3488,30 @@ function hc3_emulator.start(args)
     Timer.setEmulatorTime(Util.parseDate(hc3_emulator.startTime)) 
   end
 
-  if hc3_emulator.offline and args.loadDB then DB.loadDB() end
+  if hc3_emulator.offline then
+    if args.loadDB then DB.loadDB() end
+    if #Offline.db.get("/settings/location")==0 then
+      Offline.db.modify("/settings","location",{latitude=52.520008,longitude=13.404954}) -- Berlin
+    end
+    Offline.start()
+  end
 
   Timer.setTimeout(function() 
+      if hc3_emulator.speeding then Timer.speedTime(hc3_emulator.speeding) end
       if type(hc3_emulator.preamble) == 'function' then -- Stuff to run before starting up QA/Scene
         hc3_emulator.inhibitTriggers = true -- preamble stuff don't generate triggers
         hc3_emulator.preamble() 
         hc3_emulator.inhibitTriggers = false
+      end
+      if hc3_emulator.asyncHTTP then net.HTTPClient = net.HTTPAsyncClient end
+      if hc3_emulator.credentials then 
+        hc3_emulator.BasicAuthorization = "Basic "..Util.base64(hc3_emulator.credentials.user..":"..hc3_emulator.credentials.pwd)
       end
       if hc3_emulator.conditions and hc3_emulator.actions then 
         Scene.start(args)  -- Run a scene
       else 
         QA.start(args) 
       end
-    end,0)
+    end,0,"Main")
   Timer.start()
 end
