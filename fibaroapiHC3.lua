@@ -138,6 +138,7 @@ local http = require("socket.http")
 local socket = require("socket")
 local ltn12 = require("ltn12")
 
+local credentialsFile = "credentials.lua" -- Used for setting up hc3_emulator with HC3 credentials, only used for plugin and "Copy HC3 data"
 local _debugFlags = {fcall=true, fget=true, post=true, trigger=true, timers=nil, refreshLoop=false, creation=true} 
 
 local Util,Timer,QA,Scene,Web,Trigger,Offline,DB   -- local modules
@@ -2951,7 +2952,7 @@ end -- Offline
 function module.OfflineDB()
   local fname = "HC3sdk.db"
   local self,persistence = {},nil
-  local cr = not hc3_emulator.credentials and loadfile("credentials.lua"); if cr then cr() end
+  local cr = not hc3_emulator.credentials and loadfile(credentialsFile); if cr then cr() end
 
   function self.downloadFibaroAPI()
     local res,code = net.HTTPClient({maxdelay=0}):request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/fibaroapiHC3.lua",{
