@@ -30,7 +30,7 @@ json        -- Copyright (c) 2019 rxi
 persistence -- Copyright (c) 2010 Gerhard Roethlin
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.75"
+local FIBAROAPIHC3_VERSION = "0.76"
 
 --hc3_emulator.credentials = { ip = <IP>, user = <username>, pwd = <password>}
 
@@ -416,11 +416,19 @@ function module.FibaroAPI()
       local delay = math.random(net.mindelay,net.maxdelay)
       if response == 1 then 
         if options.success then -- simulate asynchronous callback
-          Timer.setTimeout(function() options.success({status=status, headers=headers, data=table.concat(resp)}) end,delay) 
+          if options.options.maxdelay>0 then
+            Timer.setTimeout(function() options.success({status=status, headers=headers, data=table.concat(resp)}) end,delay) 
+          else
+            options.success({status=status, headers=headers, data=table.concat(resp)})
+          end
         end
       else
         if options.error then 
-          Timer.setTimeout(function() options.error(status) end,delay)
+          if options.options.maxdelay>0 then
+            Timer.setTimeout(function() options.error(status) end,delay)
+          else
+            options.error(status) 
+          end
         end
       end
     end
@@ -2946,16 +2954,21 @@ function module.OfflineDB()
   local cr = not hc3_emulator.credentials and loadfile("credentials.lua"); if cr then cr() end
 
   function self.downloadFibaroAPI()
-    net.HTTPClient():request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/fibaroapiHC3.lua",{
+    local res,code = net.HTTPClient({maxdelay=0}):request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/fibaroapiHC3.lua",{
         options={method="GET", checkCertificate = false, timeout=5000},
-        sucess=function(res) 
-          Log(LOG.LOG,"Writing file fibaroapiHC3.lua")
-          local f = io.open("fibaroapiHC3.lua","w")
-          f:write(res.data)
-          f:close()
-          end,
-        error=function(res) Log(LOG.LOG,"Unable to read file fibaroapiHC3.lua:"..res) end,
-        })
+        success=function(res) 
+          local version = res.data:match("FIBAROAPIHC3_VERSION%s+=%s+\"(.-)\"")
+          if version then
+            Log(LOG.LOG,"Writing file fibaroapiHC3.lua v%s",version)
+            local f = io.open("fibaroapiHC3.lua","w")
+            f:write(res.data)
+            f:close()
+          else
+            Log(LOG.ERROR,"Bad file fibaroapiHC3.lua")
+          end
+        end,
+        error=function(res) Log(LOG.ERROR,"Unable to read file fibaroapiHC3.lua:"..res) end,
+      })
   end
 
   function self.copyFromHC3()
