@@ -30,7 +30,7 @@ json        -- Copyright (c) 2019 rxi
 persistence -- Copyright (c) 2010 Gerhard Roethlin
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.77"
+local FIBAROAPIHC3_VERSION = "0.78"
 
 --hc3_emulator.credentials = { ip = <IP>, user = <username>, pwd = <password>}
 
@@ -1014,7 +1014,17 @@ function module.QuickApp()
     --- "callback": "self:button1Clicked()",
     traverse(UI,
       function(e)
-        if e.name then newcb[#newcb+1]={callback="self:"..e.name.."Clicked(value)",eventType="pressed",name=e.name} end
+        if e.name then
+          -- {callback="foo",name="foo",eventType="onReleased"}
+          local cb,et = e.name.."Clicked","onReleased"
+          if e.onReleased then 
+            cb = e.onReleased
+          elseif e.onChanged then
+            cb = e.onChanged
+            et = "onChanged"
+          end
+          newcb[#newcb+1]={callback=cb,eventType=et,name=e.name} 
+        end
       end)
     if forceUpdate then 
       cb = newcb -- just replace uiCallbacks with new elements callbacks
@@ -1042,7 +1052,17 @@ function module.QuickApp()
     --- "callback": "self:button1Clicked()",
     traverse(UI,
       function(e)
-        if e.name then cb[#cb+1]={callback="ui"..e.name.."OnReleased",eventType="onReleased",name=e.name} end
+        if e.name then 
+          -- {callback="foo",name="foo",eventType="onReleased"}
+          local cbt,et = e.name.."Clicked",e.button and "onReleased" or "onChanged"
+          if e.onReleased then 
+            cbt = e.onReleased
+          elseif e.onChanged then
+            cbt = e.onChanged
+            et = "onChanged"
+          end
+          cb[#cb+1]={callback=cbt,eventType=et,name=e.name} 
+        end
       end)
     ip.uiCallbacks = cb 
     ip.apiVersion = "1.1"
@@ -1129,8 +1149,13 @@ function module.QuickApp()
     local funs1 = {}
     traverse(UI,
       function(e)
-        if e.button then funs1["ui"..e.button.."OnReleased"]=true 
-        elseif e.slider then funs1["ui"..e.slider.."OnReleased"]=true end
+        if e.button then
+          if e.onReleased then funs1[e.onReleased]=true
+          else funs1[e.button.."Clicked"]=true end
+        elseif e.slider then 
+          if e.onChanged then funs1[e.onChanged]=true
+          else funs1[e.slider.."Clicked"]=true end
+        end
       end)
     for n,f in pairs(QuickApp) do
       if type(f)=='function' and not EXCL[n] then funs1[n]=true end
@@ -3330,6 +3355,7 @@ Cache-Control: no-cache, no-store, must-revalidate
     return self
   end -- OfflineDB
 
+  -- /api/devices/hierarchy
   typeHierarchy = 
   [[{"type":"com.fibaro.device","children":[{"type":"com.fibaro.zwaveDevice","children":[]},{"type":"com.fibaro.zwaveController","children":[]},{"type":"com.fibaro.weather","children":[{"type":"com.fibaro.yrWeather","children":[]},{"type":"com.fibaro.WeatherProvider","children":[]}]},{"type":"com.fibaro.usbPort","children":[]},{"type":"com.fibaro.setPointForwarder","children":[]},{"type":"com.fibaro.sensor","children":[{"type":"com.fibaro.multilevelSensor","children":[{"type":"com.fibaro.windSensor","children":[]},{"type":"com.fibaro.temperatureSensor","children":[]},{"type":"com.fibaro.seismometer","children":[]},{"type":"com.fibaro.rainSensor","children":[]},{"type":"com.fibaro.powerSensor","children":[]},{"type":"com.fibaro.lightSensor","children":[]},{"type":"com.fibaro.humiditySensor","children":[]}]},{"type":"com.fibaro.binarySensor","children":[{"type":"com.fibaro.securitySensor","children":[{"type":"com.fibaro.satelZone","children":[]},{"type":"com.fibaro.motionSensor","children":[{"type":"com.fibaro.FGMS001","children":[{"type":"com.fibaro.FGMS001v2","children":[]}]}]},{"type":"com.fibaro.envisaLinkZone","children":[]},{"type":"com.fibaro.dscZone","children":[]},{"type":"com.fibaro.doorWindowSensor","children":[{"type":"com.fibaro.windowSensor","children":[]},{"type":"com.fibaro.rollerShutterSensor","children":[]},{"type":"com.fibaro.gateSensor","children":[]},{"type":"com.fibaro.doorSensor","children":[]},{"type":"com.fibaro.FGDW002","children":[]}]}]},{"type":"com.fibaro.safetySensor","children":[]},{"type":"com.fibaro.rainDetector","children":[]},{"type":"com.fibaro.lifeDangerSensor","children":[{"type":"com.fibaro.heatDetector","children":[]},{"type":"com.fibaro.gasDetector","children":[{"type":"com.fibaro.smokeSensor","children":[{"type":"com.fibaro.FGSS001","children":[]}]},{"type":"com.fibaro.coDetector","children":[{"type":"com.fibaro.FGCD001","children":[]}]}]},{"type":"com.fibaro.floodSensor","children":[{"type":"com.fibaro.FGFS101","children":[]}]},{"type":"com.fibaro.fireDetector","children":[]}]}]},{"type":"com.fibaro.accelerometer","children":[]}]},{"type":"com.fibaro.securityMonitoring","children":[{"type":"com.fibaro.intercom","children":[{"type":"com.fibaro.mobotix","children":[]},{"type":"com.fibaro.heliosGold","children":[]},{"type":"com.fibaro.heliosBasic","children":[]},{"type":"com.fibaro.alphatechFarfisa","children":[]}]},{"type":"com.fibaro.doorLock","children":[{"type":"com.fibaro.schlage","children":[]},{"type":"com.fibaro.polyControl","children":[]},{"type":"com.fibaro.kwikset","children":[]},{"type":"com.fibaro.gerda","children":[]}]},{"type":"com.fibaro.camera","children":[{"type":"com.fibaro.ipCamera","children":[{"type":"com.fibaro.videoGate","children":[{"type":"com.fibaro.fibaroIntercom","children":[]}]}]}]},{"type":"com.fibaro.alarmPartition","children":[{"type":"com.fibaro.satelPartition","children":[]},{"type":"com.fibaro.envisaLinkPartition","children":[]},{"type":"com.fibaro.dscPartition","children":[]}]}]},{"type":"com.fibaro.samsungWasher","children":[]},{"type":"com.fibaro.samsungSmartAppliances","children":[]},{"type":"com.fibaro.samsungRobotCleaner","children":[]},{"type":"com.fibaro.samsungRefrigerator","children":[]},{"type":"com.fibaro.samsungOven","children":[]},{"type":"com.fibaro.samsungDryer","children":[]},{"type":"com.fibaro.samsungDishwasher","children":[]},{"type":"com.fibaro.samsungAirPurifier","children":[]},{"type":"com.fibaro.russoundXZone4","children":[]},{"type":"com.fibaro.russoundXSource","children":[]},{"type":"com.fibaro.russoundX5","children":[]},{"type":"com.fibaro.russoundMCA88X","children":[]},{"type":"com.fibaro.russoundController","children":[]},{"type":"com.fibaro.powerMeter","children":[]},{"type":"com.fibaro.planikaFLA3","children":[]},{"type":"com.fibaro.multimedia","children":[{"type":"com.fibaro.xbmc","children":[]},{"type":"com.fibaro.wakeOnLan","children":[]},{"type":"com.fibaro.sonosSpeaker","children":[]},{"type":"com.fibaro.russoundXZone4Zone","children":[]},{"type":"com.fibaro.russoundXSourceZone","children":[]},{"type":"com.fibaro.russoundX5Zone","children":[]},{"type":"com.fibaro.russoundMCA88XZone","children":[]},{"type":"com.fibaro.receiver","children":[{"type":"com.fibaro.davisVantage","children":[]}]},{"type":"com.fibaro.philipsTV","children":[]},{"type":"com.fibaro.nuvoZone","children":[]},{"type":"com.fibaro.nuvoPlayer","children":[]},{"type":"com.fibaro.initialstate","children":[]},{"type":"com.fibaro.denonHeosZone","children":[]},{"type":"com.fibaro.denonHeosGroup","children":[]}]},{"type":"com.fibaro.meter","children":[{"type":"com.fibaro.waterMeter","children":[]},{"type":"com.fibaro.gasMeter","children":[]},{"type":"com.fibaro.energyMeter","children":[]}]},{"type":"com.fibaro.logitechHarmonyHub","children":[]},{"type":"com.fibaro.logitechHarmonyActivity","children":[]},{"type":"com.fibaro.logitechHarmonyAccount","children":[]},{"type":"com.fibaro.hvacSystem","children":[{"type":"com.fibaro.thermostatDanfoss","children":[{"type":"com.fibaro.thermostatHorstmann","children":[]}]},{"type":"com.fibaro.samsungAirConditioner","children":[]},{"type":"com.fibaro.operatingModeHorstmann","children":[]},{"type":"com.fibaro.coolAutomationHvac","children":[]},{"type":"com.fibaro.FGT001","children":[]}]},{"type":"com.fibaro.hunterDouglasScene","children":[]},{"type":"com.fibaro.hunterDouglas","children":[]},{"type":"com.fibaro.humidifier","children":[]},{"type":"com.fibaro.genericZwaveDevice","children":[]},{"type":"com.fibaro.genericDevice","children":[]},{"type":"com.fibaro.deviceController","children":[]},{"type":"com.fibaro.denonHeos","children":[]},{"type":"com.fibaro.coolAutomation","children":[]},{"type":"com.fibaro.alarm","children":[{"type":"com.fibaro.satelAlarm","children":[]},{"type":"com.fibaro.envisaLinkAlarm","children":[]},{"type":"com.fibaro.dscAlarm","children":[]}]},{"type":"com.fibaro.actor","children":[{"type":"com.fibaro.soundSwitch","children":[]},{"type":"com.fibaro.rollerShutter","children":[{"type":"com.fibaro.FGR221","children":[]},{"type":"com.fibaro.FGR","children":[{"type":"com.fibaro.FGWR111","children":[]},{"type":"com.fibaro.FGRM222","children":[]},{"type":"com.fibaro.FGR223","children":[]}]}]},{"type":"com.fibaro.remoteSwitch","children":[]},{"type":"com.fibaro.remoteController","children":[{"type":"com.fibaro.remoteSceneController","children":[{"type":"com.fibaro.FGPB101","children":[]},{"type":"com.fibaro.FGKF601","children":[]},{"type":"com.fibaro.FGGC001","children":[]}]}]},{"type":"com.fibaro.binarySwitch","children":[{"type":"com.fibaro.sprinkler","children":[]},{"type":"com.fibaro.satelOutput","children":[]},{"type":"com.fibaro.multilevelSwitch","children":[{"type":"com.fibaro.colorController","children":[{"type":"com.fibaro.philipsHueLight","children":[]},{"type":"com.fibaro.philipsHue","children":[]},{"type":"com.fibaro.FGRGBW442CC","children":[]},{"type":"com.fibaro.FGRGBW441M","children":[]}]},{"type":"com.fibaro.FGWD111","children":[]},{"type":"com.fibaro.FGD212","children":[]}]},{"type":"com.fibaro.FGWP","children":[{"type":"com.fibaro.FGWPI121","children":[]},{"type":"com.fibaro.FGWPG121","children":[]},{"type":"com.fibaro.FGWPG111","children":[]},{"type":"com.fibaro.FGWPB121","children":[]},{"type":"com.fibaro.FGWPB111","children":[]},{"type":"com.fibaro.FGWP102","children":[]},{"type":"com.fibaro.FGWP101","children":[]}]},{"type":"com.fibaro.FGWOEF011","children":[]},{"type":"com.fibaro.FGWDS221","children":[]}]},{"type":"com.fibaro.barrier","children":[]}]},{"type":"com.fibaro.FGRGBW442","children":[]},{"type":"com.fibaro.FGBS222","children":[]}]}]]
 
