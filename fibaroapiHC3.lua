@@ -91,12 +91,17 @@ clearInterval(ref)
 
 plugin.mainDeviceId
 
+class QuickAppBase
+class QuickApp
+class QuickAppChild
 QuickApp:onInit() -- called at startup if defined
 QuickApp - self:setVariable(name,value) 
 QuickApp - self:getVariable(name)
 QuickApp - self:debug(...)
 QuickApp - self:updateView(elm,type,value)
 QuickApp - self:updateProperty()
+QuickApp - self:createChildDevice(props,device)
+QuickApp - self:initChildDevices(table)
 
 sourceTrigger - scene trigger
 Scene events:
