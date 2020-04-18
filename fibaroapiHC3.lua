@@ -30,7 +30,7 @@ json        -- Copyright (c) 2019 rxi
 persistence -- Copyright (c) 2010 Gerhard Roethlin
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.80"
+local FIBAROAPIHC3_VERSION = "0.84"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -143,7 +143,7 @@ local socket = require("socket")
 local ltn12 = require("ltn12")
 
 local credentialsFile = "credentials.lua" -- Used for setting up hc3_emulator with HC3 credentials, only used for plugin and "Copy HC3 data"
-local _debugFlags = {fcall=true, fget=true, post=true, trigger=true, timers=nil, refreshLoop=false, creation=true} 
+local _debugFlags = {fcall=true, fget=true, post=true, trigger=true, timers=nil, refreshLoop=false, creation=true, mqtt=true} 
 
 local Util,Timer,QA,Scene,Web,Trigger,Offline,DB   -- local modules
 fibaro,json,plugin = {},{},nil                     -- global exports
@@ -161,6 +161,7 @@ hc3_emulator = {
 --createProxy
 --createQuickApp
 --start
+  supressTrigger = {["PluginChangedViewEvent"]=true},
 }
 
 local ostime,osclock,osdate,tostring = os.time,os.clock,os.date,tostring
@@ -543,6 +544,134 @@ function module.FibaroAPI()
     --error(format("HC3 returned error '%d %s' - URL: '%s'.",c,resp[1] or "",req.url))
   end
 
+-------------- MQTT support ---------------------
+  local stat,_mqtt=pcall(function() return require("mqtt") end)
+  if stat then
+    mqtt={ 
+      Client = {}, 
+      QoS = {EXACTLY_ONCE=1},
+      MSGT = { 
+        CONNECT = 1,
+        CONNACK = 2,
+        PUBLISH = 3,
+        PUBACK = 4,
+        PUBREC = 5,
+        PUBREL = 6,
+        PUBCOMP = 7,
+        SUBSCRIBE = 8,
+        SUBACK = 9,
+        UNSUBSCRIBE = 10,
+        UNSUBACK = 11,
+        PINGREQ = 12,
+        PINGRESP = 13,
+        DISCONNECT = 14,
+        AUTH = 15,
+      },
+      MSGMAP = {
+        [9]='subscribed',
+        [11]='unsubscribed', 
+        [4]='published',  -- Should be onpublished according to doc?
+        [14]='closed',
+      }
+    }
+    function mqtt.Client.connect(uri, options)
+      options = options or {}
+      local args = {}
+      args.uri = uri
+      args.username = options.username
+      args.password = options.password
+      args.clean = options.cleanSession
+      if args.clean == nil then args.clean=true end
+      args.will = options.lastWill
+      args.keep_alive = options.keepAlivePeriod
+      args.id = options.clientId
+      local _client = _mqtt.client(args)
+      local client={ _client=_client, _handlers={} }
+      function client:addEventListener(message,handler) 
+        self._handlers[message]=handler
+      end
+      function client:subscribe(topic, options) 
+        options = options or {}
+        local args = {}
+        args.topic = topic
+        args.qos = options.qos or 0
+        args.callback = options.callback
+        return self._client:subscribe(args)
+      end
+      function client:unsubscribe(topics, options) 
+        if type(topics)=='string' then return self._client:unsubscribe({topic=topics})
+        else
+          local res
+          for _,t in ipairs(topics) do res=self:unsubscribe(t) end
+          return res
+        end
+      end
+      function client:publish(topic, payload, options) 
+        options = options or {}
+        local args = {}
+        args.topic = topic
+        args.payload = payload
+        args.qos = options.qos or 0
+        args.retain = options.retain or false
+        args.callback = options.callback
+        return self._client:publish(args)
+      end
+      function client:disconnect(options) 
+        options = options or {}
+        local args = {}
+        args.callback = options.callback
+        return self._client:disconnect(args)
+      end
+      --function client:acknowledge() end
+
+      _client:on{
+        --{"type":2,"sp":false,"rc":0}
+        connect = function(connack)
+          Debug(_debugFlags.mqtt,"MQTT connect:"..json.encode(connack))
+          if client._handlers['connected'] then 
+            client._handlers['connected']({sessionPresent=connack.sp,returnCode=connack.rc}) 
+          end
+        end,
+        subscribe = function(event)
+          Debug(_debugFlags.mqtt,"MQTT subscribe:"..json.encode(event))
+          if client._handlers['subscribed'] then client._handlers['subscribed'](event) end
+        end,
+        unsubscribe = function(event)
+          Debug(_debugFlags.mqtt,"MQTT unsubscribe:"..json.encode(event))
+          if client._handlers['unsubscribed'] then client._handlers['unsubscribed'](event) end
+        end,
+        message = function(msg)
+          Debug(_debugFlags.mqtt,"MQTT message:"..json.encode(msg))
+          local msgt = mqtt.MSGMAP[msg.type]
+          if msgt and client._handlers[msgt] then client._handlers[msgt](msg)
+          elseif client._handlers['message'] then client._handlers['message'](msg) end
+        end,
+        acknowledge = function(event)
+          Debug(_debugFlags.mqtt,"MQTT acknowledge:"..json.encode(event))
+          if client._handlers['acknowledge'] then client._handlers['acknowledge']() end
+        end,
+        error = function(err)
+          if _debugFlags.mqtt then Log(LOG.ERROR,"MQTT error:"..err) end
+          if client._handlers['error'] then client._handlers['error'](err) end
+        end,
+        close = function(event)
+          Debug(_debugFlags.mqtt,"MQTT close:"..json.encode(event))
+          if client._handlers['closed'] then client._handlers['closed'](event) end
+        end,
+        auth = function(event)
+          Debug(_debugFlags.mqtt,"MQTT auth:"..json.encode(event))
+          if client._handlers['auth'] then client._handlers['auth'](event) end
+        end,
+      }
+      _mqtt.get_ioloop():add(client._client)
+      if not mqtt._loop then
+        local iter = _mqtt.get_ioloop()
+        mqtt._loop = Timer.setInterval(function() iter:iteration() end,1000)
+      end
+      return client
+    end
+  end
+
 --[[
 fibaro.homeCenter = { climate={}, notificationService={}, popupService={}, systemService={} }
 function fibaro.homeCenter.climate.setClimateZoneToScheduleMode(...) end
@@ -802,11 +931,11 @@ function module.QuickApp()
 --core.EventTarget = class EventTarget (EventTarget)
   plugin = {}
   plugin.mainDeviceId = nil
-  plugin.deleteDevice = nil
-  plugin.restart = nil
+  function plugin.deleteDevice(deviceId) return api.delete("/devices/"..deviceId) end
+  function plugin.restart(deviceID) return api.post("/plugins/restart",{deviceId=deviceId}) end
   plugin.getProperty = nil
   function plugin.getChildDevices() return api.get("/devices?parentId="..plugin.mainDeviceId) end
-  plugin.createChildDevice = nil
+  function plugin.createChildDevice(prop) return api.post("/plugins/createChildDevice",props) end
   plugin.getDevice = nil
 
   class 'QuickAppBase'()
@@ -828,7 +957,7 @@ function module.QuickApp()
         if v.name==name then return v.value end
       end
     end
-    return self._quickVars[name] -- default to local var
+    if self._quickVars[name]==nil then return "" else return self._quickVars[name] end-- default to local var
   end
 
   function QuickAppBase:setVariable(name,value)
@@ -1202,18 +1331,22 @@ function QuickApp:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) e
     code[#code+1]= "end"
 
     code = table.concat(code,"\n")
-
+    local vars2 = {}
     if ID then -- ToDo: Re-use ID if it exists.
       local d = device
       if d.properties.mainFunction == code and d.type==tp then 
         Log(LOG.SYS,"Proxy: Not changed, reusing QuickApp proxy")
         return d.id 
       end
+      local vars3 = api.get("/devices/"..ID).properties.quickAppVariables or {}
+      for _,v in ipairs(vars3) do vars2[v.name]=v.value end
       Log(LOG.SYS,"Proxy: Changed, reusing QuickApp proxy")
     else
       Log(LOG.SYS,"Proxy: Creating new proxy")
     end
-    local vars2 = {["IP"]=Util.getIPaddress()..":"..hc3_emulator.webPort}
+    for k,v in pairs({["IP"]=Util.getIPaddress()..":"..hc3_emulator.webPort}) do 
+      vars2[k]=v
+    end
     return createQuickApp{id=ID,name=name,type=tp,code=code,UI=UI,quickvars=vars2}
   end
 
@@ -1250,6 +1383,13 @@ function QuickApp:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) e
       end
 
       function HC3_handleEvent(e) -- If we have a HC3 proxy, we listen for UI events (PROXY)
+        if e.type=='DeviceRemovedEvent' then
+          for id,d in pairs(plugin._mainDevice.childDevices or {}) do
+            if e.value.id==id then 
+              plugin._mainDevice.childDevices[id]=nil return 
+            end
+          end
+        end
         if e.type=='customevent' then -- (Default is to get them from callAction...)
           local id,elm = e.name:match("PROXY(%d+)")
           if id and id~="" and ID==tonumber(id) then
@@ -1605,7 +1745,10 @@ function module.Trigger()
   function cache.write(type,key,value) cache[type][key]=value end
   function cache.read(type,key) return hc3_emulator.speeding and hc3_emulator.polling and cache[type][key] end
 
-  local function post(event) if HC3_handleEvent then HC3_handleEvent(event) end end
+  local function post(event) 
+    if hc3_emulator.supressTrigger[event.type] then return end
+    if HC3_handleEvent then HC3_handleEvent(event) end 
+  end
 
   local EventTypes = { -- There are more, but these are what I seen so far...
     AlarmPartitionArmedEvent = function(self,d) post({type='alarm', property='armed', id = d.partitionId, value=d.armed}) end,
@@ -1641,6 +1784,7 @@ function module.Trigger()
       cache.write('accessControlEvent',d.id,d)
       post({type='device', property='accessControlEvent', id = d.deviceID, value=d}) 
     end,
+    RoomModifiedEvent = function(self,d) end,
     CustomEvent = function(self,d) if d.name == tickEvent then return else post({type='custom-event', name=d.name}) end end,
     PluginChangedViewEvent = function(self,d) post({type='PluginChangedViewEvent', value=d}) end,
     WizardStepStateChangedEvent = function(self,d) post({type='WizardStepStateChangedEvent', value=d})  end,
@@ -1717,7 +1861,7 @@ end
 function module.Utilities()
   local self = {}
 
-  function class(name)
+  function self.class(name)
     local fun=function(parent) 
       local cl = {}
       for n,p in pairs(parent or {}) do cl[n]=p end
@@ -1745,6 +1889,8 @@ function module.Utilities()
     end
     return fun
   end
+
+  if not class then class=self.class end -- If we already have 'class' from Luabind - let's hope it wors as a substitute....
 
   function self.urlencode (str) 
     return str and string.gsub(str ,"([^% w])",function(c) return format("%%% 02X",string.byte(c))  end) 
