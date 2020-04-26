@@ -31,7 +31,7 @@ json        -- Copyright (c) 2019 rxi
 persistence -- Copyright (c) 2010 Gerhard Roethlin
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.90"
+local FIBAROAPIHC3_VERSION = "0.91"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -143,26 +143,29 @@ local http = require("socket.http")
 local socket = require("socket")
 local ltn12 = require("ltn12")
 
-local credentialsFile = "credentials.lua" -- Used for setting up hc3_emulator with HC3 credentials, only used for plugin and "Copy HC3 data"
 local _debugFlags = {fcall=true, fget=true, post=true, trigger=true, timers=nil, refreshLoop=false, creation=true, mqtt=true} 
 
 local Util,Timer,QA,Scene,Web,Trigger,Offline,DB   -- local modules
 fibaro,json,plugin = {},{},nil                     -- global exports
 QuickApp,QuickAppBase,QuickAppChild = nil,nil,nil  -- global exports
 
-hc3_emulator = { 
-  version = FIBAROAPIHC3_VERSION,
-  conditions=false, actions = false, 
-  offline = false,
-  emulated = true, 
-  debug = _debugFlags,
-  runSceneAtStart = false,
-  webPort = 6872,
-  quickVars = {},
-  colorDebug = true,
-  supressTrigger = {["PluginChangedViewEvent"]=true}, -- Ignore noisy triggers...
-}
+local function DEF(x,y) if x==nil then return y else return x end end
+hc3_emulator = hc3_emulator or {}
+hc3_emulator.version         = FIBAROAPIHC3_VERSION
+hc3_emulator.credentialsFile = hc3_emulator.credentialsFile or "credentials.lua" 
+hc3_emulator.conditions      = false
+hc3_emulator.actions         = false
+hc3_emulator.offline         = DEF(hc3_emulator.offline,false)
+hc3_emulator.emulated        = true 
+hc3_emulator.debug           = _debugFlags
+hc3_emulator.runSceneAtStart = false
+hc3_emulator.webPort         = hc3_emulator.webPort or 6872
+hc3_emulator.quickVars       = hc3_emulator.quickVars or {}
+hc3_emulator.colorDebug      = DEF(hc3_emulator.colorDebug,true)
+hc3_emulator.supressTrigger = {["PluginChangedViewEvent"] = true} -- Ignore noisy triggers...
 
+local cr = not hc3_emulator.credentials and loadfile(hc3_emulator.credentialsFile); if cr then cr() end
+  
 local ostime,osclock,osdate,tostring = os.time,os.clock,os.date,tostring
 local _timeAdjust = 0
 local LOG,Log,Debug,assert,assertf
@@ -3341,7 +3344,7 @@ end -- Offline
 function module.OfflineDB()
   local fname = "HC3sdk.db"
   local self,persistence = {},nil
-  local cr = not hc3_emulator.credentials and loadfile(credentialsFile); if cr then cr() end
+  local cr = not hc3_emulator.credentials and loadfile(hc3_emulator.credentialsFile); if cr then cr() end
 
   function self.downloadFibaroAPI()
     net.maxdelay=0; net.mindelay=0
