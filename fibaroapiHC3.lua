@@ -31,7 +31,7 @@ json        -- Copyright (c) 2019 rxi
 persistence -- Copyright (c) 2010 Gerhard Roethlin
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.91"
+local FIBAROAPIHC3_VERSION = "0.93"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -98,10 +98,14 @@ QuickApp:onInit() -- called at startup if defined
 QuickApp - self:setVariable(name,value) 
 QuickApp - self:getVariable(name)
 QuickApp - self:debug(...)
+QuickApp - self:trace(...)
+QuickApp - self:warning(...)
+QuickApp - self:error(...)
 QuickApp - self:updateView(elm,type,value)
 QuickApp - self:updateProperty()
 QuickApp - self:createChildDevice(props,device)
 QuickApp - self:initChildDevices(table)
+QuickApp - self:removeChildDevice(id)
 
 sourceTrigger - scene trigger
 Scene events:
@@ -124,24 +128,24 @@ hc3_emulator.start{                   -- start QuickApp/Scene
               speed=<speedtime>,      -- default false
               proxy=<boolean>         -- default false
               UI=<UI table>,          -- default {}
-              quickvars=<table>,      -- default {}
+              quickVars=<table>,      -- default {}
               } 
 hc3_emulator.createQuickApp{          -- creates and deploys QuickApp on HC3
               name=<string>,            
               type=<string>,
               code=<string>,
               UI=<table>,
-              quickvars=<table>,
+              quickVars=<table>,
               dryrun=<boolean>
               } 
 hc3_emulator.createProxy(<name>,<type>,<UI>,<quickVars>)       -- create QuickApp proxy on HC3 (usually called with 
 hc3_emulator.post(ev,t)                                        -- post event/sourceTrigger 
 --]]
 
-local https = require ("ssl.https") 
-local http = require("socket.http")
+local https  = require ("ssl.https") 
+local http   = require("socket.http")
 local socket = require("socket")
-local ltn12 = require("ltn12")
+local ltn12  = require("ltn12")
 
 local _debugFlags = {fcall=true, fget=true, post=true, trigger=true, timers=nil, refreshLoop=false, creation=true, mqtt=true} 
 
@@ -153,6 +157,7 @@ local function DEF(x,y) if x==nil then return y else return x end end
 hc3_emulator = hc3_emulator or {}
 hc3_emulator.version         = FIBAROAPIHC3_VERSION
 hc3_emulator.credentialsFile = hc3_emulator.credentialsFile or "credentials.lua" 
+hc3_emulator.HC3dir          = hc3_emulator.HC3dir or "HC3files" 
 hc3_emulator.conditions      = false
 hc3_emulator.actions         = false
 hc3_emulator.offline         = DEF(hc3_emulator.offline,false)
@@ -165,7 +170,8 @@ hc3_emulator.colorDebug      = DEF(hc3_emulator.colorDebug,true)
 hc3_emulator.supressTrigger = {["PluginChangedViewEvent"] = true} -- Ignore noisy triggers...
 
 local cr = not hc3_emulator.credentials and loadfile(hc3_emulator.credentialsFile); if cr then cr() end
-  
+pcall(function() require('mobdebug').coro() end) -- Load mobdebug if available to debug coroutines...
+
 local ostime,osclock,osdate,tostring = os.time,os.clock,os.date,tostring
 local _timeAdjust = 0
 local LOG,Log,Debug,assert,assertf
@@ -178,6 +184,7 @@ local QuickApp_devices,QuickAppChildren = {},{}
 
 -------------- Fibaro API functions ------------------
 function module.FibaroAPI()
+  fibaro.version = "1.0.0"
   local cache,safeDecode = Trigger.cache,Util.safeDecode
 
   local function __convertToString(value) 
@@ -224,7 +231,7 @@ function module.FibaroAPI()
 
   local ZBCOLORMAP = Util.ZBCOLORMAP
   local DEBUGCOLORS = {['DEBUG']='green', ['TRACE']='orange', ['WARNING']='purple', ['ERROR']='red'}
-  local function fibaro_debug(t,type,str) 
+  local function fibaro_debug(t,type,str)
     assert(str,"Missing tag for debug") 
     if hc3_emulator.colorDebug then
       local color = DEBUGCOLORS[t] or "black"
@@ -270,7 +277,8 @@ function module.FibaroAPI()
       for i,v in ipairs({...})do 
         a.args[i]=v
       end 
-      api.post("/devices/"..deviceID.."/action/"..actionName,a) 
+      local res,stat = api.post("/devices/"..deviceID.."/action/"..actionName,a) 
+      if stat==404 then Log(LOG.ERROR,"Device %s does not exists",deviceID) end
     end
   end
 
@@ -354,20 +362,21 @@ function module.FibaroAPI()
   end
 
   function fibaro.scene(action, sceneIDs) -- execute or kill
-    __assert_type(sceneIDs,'table') 
+    __assert_type(sceneIDs,'table')   
     for _,id in ipairs(sceneIDs) do api.post("/scenes/"..id.."/"..action,{}) end
   end
 
   function fibaro.profile(profile_id, action)
     __assert_type(profile_id,'number') 
     __assert_type(action,'string') 
-    api.post("/profiles/"..action.."/"..profile_id)
+    return api.post("/profiles/"..action.."/"..profile_id)
   end
 
   function fibaro.callGroupAction(action,args)
     __assert_type(action,'string')     
     __assert_type(args,'table')     
-    api.post("/devices/groupAction/"..action,args)
+    local res,stat = api.post("/devices/groupAction/"..action,args)
+    return stat==202 and res.devices
   end
 
   function fibaro.alert(alert_type, user_ids, notification_content) 
@@ -377,8 +386,8 @@ function module.FibaroAPI()
 
 -- User PIN?
   function fibaro.alarm(partition_id, action)
-    if action then api.post("/alarms/v1/partitions/"..partition_id.."/actions/"..action)
-    else api.post("/alarms/v1/partitions/actions/"..partition_id) end -- partition_id -> action
+    if action then return api.post("/alarms/v1/partitions/"..partition_id.."/actions/"..action)
+    else return api.post("/alarms/v1/partitions/actions/"..partition_id) end -- partition_id -> action
   end
 
   function fibaro.__houseAlarm() end -- ToDo:
@@ -439,7 +448,7 @@ function module.FibaroAPI()
       if response == 1 then 
         local d = table.concat(resp)
         if options.success then -- simulate asynchronous callback
-          if net.maxdelay>0 then
+          if net.maxdelay>=net.mindelay then
             Timer.setTimeout(function() options.success({status=status, headers=headers, data=d}) end,math.random(net.mindelay,net.maxdelay)) 
           else
             options.success({status=status, headers=headers, data=table.concat(resp)})
@@ -447,7 +456,7 @@ function module.FibaroAPI()
         end
       else
         if options.error then 
-          if net.maxdelay>0 then
+          if net.maxdelay>=net.mindelay then
             Timer.setTimeout(function() options.error(status) end,math.random(net.mindelay,net.maxdelay))
           else
             options.error(status) 
@@ -696,48 +705,46 @@ function module.FibaroAPI()
     end
   end
 
---[[
-fibaro.homeCenter = { climate={}, notificationService={}, popupService={}, systemService={} }
-function fibaro.homeCenter.climate.setClimateZoneToScheduleMode(...) end
-function fibaro.homeCenter.climate.setClimateZoneToManualMode(...) end
-function fibaro.homeCenter.climate.setClimateZoneToVacationMode(...) end
-function fibaro.homeCenter.notificationService.remove(noificationId)
-  return api.delete("/panels/notifications/"..noificationId)
-end
-function fibaro.homeCenter.notificationService.update(id,notification) 
-  return api.post("/panels/notifications/"..id,noification)
-end
-function fibaro.homeCenter.notificationService.publish(notification) 
-  return api.post("/panels/notifications",noification)
-end
-function fibaro.homeCenter.popupService.publish(request) 
-  local response = api.post("/popups",request) 
-  return response
-end
-function fibaro.homeCenter.systemService.suspend() 
-end
-function fibaro.homeCenter.systemService.reboot() 
-  local client = net.HTTPClient() 
-  client:request("http://localhost/reboot.php") 
-end
---]]
-  fibaro.homeCenter = {   -- ToDo
+------------ HomeCenter ------------------------------
+  fibaro.homeCenter = {   
     PopupService = { 
       publish = function(request) 
-        local response = api.post("/popups",request) 
-        return response
+        return api.post("/popups",request) 
       end 
     }, 
+
+    climate = {
+      setClimateZoneToScheduleMode = fibaro.setClimateZoneToScheduleMode,
+      setClimateZoneToManualMode = fibaro.setClimateZoneToManualMode,
+      setClimateZoneToVacationMode = fibaro.setClimateZoneToVacationMode
+    },
+
     SystemService = { 
       reboot = function() 
-        local client = net.HTTPClient() 
-        client:request("http://localhost/reboot.php") 
+        Log(LOG.WARNING,"Can't reboot HC3")
       end,
-      shutdown = function() 
-        local client = net.HTTPClient() 
-        client:request("http://localhost/shutdown.php") 
+      suspend = function() 
+        Log(LOG.WARNING,"Can't suspend HC3")
       end 
-    } 
+    },
+
+    notificationService = {
+      publish = function(request)
+        request.canBeDeleted = true
+        return api.post('/notificationCenter', request)
+      end,
+
+      update = function(id, request)
+        __assert_type(id, "number")
+        request.canBeDeleted = true
+        return api.put('/notificationCenter/'..id, request)
+      end,
+
+      remove = function(id)
+        __assert_type(id, "number")
+        return api.delete('/notificationCenter/'..id)
+      end
+    },
   }
 
   urlencode = Util.urlencode
@@ -963,7 +970,7 @@ function module.QuickApp()
   function plugin.createChildDevice(prop) return api.post("/plugins/createChildDevice",prop) end
   plugin.getDevice = nil
 
-  class 'QuickAppBase'()
+  class 'QuickAppBase'
   function QuickAppBase:__init(device)
     for k,v in pairs(device) do self[k]=v end
     local cbs = {}
@@ -981,29 +988,47 @@ function module.QuickApp()
   function QuickAppBase:error(...) fibaro.error("",table.concat({...})) end
 
   function QuickAppBase:getVariable(name)
+    __assert_type(name,'string')
     if self.hasProxy then
       local d = api.get("/devices/"..self.id) or {properties={}}
       for _,v in ipairs(d.properties.quickAppVariables or {}) do
         if v.name==name then return v.value end
       end
     end
-    if self._quickVars[name]==nil then return "" else return self._quickVars[name] end-- default to local var
+    for _,v in ipairs(self.properties.quickAppVariables or {}) do
+      if v.name==name then return v.value end
+    end
+    return ""
   end
 
   function QuickAppBase:setVariable(name,value)
+    __assert_type(name,'string')
     if self.hasProxy then
       fibaro.call(self.id,"setVariable",name,value)
     end
-    self._quickVars[name] = value -- set local too
+    local vs = self.properties.quickAppVariables
+    vs = vs or {}
+    for _,v in ipairs(vs) do
+      if v.name==name then v.value=value; return end
+    end
+    vs[#vs+1]={name=name,value=value}
+    self.properties.quickAppVariables = vs
   end
 
   function QuickAppBase:updateView(elm,t,value) 
     if self.hasProxy then
-      fibaro.call(self.id,"updateView",elm,t,value)
+      api.post("/plugins/updateView",{
+          deviceId=self.id,
+          componentName =  elm,
+          propertyName = t,  
+          newValue = value
+        })
+      --fibaro.call(self.id,"updateView",elm,t,value)
     end
   end
 
   function QuickAppBase:updateProperty(prop,value)
+    __assert_type(prop,'string')
     if self.hasProxy then
       local stat,res=api.put("/devices/"..self.id,{properties = {[prop]=value}})
     else 
@@ -1027,7 +1052,10 @@ function module.QuickApp()
   class 'QuickApp'(QuickAppBase)
   function QuickApp:__init(device) 
     QuickAppBase.__init(self,device)
-    if hc3_emulator.quickVars then self._quickVars=hc3_emulator.quickVars end
+    if hc3_emulator.quickVars then 
+      local vs = self.properties.quickAppVariables or {}
+      for k,v in pairs(hc3_emulator.quickVars) do self:setVariable(k,v) end
+    end
     self.childDevices = {}
     self.hasProxy = plugin.isProxy
   end
@@ -1049,6 +1077,7 @@ function module.QuickApp()
   end
 
   function QuickApp:removeChildDevice(id)
+    __assert_type(id,'number')
     for cid,_ in pairs(self.childDevices) do
       if cid == id then
         api.delete("/plugins/removeChildDevice/" .. id)
@@ -1238,7 +1267,7 @@ function module.QuickApp()
   --      {{{button='button1", text="L"},{button='button2'}}, -- 2 buttons  1 row
   --      {{slider='slider1", text="L", min=100,max=99}},     -- 1 slider 1 row
   --      {{label="label1",text="L"}}}                        -- 1 label 1 row
-  -- quickvars - quickAppVariables, {<var1>=<value1>,<var2>=<value2>,...}
+  -- quickVars - quickAppVariables, {<var1>=<value1>,<var2>=<value2>,...}
   -- dryrun - if true only returns the quickapp without deploying
 
   local function createQuickApp(args)
@@ -1247,7 +1276,7 @@ function module.QuickApp()
     d.type = args.type or "com.fibaro.binarySensor"
     local body = args.code or ""
     local UI = args.UI or {}
-    local variables = args.quickvars or {}
+    local variables = args.quickVars or {}
     local dryRun = args.dryrun or false
     d.apiVersion = "1.1"
     d.initialProperties = makeInitialProperties(body,UI,variables,args.height)
@@ -1307,7 +1336,13 @@ local function POST2IDE(path,payload)
     url = "http://"..IP..path
     net.HTTPClient():request(url,{options={method='POST',data=json.encode(payload)}})
 end
-function QuickApp:actionHandler(action) POST2IDE("/fibaroapiHC3/action/"..self.id,action) end
+local IGNORE={updateView=true,setVariable=true,updateProperty=true} -- Rewrite!!!!
+function QuickApp:actionHandler(action) 
+      if IGNORE[action.actionName] then 
+        return self:callAction(action.actionName, table.unpack(action.args))
+      end
+      POST2IDE("/fibaroapiHC3/action/"..self.id,action) 
+end
 function QuickApp:UIHandler(UIEvent) POST2IDE("/fibaroapiHC3/ui/"..self.id,UIEvent) end
 function QuickApp:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) end
 ]]
@@ -1336,13 +1371,13 @@ function QuickApp:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) e
 
     for k,v in pairs(vars) do newVars[k]=v end -- add user specified vars
     newVars["PROXYIP"] = Util.getIPaddress()..":"..hc3_emulator.webPort
-    return createQuickApp{id=ID,name=name,type=tp,code=code,UI=UI,quickvars=newVars}
+    return createQuickApp{id=ID,name=name,type=tp,code=code,UI=UI,quickVars=newVars}
   end
 
   local function runQuickApp(args)
     local ptype         = args.type or "com.fibaro.binarySwitch"
     local UI            = args.UI or {}
-    local quickvars     = args.quickvars or {}
+    local quickvars     = args.quickVars or {}
     local name          = args.name or "My App"
 
     local deviceStruct= {
@@ -1390,6 +1425,7 @@ function QuickApp:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) e
   end
 
   function onAction(event)
+    Debug(_debugFlags.onAction,"onAction: %s",json.encode(event))
     local self = plugin._mainDevice
     if self.actionHandler then self:actionHandler(event)
     else
@@ -1398,9 +1434,9 @@ function QuickApp:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) e
         self:callAction(event.actionName, table.unpack(event.args))
       else
         local child = self.childDevices[id] 
-        if child then child:callAction(event.actionName, unpack(event.args))
+        if child then child:callAction(event.actionName, table.unpack(event.args))
         else
-          self:debug("Child with id:", id, "not found")
+          self:debug("Child with id:", id, " not found")
         end
       end
     end
@@ -1409,6 +1445,7 @@ function QuickApp:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) e
 --"{\"eventType\":\"onReleased\",\"values\":[null],\"elementName\":\"bt\",\"deviceId\":726}"
 --"{\"eventType\":\"onChanged\",\"values\":[80],\"elementName\":\"sl\",\"deviceId\":726}"
   function onUIEvent(event)
+    Debug(_debugFlags.UIEvent,"UIEvent: %s",json.encode(event))
     local self = plugin._mainDevice
     if self.UIHandler then self:UIHandler(event)
     else
@@ -1417,13 +1454,16 @@ function QuickApp:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) e
       if cb[elm] and cb[elm][etyp] then 
         self:callAction(cb[elm][etyp], event)
       else
-        self:warning("UI callback for element:", elm, "not found.")
+        self:warning("UI callback for element:", elm, " not found.")
       end 
     end
   end
 
   function self.copyQA(id)
-    print("COPY:"..id)
+    local device,res = api.get("/devices/"..id)
+    if device then 
+      print(device.properties.mainFunction)
+    else print("Error:"..res) end
   end
 
   commandLines['pullQA']=self.copyQA
@@ -1876,7 +1916,7 @@ end
 function module.Utilities()
   local self = {}
 
-  function self.class(name)
+  function class(name)
     local cl,parent = {},nil
     cl._name = name
     cl.__index = cl
@@ -1884,6 +1924,7 @@ function module.Utilities()
     mt.__tostring = function(_) return string.format("<Class %s>",name) end
 
     local fun=function(parent2) 
+      assert(parent2,"Missing parent, use without () if no parent")
       parent = parent2
       for n,p in pairs(parent or {}) do cl[n]=p end
       cl._name = name
@@ -1909,6 +1950,7 @@ function module.Utilities()
     return fun
   end
 
+
   if not class then class=self.class end -- If we already have 'class' from Luabind - let's hope it wors as a substitute....
 
   function self.urlencode (str) 
@@ -1932,7 +1974,10 @@ function module.Utilities()
 
   self.ZBCOLORMAP = ZBCOLORMAP
   LOG = { LOG="LOG  ", WARNING="WARN ", SYS="SYS  ", DEBUG="SDBG ", ERROR='ERROR', HEADER='HEADER'}
-  local DEBUGCOLORS = {[LOG.LOG]='navy', [LOG.WARNING]='orange', [LOG.SYS]='purple', [LOG.ERROR]='red',[LOG.HEADER]='blue'}
+  local DEBUGCOLORS = {
+    [LOG.LOG]='navy', [LOG.WARNING]='orange', [LOG.DEBUG]='blue', 
+    [LOG.SYS]='purple', [LOG.ERROR]='red',[LOG.HEADER]='blue'
+  }
 
   function Debug(flag,...) if flag then Log(LOG.DEBUG,...) end end
   function Log(flag,arg1,...)
@@ -2771,6 +2816,42 @@ Cache-Control: no-cache, no-store, must-revalidate
 end
 
 --------------- Offline support ----------------------
+function module.Files()
+  local lfs = require("lfs")
+  local self,dir = {},""
+
+  local function getHC3dir()
+    local cdir = lfs.currentdir()
+    cdir = cdir .. "/" .. hc3_emulator.HC3dir
+    if not lfs.attributes(cdir) then
+      if not lfs.mkdir(cdir) then error("Can't create HC3 data directory: "..cdir) end
+    end
+  end
+
+  function self.downloadQA(id)
+    getHC3dir()
+    local dev = api.get("/devices/"..id)
+    if not dev then error(format("QA deviceId:%s does not exists",id)) end
+    local name=dev.name.."_"..dev.id
+    local f = io.open(file..".rsrc","w")
+    f:write(res.data)
+    f:close()
+  end
+
+  function self.downloadScene(id)
+  end
+
+  function uploadQA(id)
+  end
+
+  function uploadQA(id)
+  end
+
+  getHC3dir()
+  return self
+end
+
+--------------- Offline support ----------------------
 function module.Offline()
   -- We setup our own /refreshState handler and other REST API handlers and keep our own reosurce states
   local self,cache,split,urldecode,QUEUESIZE = {},Trigger.cache,Util.split,Util.urldecode,200
@@ -3598,11 +3679,12 @@ fibaro  = module.FibaroAPI()
 QA      = module.QuickApp()
 Scene   = module.Scene()
 Web     = module.WebAPI()
+local files   = module.Files()
 Offline = module.Offline()
 DB      = module.OfflineDB() 
 
 if arg[1] and commandLines[arg[1]] then  -- When fibaroapiHC3.lua is used as a command from ZBS
-  commandLines[arg[1]](arg) 
+  commandLines[arg[1]](select(2,table.unpack(arg)))
   os.exit()
 end
 
@@ -3667,6 +3749,7 @@ function hc3_emulator.start(args)
   local stat,res = pcall(Timer.start)
   if not stat then
     Log(LOG.ERROR,"QuickApp crashed: %s",res)
+    debug.traceback()
   end
   if hc3_emulator.restartQA then goto RESTART end
 end
