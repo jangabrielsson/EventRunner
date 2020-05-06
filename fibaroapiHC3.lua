@@ -31,7 +31,7 @@ json        -- Copyright (c) 2019 rxi
 persistence -- Copyright (c) 2010 Gerhard Roethlin
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.93"
+local FIBAROAPIHC3_VERSION = "0.95"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -149,9 +149,9 @@ local ltn12  = require("ltn12")
 
 local _debugFlags = {fcall=true, fget=true, post=true, trigger=true, timers=nil, refreshLoop=false, creation=true, mqtt=true} 
 
-local Util,Timer,QA,Scene,Web,Trigger,Offline,DB   -- local modules
-fibaro,json,plugin = {},{},nil                     -- global exports
-QuickApp,QuickAppBase,QuickAppChild = nil,nil,nil  -- global exports
+local Util,Timer,QA,Scene,Web,Trigger,Offline,DB,Files   -- local modules
+fibaro,json,plugin = {},{},nil                           -- global exports
+QuickApp,QuickAppBase,QuickAppChild = nil,nil,nil        -- global exports
 
 local function DEF(x,y) if x==nil then return y else return x end end
 hc3_emulator = hc3_emulator or {}
@@ -274,11 +274,13 @@ function module.FibaroAPI()
     else
       __assert_type(deviceID ,"number") 
       local a = {args={},delay=0} 
-      for i,v in ipairs({...})do 
-        a.args[i]=v
-      end 
-      local res,stat = api.post("/devices/"..deviceID.."/action/"..actionName,a) 
-      if stat==404 then Log(LOG.ERROR,"Device %s does not exists",deviceID) end
+      for i,v in ipairs({...}) do a.args[i]=v end
+      if deviceID == plugin.mainDeviceId and not plugin._mainDevice.isProxy then
+        plugin._mainDevice[actionName](plugin._mainDevice,...)
+      else
+        local res,stat = api.post("/devices/"..deviceID.."/action/"..actionName,a) 
+        if stat==404 then Log(LOG.ERROR,"Device %s does not exists",deviceID) end
+      end
     end
   end
 
@@ -298,7 +300,7 @@ function module.FibaroAPI()
     api.put("/globalVariables/"..varName , data) 
   end
 
-  function fibaro.emitCustomEvent(name) return api.post("/customEvents/"..name,nil,{["X-Fibaro-Version"] = 2}) end
+  function fibaro.emitCustomEvent(name) return api.post("/customEvents/"..name) end
 
   function fibaro.setTimeout(value, func) return setTimeout(func, value) end
 
@@ -1078,11 +1080,9 @@ function module.QuickApp()
 
   function QuickApp:removeChildDevice(id)
     __assert_type(id,'number')
-    for cid,_ in pairs(self.childDevices) do
-      if cid == id then
-        api.delete("/plugins/removeChildDevice/" .. id)
-        self.childDevices[id] = nil
-      end
+    if self.childDevices[id] then
+      api.delete("/plugins/removeChildDevice/" .. id)
+      self.childDevices[id] = nil
     end
   end
 
@@ -1260,21 +1260,37 @@ function module.QuickApp()
     return ip
   end
 
-  -- name of device - string
-  -- type of device - string, default "com.fibaro.binarySwitch"
-  -- code - string, Lua code
-  -- UI -- table with UI elements
-  --      {{{button='button1", text="L"},{button='button2'}}, -- 2 buttons  1 row
-  --      {{slider='slider1", text="L", min=100,max=99}},     -- 1 slider 1 row
-  --      {{label="label1",text="L"}}}                        -- 1 label 1 row
-  -- quickVars - quickAppVariables, {<var1>=<value1>,<var2>=<value2>,...}
-  -- dryrun - if true only returns the quickapp without deploying
+  local function replaceRequires(code)
+    pcall(function()
+        code = code:gsub([[require%s*%(%s*[%"%'](.-)[%"%']%s*%)]],
+          function(m) 
+            f = io.open(m)
+            if f then
+              local c = f:read()
+              return "do\n"..c.."\nend\n"
+            end
+            return ""
+          end)
+      end)
+    return code
+  end
+
+-- name of device - string
+-- type of device - string, default "com.fibaro.binarySwitch"
+-- code - string, Lua code
+-- UI -- table with UI elements
+--      {{{button='button1", text="L"},{button='button2'}}, -- 2 buttons  1 row
+--      {{slider='slider1", text="L", min=100,max=99}},     -- 1 slider 1 row
+--      {{label="label1",text="L"}}}                        -- 1 label 1 row
+-- quickVars - quickAppVariables, {<var1>=<value1>,<var2>=<value2>,...}
+-- dryrun - if true only returns the quickapp without deploying
 
   local function createQuickApp(args)
     local d = {} -- Our device
     d.name = args.name or "QuickApp"
     d.type = args.type or "com.fibaro.binarySensor"
     local body = args.code or ""
+    body = replaceRequires(body)
     local UI = args.UI or {}
     local variables = args.quickVars or {}
     local dryRun = args.dryrun or false
@@ -1377,7 +1393,7 @@ function QuickApp:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) e
   local function runQuickApp(args)
     local ptype         = args.type or "com.fibaro.binarySwitch"
     local UI            = args.UI or {}
-    local quickvars     = args.quickVars or {}
+    local quickVars     = args.quickVars or {}
     local name          = args.name or "My App"
 
     local deviceStruct= {
@@ -1389,15 +1405,17 @@ function QuickApp:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) e
       plugin.mainDeviceId = args.id or 999
 
     else -- Connected to something at the HC3...
-      if args.id then
-        deviceStruct = api.get("/devices/"..args.id)
-        assert(deviceStruct,format("hc3_emulator.start: QuickApp with id %s doesn't exist on HC3",args.id))
-      elseif args.proxy then
-        deviceStruct = createProxy(name, ptype, UI, quickvars)
-        assert(deviceStruct,"hc3_emulator.start: Failed creating proxy")
+      if args.id or args.proxy then
+        if args.id then
+          deviceStruct = api.get("/devices/"..args.id)
+          assert(deviceStruct,format("hc3_emulator.start: QuickApp with id %s doesn't exist on HC3",args.id))
+        elseif args.proxy then
+          deviceStruct = createProxy(name, ptype, UI, quickvars)
+          assert(deviceStruct,"hc3_emulator.start: Failed creating proxy")
+        end
+        plugin.isProxy = true
+        Log(LOG.SYS,"Connected to HC3 device %s",deviceStruct.id)
       end
-      plugin.isProxy = true
-      Log(LOG.SYS,"Connected to HC3 device %s",deviceStruct.id)
     end
 
     plugin.mainDeviceId = deviceStruct.id
@@ -1468,7 +1486,7 @@ function QuickApp:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) e
 
   commandLines['pullQA']=self.copyQA
 
-  -- Export functions
+-- Export functions
   self.updateViewLayout = updateViewLayout
   self.createQuickApp = createQuickApp
   self.createProxy = createProxy
@@ -1858,6 +1876,7 @@ function module.Trigger()
     ActiveProfileChangedEvent = function(self,d) 
       post({type='profile',property='activeProfile',value=d.newActiveProfile, old=d.oldActiveProfile}) 
     end,
+    OnlineStatusUpdatedEvent = function(self,d)  post({type='OnlineStatusUpdatedEvent', value=d}) end,
   }
 
   local function checkEvents(events)
@@ -2001,7 +2020,7 @@ function module.Utilities()
           return str
         end
       end)
-    if not stat then print(res) end
+    if not stat then error(res) end
   end
 
   function self.parseDate(dateStr) --- Format 10:00:00 5/12/2020
@@ -2819,6 +2838,30 @@ end
 function module.Files()
   local lfs = require("lfs")
   local self,dir = {},""
+
+  function self.deploy(args)
+    local name,id = args.name
+    assert(name,"Missing name for deployment")
+    local source = debug.getinfo(3, 'S').short_src
+    local f = io.open(source)
+    assert(f,"Can't find source "..source)
+    net.maxdelay=0
+    local ds = api.get("/devices")
+    for _,d in ipairs(ds) do
+      if d.name==name then id=d.id; break end
+    end
+    local code = f:read("*all")
+    Log(LOG.SYS,"Deploying %s",name)
+    local res = QA.createQuickApp{
+      name=name,
+      id = id,
+      type=args.type,
+      code=code,
+      UI=args.UI,
+      quickVars=args.quickVars
+    }
+  end
+
 
   local function getHC3dir()
     local cdir = lfs.currentdir()
@@ -3679,7 +3722,7 @@ fibaro  = module.FibaroAPI()
 QA      = module.QuickApp()
 Scene   = module.Scene()
 Web     = module.WebAPI()
-local files   = module.Files()
+Files   = module.Files()
 Offline = module.Offline()
 DB      = module.OfflineDB() 
 
@@ -3702,7 +3745,17 @@ hc3_emulator.createDevice = Offline.createDevice --(id,tp)
 hc3_emulator.cache = Trigger.cache 
 hc3_emulator.copyFromHC3 = DB.copyFromHC3
 
+function hc3_emulator.startup(args)
+  local source = debug.getinfo(2, 'S').short_src
+  dofile(source)
+  hc3_emulator.start(args)
+end
+
 function hc3_emulator.start(args)
+  if args.deploy==true then
+    Files.deploy(args)
+    return
+  end
   if not hc3_emulator.offline and not hc3_emulator.credentials then
     error("Missing HC3 credentials -- hc3_emulator.credentials{ip=<IP>,user=<string>,pwd=<string>}")
   end
@@ -3710,6 +3763,7 @@ function hc3_emulator.start(args)
   if args.traceFibaro then Util.traceFibaro() end
 
   Log(LOG.SYS,"HC3 SDK v%s",hc3_emulator.version)
+
   if hc3_emulator.speeding then Log(LOG.SYS,"Speeding %s hours",hc3_emulator.speeding) end
   if not (args.startWeb==false) then Web.start(Util.getIPaddress()) end
 
@@ -3746,10 +3800,10 @@ function hc3_emulator.start(args)
         QA.start(args)
       end
     end,0,"Main")
-  local stat,res = pcall(Timer.start)
-  if not stat then
-    Log(LOG.ERROR,"QuickApp crashed: %s",res)
-    debug.traceback()
-  end
+  local stat,res = xpcall(Timer.start,
+    function(err)
+      Log(LOG.ERROR,"QuickApp crashed: %s",err)
+      print(debug.traceback(err))
+    end)
   if hc3_emulator.restartQA then goto RESTART end
 end
