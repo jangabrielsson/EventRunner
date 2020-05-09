@@ -300,7 +300,7 @@ function module.FibaroAPI()
     api.put("/globalVariables/"..varName , data) 
   end
 
-  function fibaro.emitCustomEvent(name) return api.post("/customEvents/"..name) end
+  function fibaro.emitCustomEvent(name) return api.post("/customEvents/"..name,{}) end
 
   function fibaro.setTimeout(value, func) return setTimeout(func, value) end
 
@@ -417,7 +417,7 @@ function module.FibaroAPI()
   api={} -- Emulation of api.get/put/post/delete
   function api.get(call) return rawCall("GET",call) end
   function api.put(call, data) return rawCall("PUT",call,json.encode(data),"application/json") end
-  function api.post(call, data, hs) return rawCall("POST",call,data and json.encode(data),"application/json",hs) end
+  function api.post(call, data, hs, to) return rawCall("POST",call,data and json.encode(data),"application/json",hs,to) end
   function api.delete(call, data) return rawCall("DELETE",call,data and json.encode(data),"application/json") end
 
   ------------  HTTP support ---------------------
@@ -537,10 +537,10 @@ function module.FibaroAPI()
     return self
   end
 
-  function rawCall(method,call,data,cType,hs)
+  function rawCall(method,call,data,cType,hs,to)
     if hc3_emulator.offline then return Offline.api(method,call,data,cType,hs) end
     local resp = {}
-    local req={ method=method, timeout=5000,
+    local req={ method=method, timeout=to or 5000,
       url = "http://"..hc3_emulator.credentials.ip.."/api"..call,
       sink = ltn12.sink.table(resp),
       user=hc3_emulator.credentials.user,
