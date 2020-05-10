@@ -1,21 +1,67 @@
 if dofile then
   dofile("fibaroapiHC3.lua")
-  local cr = loadfile("credentials.lua"); if cr then cr() end
-  QuickApp._quickVars["Hue_User"]=_HueUserName
-  QuickApp._quickVars["Hue_IP"]=_HueIP
-  require('mobdebug').coro()  
+  hc3_emulator.quickVars["Hue_User"]=_HueUserName
+  hc3_emulator.quickVars["Hue_IP"]=_HueIP
 end
 
-E_VERSION,E_FIX = 0.1,"fix7"
-_HC3IPADDRESS = "192.168.1.58" -- Needs to be defined on the HC3 as /seetings/networks seems broken...
+E_VERSION,E_FIX = 0.2,"fix3"
+_HC3IPADDRESS = "192.168.1.58" -- Needs to be defined on the HC3 as /settings/networks seems broken...
 
-local _debugFlags = { triggers = true, post=false, rule=false, fcall=true  } 
+--local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
+local _debugFlags = {  fcall=true  } 
 local Util,Device,Event,Remote,Patch,Extras,Rule,Trigger
-local triggerInterval = 1000
-local module = {}
+local triggerInterval = 500
 
-function main2()
-  local rule = Rule.eval
+--[[ Supported events:
+
+    {type='device', id=<number>,   property=<string>, value=<value>, old=<value>}
+    {type='device', id=<number>,   property='centralSceneEvent',  value = {keyId=<number>, keyPressed=<string>}
+    {type='device', id=<number>,   property='accessControlEvent', value = <data>}
+    {type='alarm',  id = <number>, property='armed', value=<boolean>}
+    {type='alarm',  id = <number>, property='breached', value=<boolean>}
+    {type='alarm',  property='homeArmed',    value=<boolean>}
+    {type='alarm',  property='homeBreached', value=<boolean>}
+    {type='weather',property=<string>,       value=<value>, old=<value>}
+    {type='global',      name=<string>, value=<string>, old=<string>}
+    {type='quickvar',    name=<string>, value=<string>, old=<string>}
+    {type='customevent', name=<string>, value=<string>}
+    {type='profile',property='activeProfile',value=<number>, old=<number>}
+    {type='DeviceEvent', id=<number>, value='created'}
+    {type='DeviceEvent', id=<number>, value='modified'}
+    {type='DeviceEvent', id=<number>, value='removed'}
+    {type='DeviceEvent', id=<number>, value='changedRoom'}
+    {type='DeviceEvent', id=<number>, value='crashed', error=<string>}
+    {type='SceneEvent',  id=<number>, value='started'}
+    {type='SceneEvent',  id=<number>, value='finished'}
+    {type='SceneEvent',  id=<number>, value='removed'}
+    {type='UI', name=<string>, eventType=<string>, value=<value>}
+    
+    Missing
+    {type='location', property='id', id=<number>, value=<string>}
+    {type='se-start', property='start', value='true'}
+    type='climate', ...}
+    
+    New functions:
+    profile.id(name)                          -- returns id of profile with name
+    profile.name(id)                          -- returns name of profile with id
+    profile.active([id])                      -- activates profile id. If id==nil return active profile. 
+    custom.get(name)                          -- return userDescription field of customEvent
+    custom.post(name[,descr])                 -- post existing customEvent (descr==nil), or creates and post customEvent (descr~=nil)
+    device.setProperty(prop,value)            -- Set QA property
+    device.updateView(name, property, value)  -- Update QA view 
+    device.getView(deviceID, name, property)  -- get QA view value
+    device.clickButton(deviceID, name)        -- click QA button
+    device.setSlider(deviceID, name, value)   -- set QA slider value
+    device.setQuickVar(name,value)            -- set quickAppVariable
+    device.getQuickVar(name)                  -- get quickAppVariable
+    http.get(url,options)                     -- syncronous versions of http commands
+    http.put(url,options,data)                --
+    http.post(url,options,data)               --
+    http.delete(url,options)
+--]]
+
+function main()
+  Rule.eval("log('afoo=%s',afoo(7,8))")
 end
 
 function main()    -- EventScript version
@@ -41,15 +87,19 @@ function main()    -- EventScript version
   rule("tempHC2:temp => log('TempHC2:%s',tempHC2:temp)")
   rule("lightHC2:value => log('lightHC2:%s',lightHC2:value)")
 
-  rule("keyfob:central.keyId==3 => 1000:on") 
-  rule("keyfob:central.keyId==4 => 1000:off") 
+  rule("keyfob:central.keyId==4 => log('KK'); 1000:off") 
   rule("keyfob:central.keyId==5 => log('Last:%s',1000:last)") 
 
-  rule("#UI{name='$name'} => log('Clicked:%s',name)") -- Name of UI button clicked
+  rule("wait(3); log('Res:%s',http.get('https://jsonplaceholder.typicode.com/todos/1').data)")
+  
+  -- Name of UI button clicked value==true if button
+  rule("#UI{name='$name', eventType='$et', value='$value'} => log('Clicked:%s %s %s',name,et,value)") 
 
   Nodered.connect("http://192.168.1.50:1880/ER_HC3")
   rule("Nodered.post({type='echo1',value=42})")
   rule("#echo1 => log('ECHO:%s',env.event)")
+
+  rule("log('Synchronous call:%s',Nodered.post({type='echo1',value=42},true))")
 
   rule("#alarm{property='armed', value=true, id='$id'} => log('Zone %d armed',id)")
   rule("#alarm{property='armed', value=false, id='$id'} => log('Zone %d disarmed',id)")
@@ -60,13 +110,24 @@ function main()    -- EventScript version
 
   rule("#weather{property='$prop', value='$val'} => log('%s = %s',prop,val)")
 
-  rule("#profile{property='activeProfile', value='$val'} => log('New profile:%s',val)")
+  rule("#profile{property='activeProfile', value='$val'} => log('New profile:%s',profile.name(val))")
+  rule("log('Current profile:%s',profile.name(profile.active()))")
+
+  rule("#customevent{name='$name'} => log('Custom event:%s',name)")
+  rule("#myBroadcast{value='$value'} => log('My broadcast:%s',value)")
+  rule("wait(5); custom.post('myEvent','this is a test')")
+  rule("wait(7); broadcast({type='myBroadcast',value=42})")
+
+  rule("wait(3); subscribe(#fbar{v=9})")
+  rule("#fbar => log('Got subscription, g=%s',env.event.g)")
+  rule("wait(8); publish(#fbar{v=9,g=8})")
+
+  rule("#DeviceEvent{id='$id',value='$value'} => log('Device %s %s',id,value)")
+  rule("#SceneEvent{id='$id',value='$value'} => log('Scene %s %s',id,value)")
 
   rule("#Test => log('Test event received')")
   rule("wait(3); post(#Test)")
 
---  rule("Util.checkEventRunnerVersion()")
---  rule("#ER_version => log('New ER version:%s',env.event)")
 end
 
 function mainLua()  -- Lua version
@@ -80,31 +141,31 @@ function mainLua()  -- Lua version
     tempHC2 = 46
   }
 
-  Event.event({type='property', deviceId=HT.keyfob, propertyName='CentralSceneEvent'},
+  Event.event({type='device', id=HT.keyfob, property='CentralSceneEvent'},
     function(env)
-      Log(LOG.LOG,"Key:%s",env.event.value.keyId)
+      pdebug("Key:%s",env.event.value.keyId)
     end)
 
-  Event.event({type='property', deviceId=HT.keyfob, propertyName='CentralSceneEvent', value={keyId=3}},
+  Event.event({type='device', id=HT.keyfob, property='centralSceneEvent', value={keyId=3}},
     function(env)
       fibaro.call(1000,"turnOn")
     end)
 
   Event.event({type='UI', name='$name'},
     function(env)
-      Log(LOG.LOG,"Clicked:%s",env.p.name)
+      pdebug("Clicked:%s",env.p.name)
     end)
 
   Nodered.connect("http://192.168.1.50:1880/ER_HC3")
-  --Nodered.post({type='echo1',value=42})
+  Nodered.post({type='echo1',value=42})
   Event.event({type='echo1'},
     function(env)
-      Log(LOG.LOG,'ECHO:%s',env.event)
+      pdebug('ECHO:%s',env.event)
     end)
 
   Event.event({type='alarm', property='armed', value=true, id='$id'},
     function(env)
-      Log(LOG.LOG,'Zone %d armed',env.p.id)
+      pdebug('Zone %d armed',env.p.id)
     end)
 
 end
@@ -113,10 +174,13 @@ function QuickApp:turnOn() self:updateProperty("value", true) end
 function QuickApp:turnOff() self:updateProperty("value", false) end
 
 ------------------- EventSupport - Don't change! -------------------- 
+local module    = {}
+local _MARSHALL = true
+local format    = string.format 
 
 ----------------- Module Event engine -------------------------
 function module.EventEngine() -- Event extension
-  Log(LOG.SYS,"Setting up event engine..")
+  psys("Setting up event engine..")
   local self,_handlers = {},{}
   self._sections,self.SECTION = {},nil
   self.BREAK, self.TIMER, self.RULE, self.INTERVAL ='%%BREAK%%', '%%TIMER%%', '%%RULE%%', 1000
@@ -126,10 +190,6 @@ function module.EventEngine() -- Event extension
   local function isRule(r) return type(r) == 'table' and r[Event.RULE] end
   local function isEvent(e) return type(e) == 'table' and e.type end
   self.deviceID = plugin.mainDeviceId
-  local smNR,maMatch=0,"^CE"..self.deviceID
-  function self.makeAddress(id) smNR=smNR+1; return "CE"..id.."F"..self.deviceID.."N"..smNR end
-  function self.isMyAddress(address) return address:match(maMatch)  end
-  function self.isBroadcastAddress(address) return address:match("^CE000") end
   self.tickEvent = "TICK"
 
   local function timer2str(t) 
@@ -182,9 +242,9 @@ function module.EventEngine() -- Event extension
 
   local function compilePattern(pattern)
     compilePattern2(pattern)
-    if pattern.type and type(pattern.deviceID)=='table' and not pattern.deviceID._constr then
-      local m = {}; for _,id in ipairs(pattern.deviceID) do m[id]=true end
-      pattern.deviceID = {_var_='_', _constr=function(val) return m[val] end, _str=pattern.deviceID}
+    if pattern.type and type(pattern.id)=='table' and not pattern.id._constr then
+      local m = {}; for _,id in ipairs(pattern.id) do m[id]=true end
+      pattern.id = {_var_='_', _constr=function(val) return m[val] end, _str=pattern.id}
     end
   end
   self._compilePattern = compilePattern
@@ -209,9 +269,9 @@ function module.EventEngine() -- Event extension
   end
 
   local toHash,fromHash={},{}
-  fromHash['property'] = function(e) return {e.type..e.deviceID,e.type} end
+  fromHash['property'] = function(e) return {e.type..e.id,e.type} end
   fromHash['global'] = function(e) return {e.type..e.name,e.type} end
-  toHash['property'] = function(e) return e.deviceID and 'property'..e.deviceID or 'property' end
+  toHash['property'] = function(e) return e.id and 'property'..e.id or 'property' end
   toHash['global'] = function(e) return e.name and 'global'..e.name or 'global' end
 
   local function ruleToStr(r) return r.src end
@@ -239,8 +299,8 @@ function module.EventEngine() -- Event extension
       return self.comboEvent(e,action,map(function(es) return self.event(es,action) end,e),src) 
     end
     if isEvent(e) then
-      if e.type=='property' and e.deviceID and type(e.deviceID)=='table' then
-        return self.event(map(function(id) local e1 = copy(e); e1.deviceID=id return e1 end,e.deviceID),action,src)
+      if e.type=='property' and e.id and type(e.id)=='table' then
+        return self.event(map(function(id) local e1 = copy(e); e1.id=id return e1 end,e.id),action,src)
       end
     end
     compilePattern(e)
@@ -258,7 +318,7 @@ function module.EventEngine() -- Event extension
     rule.enable = function() rule._disabled = nil return rule end
     rule.disable = function() rule._disabled = true return rule end
     rule.start = function(event) self._invokeRule({rule=rule,event=event}) return rule end
-    rule.print = function() Log(LOG.LOG,src) end
+    rule.print = function() pdebug(src) end
     rule.__tostring = ruleToStr
     if self.SECTION then
       local s = self._sections[self.SECTION] or {}
@@ -271,7 +331,7 @@ function module.EventEngine() -- Event extension
   function self._callTimerFun(tf,src)
     local status,res = pcall(tf) 
     if not status then 
-      Log(LOG.ERROR,"in '%s': %s",src or tostring(tf),res)  
+      perror("in '%s': %s",src or tostring(tf),res)  
     end
   end
 
@@ -311,8 +371,8 @@ function module.EventEngine() -- Event extension
       return res
     end
     res.disable = function() if tp then clearTimeout(tp); tp=nil end return res end
-    res.print = function() Log(LOG.LOG,res) end
-    res.__tostring = function(e) return string.format("{loop interval:'%s', count:%s}",time,res.count) end
+    res.print = function() pdebug(res) end
+    res.__tostring = function(e) return format("{loop interval:'%s', count:%s}",time,res.count) end
     res.enable()
     return res
   end
@@ -320,7 +380,7 @@ function module.EventEngine() -- Event extension
   function self.cron(pattern,fun)
     local test,c = Util.dateTest(pattern),0
     local r = self.loop("00:01",function(r) if test() then c=c+1; r.count=c return fun(r) end end,true)
-    r.__tostring = function(e) return string.format("{cron:'%s', count:%s}",pattern,r.count) end
+    r.__tostring = function(e) return format("{cron:'%s', count:%s}",pattern,r.count) end
     return r
   end
 
@@ -344,9 +404,9 @@ function module.EventEngine() -- Event extension
 
   local _getProp = {}
   _getProp['property'] = function(e,v)
-    e.propertyName = e.propertyName or 'value'
-    e.value = v or (fibaro.getValue(e.deviceID,e.propertyName))
-    --self.trackManual(e.deviceID,e.value)
+    e.property = e.property or 'value'
+    e.value = v or (fibaro.getValue(e.id,e.propert))
+    --self.trackManual(e.id,e.value)
   end
   _getProp['global'] = function(e,v2) e.value = v2 or fibaro.getGlobalVariable(e.name) end
 
@@ -356,14 +416,14 @@ function module.EventEngine() -- Event extension
     env.event = env.event or event
     local status, res = pcall(env.rule.action,env) -- call the associated action
     if not status then
-      Log(LOG.ERROR,"in '%s': %s",res and res.src or "rule",res)
+      perror("in '%s': %s",res and res.src or "rule",res)
       env.rule._disabled = true -- disable rule to not generate more errors
     else return res end
   end
 
 -- {{e1,e2,e3},{e4,e5,e6}} env={event=_,p=_,locals=_,rule.src=_,last=_}
   function self._handleEvent(e) -- running a posted event
-    --Log("E:%s",tojson(e))
+    --pdebug("E:%s",tojson(e))
     if _getProp[e.type] then _getProp[e.type](e,e.value) end  -- patch events
     local _match,hasKeys = self._match,fromHash[e.type] and fromHash[e.type](e) or {e.type}
     for _,hashKey in ipairs(hasKeys) do
@@ -374,19 +434,13 @@ function module.EventEngine() -- Event extension
             if not rule._disabled then 
               m={}; if next(match) then for k,v in pairs(match) do m[k]={v} end end
               local env = {event = e, p=match, rule=rule, locals= m}
-              if self._invokeRule(env) == self.BREAK then break end
+              if self._invokeRule(env) == self.BREAK then return end
             end
           end
         end
       end
     end
   end
-
-  self.event({type='centralSceneEvent'},function(env)
-      if not env.event.data.keyId then return end
-      self.post({type='property',deviceID=env.event.data.deviceId,
-          propertyName='CentralSceneEvent',value=env.event.data, _sh = env.event._sh})
-    end)
 
   function self.getCustomEvent(name) return api.get("/customEvents/"..name) end
   function self.getCustomEventDescription(name) 
@@ -399,23 +453,86 @@ function module.EventEngine() -- Event extension
   return self
 end -- eventEngine
 
+----------------- Module objects support -----------------------
+function module.Objects()
+  local self = {}
+  local resolveDB={}
+  local deviceStructs = {}
+
+  Event.event({type='DeviceEvent'},function(env) -- Keep table of devices structs updated
+      if env.event.value=='created' or env.event.value=='modified' then
+        deviceStructs[env.event.id]=api.get("/devices/"..env.event.id)
+      elseif env.event.value=='deleted' then
+        deviceStructs[env.event.id]=nil
+      end
+    end)
+
+  for _,d in ipairs(api.get("/devices") or {}) do deviceStructs[d.id]=d end -- initialize tabel at startup
+
+--  local actionMap = {
+--    turnOff/0 = true,
+--    turnOn/0 = true,
+--    toggle/0 = true,
+--    setValue/1 = true,
+--    setColor/1 = true,
+--    turnOff = true,
+--}
+
+  local function device2string(obj) return format("<%d:'%s':%s>",obj.id,obj.name,obj.type) end
+  function self.addDevice(id,obj) resolveDB[id]=obj end
+  function self.resolveID(obj)
+    local t = type(obj)
+    if t=='number' then
+      if not resolveDB[obj] then
+        local d = deviceStructs[obj]
+        assert(d,"Device does not exists")
+        local nobj = {ER_OBJ=d.type,id=d.id,name=d.name,struct=d,actions=d.actions,__tostring}
+        resolveDB[obj]=nobj
+      end
+      return resolveDB[obj] 
+    elseif t=='table' and obj.ER_OBJ then 
+      return obj
+    else error("Bad device/object ID:"..tostring(obj)) end
+  end
+
+  return self
+end
+
 ----------------- Module device support -----------------------
 function module.Device()
-  Log(LOG.SYS,"Setting up device support..")
-  local qs = fibaro.QD
-  local self = { deviceID = plugin.mainDeviceId }
-  function self.updateProperty(prop,value) return qs:updateProperty(prop,value)  end
-  function self.updateView(componentID, property, value) return qs:updateView(componentID, property, value)  end
-  function self.setVariable(name,value) return qs:setVariable(name,value) end
-  function self.getVariable(name) return qs:getVariable(name) end
-  local uis,err = api.get("/devices/"..self.deviceID)
-  local uiCallbacks = uis.properties.uiCallbacks or {}
+  psys("Setting up device support..")
+  local QA = fibaro.QA
+  local self = { deviceID = QA.id }
+  function self.updateProperty(prop,value) return QA:updateProperty(prop,value)  end
+  function self.updateView(componentID, property, value) return QA:updateView(componentID, property, value)  end
+  function self.getView(id,name,typ)
+    local function find(s)
+      if type(s) == 'table' then
+        if s.name==name then return s[typ]
+        else for _,v in pairs(s) do local r = find(v) if r then return r end end end
+      end
+    end
+    return find(api.get("/plugins/getView?id="..(id or deviceID))["$jason"].body.sections)
+  end
+  function self.setVariable(name,value) return QA:setVariable(name,value) end
+  function self.getVariable(name) return QA:getVariable(name) end
+
+  local uis,err = api.get("/devices/"..QA.id)
+  local uiCallbacks = uis and uis.properties.uiCallbacks or {}
   for _,e in ipairs(uiCallbacks) do 
-    local name = e.name.."Clicked"
-    if qs[name] then 
-      local old = qs[name]; qs[name] = function(self,arg) Event.post({type='UI',name=e.name,value=arg}) old(self,arg) end
+    local name = e.eventType=='onChanged' and e.name.."Change" or e.name.."Clicked"
+    if QA[name] then 
+      local old = QA[name];
+      QA[name] = function(self,arg) 
+        Event.post({type='UI',name=e.name,eventType=arg.eventType,value=arg.values[1] or true}) 
+        if arg.eventType=='onChanged' then QA:updateView(e.name,"value",tostring(arg.values[1])) end
+        old(self,arg) 
+      end
     else
-      qs[name] = function(self,arg) Event.post({type='UI',name=e.name,value=arg}) end
+      QA[name] = function(self,arg) 
+        Event.post({type='UI',name=e.name,eventType=arg.eventType,value=arg.values[1] or true}) 
+        if arg.eventType=='onChanged' then QA:updateView(e.name,"value",tostring(arg.values[1])) end
+      end
     end
   end
   return self
@@ -424,11 +541,6 @@ end
 ----------------- Module utilities ----------------------------
 function module.Utilities()
   local self,format = {},string.format
-
-  function self.map(f,l,s) s = s or 1; local r={} for i=s,table.maxn(l) do r[#r+1] = f(l[i]) end return r end
-  function self.mapAnd(f,l,s) s = s or 1; local e=true for i=s,table.maxn(l) do e = f(l[i]) if not e then return false end end return e end 
-  function self.mapOr(f,l,s) s = s or 1; for i=s,table.maxn(l) do local e = f(l[i]) if e then return e end end return false end
-  function self.mapF(f,l,s) s = s or 1; local e=true for i=s,table.maxn(l) do e = f(l[i]) end return e end
 
   local function transform(obj,tf)
     if type(obj) == 'table' then
@@ -444,6 +556,9 @@ function module.Utilities()
     for k1,v1 in pairs(e1) do if e2[k1] == nil or not equal(v1,e2[k1]) then return false end end
     for k2,v2 in pairs(e2) do if e1[k2] == nil or not equal(e1[k2],v2) then return false end end
     return true
+  end
+  function self.findEqual(tab,obj)
+    for _,o in ipairs(tab) do if equal(o,obj) then return true end end
   end
 
   if (_VERSION or ""):match("5%.3") then
@@ -509,6 +624,21 @@ function module.Utilities()
   end
   function self.reverseVar(id) return Util._reverseVarTable[tostring(id)] or id end
 
+  if not hc3_emulator then
+    local _oldSetTimeout = setTimeout
+    local stat,res = pcall(function() x() end)
+    local line = 615-res:match("lua:(%d+)") -- '4' should be the line number of the previous line
+    function setTimeout(fun,ms)
+      return _oldSetTimeout(function()
+          stat,res = pcall(fun)
+          if not stat then
+            local cline,msg = res:match("lua:(%d+):(.*)")
+            print(string.format("Error in setTimeout (line:%d):%s",line+cline,msg)) 
+          end
+        end,ms)
+    end
+  end
+
   self.coroutine = {
     create = function(code,src,env)
       env=env or {}
@@ -544,14 +674,18 @@ function module.Utilities()
     end
   end
 
+  local NOFTRACE={[""]=true,["ER_remoteEvent"]=true}
+
   local function patchF(name)
     local oldF,flag = fibaro[name],"f"..name
     fibaro[name] = function(...)
       local args = {...}
       local res = {oldF(...)}
       if _debugFlags[flag] then
-        args = #args==0 and "" or json.encode(args):sub(2,-2)
-        Log(LOG.DEBUG,"fibaro.%s(%s) => %s",name,args,#res==0 and "nil" or #res==1 and res[1] or res)
+        if not NOFTRACE[args[2] or ""] then
+          args = #args==0 and "" or json.encode(args):sub(2,-2)
+          pdebug("fibaro.%s(%s) => %s",name,args,#res==0 and "nil" or #res==1 and res[1] or res)
+        end
       end
       return table.unpack(res)
     end
@@ -584,22 +718,27 @@ function module.Utilities()
   format = string.format 
   function self.gensym(s) return (s or "G")..oldtostring({}):match("0x(.*)") end
 
-  local function logHeader(len,str)
+  function self.printBanner(str)
     if #str % 2 == 1 then str=str.." " end
     local n = #str+2
-    return string.rep("-",len/2-n/2).." "..str.." "..string.rep("-",len/2-n/2)
+    local l2=100/2-n/2
+    fibaro.QA:debug(string.rep("-",l2).." "..str.." "..string.rep("-",l2))
   end
 
-  local orgDebug = fibaro.QD.debug
-  LOG = { LOG="[L] ", ULOG="[U] ", WARNING="[W] ", SYS="[Sys] ", DEBUG="[D] ", ERROR='[ERROR] ', HEADER='HEADER'}
-  function Debug(flag,...) if flag then Log(LOG.DEBUG,...) end end
-  function Log(flag,...)
-    local args={...}
-    local str = format(...)
-    if flag == LOG.HEADER then str = logHeader(100,str) else str=flag..str end
-    for _,s in ipairs(split(str,"\n")) do orgDebug(fibaro.QD,s) end
+  local function printLog(fun,str,...)
+    local args = {...}
+    if #args > 0 then str=format(str,...) end
+    for _,s in ipairs(split(str,"\n")) do fun(fibaro.QA,s) end
     return str
   end
+
+  function pdebug(fmt,...) return printLog(fibaro.QA.debug,fmt,...) end
+  function ptrace(fmt,...) return printLog(fibaro.QA.trace,fmt,...) end
+  function pwarning(fmt,...) return printLog(fibaro.QA.warning,fmt,...) end
+  function perror(fmt,...) return printLog(fibaro.QA.error,fmt,...) end
+  function psys(fmt,...) return ptrace(fmt,...) end
+
+  function Debug(flag,...) if flag then pdebug(...) end end
 
   function _assert(test,msg,...) if not test then error(string.format(msg,...),3) end end
   function _assertf(test,msg,fun) if not test then error(string.format(msg,fun and fun() or ""),3) end end
@@ -645,7 +784,28 @@ function module.Utilities()
     else return hm2sec(time) end
   end
 
-  local gKeys = {type=1,deviceID=2,value=3,val=4,key=5,arg=6,event=7,events=8,msg=9,res=10}
+  local cbr = {}
+  function self.asyncCall(errstr,timeout)
+    local tag, cbr = Util.gensym("CBR"),cbr
+    cbr[tag]={nil,nil,errstrs}
+    cbr[tag][1]=setTimeout(function() 
+        cbr[tag]=nil 
+        perror("No response from %s call",errstr)
+      end,timeout)
+    return tag,{['<cont>']=function(cont) cbr[tag][2]=cont end}
+  end
+
+  function self.receiveAsync(tag,res)
+    local cr = cbr[tag] or {}
+    if cr[1] then clearTimeout(cr[1]) end
+    if cr[2] then 
+      local stat,res = pcall(function() cr[2](res) end)
+      if not stat then perror("Error in %s call",cr[3]) end
+    end
+    cbr[tag]=nil
+  end
+
+  local gKeys = {type=1,id=2,value=3,val=4,key=5,arg=6,event=7,events=8,msg=9,res=10}
   local gKeysNext = 10
   local function keyCompare(a,b)
     local av,bv = gKeys[a], gKeys[b]
@@ -708,7 +868,7 @@ function module.Utilities()
         params.error = function(status)
           Debug(_debugFlags.netSync,"netSync:Error %s %s",key,status)
           dequeue()
-          if params._logErr then Log(LOG.ERROR," %s:%s",log or "netSync:",tojson(status)) end
+          if params._logErr then perror(" %s:%s",log or "netSync:",tojson(status)) end
           if uerr then uerr(status) end
         end
         params.success = function(status)
@@ -915,82 +1075,126 @@ end -- Utils
 
 ----------------- Module Remote support -----------------------
 function module.Remote()
-  Log(LOG.SYS,"Setting up remote  support..")
-  local function printSendEvent(e) return string.format("to %d %s",e.to,e.event) end
+  psys("Setting up remote  support..")
+  local self = {}
+  local isEvent = Event.isEvent
+  local SELFPOST=true
+
+  local deviceID = plugin.mainDeviceId
+  local ceIndex,ceMatch,ceBrMatch = 99,"^ER_BROADCAST"..deviceID,"^ER_BROADCAST"
+  local function makeAddress() ceIndex=ceIndex+1; return format("ER_BROADCAST%dI%d",deviceID,ceIndex) end
 
   local ces = api.get("/customEvents") -- Remove stale events
   for _,ce in ipairs(ces) do
-    if Event.isMyAddress(ce.name) then Event.deleteCustomEvent(ce.name) end
+    if ce.name:match(ceMatch) then api.delete("/customEvents/"..ce.name) end
   end
 
-  Event.event({type='%sendEvent%'},function(env)
-      local event = env.event.event
-      event._from = Event.deviceID
-      event._time = os.time()
-      if env.event.fc then
-        fibaro.call(env.event.to,"ER_remoteEvent",json.encode(event))
-      else
-        local address = Event.makeAddress(env.event.to)
-        Event.createCustomEvent(address,json.encode(event))
-        Event.postCustomEvent(address)
-        if env.event.to=="000" then
-          setTimeout(function() Event.deleteCustomEvent(address) end,6*1000) -- Remove after 4s
-        end
-      end
-    end)
-
-  function Event.postRemote(toid,event,time) 
-    Event.post({type='%sendEvent%',to=toid,event=event, fc=true, __tostring=printSendEvent},time) 
-  end
-  function Event.broadcastEvent(event,time) 
-    Event.post({type='%sendEvent%',to="000", event=event, __tostring=printSendEvent},time) 
+  function self.postRemote(id,event)
+    assert(tonumber(id) and isEvent(event),"Bad argument to post")
+    event._from = Event.deviceID
+    event._time = os.time()
+    fibaro.call(id,"ER_remoteEvent","E"..json.encode(event))
   end
 
   function QuickApp:ER_remoteEvent(e)
-    local stat,res = true,e
-    if type(e) == 'string' then 
-      stat,res = type(e)=='table' and pcall(function() return (json.decode(e)) end)
-    end
+    assert(type(e)=='string',"Bad argument to remote event")
+    local stat,res = pcall(function() return (json.decode(e:sub(2))) end)
     if stat and Event.isEvent(res) then 
       if res._time and res._time+5 < os.time() then 
-        Log(LOG.WARNING,"Slow events %s, %ss",e,os.time()-res._time) 
+        pwarning("Slow events %s, %ss",e,os.time()-res._time) 
       end
       res._time = nil
       Event.post(res)
-    else Log(LOG.ERROR,"Bad arg to 'recieveEvent' "..tostring(e)) end
+    else perror("Bad arg to 'recieveEvent' "..tostring(e)) end
   end
+
+  function self.broadcast(event)
+    assert(isEvent(event),"Bad argument to post")
+    event._from = deviceID
+    event._time = os.time()
+    local ename = makeAddress()
+    custom.post(ename,(json.encode(event)))
+    setTimeout(function() api.delete("/customEvents/"..ename) end,4000)
+  end
+
+  Util.defvar('remote',function(id,event,time)
+      return Event.post(function()
+          ptrace("Remote post to %d %s",id,event)
+          self.postRemote(id,event)
+        end,time)
+    end)
+
+  Util.defvar('broadcast',function(event,time) 
+      return Event.post(function()
+          ptrace("Broadcast %s",event)
+          self.broadcast(event)
+        end,time)
+    end)
 
   Event.event({type='customevent'}, -- Triggering on a custom event
     function(env) 
       local ev = env.event
-      local address,broadcast = ev.name,Event.isBroadcastAddress(ev.name)
-      if Event.isMyAddress(address) or broadcast then
-        if ev.value then fibaro.QD:ER_remoteEvent(ev.value) end
-        if not broadcast then Event.deleteCustomEvent(address) end
+      local id = ev.name:match("ER_BROADCAST(%d)")
+      if id and (SELFPOST or tonumber(id) ~= deviceID) then
+        Event.post((json.decode(ev.value)))
         return Event.BREAK
       end
     end)
 
-  ---- Remote calls
+  local subscribers = {}    -- publish/subscribe is similar to broadcast at event match, but with source filtering
+  Event.event({type='ER_SUBSCRIBE'},  -- incoming subscriptions
+    function(env)
+      local subs = env.event.subs or {}
+      for _,s in ipairs(subs) do Event._compilePattern(s) end
+      subscribers[env.event.id] = subs
+    end)
+
+  function Event.publish(event,t)
+    return Event.post(function()
+        for id,subs in pairs(subscribers) do
+          for _,pattern in ipairs(subs) do
+            if Event._match(pattern,event) then self.postRemote(id,event); break end
+          end
+        end
+      end,t)
+  end
+
+  Event.event({type='start'},function()
+      self.broadcast({type='ER_STARTED',id=deviceID})
+    end)
+
+  Event.event({type='ER_STARTED'},function(env)
+      self.postRemote(env.event.id,{type='ER_SUBSCRIBE',id=deviceID,subs=subscriptions})
+    end)
+
+  local subscriptions = {}
+  function Event.subscribe(event)
+    if not Util.findEqual(subscriptions,event) then
+      subscriptions[#subscriptions+1]=event
+      self.broadcast({type='ER_SUBSCRIBE',id=deviceID,subs=subscriptions})
+    end 
+  end
+
+---- Remote calls
 
   local TIMEOUT = 4
 
   function defineRemoteFun(name,deviceID,tab) (tab or _G or _ENV)[name] = function(...) return funCall(deviceID,name,{...}) end end
 
-  function exportFunctions(funList) fibaro.QD:setVariable("ExportedFuns",json.encode(funList)) end
+  function exportFunctions(funList) fibaro.QA:setVariable("ExportedFuns",json.encode(funList)) end
   function importFunctions(deviceID,tab,log)
     log = log==nil and true or log    
     for _,v in ipairs(fibaro.getValue(deviceID,'quickAppVariables') or {}) do
       if v.name == "ExportedFuns" then
         for _,ef in ipairs(json.decode(v.value) or {}) do
           ef = type(ef)=='string' and {name=ef} or ef
-          if log then Log(LOG.SYS,"importing fun %s:%s%s",deviceID,ef.name,ef.doc and (" - "..ef.doc) or "") end
+          if log then pdebug("importing fun %s:%s%s",deviceID,ef.name,ef.doc and (" - "..ef.doc) or "") end
           defineRemoteFun(ef.name,deviceID,tab)
         end
         return
       end
     end
-    fibaro.QD:debug("No exported functions from deviceID:"..deviceID)
+    fibaro.QA:debug("No exported functions from deviceID:"..deviceID)
   end
 
   local FUNRES = nil
@@ -1019,7 +1223,7 @@ function module.Remote()
 -- Receieve function call and return reponse
   function QuickApp:funCall(call) -- Receieve a remote funcall
     local stat,res = pcall(function() return {_G[call.name](table.unpack(call.args))} end)
-    --Log(LOG.LOG,"RES:%s - %s",res,call.from)
+    --pdebug("RES:%s - %s",res,call.from)
     fibaro.setGlobalVariable(call.from,json.encode({stat,res}))
   end
 
@@ -1028,7 +1232,7 @@ end -- createRemoteFunctionSupport
 ----------------- Autopatch support ---------------------------
 function module.Autopatch()
   local self = {}
-  Log(LOG.SYS,"Setting up autopatch support..")
+  psys("Setting up autopatch support..")
   local _EVENTSSRCPATH = "EventRunner4.lua"
   local versionInfo = nil
 
@@ -1061,7 +1265,7 @@ function module.Autopatch()
       req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/".._EVENTSSRCPATH,{
           options = {method = 'GET', checkCertificate = false, timeout=20000},
           success=function(data) if data.status == 200 then Util.patchEventRunner(data.data) end end,
-          error=function(status) Log(LOG.ERROR,"Get src code from Github: %s",status) end
+          error=function(status) perror("Get src code from Github: %s",status) end
         })
       return
     end
@@ -1071,12 +1275,12 @@ function module.Autopatch()
     local nbp = newSrc:find(_EVENTSDELIMETER)
     local nbody = newSrc:sub(nbp) -- copy rest of new file - contains updated stuff
     oldSrc = oldSrc:gsub("(E_VERSION,E_FIX = .-\n)",newSrc:match("(E_VERSION,E_FIX = .-\n)"))
-    Log(LOG.SYS,"Patching scene to latest version")
+    pdebug("Patching scene to latest version")
     if not hc3_emulator then
       local stat,res = api.put("/devices/"..fibaro.ID,{properties = {mainFunction = oldSrc..nbody}})
       if not stat then 
-        Log(LOG.ERROR,"Could not update mainFunction (%s)",res) 
-        Log(LOG.SYS"Restarting...")
+        perror("Could not update mainFunction (%s)",res) 
+        psys("Restarting...")
       end
     end
   end
@@ -1133,24 +1337,109 @@ function module.Extras()
     local name = key:match("debug(.*)")
     local dkey = name:lower()
     if upd then _debugFlags[dkey] = not _debugFlags[dkey] end
-    fibaro.QD:updateView(key,"text",name..":"..(_debugFlags[dkey] and "ON" or "OFF"))
+    fibaro.QA:updateView(key,"text",name..":"..(_debugFlags[dkey] and "ON" or "OFF"))
   end
 
   for k,_ in pairs(DEBUGKEYS) do updateDebugKey(k) end
-
   Event.event({type='UI'},function(env)
       local b = env.event.name
       if DEBUGKEYS[b] then updateDebugKey(b,true) end
     end)
 
-  function Event.subscribe(event,h) 
+  profile,custom,device={},{},{}
 
+  function profile.name(id) 
+    for _,p in ipairs(api.get("/profiles").profiles) do
+      if p.id == id then return p.name end
+    end
+  end
+  function profile.id(name) 
+    for _,p in ipairs(api.get("/profiles").profiles) do
+      if p.name == name then return p.id end
+    end
+  end
+  function profile.active(id) 
+    if id then
+      if type(id)=='string' then id = profile.id(id) end
+      assert(id,"profile.active(id) - no such id/name")
+      return api.put("/profiles",{activeProfile=id}) and id
+    end
+    return api.get("/profiles").activeProfile 
+  end
+  function custom.post(name,descr)
+    if descr then 
+      if api.get("/customEvents/"..name) then
+        api.put("/customEvents",{name=name,userDescription=descr}) 
+      else api.post("/customEvents",{name=name,userDescription=descr}) end
+    end
+    return fibaro.emitCustomEvent(name)
+  end
+  function custom.get(name)
+    return api.get("customEvents/"..name).description or "" -- or should it be nil?
+  end
+  function custom.delete(name)
+    return api.delete("customEvents/"..name)
   end
 
-  function Event.publish(event) Event.broadcastEvent(event) end
+  function device.setProperty(prop,value) return Device.updateProperty(prop,value)  end
+  function device.updateView(componentID, property, value) Device.updateView(componentID, property, value)  end
+  function device.clickButton(deviceID,name) 
+    return api.get(format("/plugins/callUIEvent?deviceID=%s&elementName=%s&eventType=onReleased",deviceID,name))
+  end
+  function device.setSlider(deviceID,name,value) 
+    return api.get(format("/plugins/callUIEvent?deviceID=%s&elementName=%s&eventType=onChanged&value=%s",deviceID,name,value))
+  end
+  function device.getView(deviceID, componentID, property) return Device.getView(deviceID, componentID, property)  end
+  function device.setQuickVar(name,value) return Device.setVariable(name,value) end
+  function device.getQuickVar(name) return Device.getVariable(name) end
+--[[
+options = { user=<user>, pwd=<pwd>, timeout=<ms>, type=<string> }
+--]]
 
-  function add100(x) return x+100 end   -- test
-  function add1000(x) return x+1000 end -- test
+  local function base64(data)
+    local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+    return ((data:gsub('.', function(x) 
+            local r,b='',x:byte() for i=8,1,-1 do r=r..(b%2^i-b%2^(i-1)>0 and '1' or '0') end
+            return r;
+          end)..'0000'):gsub('%d%d%d?%d?%d?%d?', function(x)
+          if (#x < 6) then return '' end
+          local c=0
+          for i=1,6 do c=c+(x:sub(i,i)=='1' and 2^(6-i) or 0) end
+          return b:sub(c+1,c+1)
+        end)..({ '', '==', '=' })[#data%3+1])
+  end
+  Util.base64 = base64
+  
+  local function httpCall(url,options,data) 
+    local opts = Util.copy(options)
+    opts.headers = opts.headers or {}
+    if opts.type then
+      opts.headers["content-type"]=opts.type
+      opts.type=nil
+    end
+    if not opts.headers["content-type"] then
+      opts.headers["content-type"] = 'application/json'
+    end
+    if opts.user or opts.pwd then 
+      opts.headers['Authorization']= base64((opts.user or "")..":"..(opts.pwd or ""))
+      opts.user,opts.pwd=nil,nil
+    end
+    opts.data = data and json.encode(data)
+    local tag,res = Util.asyncCall("HTTP",50000)
+    net.HTTPClient():request(url,{
+        options=opts,
+        success = function(res) Util.receiveAsync(tag,res) end,
+        error = function(res) Util.receiveAsync(tag,res) end
+      })
+    return res
+  end
+
+  local http = {}
+  function http.get(url,options) options=options or {}; options.method="GET" return httpCall(url,options) end
+  function http.put(url,options,data) options=options or {}; options.method="PUT" return httpCall(url,options,data) end
+  function http.post(url,options,data) options=options or {}; options.method="POST" return httpCall(url,options,data) end
+  function http.delete(url,options) options=options or {}; options.method="DELETE" return httpCall(url,options) end
+  Util.defvar("http",http)
 end
 
 ----------------- EventScript support -------------------------
@@ -1273,12 +1562,12 @@ function module.EventScript()
 
     local SW={['(']='lpar',['{']='lcur',['[']='lbra',['||']='lor'}
     token("[%s%c]+")
-    --2019/3/30/20:30
+--2019/3/30/20:30
     token("%d?%d?%d?%d?/?%d+/%d+/%d%d:%d%d:?%d?%d?",function (t) return {type="number", sw='num', value=toTimeDate(t)} end)
     token("%d%d:%d%d:?%d?%d?",function (t) return {type="number", sw='num', value=toTime(t)} end)
     token("[t+n][/]", function (op) return {type="operator", sw='op', value=op} end)
     token("#[A-Za-z_][%w_]*", function (w) return {type="event", sw='ev', value=w} end)
-    --token("[A-Za-z_][%w_]*", function (w) return {type=nopers[w] and 'operator' or "name", sw=nopers[w] and 'op' or 'nam', value=w} end)
+--token("[A-Za-z_][%w_]*", function (w) return {type=nopers[w] and 'operator' or "name", sw=nopers[w] and 'op' or 'nam', value=w} end)
     token("[_a-zA-Z\xC3\xA5\xA4\xB6\x85\x84\x96][_0-9a-zA-Z\xC3\xA5\xA4\xB6\x85\x84\x96]*", function (w) return {type=nopers[w] and 'operator' or "name", sw=nopers[w] and 'op' or 'nam', value=w} end)
     token("%d+%.%d+", function (d) return {type="number", sw='num', value=tonumber(d)} end)
     token("%d+", function (d) return {type="number", sw='num', value=tonumber(d)} end)
@@ -1308,7 +1597,7 @@ function module.EventScript()
     postP['%vglob'] = function(e) return {'%var',e[2][2],'glob'} end
     postP['='] = function(e) 
       local lv,rv = e[2],e[3]
-      if type(lv) == 'table' and ({['%var']=true,['%prop']=true,['%aref']=true,['slider']=true,['label']=true})[lv[1]] then
+      if type(lv) == 'table' and ({['%var']=true,['%prop']=true,['%aref']=true})[lv[1]] then
         return {'%set',lv[1]:sub(1,1)~='%' and '%'..lv[1] or lv[1],lv[2], lv[3] or true, rv}
       else error("Illegal assignment") end
     end
@@ -1321,7 +1610,7 @@ function module.EventScript()
     postP['.'] = function(e) return {'%aref',e[2],e[3]} end
     postP['::'] = function(e) return {'%addr',e[2][2]} end
     postP['%jmp'] = function(e) return {'%jmp',e[2][2]} end
-    -- preC['return'] = function(e) return {'return',e[2]} end
+-- preC['return'] = function(e) return {'return',e[2]} end
     postP['%neg'] = function(e) return tonumber(e[2]) and -e[2] or e end
     postP['+='] = function(e) return {'%inc',e[2],e[3],'+'} end
     postP['-='] = function(e) return {'%inc',e[2],e[3],'-'} end
@@ -1603,7 +1892,7 @@ function module.EventScript()
       local s,t = pcall(toTime,v); return s and t or v 
     end
     local function marshallTo(v) 
-      if not _MARSHALL then return v end
+      if not _MARSHALL then return tostring(v) end
       if type(v)=='table' then return safeEncode(v) else return tostring(v) end
     end
     local getVarFs = { script=getVar, glob=function(n,e) return marshallFrom(fibaro.getGlobalVariable(n)) end }
@@ -1671,24 +1960,24 @@ function module.EventScript()
     local getFuns,setFuns={},{}
     local _getFun = function(id,prop) return fibaro.get(id,prop) end
     do
-      local function BN(x) return (type(x)=='boolean' and x and '1' or '0') or x end
+      local function BN(x) if type(x)=='boolean' then return x and 1 or 0 else return x end end
       local get = _getFun
-      local function on(id,prop) return BN(fibaro.get(id,prop)) > '0' end
-      local function off(id,prop) return BN(fibaro.get(id,prop)) == '0' end
+      local function on(id,prop) return BN(fibaro.get(id,prop)) > 0 end
+      local function off(id,prop) return BN(fibaro.get(id,prop)) == 0 end
       local function last(id,prop) return os.time()-select(2,fibaro.get(id,prop)) end
-      local function cce(id,prop,e) e=e.event; return e.type=='property' and e.propertyName=='CentralSceneEvent' and e.deviceID==id and e.value or {} end
-      local function ace(id,prop,e) e=e.event; return e.type=='property' and e.propertyName=='AccessControlEvent' and e.deviceID==id and e.value or {} end
-      local function armed(id,prop) return fibaro.get(id,prop) == '1' end
+      local function cce(id,prop,e) e=e.event; return e.type=='device' and e.property=='centralSceneEvent' and e.id==id and e.value or {} end
+      local function ace(id,prop,e) e=e.event; return e.type=='device' and e.property=='accessControlEvent' and e.id==id and e.value or {} end
+      local function armed(id,prop) return fibaro.get(id,prop) == 1 end
       local function call(id,cmd) fibaro.call(id,cmd); return true end
       local function set(id,cmd,val) fibaro.call(id,cmd,val); return val end
-      local function setArmed(id,cmd,val) fibaro.call(id,cmd,val and '1' or '0'); return val end
+      local function setArmed(id,cmd,val) fibaro.call(id,cmd,val and 1 or 0); return val end
       local function set2(id,cmd,val) fibaro.call(id,cmd,table.unpack(val)); return val end
       local mapOr,mapAnd,mapF=Util.mapOr,Util.mapAnd,function(f,l,s) Util.mapF(f,l,s); return true end
       getFuns={
         value={get,'value',nil,true},bat={get,'batteryLevel',nil,true},power={get,'power',nil,true},
         isOn={on,'value',mapOr,true},isOff={off,'value',mapAnd,true},isAllOn={on,'value',mapAnd,true},isAnyOff={off,'value',mapOr,true},
         last={last,'value',nil,true},scene={get,'sceneActivation',nil,true},
-        access={ace,'AccessControlEvent',nil,true},central={cce,'CentralSceneEvent',nil,true},
+        access={ace,'accessControlEvent',nil,true},central={cce,'centralSceneEvent',nil,true},
         safe={off,'value',mapAnd,true},breached={on,'value',mapOr,true},isOpen={on,'value',mapOr,true},isClosed={off,'value',mapAnd,true},
         lux={get,'value',nil,true},temp={get,'value',nil,true},on={call,'turnOn',mapF,true},off={call,'turnOff',mapF,true},
         open={call,'open',mapF,true},close={call,'close',mapF,true},stop={call,'stop',mapF,true},
@@ -1745,14 +2034,10 @@ function module.EventScript()
       else s.push(f[1](ID(id,i,e._lastR),f[2],val,e)) end
     end
     instr['%rule'] = function(s,n,e,i) local b,h=s.pop(),s.pop(); s.push(Rule.compRule({'=>',h,b,e.log},e)) end
-    instr['log'] = function(s,n) s.push(Log(LOG.ULOG,table.unpack(s.lift(n)))) end
+    instr['log'] = function(s,n) s.push(ptrace(table.unpack(s.lift(n)))) end
     instr['%logRule'] = function(s,n,e,i) local src,res = s.pop(),s.pop() 
       Debug(_debugFlags.rule or (_debugFlags.ruleTrue and res),"[%s]>>'%s'",tojson(res),src) s.push(res) 
     end
-    instr['%setlabel'] = function(s,n,e,i) local id,v,lbl = s.pop(),getArg(s,i[3]),getArg(s,i[4])
-      fibaro.call(ID(id,i),"setProperty",format("ui.%s.value",lbl),tostring(v)) s.push(v) 
-    end
-    instr['%setslider'] = instr['%setlabel'] 
 
 -- ER funs
     local simpleFuns={num=tonumber,str=tostring,idname=Util.reverseVar,time=toTime,['type']=type,
@@ -1786,8 +2071,6 @@ function module.EventScript()
     instr['%daily'] = function(s,n,e) s.pop() s.push(true) end
     instr['%interv'] = function(s,n,e,i) local t = s.pop(); s.push(true) end
     instr['fmt'] = function(s,n) s.push(string.format(table.unpack(s.lift(n)))) end
-    instr['label'] = function(s,n,e,i) local nm,id = s.pop(),s.pop() s.push(fibaro.getValue(ID(id,i),format("ui.%s.value",nm))) end
-    instr['slider'] = instr['label']
     instr['redaily'] = function(s,n,e,i) s.push(Rule.restartDaily(s.pop())) end
     instr['eval'] = function(s,n) s.push(Rule.eval(s.pop(),{print=false})) end
     instr['global'] = function(s,n,e,i)  s.push(api.post("/globalVariables/",{name=s.pop()})) end  
@@ -1857,9 +2140,9 @@ function module.EventScript()
       if not ({jmp=true,push=true,pop=true,addr=true,fn=true,table=true,})[f] then
         local p0,p1=3,1; while i[p0] do table.insert(args,p1,i[p0]) p1=p1+1 p0=p0+1 end
         args = format("%s(%s)=%s",f,safeEncode(args):sub(2,-2),safeEncode(stack.peek()))
-        Log(LOG.LOG,"pc:%-3d sp:%-3d %s",cp,stack.size(),args)
+        pdebug("pc:%-3d sp:%-3d %s",cp,stack.size(),args)
       else
-        Log(LOG.LOG,"pc:%-3d sp:%-3d [%s/%s%s]",cp,stack.size(),i[1],i[2],i[3] and ","..json.encode(i[3]) or "")
+        pdebug("pc:%-3d sp:%-3d [%s/%s%s]",cp,stack.size(),i[1],i[2],i[3] and ","..json.encode(i[3]) or "")
       end
     end
 
@@ -1867,20 +2150,20 @@ function module.EventScript()
       code = code or {}
       for p = 1,#code do
         local i = code[p]
-        Log(LOG.LOG,"%-3d:[%s/%s%s%s]",p,i[1],i[2] ,i[3] and ","..tojson(i[3]) or "",i[4] and ","..tojson(i[4]) or "")
+        pdebug("%-3d:[%s/%s%s%s]",p,i[1],i[2] ,i[3] and ","..tojson(i[3]) or "",i[4] and ","..tojson(i[4]) or "")
       end
     end
 
     function self.listInstructions()
       local t={}
-      print("User functions:")
+      pdebug("User functions:")
       for f,_ in pairs(instr) do if f=="%" or f:sub(1,1)~='%' then t[#t+1]=f end end
-      table.sort(t); for _,f in ipairs(t) do print(f) end
-      print("Property functions:")
+      table.sort(t); for _,f in ipairs(t) do pdebug(f) end
+      pdebug("Property functions:")
       t={}
       for f,_ in pairs(getFuns) do t[#t+1]="<ID>:"..f end 
       for f,_ in pairs(setFuns) do t[#t+1]="<ID>:"..f.."=.." end 
-      table.sort(t); for _,f in ipairs(t) do print(f) end
+      table.sort(t); for _,f in ipairs(t) do pdebug(f) end
     end
 
     function self.eval(env)
@@ -1933,8 +2216,8 @@ function module.EventScript()
     local map,mapkl,getFuns,format,midnight,time2str=Util.map,Util.mapkl,ScriptEngine.getFuns,string.format,Util.midnight,Util.time2str
     local transform,copy,isGlob,isVar,triggerVar = Util.transform,Util.copy,Util.isGlob,Util.isVar,Util.triggerVar
     local _macros,dailysTab,rCounter= {},{},0
-    local lblF=function(id,e) return {type='property', deviceID=id, propertyName=format("ui.%s.value",e[3])} end
-    local triggFuns={label=lblF,slider=lblF}
+    local lblF=function(id,e) return {type='device', id=id, property=format("ui.%s.value",e[3])} end
+    local triggFuns={}
     local function isTEvent(e) return type(e)=='table' and (e[1]=='%table' or e[1]=='%quote') and type(e[2])=='table' and e[2].type end
 
     local function ID(id,p) _assert(tonumber(id),"bad deviceID '%s' for '%s'",id,p or "") return id end
@@ -1955,7 +2238,7 @@ function module.EventScript()
         if not getFuns[e[3]] then pn = e[3] elseif not getFuns[e[3]][4] then return else pn = getFuns[e[3]][2] end
         local cv = ScriptCompiler.compile2(e[2])
         local v = ScriptEngine.eval2({code=cv})
-        map(function(id) s.triggs[ID(id,e[3])..pn]={type='property', deviceID=id, propertyName=pn} end,type(v)=='table' and v or {v})
+        map(function(id) s.triggs[ID(id,e[3])..pn]={type='device', id=id, property=pn} end,type(v)=='table' and v or {v})
       end,
     }
 
@@ -2057,7 +2340,7 @@ function module.EventScript()
         end
         if not dailyFlag and #triggers > 0 then -- id/glob trigger or events
           for _,tr in ipairs(triggers) do 
-            if tr.propertyName~='<nop>' then events[#events+1]=Event.event(tr,action,src) triggers2[#triggers2+1]=tr end
+            if tr.property~='<nop>' then events[#events+1]=Event.event(tr,action,src) triggers2[#triggers2+1]=tr end
           end
         end
       end
@@ -2065,9 +2348,9 @@ function module.EventScript()
       res.dailys = sdaily
       if sdaily then sdaily.rule=res end
       res.print = function()
-        Util.map(function(r) Log(LOG.LOG,"Interval(%s) =>...",time2str(r)) end,compTimes(reps)) 
-        Util.map(function(d) Log(LOG.LOG,"Daily(%s) =>...",d==CATCHUP and "catchup" or time2str(d)) end,compTimes(dailys)) 
-        Util.map(function(tr) Log(LOG.LOG,"Trigger(%s) =>...",tojson(tr)) end,triggers2)
+        Util.map(function(r) pdebug("Interval(%s) =>...",time2str(r)) end,compTimes(reps)) 
+        Util.map(function(d) pdebug("Daily(%s) =>...",d==CATCHUP and "catchup" or time2str(d)) end,compTimes(dailys)) 
+        Util.map(function(tr) pdebug("Trigger(%s) =>...",tojson(tr)) end,triggers2)
       end
       rCounter=rCounter+1
       return res
@@ -2086,7 +2369,7 @@ function module.EventScript()
               local name,r
               if not log.print then return res end
               if Event.isRule(res) then name,r=res.src,"OK" else name,r=escript,res end
-              Log(LOG.LOG,"%s = %s",name,r or "nil") 
+              pdebug("%s = %s",name,r or "nil") 
               return res
             end
           end
@@ -2095,8 +2378,8 @@ function module.EventScript()
         end)
       if not status then 
         if not isError(res) then res={ERR=true,ctx=ctx,src=escript,err=res} end
-        Log(LOG.ERROR,"Error in '%s': %s",res and res.src or "rule",res.err)
-        if res.ctx then Log(LOG.ERROR,"\n%s",res.ctx) end
+        perror("Error in '%s': %s",res and res.src or "rule",res.err)
+        if res.ctx then perror("\n%s",res.ctx) end
         error(res.err)
       else return res end
     end
@@ -2142,7 +2425,7 @@ function module.EventScript()
           else catchup1=true end
         else catchup2 = true end
       end
-      if catch and catchup2 and catchup1 then Log(LOG.LOG,"Catching up:%s",r.src); Event.post(dailys.event) end
+      if catch and catchup2 and catchup1 then ptrace("Catching up:%s",r.src); Event.post(dailys.event) end
       return r
     end
 
@@ -2170,18 +2453,19 @@ function module.EventScript()
   Rule.ScriptParser   = ScriptParser
   Rule.ScriptCompiler = ScriptCompiler
   Rule.ScriptEngine   = ScriptEngine
-  Log(LOG.SYS,"Setting up EventScript support..")
+  psys("Setting up EventScript support..")
   return Rule
 end
 ----------------- Node-red support ----------------------------
 function module.Nodered()
   local self = { _nrr = {}, _timeout = 4000, _last=nil }
+  local isEvent,gensym,asyncCall,receiveAsync = Event.isEvent,Util.gensym,Util.asyncCall,Util.receiveAsync
   function self.connect(url) 
-    local isEvent,gensym = Event.isEvent,Util.gensym
     local self2 = { _url = url, _http=Util.netSync.HTTPClient("Nodered") }
     function self2.post(event,sync)
-      _assert(isEvent(event),"Arg to nodered.msg is not an event")
-      local tag, nrr = gensym("NR"), self2._nrr
+      _assert(isEvent(event),"Arg to nodered.post is not an event")
+      local tag, res
+      if sync then tag,res = asyncCall("NodeRed",50000) end
       event._transID = tag
       event._from = fibaro.ID
       event._async = true
@@ -2190,36 +2474,12 @@ function module.Nodered()
       local params =  {options = {
           headers = {['Accept']='application/json',['Content-Type']='application/json'},
           data = json.encode(event), timeout=4000, method = 'POST'},
-        _logErr=true
       }
       self2._http:request(self2._url,params)
-      if sync then
-        nrr[tag]={}
-        nrr[tag][1]=setTimeout(function() nrr[tag]=nil 
-            Log(LOG.ERROR,"No response from Node-red, '%s'",event)
-          end,self._timeout)
-        return {['<cont>']=function(cont) nrr[tag][2]=cont end}
-      else return true end
+      return sync and res or true
     end
     self._last = self2
     return self2
-  end
-
-  function self.receive(ev)
-    local tag = ev._transID
-    if tag then
-      ev._IP,ev._async,ev._from,ev._transID = nil,nil,nil,nil
-      local nrr = self._nrr
-      local cr = nrr[tag] or {}
-      if cr[1] then clearTimeout(cr[1]) end
-      if cr[2] then 
-        local stat,res = pcall(function() cr[2](ev) end)
-        if not stat then
-          Log(LOG.ERROR,"Error in Node-red rule for %s, - %s",ev,res)
-        end
-      else Event.post(ev) end
-      nrr[tag]=nil
-    else Event.post(ev) end
   end
 
   function self.post(event,sync)
@@ -2227,61 +2487,44 @@ function module.Nodered()
     return self._last.post(event,sync)
   end
 
-  function QuickApp:fromNodeRed(ev) Nodered.receive(ev) end
+  function QuickApp:fromNodeRed(ev)
+    local tag = ev._transID
+    ev._IP,ev._async,ev._from,ev._transID=nil,nil,nil,nil
+    if tag then return receiveAsync(tag,ev)
+    else Event.post(ev) end
+  end
+
   return self
 end
 --------------- Trigger support -------------------------------
 function module.Trigger()
-  local self = {}
-  if not hc3_emulator then  
-    fibaro._EventCache = { polling=false, devices={}, globals={}, centralSceneEvents={}, accessControlEvents={}} 
-    local _oldSetTimeout = setTimeout
-    local stat,res = pcall(function() x() end)
-    local line = 399-res:match("lua:(%d+)") -- '4' should be the line number of the previous line
-    function setTimeout(fun,ms)
-      return _oldSetTimeout(function()
-          stat,res = pcall(fun)
-          if not stat then
-            local cline,msg = res:match("lua:(%d+):(.*)")
-            print(string.format("Error in setTimeout (line:%d):%s",line+cline,msg)) 
-          end
-        end,ms)
-    end
-  else fibaro._EventCache = hc3_emulator.cache end
+  local self = { central={}, access={} }
 
   fibaro.setTimeout = setTimeout
   local _setTimeout = setTimeout
 
-  function fibaro._cacheDeviceProp(deviceID,prop,value)
-    fibaro._EventCache.devices[prop..deviceID]={value=value,modified=os.time()}
-  end
-
+  local SUPRESSTRIGGER={["PluginChangedViewEvent"]=true}
   function self.pollForTriggers(interval)
-    local EventCache = fibaro._EventCache
     local INTERVAL = interval or 1000 -- every second, could do more often...
-    local tickEvent = "ERTICK"
 
     local function post(ev)
+      if SUPRESSTRIGGER[ev.type] then return end
       if _debugFlags.triggers then Debug(true,"Incoming event:%s",ev) end
       ev._sh=true
       Event._handleEvent(ev) 
-    end 
-
-    --api.post("/customEvents",{name=tickEvent,userDescription="Tock!"})
-    api.post("/globalVariables",{name=tickEvent,value="Tock!"})
+    end
 
     local EventTypes = { -- There are more, but these are what I seen so far...
-      AlarmPartitionArmedEvent = function(self,d) post({type='alarm', property='armed', id = d.partitionId, value=d.armed}) end,
-      AlarmPartitionBreachedEvent = function(self,d) post({type='alarm', property='breached', id = d.partitionId, value=d.breached}) end,
-      HomeArmStateChangedEvent = function(self,d) post({type='alarm', property='homeArmed', value=d.newValue}) end,
-      HomeBreachedEvent = function(self,d) post({type='alarm', property='homeBreached', value=d.breached}) end,
-      WeatherChangedEvent = function(self,d) post({type='weather',property=d.change, value=d.newValue, old=d.oldValue}) end,
-      GlobalVariableChangedEvent = function(self,d)
-        EventCache.globals[d.variableName]={name=d.variableName, value = d.newValue, modified=os.time()}
-        if d.variableName == tickEvent then return end
+      AlarmPartitionArmedEvent = function(d) post({type='alarm', property='armed', id = d.partitionId, value=d.armed}) end,
+      AlarmPartitionBreachedEvent = function(d) post({type='alarm', property='breached', id = d.partitionId, value=d.breached}) end,
+      HomeArmStateChangedEvent = function(d) post({type='alarm', property='homeArmed', value=d.newValue}) end,
+      HomeBreachedEvent = function(d) post({type='alarm', property='homeBreached', value=d.breached}) end,
+      WeatherChangedEvent = function(d) post({type='weather',property=d.change, value=d.newValue, old=d.oldValue}) end,
+      GlobalVariableChangedEvent = function(d)
+        if d.variableName=='ERTICK' then return end
         post({type='global', name=d.variableName, value=d.newValue, old=d.oldValue})
       end,
-      DevicePropertyUpdatedEvent = function(self,d)
+      DevicePropertyUpdatedEvent = function(d)
         if d.property=='quickAppVariables' then 
           local old={}; for _,v in ipairs(d.oldValue) do old[v.name] = v.value end -- Todo: optimize
           for _,v in ipairs(d.newValue) do
@@ -2290,39 +2533,44 @@ function module.Trigger()
             end
           end
         else
-          --if d.property:match("^ui%.") then return end
           if d.property == "icon" then return end
-          EventCache.devices[d.property..d.id]={value=d.newValue, modified=os.time()}     
-          post({type='property', deviceID=d.id, propertyName=d.property, value=d.newValue, old=d.oldValue})
+          post({type='device', id=d.id, property=d.property, value=d.newValue, old=d.oldValue})
         end
       end,
-      CentralSceneEvent = function(self,d) EventCache.centralSceneEvents[d.deviceId]=d; d.icon=nil post({type='centralSceneEvent', data=d}) end,
-      AccessControlEvent = function(self,d) EventCache.accessControlEvents[d.id]=d; post({type='accessControlEvent', data=d}) end,
-      CustomEvent = function(self,d) 
-        if d.name == tickEvent then return 
-        elseif fibaro._handleEvent and fibaro._handleEvent({type='customevent',name=d.name}) then return
-        else
-          local value = api.get("/customEvents/"..d.name) 
-          post({type='customevent', name=d.name, value=value and value.userDescription}) 
-        end 
+      CentralSceneEvent = function(d) 
+        self.central[d.deviceId]=d; d.icon=nil 
+        post({type='device', property='centralSceneEvent', id=d.deviceId, value={keyId=d.keyId, keyAttribute=d.keyAttribute}}) 
       end,
-      PluginChangedViewEvent = function(self,d) post({type='PluginChangedViewEvent', value=d}) end,
-      WizardStepStateChangedEvent = function(self,d) post({type='WizardStepStateChangedEvent', value=d})  end,
-      UpdateReadyEvent = function(self,d) post({type='UpdateReadyEvent', value=d}) end,
-      SceneRunningInstancesEvent = function(self,d) post({type='SceneRunningInstancesEvent', value=d}) end,
-      DeviceRemovedEvent = function(self,d)  post({type='DeviceRemovedEvent', value=d}) end,
-      DeviceChangedRoomEvent = function(self,d)  post({type='DeviceChangedRoomEvent', value=d}) end,    
-      DeviceCreatedEvent = function(self,d)  post({type='DeviceCreatedEvent', value=d}) end,
-      DeviceModifiedEvent = function(self,d) post({type='DeviceModifiedEvent', value=d}) end,
-      SceneStartedEvent = function(self,d)   post({type='SceneStartedEvent', value=d}) end,
-      SceneFinishedEvent = function(self,d)  post({type='SceneFinishedEvent', value=d})end,
-      SceneRemovedEvent = function(self,d)  post({type='SceneRemovedEvent', value=d}) end,
-      PluginProcessCrashedEvent = function(self,d) post({type='PluginProcessCrashedEvent', value=d}) end,
-      onUIEvent = function(self,d) 
-        Log(LOG.LOG,"UI %s",d)
+      SceneActivationEvent = function(d) 
+        self.activation[d.deviceId]=d; 
+        post({type='device', property='sceneActivationEvent', id=d.deviceId, value=d.value}) 
+      end,
+      AccessControlEvent = function(d) 
+        self.access[d.id]=d; 
+        post({type='device', property='accessControlEvent', id=d.id, value=d}) 
+      end,
+      CustomEvent = function(d) 
+        local value = api.get("/customEvents/"..d.name) 
+        post({type='customevent', name=d.name, value=value and value.userDescription}) 
+      end,
+      PluginChangedViewEvent = function(d) post({type='PluginChangedViewEvent', value=d}) end,
+      WizardStepStateChangedEvent = function(d) post({type='WizardStepStateChangedEvent', value=d})  end,
+      UpdateReadyEvent = function(d) post({type='UpdateReadyEvent', value=d}) end,
+      SceneRunningInstancesEvent = function(d) post({type='SceneRunningInstancesEvent', value=d}) end,
+      DeviceRemovedEvent = function(d)  post({type='DeviceEvent', id=d.id, value='removed'}) end,
+      DeviceChangedRoomEvent = function(d)  post({type='DeviceEvent', id=d.id, value='changedRoom'}) end,
+      DeviceCreatedEvent = function(d)  post({type='DeviceEvent', id=d.id, value='created'}) end,
+      DeviceModifiedEvent = function(d) post({type='DeviceEvent', id=d.id, value='modified'}) end,
+      PluginProcessCrashedEvent = function(d) 
+        post({type='DeviceEvent', id=d.deviceId, value='crashed', error=d.error})  
+      end,
+      SceneStartedEvent = function(d)   post({type='SceneEvent', id=d.id, value='started'}) end,
+      SceneFinishedEvent = function(d)  post({type='SceneEvent', id=d.id, value='finished'})end,
+      SceneRemovedEvent = function(d)  post({type='SceneEvent', id=d.id, value='removed'}) end,
+      onUIEvent = function(d) 
         post({type='uievent', deviceID=d.deviceId, name=d.elementName}) 
       end,
-      ActiveProfileChangedEvent = function(self,d) 
+      ActiveProfileChangedEvent = function(d) 
         post({type='profile',property='activeProfile',value=d.newActiveProfile, old=d.oldActiveProfile}) 
       end,
     }
@@ -2332,31 +2580,53 @@ function module.Trigger()
     local function checkEvents(events)
       for _,e in ipairs(events) do
         local eh = EventTypes[e.type]
-        if eh then eh(_,e.data)
-        elseif eh==nil then fibaro.debug("",string.format("Unhandled event:%s -- please report",json.encode(e))) end
+        if eh then eh(e.data)
+        elseif eh==nil then pdebug("Unhandled event:%s -- please report",json.encode(e)) end
       end
     end
 
     local function pollEvents()
       local lastRefresh = 0
-      EventCache.polling = true -- Our loop will populate cache with values - no need to fetch from HC3
-      local function pollRefresh()
-        --print("*")
-        local states = api.get("/refreshStates?last=" .. lastRefresh)
-        if states then
-          lastRefresh=states.last
-          if states.events and #states.events>0 then checkEvents(states.events) end
-        end
-        _setTimeout(pollRefresh,INTERVAL)
-        --fibaro.emitCustomEvent(tickEvent)  -- hack because refreshState hang if no events...
-        fibaro.setGlobalVariable(tickEvent,tostring(os.clock()))
+      local http = net.HTTPClient()
+      local function loop()
+        local stat,res = http:request("http://127.0.0.1:11111/api/refreshStates?last=" .. lastRefresh,{
+            success=function(res) 
+              local states = json.decode(res.data)
+              if states then
+                lastRefresh=states.last
+                if states.events and #states.events>0 then checkEvents(states.events) end
+                setTimeout(loop,INTERVAL)
+              else
+                setTimeout(loop,INTERVAL)
+              end  
+            end,
+            error=function(res) 
+              perror("refreshStates:%s",res)
+              setTimeout(loop,1000)
+            end,
+          })
       end
-      _setTimeout(pollRefresh,INTERVAL)
+      loop()
     end
 
-    Log(LOG.SYS,"Polling for triggers..")
+    if hc3_emulator then
+      function pollEvents()
+        local lastRefresh = 0
+        local function pollRefresh()
+          local states = api.get("/refreshStates?last=" .. lastRefresh)
+          if states then
+            lastRefresh=states.last
+            if states.events and #states.events>0 then checkEvents(states.events) end
+          end
+          _setTimeout(pollRefresh,INTERVAL)
+        end
+        _setTimeout(pollRefresh,INTERVAL)
+      end
+    end
+    psys("Polling for triggers..")
     pollEvents()
   end
+
   return self
 end
 
@@ -2364,14 +2634,13 @@ end
 ----------------- Main ----------------------------------------
 local function startUp(e)
   if e.type == 'ready' then
-    Log(LOG.SYS,"Sunrise:%s,  Sunset:%s",(fibaro.get(1,"sunriseHour")),(fibaro.get(1,"sunsetHour")))
-    Log(LOG.HEADER,"Setting up rules (main)")
+    psys("Sunrise:%s,  Sunset:%s",(fibaro.get(1,"sunriseHour")),(fibaro.get(1,"sunsetHour")))
+    Util.printBanner("Setting up rules (main)")
     local stat,res = pcall(function()
         main(self) -- call main
       end)
     if not stat then error("Main() ERROR:"..res) end
-    Event.createCustomEvent(Event.tickEvent,"Tock!") -- hack because refreshState hang if no events available... 
-    Log(LOG.HEADER,"Running")
+    Util.printBanner("Running")
     Trigger.pollForTriggers(triggerInterval) 
     Event.post({type='startup'})
   end
@@ -2384,16 +2653,15 @@ local function startUp(e)
 end
 
 function QuickApp:onInit()
-  fibaro.QD = self
-  fibaro.ID = plugin.mainDeviceId
+  fibaro.QA = self
+  fibaro.ID = self.id
   Util = module.Utilities() 
-  if not fibaro.debug then fibaro.debug = function(...) self:debug(...) end end
-  self.debug = function(self,...) Log(LOG.LOG,...) end
 
-  local appName = api.get("/devices/"..fibaro.ID).name
-  Log(LOG.HEADER,"%s, %s (ID:%s)",appName or "NoName",APP_VERS or "",fibaro.ID)
-  Log(LOG.SYS,"Events %s, %s",E_VERSION,E_FIX)
-  Log(LOG.SYS,"IP address:%s",Util.getIPaddress())  
+  local appName = api.get("/devices/"..fibaro.ID)
+  appName = appName and appName.name
+  Util.printBanner(format("%s, %s (ID:%s)",appName or "NoName",APP_VERS or "",fibaro.ID))
+  psys("Events %s, %s",E_VERSION,E_FIX)
+  psys("IP address:%s",Util.getIPaddress())  
 
   Device  = module.Device()
   Event   = module.EventEngine()
@@ -2403,19 +2671,24 @@ function QuickApp:onInit()
   Rule    = module.EventScript()
   Nodered = module.Nodered()
   Trigger = module.Trigger()
-  startUp({type='load',name='Hue', cont={type='ready'}})
+  startUp({type='ready'})
 end 
 
 if dofile then
-  hc3_emulator.offline=true
+  --hc3_emulator.offline=true
   hc3_emulator.start{
     name="EventRunner4",
-    --proxy=true,
+    type="com.fibaro.genericDevice",
+    --id=949,
+    poll=1000,
+    --deploy=true,
+    proxy=true,
     UI = {
       {label='name',text="ER 4.0 beta v0.1"},
       {button='debugTriggers', text='Triggers:ON'},
       {button='debugPost', text='Post:ON'},
       {button='debugRules', text='Rules:ON'},
+      {slider='slider'},
     }
   }
 end

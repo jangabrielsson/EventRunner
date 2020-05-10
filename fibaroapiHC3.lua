@@ -2852,13 +2852,17 @@ function module.Files()
     end
     local code = f:read("*all")
     Log(LOG.SYS,"Deploying %s",name)
+    local quickVars=args.quickVars or {}
+    for k,v in pairs(hc3_emulator.quickVars or {}) do
+      if not quickVars[k] then quickVars[k]=v end
+    end
     local res = QA.createQuickApp{
       name=name,
       id = id,
       type=args.type,
       code=code,
       UI=args.UI,
-      quickVars=args.quickVars
+      quickVars=quickVars
     }
   end
 
