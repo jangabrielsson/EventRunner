@@ -31,7 +31,7 @@ json        -- Copyright (c) 2019 rxi
 persistence -- Copyright (c) 2010 Gerhard Roethlin
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.95"
+local FIBAROAPIHC3_VERSION = "0.96"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -275,7 +275,7 @@ function module.FibaroAPI()
       __assert_type(deviceID ,"number") 
       local a = {args={},delay=0} 
       for i,v in ipairs({...}) do a.args[i]=v end
-      if deviceID == plugin.mainDeviceId and not plugin._mainDevice.isProxy then
+      if deviceID == plugin.mainDeviceId and not plugin._mainDevice.hasProxy then
         plugin._mainDevice[actionName](plugin._mainDevice,...)
       else
         local res,stat = api.post("/devices/"..deviceID.."/action/"..actionName,a) 
