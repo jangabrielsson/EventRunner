@@ -91,12 +91,12 @@ local function uploadResource()
 end
 
 local function downloadResource()
-  ide:Print("Downloading from HC3...") 
   local editor = ide:GetEditor()
   local length, curpos = editor:GetLength(), editor:GetCurrentPos()
   local ssel, esel = editor:GetSelection()
   local rsrc = editor:GetTextRange(ssel, esel)
   if rsrc and rsrc~="" then
+    ide:Print("Downloading from HC3...") 
     callFibaroAPIHC3("downloadFromHC3 "..rsrc,"Download done!")
   end
 end
