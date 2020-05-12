@@ -31,7 +31,7 @@ json        -- Copyright (c) 2019 rxi
 persistence -- Copyright (c) 2010 Gerhard Roethlin
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.97"
+local FIBAROAPIHC3_VERSION = "0.98"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -158,7 +158,7 @@ hc3_emulator = hc3_emulator or {}
 hc3_emulator.version           = FIBAROAPIHC3_VERSION
 hc3_emulator.credentialsFile   = hc3_emulator.credentialsFile or "credentials.lua" 
 hc3_emulator.HC3dir            = hc3_emulator.HC3dir or "HC3files" 
-hc3_emulator.HC3dir.backDirFmt = "%m-%d-%Y %H.%M.%S"
+hc3_emulator.backDirFmt        = "%m-%d-%Y %H.%M.%S"
 hc3_emulator.conditions        = false
 hc3_emulator.actions           = false
 hc3_emulator.offline           = DEF(hc3_emulator.offline,false)
@@ -3046,9 +3046,12 @@ function module.Files()
     local fileText = self[tp].convertStruct2text(struct)
     fname = format("%s_%d_%s.lua",tp,struct.id or 0,struct.name)
     fname =  fname:gsub("([%s%/])","_")
-    local f = io.open(concatPath(path,fname),"w")
+    local fname = path~="" and concatPath(path,fname) or fname
+    local f,err = io.open(fname,"w")
+    assert(f,"Can't open file for write:"..fname)
     f:write(fileText)
     f:close()
+    return fname
   end
 
   local function checkError(res,err)
@@ -3058,21 +3061,6 @@ function module.Files()
   local function warn(test,tp,name)
     if not test then Log(LOG.WARNING,"%s:%s, name or id mismatch with file content, using file content",tp,name) end
   end
-
-  local what,d1,res="updated"
-  if args.id then
-    d1,res = api.put("/devices/"..args.id,{
-        properties={
-          quickAppVariables = d.initialProperties.quickAppVariables,
-          mainFunction = d.initialProperties.mainFunction,
-          uiCallBacks = d.initialProperties.uiCallbacks,
-        }
-      })
-  else
-    d1,res = api.post("/quickApp/",d)
-    what = "created"
-  end
-
 
   function self.restoreQuickApp(struct,id,name)
     local sname = struct.name:gsub("([%s%/])","_")
@@ -3102,7 +3090,7 @@ function module.Files()
       Log(LOG.LOG,"Device %s with id:%s created",d.name,d.id)
     end
   end
-  
+
   function self.restoreScene(struct,id,name)
     local sname = struct.name:gsub("([%s%/])","_")
     warn(sname==name and struct.id==id,"scene",name)
@@ -3114,7 +3102,7 @@ function module.Files()
       checkError(api.post("/scenes",struct))
     end   
   end
-  
+
   function self.restoreGlobal(struct,id,name)
     local sname = struct.name:gsub("([%s%/])","_")
     warn(sname==name,"globalVariable",name)
@@ -3126,7 +3114,7 @@ function module.Files()
       checkError(api.post("/globalVariables",struct))
     end
   end
-  
+
   function self.restoreLocation(struct,id,name)
     local sname = struct.name:gsub("([%s%/])","_")
     warn(sname==name and struct.id==id,"location",name)
@@ -3138,7 +3126,7 @@ function module.Files()
       checkError(api.post("/panels/location",struct))
     end
   end
-  
+
   function self.restoreCustom(struct,id,name)
     local sname = struct.name:gsub("([%s%/])","_")
     warn(sname==name and struct.id==id,"customEvent",name)
@@ -3202,7 +3190,7 @@ function module.Files()
   function self.backup(resource) -- scenes,devices,globals,locations,customs
     local dpath = concatPath(dir,"backup")
     createDir(dpath)
-    local dname = os.date(hc3_emulator.HC3dir.backDirFmt)
+    local dname = os.date(hc3_emulator.backDirFmt)
     dpath = concatPath(dpath,dname) 
     createDir(dpath)
     if resource == 'all' then
@@ -3226,6 +3214,18 @@ function module.Files()
   --self.backup('all')
   --self.restore("HC3Files/backup/05-12-2020 07.24.58/Globals/Global_0_DaniLoc.lua")
 
+  commandLines['downloadFromHC3']=function(...) -- devices/239
+    local path = table.concat({...})
+    local rsrc,id = path:match("^%s*/?(%a+)/([%a%d]+)%s*")
+    assert(rsrc and id and resMap[rsrc],"Not a resource name")
+    local r = resMap[rsrc]
+    local struct = api.get("/"..rsrc.."/"..id)
+    Log(LOG.LOG,"Writing file...")
+    local fn = self.writeFile(r.name,struct,"")
+    if fn then
+      Log(LOG.LOG,"File %s written",fn)
+    end
+  end
   commandLines['uploadToHC3']=function(...) self.restore(table.concat({...}," ")) end
   commandLines['backupHC3']=function() self.backup("all") end
   return self
