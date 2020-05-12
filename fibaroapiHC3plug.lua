@@ -4,6 +4,7 @@ local ideh3Sc = ID("HC3.helpHC3Sc")
 local idech3 = ID("HC3.copyHC3")
 local idech33 = ID("HC3.uploadHC3")
 local idech33b = ID("HC3.backupHC3")
+local idech33d = ID("HC3.downloadRsrcHC3")
 local idem = ID("HC3.web")
 local idet = ID("HC3.templ")
 
@@ -79,7 +80,7 @@ end
 local function launchHC3Copy()
   ide:Print("Copying and creating DB from HC3...") 
   callFibaroAPIHC3("copyFromHC3","Copying done! - HC3sdk.db")
-end
+end 
 
 local function uploadResource()
   ide:Print("Uploading to HC3...") 
@@ -87,6 +88,17 @@ local function uploadResource()
   if not ed then return end -- all editor tabs are closed
   local file = ide:GetDocument(ed):GetFilePath()
   callFibaroAPIHC3("uploadToHC3 "..file,"Upload done!")
+end
+
+local function downloadResource()
+  ide:Print("Downloading from HC3...") 
+  local editor = ide:GetEditor()
+  local length, curpos = editor:GetLength(), editor:GetCurrentPos()
+  local ssel, esel = editor:GetSelection()
+  local rsrc = editor:GetTextRange(ssel, esel)
+  if rsrc and rsrc~="" then
+    callFibaroAPIHC3("downloadFromHC3 "..rsrc,"Download done!")
+  end
 end
 
 local function backupResources()
@@ -591,7 +603,11 @@ return {
     menu = ide:FindTopMenu("&File")
     menu:Append(idech33b, "Create HC3 backup"..KSC(idech33b))
     ide:GetMainFrame():Connect(idech33b, wx.wxEVT_COMMAND_MENU_SELECTED, backupResources)
-    
+
+    menu = ide:FindTopMenu("&File")
+    menu:Append(idech33d, "Download select resource"..KSC(idech33d))
+    ide:GetMainFrame():Connect(idech33d, wx.wxEVT_COMMAND_MENU_SELECTED, downloadResource)
+
     menu = ide:FindTopMenu("&File")
     menu:Append(idech33, "Upload HC3 resource"..KSC(idech33))
     ide:GetMainFrame():Connect(idech33, wx.wxEVT_COMMAND_MENU_SELECTED, uploadResource)
@@ -599,7 +615,6 @@ return {
     menu = ide:FindTopMenu("&File")
     menu:Append(idech3, "Create HC3sdk database"..KSC(idech3))
     ide:GetMainFrame():Connect(idech3, wx.wxEVT_COMMAND_MENU_SELECTED, launchHC3Copy)
-
 
     menu = ide:FindTopMenu("&Edit")
     templSubMenu = ide:MakeMenu()
