@@ -31,7 +31,7 @@ json        -- Copyright (c) 2019 rxi
 persistence -- Copyright (c) 2010 Gerhard Roethlin
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.96"
+local FIBAROAPIHC3_VERSION = "0.97"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -155,18 +155,19 @@ QuickApp,QuickAppBase,QuickAppChild = nil,nil,nil        -- global exports
 
 local function DEF(x,y) if x==nil then return y else return x end end
 hc3_emulator = hc3_emulator or {}
-hc3_emulator.version         = FIBAROAPIHC3_VERSION
-hc3_emulator.credentialsFile = hc3_emulator.credentialsFile or "credentials.lua" 
-hc3_emulator.HC3dir          = hc3_emulator.HC3dir or "HC3files" 
-hc3_emulator.conditions      = false
-hc3_emulator.actions         = false
-hc3_emulator.offline         = DEF(hc3_emulator.offline,false)
-hc3_emulator.emulated        = true 
-hc3_emulator.debug           = _debugFlags
-hc3_emulator.runSceneAtStart = false
-hc3_emulator.webPort         = hc3_emulator.webPort or 6872
-hc3_emulator.quickVars       = hc3_emulator.quickVars or {}
-hc3_emulator.colorDebug      = DEF(hc3_emulator.colorDebug,true)
+hc3_emulator.version           = FIBAROAPIHC3_VERSION
+hc3_emulator.credentialsFile   = hc3_emulator.credentialsFile or "credentials.lua" 
+hc3_emulator.HC3dir            = hc3_emulator.HC3dir or "HC3files" 
+hc3_emulator.HC3dir.backDirFmt = "%m-%d-%Y %H.%M.%S"
+hc3_emulator.conditions        = false
+hc3_emulator.actions           = false
+hc3_emulator.offline           = DEF(hc3_emulator.offline,false)
+hc3_emulator.emulated          = true 
+hc3_emulator.debug             = _debugFlags
+hc3_emulator.runSceneAtStart   = false
+hc3_emulator.webPort           = hc3_emulator.webPort or 6872
+hc3_emulator.quickVars         = hc3_emulator.quickVars or {}
+hc3_emulator.colorDebug        = DEF(hc3_emulator.colorDebug,true)
 hc3_emulator.supressTrigger = {["PluginChangedViewEvent"] = true} -- Ignore noisy triggers...
 
 local cr = not hc3_emulator.credentials and loadfile(hc3_emulator.credentialsFile); if cr then cr() end
@@ -537,6 +538,7 @@ function module.FibaroAPI()
     return self
   end
 
+  TTTT = false
   function rawCall(method,call,data,cType,hs,to)
     if hc3_emulator.offline then return Offline.api(method,call,data,cType,hs) end
     local resp = {}
@@ -549,6 +551,9 @@ function module.FibaroAPI()
     }
     --req.headers["Accept"] = 'application/json'
     req.headers["Accept"] = '*/*'
+    if TTTT then 
+      req.headers["Accept"]="text/plain" 
+    end
     req.headers["X-Fibaro-Version"] = 2
     if data then
       req.headers["Content-Type"] = cType
@@ -962,7 +967,6 @@ end
 --------------- QuickApp functions and support -------
 function module.QuickApp()
   local self = {}
---core.EventTarget = class EventTarget (EventTarget)
   plugin = {}
   plugin.mainDeviceId = nil
   function plugin.deleteDevice(deviceId) return api.delete("/devices/"..deviceId) end
@@ -2837,7 +2841,23 @@ end
 --------------- Offline support ----------------------
 function module.Files()
   local lfs = require("lfs")
-  local self,dir = {},""
+  local self,dir,sep = {},"",package.config:sub(1,1)
+
+  local function concatPath(path,file)
+    if path:sub(-1)==sep then return path..file 
+    else return path..sep..file end
+  end
+
+  local function createDir(dir)
+    local r,err =  lfs.mkdir(dir) 
+    if not r and err~="File exists" then error(format("Can't create HC3 data directory: %s (%s)",dir,err)) end
+  end
+
+  local function getHC3dir()
+    local cdir = lfs.currentdir()
+    dir = cdir .. sep .. hc3_emulator.HC3dir
+    if not lfs.attributes(dir) then createDir(dir) end
+  end
 
   function self.deploy(args)
     local name,id = args.name
@@ -2866,35 +2886,348 @@ function module.Files()
     }
   end
 
-
-  local function getHC3dir()
-    local cdir = lfs.currentdir()
-    cdir = cdir .. "/" .. hc3_emulator.HC3dir
-    if not lfs.attributes(cdir) then
-      if not lfs.mkdir(cdir) then error("Can't create HC3 data directory: "..cdir) end
-    end
+  local sortKeys = {
+    'id','name','roomID','type','baseType','enabled','visible','isPlugin','parentId','viewXml','configXml',
+    'interfaces','properties','actions','created','modified','sortOrder'
+  }
+  local sortOrder={}
+  for i,s in ipairs(sortKeys) do sortOrder[s]=i end
+  local nKeys = #sortKeys
+  local function keyCompare(a,b)
+    local av,bv = sortOrder[a], sortOrder[b]
+    if av == nil then nKeys = nKeys+1 sortOrder[a] = nKeys av = nKeys end
+    if bv == nil then nKeys = nKeys+1 sortOrder[b] = nKeys bv = nKeys end
+    return av < bv
   end
 
-  function self.downloadQA(id)
-    getHC3dir()
-    local dev = api.get("/devices/"..id)
-    if not dev then error(format("QA deviceId:%s does not exists",id)) end
-    local name=dev.name.."_"..dev.id
-    local f = io.open(file..".rsrc","w")
-    f:write(res.data)
+  function prettyPrint(t)
+    local res = {}
+    local function isArray(t) return type(t)=='table' and t[1] end
+    local function isEmpty(t) return type(t)=='table' and next(t)==nil end
+    local function isKeyVal(t) return type(t)=='table' and t[1]==nil and next(t)~=nil end
+    local function printf(tab,fmt,...) res[#res+1] = string.rep(' ',tab)..string.format(fmt,...) end
+    local function pretty(tab,t,key)
+      if type(t)=='table' then
+        if isEmpty(t) then printf(0,"[]") return end
+        if isArray(t) then
+          printf(key and tab or 0,"[\n")
+          table.sort(t,keyCompare)
+          for i,k in ipairs(t) do
+            local cr = pretty(tab+1,k,true)
+            if i ~= #t then printf(0,',') end
+            printf(tab+1,'\n')
+          end
+          printf(tab,"]")
+          return true
+        end
+        local r = {}
+        for k,v in pairs(t) do r[#r+1]=k end
+        table.sort(r,keyCompare)
+        printf(key and tab or 0,"{\n")
+        for i,k in ipairs(r) do
+          printf(tab+1,'"%s":',k)
+          local cr =  pretty(tab+1,t[k])
+          if i ~= #r then printf(0,',') end
+          printf(tab+1,'\n')
+        end
+        printf(tab,"}")
+        return true
+      elseif type(t)=='number' then
+        printf(key and tab or 0,"%s",t) 
+      elseif type(t)=='boolean' then
+        printf(key and tab or 0,"%s",t and 'true' or 'false') 
+      elseif type(t)=='string' then
+        printf(key and tab or 0,'"%s"',t)
+      end
+    end
+    pretty(0,t,true)
+    return table.concat(res,"")
+  end
+
+  self.prettyPrint = prettyPrint
+
+  function self.Scene2Flat(s)
+    local res = {}
+    local function printf(...) res[#res+1]=string.format(...) end
+    local ll = loadstring or load
+    local content = json.decode(s.content)
+    local conds = ll("return "..(content.conditions or "{}"))()
+    s.content = "<content>"
+    printf("--[[ <<Scene>>")
+    printf("  Name      : %s",s.name)
+    printf("  Id        : %s",s.id)
+    if s.type=='json' then
+      printf("  Conditions: %s",prettyPrint(content))
+      printf("--]]\n") 
+    else
+      printf("  Conditions: %s",content.conditions)
+      printf("--]]\n")      
+      content.actions = (content.actions or ""):match("(.-)[%s%c]*$")
+      printf("%s",content.actions)
+    end
+    printf("\n--[[ <<Scene struct>>")
+    printf("%s",prettyPrint(s))
+    printf("--]]")
+
+    return table.concat(res,"\n")
+  end
+
+  function self.flat2Scene(str)
+    local h,code,e = str:match("%-%-%[%[ <<Scene>>(.-)%-%-%]%]%c*(.*)%c*%-%-%[%[ <<Scene struct>>(.-)%-%-%]%][%s%c]*")
+    local s = json.decode(e)
+    local cond = h:match("Conditions: (.*)")
+    if s.type=='json' then
+      s.content = json.decode(cond)
+    else
+      cond = cond
+      local content = json.encode({conditions=cond,actions=code})
+      s.content = content
+    end
+    return s
+  end
+
+  function self.QuickApp2Flat(d)
+    local res = {}
+    local function printf(...) res[#res+1]=string.format(...) end
+
+    if d.initialProperties then
+      d.properties=d.initialProperties
+      d.initialProperties = nil
+    end
+    printf("--[[ <<QuickApp>>")
+    printf("  Name:%s",d.name)
+    printf("  Id:  %s",d.id)
+    printf("  Type:%s",d.type)
+    printf("--]]\n")
+    printf("%s",d.properties.mainFunction)
+    d.properties.mainFunction=""
+    printf("--[[ <<Device struct>>")
+    printf("%s",prettyPrint(d))
+    printf("--]]")
+    return table.concat(res,"\n")
+  end
+
+  function self.flat2QuickApp(str)
+    local h,code,e = str:match("%-%-%[%[ <<QuickApp>>(.-)%-%-%]%]%c*(.*)%c*%-%-%[%[ <<Device struct>>(.-)%-%-%]%][%s%c]*")
+    assert(h and code and e,"Bad flat QuickApp format")
+    local d = json.decode(e)
+
+    local noProps = {
+      logTemp=true,deadReason=true,dead=true,log=true
+    }
+
+    local ip = {}
+    for k,v in pairs(d.properties) do if not noProps[k] then ip[k]=v end end
+    ip.mainFunction = code
+    ip.viewLayout = d.properties.viewLayout
+    d.properties.viewLayout = nil
+    ip.uiCallbacks = d.properties.uiCallbacks
+    d.properties.uiCallbacks = nil
+    ip.quickAppVariables = d.properties.quickAppVariables
+    d.properties.quickAppVariables = nil
+    ip.typeTemplateInitialized=true
+    local ds = {}
+    for _,k in ipairs({'id','name','roomID','type','baseType','enabled','visible','isPlugin','viewXml','configXml',
+        'interfaces','actions','sortOrder'}) do ds[k]=d[k] end
+    ds.initialProperties=ip
+    ds.apiVersion = "1.1"
+    return ds
+  end
+
+  function self.upload2DownloadQAStruct(d)
+    d.properties = d.initialProperties
+    d.initialProperties = nil
+    d.properties.apiVersion = d.apiVersion
+    d.apiVersion = nil
+    return d
+  end
+
+  function self.writeFile(tp,struct,path)
+    local fileText = self[tp].convertStruct2text(struct)
+    fname = format("%s_%d_%s.lua",tp,struct.id or 0,struct.name)
+    fname =  fname:gsub("([%s%/])","_")
+    local f = io.open(concatPath(path,fname),"w")
+    f:write(fileText)
     f:close()
   end
 
-  function self.downloadScene(id)
+  local function checkError(res,err)
+    if res==nil and err > 204 then Log(LOG.ERROR,"Resource update error : %s",err) end
   end
 
-  function uploadQA(id)
+  local function warn(test,tp,name)
+    if not test then Log(LOG.WARNING,"%s:%s, name or id mismatch with file content, using file content",tp,name) end
   end
 
-  function uploadQA(id)
+  local what,d1,res="updated"
+  if args.id then
+    d1,res = api.put("/devices/"..args.id,{
+        properties={
+          quickAppVariables = d.initialProperties.quickAppVariables,
+          mainFunction = d.initialProperties.mainFunction,
+          uiCallBacks = d.initialProperties.uiCallbacks,
+        }
+      })
+  else
+    d1,res = api.post("/quickApp/",d)
+    what = "created"
+  end
+
+
+  function self.restoreQuickApp(struct,id,name)
+    local sname = struct.name:gsub("([%s%/])","_")
+    warn(sname==name and struct.id==id,"QuickApp",name)
+    local ds = api.get("/devices/"..struct.id)
+    if ds and ds.name==struct.name then
+      Log(LOG.LOG,"Updating existing device %s",struct.name)
+      local d, err = api.put("/devices/"..struct.id,{
+          properties={
+            quickAppVariables = struct.initialProperties.quickAppVariables,
+            mainFunction = struct.initialProperties.mainFunction,
+            uiCallBacks = struct.initialProperties.uiCallbacks,
+          }
+        })
+      if d == nil then
+        Log(LOG.LOG,"Error creating device: %s",err)
+      else
+        Log(LOG.LOG,"Device %s with id:%s created",d.name,d.id)
+      end
+      return -- update
+    end
+    Log(LOG.LOG,"Creating new device %s",struct.name)
+    local d,err = api.post("/quickApp/",struct)
+    if d == nil then
+      Log(LOG.LOG,"Error creating device: %s",err)
+    else
+      Log(LOG.LOG,"Device %s with id:%s created",d.name,d.id)
+    end
+  end
+  
+  function self.restoreScene(struct,id,name)
+    local sname = struct.name:gsub("([%s%/])","_")
+    warn(sname==name and struct.id==id,"scene",name)
+    if api.get("/scenes/"..struct.id) then
+      Log(LOG.LOG,"Updating existing scene %s",struct.name)
+      checkError(api.put("/scenes/"..struct.id,struct))
+    else
+      Log(LOG.LOG,"Creating new scene %s",struct.name)
+      checkError(api.post("/scenes",struct))
+    end   
+  end
+  
+  function self.restoreGlobal(struct,id,name)
+    local sname = struct.name:gsub("([%s%/])","_")
+    warn(sname==name,"globalVariable",name)
+    if api.get("/globalVariables/"..struct.name) then
+      Log(LOG.LOG,"Updating existing globalVariable %s",struct.name)
+      checkError(api.put("/globalVariables/"..struct.name,struct))
+    else
+      Log(LOG.LOG,"Creating new globalVariable %s",struct.name)
+      checkError(api.post("/globalVariables",struct))
+    end
+  end
+  
+  function self.restoreLocation(struct,id,name)
+    local sname = struct.name:gsub("([%s%/])","_")
+    warn(sname==name and struct.id==id,"location",name)
+    if api.get("/panels/location/"..struct.id) then
+      Log(LOG.LOG,"Updating existing location %s",struct.name)
+      checkError(api.put("/panels/location/"..struct.id,struct))
+    else
+      pdebug("Creating new location %s",struct.name)
+      checkError(api.post("/panels/location",struct))
+    end
+  end
+  
+  function self.restoreCustom(struct,id,name)
+    local sname = struct.name:gsub("([%s%/])","_")
+    warn(sname==name and struct.id==id,"customEvent",name)
+    if api.get("/customEvents/"..struct.name) then
+      Log(LOG.LOG,"Updating existing customEvent %s",struct.name)
+      checkError(api.put("/customEvents/"..struct.name,struct))
+    else
+      Log(LOG.LOG,"Creating new customEvent %s",struct.name)
+      checkError(api.post("/customEvents",struct.struct))
+    end
+  end
+
+  self.QA,self.Scene,self.Global,self.Location,self.CustomEvent={},{},{},{},{}
+  function self.QA.convertText2struct(text,struct) return self.flat2QuickApp(text) end
+  function self.QA.convertStruct2text(struct) return self.QuickApp2Flat(struct) end
+  function self.QA.restoreStruct(struct,id,name) return self.restoreQuickApp(struct,id,name) end
+  function self.Scene.convertText2struct(text) return self.flat2Scene(text) end
+  function self.Scene.convertStruct2text(struct) return self.Scene2Flat(struct) end
+  function self.Scene.restoreStruct(struct,id,name) return self.restoreScene(struct,id,name) end
+  function self.Global.convertStruct2text(struct) return prettyPrint(struct) end
+  function self.Global.convertText2struct(text) return json.decode(text) end
+  function self.Global.restoreStruct(struct,id,name) return self.restoreGlobal(struct,id,name) end
+  function self.Location.convertStruct2text(struct)  return prettyPrint(struct) end
+  function self.Location.convertText2struct(text)  return json.decode(text) end
+  function self.Location.restoreStruct(struct,id,name) return self.restoreLocation(struct,id,name) end
+  function self.CustomEvent.convertStruct2text(struct)  return prettyPrint(struct) end
+  function self.CustomEvent.convertText2struct(text)  return json.decode(text) end
+  function self.CustomEvent.restoreStruct(struct,id,name) return self.restoreCustomEvent(struct,id,name) end
+
+  local resMap = {
+    scenes={name="Scene",rsrcpath="/scenes", dir="Scenes"},
+    devices={name="QA",rsrcpath="/devices", dir="QAs", test=function(d) return d.id < 4 or (d.parentId and d.parentId > 0) end },
+    globals={name="Global",rsrcpath="/globalVariables", dir="Globals"},
+    locations={name="Location",rsrcpath="/panels/location", dir="Locations"},
+    custom={name="CustomEvent",rsrcpath="/customEvents", dir="CustomEvents"},
+  }
+
+  function self.download(resource,path)
+    local r = resMap[resource]
+    assert(resMap[resource],"Unsupported resource:"..resource)
+    local dpath = path
+    createDir(dpath)
+    for _,d in ipairs(api.get(r.rsrcpath) or {}) do
+      if r.test and r.test(d) then 
+        -- ignore
+      else
+        self.writeFile(r.name,d,dpath)
+      end
+    end
+  end
+
+  function self.backupR(resource,path) -- scenes,devices,globals,locations,customs
+    local r = resMap[resource]
+    assert(resMap[resource],"Unsupported resource:"..resource)
+    path = concatPath(path,r.dir)
+    createDir(path)
+    Log(LOG.LOG,"Backing up %s to %s",resource,path)
+    self.download(resource,path)
+  end
+
+  function self.backup(resource) -- scenes,devices,globals,locations,customs
+    local dpath = concatPath(dir,"backup")
+    createDir(dpath)
+    local dname = os.date(hc3_emulator.HC3dir.backDirFmt)
+    dpath = concatPath(dpath,dname) 
+    createDir(dpath)
+    if resource == 'all' then
+      for r,_ in pairs(resMap) do self.backupR(r,dpath) end 
+    else self.backupR(resource,dpath) end
+  end
+
+  function self.restore(path)
+    local tp,id,name = path:match("(%a+)_(%d+)_([%-%._%w]+)%.lua$")
+    local f = io.open(path)
+    assert(f,"File does not exist: "..path)
+    assert(tp,"Unsupported resource: "..tostring(tp))
+    Log(LOG.LOG,"Restoring resource %s %s",tp,path)
+    local txt = f:read("*all")
+    f:close()
+    local struct = self[tp].convertText2struct(txt)
+    self[tp].restoreStruct(struct,tonumber(id),name)
   end
 
   getHC3dir()
+  --self.backup('all')
+  --self.restore("HC3Files/backup/05-12-2020 07.24.58/Globals/Global_0_DaniLoc.lua")
+
+  commandLines['uploadToHC3']=function(...) self.restore(table.concat({...}," ")) end
+  commandLines['backupHC3']=function() self.backup("all") end
   return self
 end
 
@@ -3737,7 +4070,7 @@ end
 
 local function DEFAULT(v,d) if v~=nil then return v else return d end end
 hc3_emulator.offline = DEFAULT(hc3_emulator.offline,false)
-hc3_emulator.defaultDevice = DEFAULT(hc3_emulator.defaultDevice,"com.fibaro.binarySwitch")
+hc3_emulator.defaultDevice =     DEFAULT(hc3_emulator.defaultDevice,"com.fibaro.binarySwitch")
 hc3_emulator.autocreateDevices = DEFAULT(hc3_emulator.autocreateDevices,true)
 hc3_emulator.autocreateGlobals = DEFAULT(hc3_emulator.autocreateGlobals,true)
 
