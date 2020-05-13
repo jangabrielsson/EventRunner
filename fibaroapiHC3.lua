@@ -31,7 +31,7 @@ json        -- Copyright (c) 2019 rxi
 persistence -- Copyright (c) 2010 Gerhard Roethlin
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.98"
+local FIBAROAPIHC3_VERSION = "0.99"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -139,6 +139,9 @@ hc3_emulator.createQuickApp{          -- creates and deploys QuickApp on HC3
               dryrun=<boolean>
               } 
 hc3_emulator.createProxy(<name>,<type>,<UI>,<quickVars>)       -- create QuickApp proxy on HC3 (usually called with 
+hc3_emulator.pullResource(resouceName)                         -- pull a resource from the HC3 and store it as a flat file
+hc3_emulator.pushResource(file)                                -- Push a flat file resource to the HC3
+hc3_emulator.backup(resource)                                  -- backup QA,Scenes,Globals,LOcations,CustomEvents
 hc3_emulator.post(ev,t)                                        -- post event/sourceTrigger 
 --]]
 
@@ -1488,7 +1491,7 @@ function QuickApp:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) e
     else print("Error:"..res) end
   end
 
-  commandLines['pullQA']=self.copyQA
+  commandLines['pullqatobuffer']=self.copyQA
 
 -- Export functions
   self.updateViewLayout = updateViewLayout
@@ -2241,6 +2244,11 @@ function module.Utilities()
   return self
 end
 
+commandLines['help'] = function()
+  for c,f in pairs(commandLines) do
+    Log(LOG.LOG,"Command: -%s",c)
+  end
+end
 --------------- json functions ------------------------
 function module.Json()
 --
@@ -2859,6 +2867,12 @@ function module.Files()
     if not lfs.attributes(dir) then createDir(dir) end
   end
 
+  local function getBackupDir()
+    getHC3dir()
+    backupDir  = concatPath(dir,"backup")
+    if not lfs.attributes(backupDir) then createDir(backupDir) end
+  end
+
   function self.deploy(args)
     local name,id = args.name
     assert(name,"Missing name for deployment")
@@ -3042,6 +3056,22 @@ function module.Files()
     return d
   end
 
+  local function readResource(path) -- text,type,err
+    local tp,id,name = path:match("(%a+)_(%d+)_([%-%._%w]+)%.lua$")
+    local f,err = io.open(path)
+    if not f then return nil,nil,nil,"Can't open file:"..err end
+    local txt = f:read("*all")
+    if txt:match("%-%-%[%[ <<QuickApp>>") then return txt,"QA",name,tp ~= "QA" and "filename mismatch" end
+    if txt:match("%-%-%[%[ <<Scene>>") then return txt,"Scene",name,tp ~= "Scene" and "filename mismatch" end
+    local state,s = pcall(function() return json.decode(txt) end)
+    if state then
+      if s.userDescription then return txt,"CustomEvent",name,tp ~= "CustomEvent" and "filename mismatch" end
+      if s.latitude then return txt,"Location",name,tp ~= "Location" and "filename mismatch" end
+      if s.value and s.name then return txt,"Global",name,tp ~= "Global" and "filename mismatch" end
+    end
+    return nil,nil,nil,"Not a resource"
+  end
+
   function self.writeFile(tp,struct,path)
     local fileText = self[tp].convertStruct2text(struct)
     fname = format("%s_%d_%s.lua",tp,struct.id or 0,struct.name)
@@ -3063,8 +3093,7 @@ function module.Files()
   end
 
   function self.restoreQuickApp(struct,id,name)
-    local sname = struct.name:gsub("([%s%/])","_")
-    warn(sname==name and struct.id==id,"QuickApp",name)
+    warn(struct.id==id,"QuickApp",name)
     local ds = api.get("/devices/"..struct.id)
     if ds and ds.name==struct.name then
       Log(LOG.LOG,"Updating existing device %s",struct.name)
@@ -3092,8 +3121,7 @@ function module.Files()
   end
 
   function self.restoreScene(struct,id,name)
-    local sname = struct.name:gsub("([%s%/])","_")
-    warn(sname==name and struct.id==id,"scene",name)
+    warn(struct.id==id,"scene",name)
     if api.get("/scenes/"..struct.id) then
       Log(LOG.LOG,"Updating existing scene %s",struct.name)
       checkError(api.put("/scenes/"..struct.id,struct))
@@ -3104,8 +3132,6 @@ function module.Files()
   end
 
   function self.restoreGlobal(struct,id,name)
-    local sname = struct.name:gsub("([%s%/])","_")
-    warn(sname==name,"globalVariable",name)
     if api.get("/globalVariables/"..struct.name) then
       Log(LOG.LOG,"Updating existing globalVariable %s",struct.name)
       checkError(api.put("/globalVariables/"..struct.name,struct))
@@ -3116,8 +3142,7 @@ function module.Files()
   end
 
   function self.restoreLocation(struct,id,name)
-    local sname = struct.name:gsub("([%s%/])","_")
-    warn(sname==name and struct.id==id,"location",name)
+    warn(struct.id==id,"location",name)
     if api.get("/panels/location/"..struct.id) then
       Log(LOG.LOG,"Updating existing location %s",struct.name)
       checkError(api.put("/panels/location/"..struct.id,struct))
@@ -3128,8 +3153,7 @@ function module.Files()
   end
 
   function self.restoreCustom(struct,id,name)
-    local sname = struct.name:gsub("([%s%/])","_")
-    warn(sname==name and struct.id==id,"customEvent",name)
+    warn(struct.id==id,"customEvent",name)
     if api.get("/customEvents/"..struct.name) then
       Log(LOG.LOG,"Updating existing customEvent %s",struct.name)
       checkError(api.put("/customEvents/"..struct.name,struct))
@@ -3187,7 +3211,16 @@ function module.Files()
     self.download(resource,path)
   end
 
-  function self.backup(resource) -- scenes,devices,globals,locations,customs
+  function self.lastBackupDir()
+  end
+
+  function self.backupDir()
+    getHC3dir()
+  end
+
+  function self.backup(resource) -- all,scenes,devices,globals,locations,customs
+    getHC3dir()
+    resource = resource  or "all"
     local dpath = concatPath(dir,"backup")
     createDir(dpath)
     local dname = os.date(hc3_emulator.backDirFmt)
@@ -3198,37 +3231,38 @@ function module.Files()
     else self.backupR(resource,dpath) end
   end
 
-  function self.restore(path)
-    local tp,id,name = path:match("(%a+)_(%d+)_([%-%._%w]+)%.lua$")
-    local f = io.open(path)
-    assert(f,"File does not exist: "..path)
-    assert(tp,"Unsupported resource: "..tostring(tp))
-    Log(LOG.LOG,"Restoring resource %s %s",tp,path)
-    local txt = f:read("*all")
-    f:close()
+  function self.restore(path) -- Restore from path+filename. ToDo, use readResource instead
+    local txt,tp,name,err = readResource(path)
+    assert(txt,"Can't read resource, "..tostring(err))
+    if err then Log(LOG.WARNING,"File name and content mismatch: Found %s in %s",tp,path) end
     local struct = self[tp].convertText2struct(txt)
-    self[tp].restoreStruct(struct,tonumber(id),name)
+    if name then
+      local fn = struct.name:gsub("([%s%/])","_")
+      if fn ~= name then Log(LOG.WARNING,"Resource name differs from filname") end
+    end
+    self[tp].restoreStruct(struct,tonumber(id),struct.name)
   end
 
-  getHC3dir()
-  --self.backup('all')
-  --self.restore("HC3Files/backup/05-12-2020 07.24.58/Globals/Global_0_DaniLoc.lua")
+--self.backup('all')
+--self.restore("HC3Files/backup/05-13-2020 06.58.59/Globals/Global_0_DaniLoc.lua")
 
-  commandLines['downloadFromHC3']=function(...) -- devices/239
-    local path = table.concat({...})
-    local rsrc,id = path:match("^%s*/?(%a+)/([%a%d]+)%s*")
-    assert(rsrc and id and resMap[rsrc],"Not a resource name")
+  function self.pull(resourceName) 
+    local rsrc,id = resourceName:match("^%s*/?(%a+)/([%a%d]+)%s*")
+    assert(rsrc and id and resMap[rsrc],"Not a resource name:"..resourceName)
     local r = resMap[rsrc]
-    local struct = api.get("/"..rsrc.."/"..id)
+    local struct = api.get(r.rsrcpath.."/"..id)
     Log(LOG.LOG,"Writing file...")
     local fn = self.writeFile(r.name,struct,"")
     if fn then
       Log(LOG.LOG,"File %s written",fn)
     end
   end
-  commandLines['uploadToHC3']=function(...) self.restore(table.concat({...}," ")) end
-  commandLines['backupHC3']=function() self.backup("all") end
+
+  commandLines['pull']=function(...) self.pull(table.concat({...})) end
+  commandLines['push']=function(...) self.restore(table.concat({...}," ")) end
+  commandLines['backup']=function() self.backup("all") end
   return self
+
 end
 
 --------------- Offline support ----------------------
@@ -4043,8 +4077,8 @@ function module.OfflineDB()
     end;
   }
 
-  commandLines['copyFromHC3']=self.copyFromHC3
-  commandLines['downloadFibaroAPI']=self.downloadFibaroAPI
+  commandLines['copysdkdb']=self.copyFromHC3
+  commandLines['downloadsdk']=self.downloadFibaroAPI
   self.persistence = persistence
 
   return self
@@ -4063,8 +4097,16 @@ Files   = module.Files()
 Offline = module.Offline()
 DB      = module.OfflineDB() 
 
-if arg[1] and commandLines[arg[1]] then  -- When fibaroapiHC3.lua is used as a command from ZBS
-  commandLines[arg[1]](select(2,table.unpack(arg)))
+if arg[1] then
+  local cmd = arg[1]
+  if cmd:sub(1,1)=='-' then
+    cmd = cmd:sub(2)
+    if commandLines[cmd] then --- When fibaroapiHC3.lua is used as a command from ZBS
+      commandLines[cmd](select(2,table.unpack(arg)))
+      os.exit()
+    end
+  end
+  Log(LOG.ERROR,"Unrecognized command line argument: %s",table.concat(arg," "))
   os.exit()
 end
 
@@ -4081,6 +4123,10 @@ hc3_emulator.getIPaddress = Util.getIPaddress
 hc3_emulator.createDevice = Offline.createDevice --(id,tp)
 hc3_emulator.cache = Trigger.cache 
 hc3_emulator.copyFromHC3 = DB.copyFromHC3
+
+hc3_emulator.pullResource = Files.pull
+hc3_emulator.pushResource = Files.push
+hc3_emulator.backup       = Files.backup
 
 function hc3_emulator.startup(args)
   local source = debug.getinfo(2, 'S').short_src

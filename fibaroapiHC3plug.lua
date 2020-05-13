@@ -2,6 +2,7 @@ local ideh3 = ID("HC3.helpHC3")
 local ideh3QA = ID("HC3.helpHC3QA")
 local ideh3Sc = ID("HC3.helpHC3Sc")
 local idech3 = ID("HC3.copyHC3")
+local idech31 = ID("HC3.sdkHC3")
 local idech33 = ID("HC3.uploadHC3")
 local idech33b = ID("HC3.backupHC3")
 local idech33d = ID("HC3.downloadRsrcHC3")
@@ -79,7 +80,12 @@ end
 
 local function launchHC3Copy()
   ide:Print("Copying and creating DB from HC3...") 
-  callFibaroAPIHC3("copyFromHC3","Copying done! - HC3sdk.db")
+  callFibaroAPIHC3("-copysdkdb","Copying done! - HC3sdk.db")
+end 
+
+local function downloadHC3SDK()
+  ide:Print("Downloading lastest fibarapiHC3.lua") 
+  callFibaroAPIHC3("-downloadsdk","Download done! - fibarapiHC3.lua")
 end 
 
 local function uploadResource()
@@ -87,23 +93,23 @@ local function uploadResource()
   local ed = ide:GetEditor()
   if not ed then return end -- all editor tabs are closed
   local file = ide:GetDocument(ed):GetFilePath()
-  callFibaroAPIHC3("uploadToHC3 "..file,"Upload done!")
+  callFibaroAPIHC3("-push "..file,"Upload done!")
 end
 
 local function downloadResource()
+  ide:Print("Downloading from HC3...") 
   local editor = ide:GetEditor()
   local length, curpos = editor:GetLength(), editor:GetCurrentPos()
   local ssel, esel = editor:GetSelection()
   local rsrc = editor:GetTextRange(ssel, esel)
   if rsrc and rsrc~="" then
-    ide:Print("Downloading from HC3...") 
-    callFibaroAPIHC3("downloadFromHC3 "..rsrc,"Download done!")
+    callFibaroAPIHC3("-pull "..rsrc,"Download done!")
   end
 end
 
 local function backupResources()
   ide:Print("Backing up resources from HC3...") 
-  callFibaroAPIHC3("backupHC3","Backup done!")
+  callFibaroAPIHC3("-backup","Backup done!")
 end
 
 local SCENE_TEMPL = 
@@ -601,6 +607,7 @@ return {
     ide:GetMainFrame():Connect(ideh3Sc, wx.wxEVT_COMMAND_MENU_SELECTED, launchHC3ScHelp)
 
     menu = ide:FindTopMenu("&File")
+    menu:AppendSeparator()
     menu:Append(idech33b, "Create HC3 backup"..KSC(idech33b))
     ide:GetMainFrame():Connect(idech33b, wx.wxEVT_COMMAND_MENU_SELECTED, backupResources)
 
@@ -615,6 +622,10 @@ return {
     menu = ide:FindTopMenu("&File")
     menu:Append(idech3, "Create HC3sdk database"..KSC(idech3))
     ide:GetMainFrame():Connect(idech3, wx.wxEVT_COMMAND_MENU_SELECTED, launchHC3Copy)
+
+    menu = ide:FindTopMenu("&File")
+    menu:Append(idech31, "Download fibaroapiHC3.sdk"..KSC(idech31))
+    ide:GetMainFrame():Connect(idech31, wx.wxEVT_COMMAND_MENU_SELECTED, downloadHC3SDK)
 
     menu = ide:FindTopMenu("&Edit")
     templSubMenu = ide:MakeMenu()
@@ -634,6 +645,8 @@ return {
 
   onUnRegister = function()  
     ide:RemoveMenuItem(idech3)
+    ide:RemoveMenuItem(idech31)
+    ide:RemoveMenuItem(idech33)
     ide:RemoveMenuItem(idem)
     ide:RemoveMenuItem(ideh)
     ide:RemoveMenuItem(idet)
