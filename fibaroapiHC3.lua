@@ -35,16 +35,17 @@ local FIBAROAPIHC3_VERSION = "0.99"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
-  if dofile then
-     dofile("fibaroapiHC3.lua")
-     local cr = loadfile("credentials.lua"); if cr then cr() end
-     hc3_emulator.quickVars["Hue_User"]=_HueUserName
-     hc3_emulator.quickVars["Hue_IP"]=_HueIP
+  if dofile and not hc3_emulator then
+    hc3_emulator = {
+     quickVars = {["Hue_User"]="$CREDS.Hue_user",["Hue_IP"]=$CREDS.Hue_IP}
+    }
+    dofile("fibaroapiHC3.lua")
   end
   We load another file, credentials.lua, where we define lua globals like hc3_emulator.credentials etc.
   --hc3_emulator.credentials = { ip = <IP>, user = <username>, pwd = <password>}
   This way the credentials are not visible in your code and you will not accidently upload them :-)
   You can also predefine quickvars that are accessible with self:getVariable() when your code starts up
+  quickVar names starting with '$CREDS.' will be replaced with values from hc3_emulator.credentials.
 --]]
 
 --[[
@@ -139,9 +140,6 @@ hc3_emulator.createQuickApp{          -- creates and deploys QuickApp on HC3
               dryrun=<boolean>
               } 
 hc3_emulator.createProxy(<name>,<type>,<UI>,<quickVars>)       -- create QuickApp proxy on HC3 (usually called with 
-hc3_emulator.pullResource(resouceName)                         -- pull a resource from the HC3 and store it as a flat file
-hc3_emulator.pushResource(file)                                -- Push a flat file resource to the HC3
-hc3_emulator.backup(resource)                                  -- backup QA,Scenes,Globals,LOcations,CustomEvents
 hc3_emulator.post(ev,t)                                        -- post event/sourceTrigger 
 --]]
 
@@ -151,9 +149,10 @@ local socket = require("socket")
 local ltn12  = require("ltn12")
 
 local _debugFlags = {fcall=true, fget=true, post=true, trigger=true, timers=nil, refreshLoop=false, creation=true, mqtt=true} 
+local function merge(t1,t2) for k,v in pairs(t2) do t1[k]=v end return t1 end
 
 local Util,Timer,QA,Scene,Web,Trigger,Offline,DB,Files   -- local modules
-fibaro,json,plugin = {},{},nil                           -- global exports
+fibaro,json,plugin,quickApp = {},{},nil                  -- global exports
 QuickApp,QuickAppBase,QuickAppChild = nil,nil,nil        -- global exports
 
 local function DEF(x,y) if x==nil then return y else return x end end
@@ -166,7 +165,7 @@ hc3_emulator.conditions        = false
 hc3_emulator.actions           = false
 hc3_emulator.offline           = DEF(hc3_emulator.offline,false)
 hc3_emulator.emulated          = true 
-hc3_emulator.debug             = _debugFlags
+hc3_emulator.debug             = merge(_debugFlags,hc3_emulator.debug  or {})
 hc3_emulator.runSceneAtStart   = false
 hc3_emulator.webPort           = hc3_emulator.webPort or 6872
 hc3_emulator.quickVars         = hc3_emulator.quickVars or {}
@@ -183,7 +182,7 @@ local module,commandLines = {},{}
 local HC3_handleEvent = nil        -- Event hook...
 local typeHierarchy = nil
 local format = string.format
-local onAction,onUIEvent
+local onAction,onUIEvent,_quickApp
 local QuickApp_devices,QuickAppChildren = {},{}
 
 -------------- Fibaro API functions ------------------
@@ -216,7 +215,12 @@ function module.FibaroAPI()
         3)
     end 
   end
-  function __fibaro_get_device(deviceID) __assert_type(deviceID,"number") return api.get("/devices/"..deviceID) end
+  function __fibaro_get_device(deviceID) __assert_type(deviceID,"number") 
+    if _quickApp.id == deviceID then
+      return _quickApp
+    end
+    return api.get("/devices/"..deviceID) 
+  end
   function __fibaro_get_room (roomID) __assert_type(roomID,"number") return api.get("/rooms/"..roomID) end
   function __fibaro_get_scene(sceneID) __assert_type(sceneID,"number") return api.get("/scenes/"..sceneID) end
   function __fibaro_get_global_variable(varName) __assert_type(varName ,"string") 
@@ -279,8 +283,8 @@ function module.FibaroAPI()
       __assert_type(deviceID ,"number") 
       local a = {args={},delay=0} 
       for i,v in ipairs({...}) do a.args[i]=v end
-      if deviceID == plugin.mainDeviceId and not plugin._mainDevice.hasProxy then
-        plugin._mainDevice[actionName](plugin._mainDevice,...)
+      if deviceID == plugin.mainDeviceId and not _quickApp.hasProxy then
+        _quickApp[actionName](_quickApp,...)
       else
         local res,stat = api.post("/devices/"..deviceID.."/action/"..actionName,a) 
         if stat==404 then Log(LOG.ERROR,"Device %s does not exists",deviceID) end
@@ -342,6 +346,7 @@ function module.FibaroAPI()
   function fibaro.getAllDeviceIds() return api.get('/devices/') end
 
   function fibaro.getDevicesID(filter) 
+    local function encode(s) return urlencode(tostring(s)) end
     if type(filter) ~= 'table' or (type(filter) == 'table' and next( filter ) == nil) then 
       return fibaro.getIds(fibaro.getAllDeviceIds()) 
     end
@@ -350,17 +355,17 @@ function module.FibaroAPI()
       if c == 'properties' and d ~= nil and type(d) == 'table' then 
         for a,b in pairs (d) do 
           if b == "nil" then 
-            args = args..'property='..tostring(a)..'&' 
+            args = args..'property='..encode(a)..'&' 
           else 
-            args = args..'property=['..tostring(a)..','..tostring(b)..']&' 
+            args = args..'property=['..encode(a)..','..encode(b)..']&' 
           end 
         end 
       elseif c == 'interfaces' and d ~= nil and type(d) == 'table' then 
         for _,b in pairs(d) do 
-          args = args..'interface='..tostring(b)..'&'
+          args = args..'interface='..encode(b)..'&'
         end 
       else 
-        args = args..tostring(c).."="..tostring(d)..'&' 
+        args = args..encode(c).."="..encode(d)..'&' 
       end 
     end
     args =  string.sub(args,1,-2) 
@@ -419,23 +424,47 @@ function module.FibaroAPI()
 
   local rawCall
   api={} -- Emulation of api.get/put/post/delete
-  function api.get(call) return rawCall("GET",call) end
+  function api.get(call) 
+    local last = call:match("/refreshStates%?last=(%d+)") -- Always fetch from emulator cache...
+    if last  then
+      return Trigger.refreshStates.getEvents(tonumber(last))
+    end
+    return rawCall("GET",call) 
+  end
   function api.put(call, data) return rawCall("PUT",call,json.encode(data),"application/json") end
   function api.post(call, data, hs, to) return rawCall("POST",call,data and json.encode(data),"application/json",hs,to) end
   function api.delete(call, data) return rawCall("DELETE",call,data and json.encode(data),"application/json") end
 
   ------------  HTTP support ---------------------
 
-  net = {mindelay=10,maxdelay=1000} -- An emulation of Fibaro's net.HTTPClient and net.TCPSocket()
+  local function intercepLocal(url,options,success,error)
+    if url:match("://(127%.0%.0%.1)[:/]") then
+      url = url:gsub("(://127%.0%.0%.1)","://"..hc3_emulator.credentials.ip)
+      if url:match("://.-:11111/") then
+        url = url:gsub("(:11111)","")
+        options.headers = options.headers or {}
+        options.headers['Authorization'] = hc3_emulator.BasicAuthorization
+      end
+      local refresh = url:match("/api/refreshStates?last=(%d+)")
+      if refresh then
+        local state = Trigger.refreshStates.getEvents(tonumber(refresh))
+        if success then success({status=200,data=json.encode(state)}) end
+        return true
+      end
+    end
+    return false,url
+  end
 
-  function net.HTTPClient(moptions)     -- It is synchronous, but synchronous is a speciell case of asynchronous.. :-)
+  net = net or {mindelay=10,maxdelay=1000} -- An emulation of Fibaro's net.HTTPClient and net.TCPSocket()
+
+  function net.HTTPClient(i_options)     -- It is synchronous, but synchronous is a speciell case of asynchronous.. :-)
     local self = {}                    -- Not sure I got all the options right..
-    function self:request(url,options)
+    function self:request(url,args)
+      local req = {}; for k,v in pairs(i_options or {}) do req[k]=v end
+      for k,v in pairs(args.options or {}) do req[k]=v end
+      local s,u = intercepLocal(url,req,args.success,args.error)
+      if s then return else url=u end
       local resp = {}
-      options = options or {}
-      options.options = options.options or {}
-      for k,v in pairs(moptions or {}) do options.options[k]=v end
-      local req = options.options or {}
       req.url = url
       req.headers = req.headers or {}
       req.sink = ltn12.sink.table(resp)
@@ -453,19 +482,19 @@ function module.FibaroAPI()
       http.TIMEOUT = timeout
       if response == 1 then 
         local d = table.concat(resp)
-        if options.success then -- simulate asynchronous callback
+        if args.success then -- simulate asynchronous callback
           if net.maxdelay>=net.mindelay then
-            Timer.setTimeout(function() options.success({status=status, headers=headers, data=d}) end,math.random(net.mindelay,net.maxdelay)) 
+            Timer.setTimeout(function() args.success({status=status, headers=headers, data=d}) end,math.random(net.mindelay,net.maxdelay)) 
           else
-            options.success({status=status, headers=headers, data=table.concat(resp)})
+            args.success({status=status, headers=headers, data=table.concat(resp)})
           end
         end
       else
-        if options.error then 
+        if args.error then 
           if net.maxdelay>=net.mindelay then
-            Timer.setTimeout(function() options.error(status) end,math.random(net.mindelay,net.maxdelay))
+            Timer.setTimeout(function() args.error(status) end,math.random(net.mindelay,net.maxdelay))
           else
-            options.error(status) 
+            args.error(status) 
           end
         end
       end
@@ -474,14 +503,14 @@ function module.FibaroAPI()
   end
   local HTTPSyncClient = net.HTTPClient
 
-  function net.HTTPAsyncClient(moptions)     -- It is synchronous, but synchronous is a speciell case of asynchronous.. :-)
-    local self = {}                    -- Not sure I got all the options right..
-    function self:request(url,options)
+  function net.HTTPAsyncClient(i_options)  -- It is synchronous, but synchronous is a speciell case of asynchronous.. :-)
+    local self = {}                       -- Not sure I got all the options right..
+    function self:request(url,args)
+      local req = {}; for k,v in pairs(i_options or {}) do req[k]=v end
+      for k,v in pairs(args.options or {}) do req[k]=v end
+      local s,u = intercepLocal(url,req,args.success,args.error)
+      if s then return else url=u end
       local resp = {}
-      options = options or {}
-      options.options = options.options or {}
-      for k,v in pairs(moptions or {}) do options.options[k]=v end
-      local req = options.options or {}
       req.url = url
       req.headers = req.headers or {}
       req.sink = ltn12.sink.table(resp)
@@ -501,12 +530,12 @@ function module.FibaroAPI()
           setTimeout(getHTTP,1)
         else 
           if response==1 then
-            if options.success then 
-              Timer.setTimeout(function() options.success({status=status, headers=headers, data=table.concat(resp)}) end,0) 
+            if args.success then 
+              Timer.setTimeout(function() args.success({status=status, headers=headers, data=table.concat(resp)}) end,0) 
             end
           else
-            if options.error then 
-              Timer.setTimeout(function() options.error(status) end,0)
+            if args.error then 
+              Timer.setTimeout(function() args.error(status) end,0)
             end
           end
         end
@@ -541,9 +570,9 @@ function module.FibaroAPI()
     return self
   end
 
-  TTTT = false
   function rawCall(method,call,data,cType,hs,to)
     if hc3_emulator.offline then return Offline.api(method,call,data,cType,hs) end
+    if call:match("/refreshStates") then return Offline.api(method,call,data,cType,hs) end
     local resp = {}
     local req={ method=method, timeout=to or 5000,
       url = "http://"..hc3_emulator.credentials.ip.."/api"..call,
@@ -554,9 +583,6 @@ function module.FibaroAPI()
     }
     --req.headers["Accept"] = 'application/json'
     req.headers["Accept"] = '*/*'
-    if TTTT then 
-      req.headers["Accept"]="text/plain" 
-    end
     req.headers["X-Fibaro-Version"] = 2
     if data then
       req.headers["Content-Type"] = cType
@@ -729,17 +755,15 @@ function module.FibaroAPI()
       setClimateZoneToVacationMode = fibaro.setClimateZoneToVacationMode
     },
 
-    SystemService = { 
-      reboot = function() 
-        Log(LOG.WARNING,"Can't reboot HC3")
-      end,
-      suspend = function() 
-        Log(LOG.WARNING,"Can't suspend HC3")
-      end 
+    SystemService = {
+      reboot = function() api.post("/service/reboot") end,
+      suspend = function() api.post("/service/suspend") end,
+      shutdown = function() api.post("/service/shutdown") end,
     },
 
     notificationService = {
       publish = function(request)
+        request.canBeDeleted = true
         request.canBeDeleted = true
         return api.post('/notificationCenter', request)
       end,
@@ -828,7 +852,7 @@ function module.Timer()
   }
 
   local function makeTimer(time,fun,props)  
-    local t = {['%%TIMER%%']=true, time=time, fun=fun, tag=props and props.tag, t0=_timeAdjust+time}
+    local t = {['%%TIMER%%']=true, time=time, fun=fun, tag=props and props.tag, t0=os.time()+time}
     t.tostr = tostring(t) setmetatable(t,TimerMetatable)
     return t
   end
@@ -897,6 +921,7 @@ function module.Timer()
     local fastTimer = nil
 
     local function addTimer(t) --{f = fun, t=time, nxt = next}
+      t.time=t.time+os.time() -- absolute time we expire
       if fastTimer == nil then fastTimer = t
       elseif t.time < fastTimer.time then
         t.next=fastTimer; fastTimer = t
@@ -910,7 +935,7 @@ function module.Timer()
 
     function setTimeout(fun,t,tag) -- globally redefine global setTimeout
       assert(type(fun)=='function' and type(t)=='number',"Bad argument to setTimeout")
-      --Log(LOG.LOG,"S %s:%d",text or "",t/1000)
+      --Log(LOG.LOG,"S %s:%d",tag or "",t/1000)
       if t >= 0 then return addTimer(makeTimer(t/1000,fun,{tag=tag})) end
     end
 
@@ -927,18 +952,27 @@ function module.Timer()
       end
     end
 
+    local function dumpTimers()
+      local t = fastTimer
+      Log(LOG.LOG,"-------")
+      while t do
+        Log(LOG.LOG,t)
+        t=t.next
+      end
+    end
     self.coprocess(0,function()
         while true do
           if os.time() >= maxTime then Log(LOG.SYS,"Max time - exit")  os.exit() end
           if fastTimer then
-            local t0 = fastTimer.t0
+            --dumpTimers()
+            local time = fastTimer.time
             Timer.setTimeout(fastTimer.fun,0,fastTimer.tag) -- schedule next time in lines
-            --Log(LOG.LOG,"E %s",fastTimer.text or "")
-            _timeAdjust=fastTimer.t0 -- adjust time
+            --Log(LOG.LOG,"E %s",fastTimer)
+            _timeAdjust=_timeAdjust+time-os.time() -- adjust time
             fastTimer = fastTimer.next
-            while fastTimer and fastTimer.t0==t0 do
+            while fastTimer and fastTimer.time==time do
               Timer.setTimeout(fastTimer.fun,0,fastTimer.tag)
-              --Log(LOG.LOG,"E %s",fastTimer.text or "")
+              --Log(LOG.LOG,"E %s",fastTimer)
               fastTimer = fastTimer.next
             end
           else 
@@ -956,6 +990,7 @@ function module.Timer()
   function self.setEmulatorTime(t)
     local diff = t-os.time()
     _timeAdjust = _timeAdjust + diff
+    Log(LOG.SYS,"Setting emulator time to %s",os.date("%c",t))
   end
 
   setTimeout = self.setTimeout
@@ -988,7 +1023,6 @@ function module.QuickApp()
       cbs[cb.name][cb.eventType] = cb.callback
     end
     self.uiCallbacks = cbs
-    self._quickVars = {}
   end
 
   function QuickAppBase:debug(...) fibaro.debug("",table.concat({...})) end
@@ -1067,6 +1101,9 @@ function module.QuickApp()
     end
     self.childDevices = {}
     self.hasProxy = plugin.isProxy
+    _quickApp = self
+    if self.onInit then self:onInit() end
+    if not self._childsInited then self:initChildDevices() end
   end
 
   function QuickApp:createChildDevice(props,device)
@@ -1095,7 +1132,7 @@ function module.QuickApp()
 
   function QuickApp:initChildDevices(map)
     local echilds = plugin.getChildDevices() 
-    local childs = self.childDevices or {}
+    local childs = self.childDevices
     for _,d in pairs(echilds) do
       if (not childs[d.id]) and map[d.type] then
         childs[d.id]=map[d.type](d)
@@ -1103,13 +1140,14 @@ function module.QuickApp()
         Log(LOG.ERROR,"Class for the child device: %s, with type: %s not found. Using base class: QuickAppChild",d.id,d.type)
         childs[d.id]=QuickAppChild(d)
       end
+      childs[d.id].parent = self
     end
+    self._childsInited = true
   end
 
   class 'QuickAppChild'(QuickAppBase)
   function QuickAppChild:__init(device) 
     QuickAppBase.__init(self,device) 
-    self.parent=QuickApp_devices[plugin.mainDeviceId]
     self.hasProxy=true
   end
 
@@ -1321,7 +1359,7 @@ function module.QuickApp()
       d1,res = api.post("/quickApp/",d)
       what = "created"
     end
-    if res > 201 then 
+    if type(res)=='string' or res > 201 then 
       Log(LOG.ERROR,"D:%s,RES:%s",json.encode(d1),json.encode(res))
       return nil
     else 
@@ -1398,26 +1436,33 @@ function QuickApp:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) e
   end
 
   local function runQuickApp(args)
-    local ptype         = args.type or "com.fibaro.binarySwitch"
-    local UI            = args.UI or {}
-    local quickVars     = args.quickVars or {}
-    local name          = args.name or "My App"
+    local ptype         = hc3_emulator.type or "com.fibaro.binarySwitch"
+    local UI            = hc3_emulator.UI or {}
+    local quickVars     = hc3_emulator.quickVars or {}
+    local name          = hc3_emulator.name or "My App"
+
+    for k,v in pairs(quickVars) do 
+      if type(v)=='string' and v:match("^%$CREDS") then
+        local p = "return hc3_emulator.credentials"..v:match("^%$CREDS(.*)") 
+        quickVars[k]=load(p)()
+      end
+    end
 
     local deviceStruct= {
-      id=args.id or 999,name=name,type=ptype,
+      id=hc3_emulator.id or 999,name=name,type=ptype,
       properties={quickAppVariables=quickVars}
     }
 
     if hc3_emulator.offline then              -- Offline
-      plugin.mainDeviceId = args.id or 999
+      plugin.mainDeviceId = hc3_emulator.id or 999
 
     else -- Connected to something at the HC3...
-      if args.id or args.proxy then
-        if args.id then
-          deviceStruct = api.get("/devices/"..args.id)
-          assert(deviceStruct,format("hc3_emulator.start: QuickApp with id %s doesn't exist on HC3",args.id))
-        elseif args.proxy then
-          deviceStruct = createProxy(name, ptype, UI, quickvars)
+      if hc3_emulator.id or hc3_emulator.proxy then
+        if hc3_emulator.id then
+          deviceStruct = api.get("/devices/"..hc3_emulator.id)
+          assert(deviceStruct,format("hc3_emulator.start: QuickApp with id %s doesn't exist on HC3",hc3_emulator.id))
+        elseif hc3_emulator.proxy then
+          deviceStruct = createProxy(name, ptype, UI, quickVars)
           assert(deviceStruct,"hc3_emulator.start: Failed creating proxy")
         end
         plugin.isProxy = true
@@ -1430,28 +1475,26 @@ function QuickApp:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) e
 
     Log(LOG.HEADER,"QuickApp '%s', deviceID:%s started at %s",deviceStruct.name,deviceStruct.id,os.date("%c"))
 
-    if args.poll and not hc3_emulator.offline then Trigger.startPolling(tonumber(args.poll ) or 2000) end
+    if hc3_emulator.poll and not hc3_emulator.offline then Trigger.startPolling(tonumber(hc3_emulator.poll ) or 2000) end
 
     if plugin.isProxy then
 
       function HC3_handleEvent(e) -- If we have a HC3 proxy, we listen for UI events (PROXY)
 
         if e.type=='DeviceRemovedEvent' then
-          plugin._mainDevice:removeChildDevice(e.value.id) -- Remove it if it was a child of the QuickApp
+          quickApp:removeChildDevice(e.value.id) -- Remove it if it was a child of the QuickApp
         end
       end
 
     end
 
-    if QuickApp.onInit then -- start :onInit if we have one...
-      plugin._mainDevice = QuickApp(deviceStruct)
-      Timer.setTimeout(function() plugin._mainDevice:onInit() end,0) 
-    end 
+    quickApp = QuickApp(deviceStruct)
+    _quickApp = quickApp
   end
 
   function onAction(event)
     Debug(_debugFlags.onAction,"onAction: %s",json.encode(event))
-    local self = plugin._mainDevice
+    local self = _quickApp
     if self.actionHandler then self:actionHandler(event)
     else
       local id = event.deviceId 
@@ -1471,7 +1514,7 @@ function QuickApp:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) e
 --"{\"eventType\":\"onChanged\",\"values\":[80],\"elementName\":\"sl\",\"deviceId\":726}"
   function onUIEvent(event)
     Debug(_debugFlags.UIEvent,"UIEvent: %s",json.encode(event))
-    local self = plugin._mainDevice
+    local self = _quickApp
     if self.UIHandler then self:UIHandler(event)
     else
       local elm,etyp = event.elementName, event.eventType
@@ -1764,14 +1807,13 @@ climate
     return ctx
   end
 
-  local function runScene(args)
+  local function runScene()
     local condition,triggers,dates = compileCondition(hc3_emulator.conditions)
-    hc3_emulator.runSceneAtStart = hc3_emulator.runSceneAtStart or args.runSceneAtStart
     Log(LOG.HEADER,"Scene started at %s",os.date("%c"))
     if hc3_emulator.runSceneAtStart or next(hc3_emulator.conditions)==nil then
       Timer.setTimeout(function() HC3_handleEvent({type = "manual", property = "execute"}) end,0)
     end
-    Trigger.startPolling(tonumber(args.poll) or 2000) -- Start polling HC3 for triggers
+    Trigger.startPolling(tonumber(hc3_emulator.poll) or 2000) -- Start polling HC3 for triggers
 
     function HC3_handleEvent(e)
       local ctx = createCTX()
@@ -1884,6 +1926,8 @@ function module.Trigger()
       post({type='profile',property='activeProfile',value=d.newActiveProfile, old=d.oldActiveProfile}) 
     end,
     OnlineStatusUpdatedEvent = function(self,d)  post({type='OnlineStatusUpdatedEvent', value=d}) end,
+    NotificationCreatedEvent = function(d) end,
+    NotificationRemovedEvent = function(d) end,
   }
 
   local function checkEvents(events)
@@ -1892,6 +1936,7 @@ function module.Trigger()
       if eh then eh(_,e.data)
       elseif eh==nil then Log(LOG.WARNING,"Unhandled event:%s -- please report",json.encode(e)) end
     end
+    self.refreshStates.addEvents(events)
   end
 
   local lastRefresh = 0
@@ -1905,8 +1950,35 @@ function module.Trigger()
     end
   end
 
+  local function pollOnce() -- Doesn't work, we need predictable returns
+    if hc3_emulator.offline then return Offline.api("GET","/refreshStates?last=" .. lastRefresh) end
+    local resp = {}
+    local req={ method="GET",
+      url = "http://"..hc3_emulator.credentials.ip.."/api/refreshStates?last=" .. lastRefresh,
+      sink = ltn12.sink.table(resp),
+      user=hc3_emulator.credentials.user,
+      password=hc3_emulator.credentials.pwd,
+      headers={}
+    }
+    req.headers["Accept"] = '*/*'
+    req.headers["X-Fibaro-Version"] = 2
+    local to = http.TIMEOUT
+    http.TIMEOUT = 1 -- TIMEOUT == 0 doesn't work...
+    local r, c, h = http.request(req)
+    http.TIMEOUT = to
+    if not r then return nil,c, h end
+    if c>=200 and c<300 then
+      local states = resp[1] and json.decode(table.concat(resp))
+      if states then
+        lastRefresh=states.last
+        if states.events and #states.events>0 then checkEvents(states.events) end
+      end
+    end
+    return nil,c, h
+  end
+
   local function pollEvents(interval)
-    local INTERVAL = interval or 1000 -- every second, could do more often...
+    local INTERVAL = interval or 0 -- every second, could do more often...
 
     api.post("/globalVariables",{name=tickEvent,value="Tock!"})
     cache.polling = true -- Our loop will populate cache with values - no need to fetch from HC3
@@ -1930,6 +2002,64 @@ function module.Trigger()
     t = t or 0
     setTimeout(function() HC3_handleEvent(ev) end,t).isSystem=true
   end
+
+--------------- refreshState handling ---------------
+  local function createRefreshStateQueue(size)
+    local self = {}
+    local QLAST = 300
+    local function mkQeueu(size)
+      self = { size=size, queue={} }
+      local queue,head,tail = self.queue,1,1
+      function self.pop()
+        if head==tail then return end
+        local e = queue[head]
+        head = head-1; if head==0 then head = size end
+        return e
+      end
+      function self.push(e) 
+        head=head % size + 1
+        if head==tail then tail = tail % size + 1 end
+        queue[head]=e
+      end
+      function self.dump()
+        local h1,t1 = head,tail
+        local e = self.pop()
+        while e do print(json.encode(e)) e = self.pop() end
+        head,tail = h1,t1
+      end
+      return self
+    end
+
+    self.eventQueue=mkQeueu(size) --- 1..QUEUELENGTH
+    local eventQueue = self.eventQueue
+
+    function self.addEvents(events) -- {last=num,events={}}
+      QLAST=QLAST+1
+      events = events[1] and events or {events}
+      eventQueue.push({last=QLAST, events=events})
+    end
+
+    function self.getEvents(last)
+      local res1,res2 = {},{}
+      while true do
+        local e = eventQueue.pop()     ----    5,6,7,8    6
+        if e and e.last > last then 
+          res1[#res1+1]=e
+        else break end
+      end
+      if #res1==0 then return { last=last } end
+      last = res1[1].last   ----  { 1, 2, 3, 4, 5}
+      for i=#res1,1,-1 do
+        local es = res1[i].events or {}
+        for j=#es,1,-1 do res2[#res2+1]=es[j] end
+      end
+      return {last = last, events = res2}
+    end
+    self.dump = eventQueue.dump
+    return self
+  end
+
+  self.refreshStates = createRefreshStateQueue(200)
 
   self.eventTypes = EventTypes
   self.startPolling = pollEvents
@@ -2056,48 +2186,122 @@ function module.Utilities()
   function self.map(f,l) local r={}; for _,e in ipairs(l) do r[#r+1]=f(e) end; return r end
   function self.mapf(f,l) for _,e in ipairs(l) do f(e) end; end
   function self.mapk(f,l) local r={}; for k,v in pairs(l) do r[k]=f(v) end; return r end
-  function self.mapkv(f,l) local r={}; for k,v in pairs(l) do nk,nv=f(k,v) r[nk]=nv end; return r end
-
-  local gKeys = {type=1,deviceID=2,value=3,val=4,key=5,arg=6,event=7,events=8,msg=9,res=10}
-  local gKeysNext = 10
-  local function keyCompare(a,b)
-    local av,bv = gKeys[a], gKeys[b]
-    if av == nil then gKeysNext = gKeysNext+1 gKeys[a] = gKeysNext av = gKeysNext end
-    if bv == nil then gKeysNext = gKeysNext+1 gKeys[b] = gKeysNext bv = gKeysNext end
-    return av < bv
+  function self.mapkv(f,l) local r={}; for k,v in pairs(l) do k,v=f(k,v) r[k]=v end; return r end
+  local function transform(obj,tf)
+    if type(obj) == 'table' then
+      local res = {} for l,v in pairs(obj) do res[l] = transform(v,tf) end 
+      return res
+    else return tf(obj) end
   end
-  function self.prettyJson(e) -- our own json encode, as we don't have 'pure' json structs, and sorts keys in order (i.e. "stable" output)
-    local res,seen = {},{}
-    local function pretty(e)
-      local t = type(e)
-      if t == 'string' then res[#res+1] = '"' res[#res+1] = e res[#res+1] = '"' 
-      elseif t == 'number' then res[#res+1] = e
-      elseif t == 'boolean' or t == 'function' or t=='thread' or t=='userdata' then res[#res+1] = tostring(e)
-      elseif t == 'table' then
-        if next(e)==nil then res[#res+1]='{}'
-        elseif seen[e] then res[#res+1]="..rec.."
-        elseif e[1] or #e>0 then
-          seen[e]=true
-          res[#res+1] = "[" pretty(e[1])
-          for i=2,#e do res[#res+1] = "," pretty(e[i]) end
-          res[#res+1] = "]"
-        else
-          seen[e]=true
-          if e._var_  then res[#res+1] = format('"%s"',e._str) return end
-          local k = {} for key,_ in pairs(e) do k[#k+1] = key end 
-          table.sort(k,keyCompare)
-          if #k == 0 then res[#res+1] = "[]" return end
-          res[#res+1] = '{'; res[#res+1] = '"' res[#res+1] = k[1]; res[#res+1] = '":' t = k[1] pretty(e[t])
-          for i=2,#k do 
-            res[#res+1] = ',"' res[#res+1] = k[i]; res[#res+1] = '":' t = k[i] pretty(e[t]) 
-          end
-          res[#res+1] = '}'
-        end
-      elseif e == nil then res[#res+1]='null'
-      else error("bad json expr:"..tostring(e)) end
+  function self.copy(obj) return transform(obj, function(o) return o end) end
+  local function equal(e1,e2)
+    local t1,t2 = type(e1),type(e2)
+    if t1 ~= t2 then return false end
+    if t1 ~= 'table' and t2 ~= 'table' then return e1 == e2 end
+    for k1,v1 in pairs(e1) do if e2[k1] == nil or not equal(v1,e2[k1]) then return false end end
+    for k2,v2 in pairs(e2) do if e1[k2] == nil or not equal(e1[k2],v2) then return false end end
+    return true
+  end
+
+  do
+    local sortKeys = {"type","device","deviceID","value","oldValue","val","key","arg","event","events","msg","res"}
+    local sortOrder={}
+    for i,s in ipairs(sortKeys) do sortOrder[s]="\n"..string.char(i+64).." "..s end
+    local function keyCompare(a,b)
+      local av,bv = sortOrder[a] or a, sortOrder[b] or b
+      return av < bv
     end
-    pretty(e)
-    return table.concat(res)
+
+    function self.prettyJsonFlat(e) -- our own json encode, as we don't have 'pure' json structs, and sorts keys in order (i.e. "stable" output)
+      local res,seen = {},{}
+      local function pretty(e)
+        local t = type(e)
+        if t == 'string' then res[#res+1] = '"' res[#res+1] = e res[#res+1] = '"' 
+        elseif t == 'number' then res[#res+1] = e
+        elseif t == 'boolean' or t == 'function' or t=='thread' or t=='userdata' then res[#res+1] = tostring(e)
+        elseif t == 'table' then
+          if next(e)==nil then res[#res+1]='{}'
+          elseif seen[e] then res[#res+1]="..rec.."
+          elseif e[1] or #e>0 then
+            seen[e]=true
+            res[#res+1] = "[" pretty(e[1])
+            for i=2,#e do res[#res+1] = "," pretty(e[i]) end
+            res[#res+1] = "]"
+          else
+            seen[e]=true
+            if e._var_  then res[#res+1] = format('"%s"',e._str) return end
+            local k = {} for key,_ in pairs(e) do k[#k+1] = key end 
+            table.sort(k,keyCompare)
+            if #k == 0 then res[#res+1] = "[]" return end
+            res[#res+1] = '{'; res[#res+1] = '"' res[#res+1] = k[1]; res[#res+1] = '":' t = k[1] pretty(e[t])
+            for i=2,#k do 
+              res[#res+1] = ',"' res[#res+1] = k[i]; res[#res+1] = '":' t = k[i] pretty(e[t]) 
+            end
+            res[#res+1] = '}'
+          end
+        elseif e == nil then res[#res+1]='null'
+        else error("bad json expr:"..tostring(e)) end
+      end
+      pretty(e)
+      return table.concat(res)
+    end
+  end
+  self.prettyJson = self.prettyJsonFlat
+
+  do -- Used for print device tabel structs
+    local sortKeys = {
+      'id','name','roomID','type','baseType','enabled','visible','isPlugin','parentId','viewXml','configXml',
+      'interfaces','properties','view', 'actions','created','modified','sortOrder'
+    }
+    local sortOrder={}
+    for i,s in ipairs(sortKeys) do sortOrder[s]="\n"..string.char(i+64).." "..s end
+    local function keyCompare(a,b)
+      local av,bv = sortOrder[a] or a, sortOrder[b] or b
+      return av < bv
+    end
+
+    function self.prettyJsonStruct(t)
+      local res = {}
+      local function isArray(t) return type(t)=='table' and t[1] end
+      local function isEmpty(t) return type(t)=='table' and next(t)==nil end
+      local function isKeyVal(t) return type(t)=='table' and t[1]==nil and next(t)~=nil end
+      local function printf(tab,fmt,...) res[#res+1] = string.rep(' ',tab)..string.format(fmt,...) end
+      local function pretty(tab,t,key)
+        if type(t)=='table' then
+          if isEmpty(t) then printf(0,"[]") return end
+          if isArray(t) then
+            printf(key and tab or 0,"[\n")
+            for i,k in ipairs(t) do
+              local cr = pretty(tab+1,k,true)
+              if i ~= #t then printf(0,',') end
+              printf(tab+1,'\n')
+            end
+            printf(tab,"]")
+            return true
+          end
+          local r = {}
+          for k,v in pairs(t) do r[#r+1]=k end
+          table.sort(r,keyCompare)
+          printf(key and tab or 0,"{\n")
+          for i,k in ipairs(r) do
+            printf(tab+1,'"%s":',k)
+            local cr =  pretty(tab+1,t[k])
+            if i ~= #r then printf(0,',') end
+            printf(tab+1,'\n')
+          end
+          printf(tab,"}")
+          return true
+        elseif type(t)=='number' then
+          printf(key and tab or 0,"%s",t) 
+        elseif type(t)=='boolean' then
+          printf(key and tab or 0,"%s",t and 'true' or 'false') 
+        elseif type(t)=='string' then
+          printf(key and tab or 0,'"%s"',t)
+        end
+      end
+      pretty(0,t,true)
+      return table.concat(res,"")
+    end
   end
 
   local function patchFibaro(name)
@@ -2244,11 +2448,6 @@ function module.Utilities()
   return self
 end
 
-commandLines['help'] = function()
-  for c,f in pairs(commandLines) do
-    Log(LOG.LOG,"Command: -%s",c)
-  end
-end
 --------------- json functions ------------------------
 function module.Json()
 --
@@ -2712,9 +2911,9 @@ function module.WebAPI()
         local QA 
         id = tonumber(id)
         if id == plugin.mainDeviceId then
-          QA = plugin._mainDevice
+          QA = _quickApp
         else
-          for id2,d in pairs(plugin._mainDevice.childDevices or {}) do
+          for id2,d in pairs(_quickApp.childDevices or {}) do
             if id == id2 then QA=d; break end
           end
         end
@@ -2867,16 +3066,10 @@ function module.Files()
     if not lfs.attributes(dir) then createDir(dir) end
   end
 
-  local function getBackupDir()
-    getHC3dir()
-    backupDir  = concatPath(dir,"backup")
-    if not lfs.attributes(backupDir) then createDir(backupDir) end
-  end
-
-  function self.deploy(args)
-    local name,id = args.name
+  function self.deploy(source)
+    local name,id = hc3_emulator.name
     assert(name,"Missing name for deployment")
-    local source = debug.getinfo(3, 'S').short_src
+    --local source = debug.getinfo(2, 'S').short_src
     local f = io.open(source)
     assert(f,"Can't find source "..source)
     net.maxdelay=0
@@ -2886,16 +3079,16 @@ function module.Files()
     end
     local code = f:read("*all")
     Log(LOG.SYS,"Deploying %s",name)
-    local quickVars=args.quickVars or {}
+    local quickVars=hc3_emulator.quickVars or {}
     for k,v in pairs(hc3_emulator.quickVars or {}) do
       if not quickVars[k] then quickVars[k]=v end
     end
     local res = QA.createQuickApp{
       name=name,
       id = id,
-      type=args.type,
+      type=hc3_emulator.type,
       code=code,
-      UI=args.UI,
+      UI=hc3_emulator.UI,
       quickVars=quickVars
     }
   end
@@ -3056,27 +3249,11 @@ function module.Files()
     return d
   end
 
-  local function readResource(path) -- text,type,err
-    local tp,id,name = path:match("(%a+)_(%d+)_([%-%._%w]+)%.lua$")
-    local f,err = io.open(path)
-    if not f then return nil,nil,nil,"Can't open file:"..err end
-    local txt = f:read("*all")
-    if txt:match("%-%-%[%[ <<QuickApp>>") then return txt,"QA",name,tp ~= "QA" and "filename mismatch" end
-    if txt:match("%-%-%[%[ <<Scene>>") then return txt,"Scene",name,tp ~= "Scene" and "filename mismatch" end
-    local state,s = pcall(function() return json.decode(txt) end)
-    if state then
-      if s.userDescription then return txt,"CustomEvent",name,tp ~= "CustomEvent" and "filename mismatch" end
-      if s.latitude then return txt,"Location",name,tp ~= "Location" and "filename mismatch" end
-      if s.value and s.name then return txt,"Global",name,tp ~= "Global" and "filename mismatch" end
-    end
-    return nil,nil,nil,"Not a resource"
-  end
-
   function self.writeFile(tp,struct,path)
     local fileText = self[tp].convertStruct2text(struct)
-    fname = format("%s_%d_%s.lua",tp,struct.id or 0,struct.name)
+    local fname = format("%s_%d_%s.lua",tp,struct.id or 0,struct.name)
     fname =  fname:gsub("([%s%/])","_")
-    local fname = path~="" and concatPath(path,fname) or fname
+    fname = path~="" and concatPath(path,fname) or fname
     local f,err = io.open(fname,"w")
     assert(f,"Can't open file for write:"..fname)
     f:write(fileText)
@@ -3093,7 +3270,8 @@ function module.Files()
   end
 
   function self.restoreQuickApp(struct,id,name)
-    warn(struct.id==id,"QuickApp",name)
+    local sname = struct.name:gsub("([%s%/])","_")
+    warn(sname==name and struct.id==id,"QuickApp",name)
     local ds = api.get("/devices/"..struct.id)
     if ds and ds.name==struct.name then
       Log(LOG.LOG,"Updating existing device %s",struct.name)
@@ -3121,7 +3299,8 @@ function module.Files()
   end
 
   function self.restoreScene(struct,id,name)
-    warn(struct.id==id,"scene",name)
+    local sname = struct.name:gsub("([%s%/])","_")
+    warn(sname==name and struct.id==id,"scene",name)
     if api.get("/scenes/"..struct.id) then
       Log(LOG.LOG,"Updating existing scene %s",struct.name)
       checkError(api.put("/scenes/"..struct.id,struct))
@@ -3132,6 +3311,8 @@ function module.Files()
   end
 
   function self.restoreGlobal(struct,id,name)
+    local sname = struct.name:gsub("([%s%/])","_")
+    warn(sname==name,"globalVariable",name)
     if api.get("/globalVariables/"..struct.name) then
       Log(LOG.LOG,"Updating existing globalVariable %s",struct.name)
       checkError(api.put("/globalVariables/"..struct.name,struct))
@@ -3142,18 +3323,20 @@ function module.Files()
   end
 
   function self.restoreLocation(struct,id,name)
-    warn(struct.id==id,"location",name)
+    local sname = struct.name:gsub("([%s%/])","_")
+    warn(sname==name and struct.id==id,"location",name)
     if api.get("/panels/location/"..struct.id) then
       Log(LOG.LOG,"Updating existing location %s",struct.name)
       checkError(api.put("/panels/location/"..struct.id,struct))
     else
-      pdebug("Creating new location %s",struct.name)
+      Log(LOG.LOG,"Creating new location %s",struct.name)
       checkError(api.post("/panels/location",struct))
     end
   end
 
   function self.restoreCustom(struct,id,name)
-    warn(struct.id==id,"customEvent",name)
+    local sname = struct.name:gsub("([%s%/])","_")
+    warn(sname==name and struct.id==id,"customEvent",name)
     if api.get("/customEvents/"..struct.name) then
       Log(LOG.LOG,"Updating existing customEvent %s",struct.name)
       checkError(api.put("/customEvents/"..struct.name,struct))
@@ -3211,16 +3394,7 @@ function module.Files()
     self.download(resource,path)
   end
 
-  function self.lastBackupDir()
-  end
-
-  function self.backupDir()
-    getHC3dir()
-  end
-
-  function self.backup(resource) -- all,scenes,devices,globals,locations,customs
-    getHC3dir()
-    resource = resource  or "all"
+  function self.backup(resource) -- scenes,devices,globals,locations,customs
     local dpath = concatPath(dir,"backup")
     createDir(dpath)
     local dname = os.date(hc3_emulator.backDirFmt)
@@ -3231,38 +3405,35 @@ function module.Files()
     else self.backupR(resource,dpath) end
   end
 
-  function self.restore(path) -- Restore from path+filename. ToDo, use readResource instead
-    local txt,tp,name,err = readResource(path)
-    assert(txt,"Can't read resource, "..tostring(err))
-    if err then Log(LOG.WARNING,"File name and content mismatch: Found %s in %s",tp,path) end
+  function self.restore(path)
+    local tp,id,name = path:match("(%a+)_(%d+)_([%-%._%w]+)%.lua$")
+    local f = io.open(path)
+    assert(f,"File does not exist: "..path)
+    assert(tp,"Unsupported resource: "..tostring(tp))
+    Log(LOG.LOG,"Restoring resource %s %s",tp,path)
+    local txt = f:read("*all")
+    f:close()
     local struct = self[tp].convertText2struct(txt)
-    if name then
-      local fn = struct.name:gsub("([%s%/])","_")
-      if fn ~= name then Log(LOG.WARNING,"Resource name differs from filname") end
-    end
-    self[tp].restoreStruct(struct,tonumber(id),struct.name)
+    self[tp].restoreStruct(struct,tonumber(id),name)
   end
 
---self.backup('all')
---self.restore("HC3Files/backup/05-13-2020 06.58.59/Globals/Global_0_DaniLoc.lua")
+  getHC3dir()
 
-  function self.pull(resourceName) 
-    local rsrc,id = resourceName:match("^%s*/?(%a+)/([%a%d]+)%s*")
-    assert(rsrc and id and resMap[rsrc],"Not a resource name:"..resourceName)
+  commandLines['pull']=function(...) -- devices/239
+    local path = table.concat({...})
+    local rsrc,id = path:match("^%s*/?(%a+)/([%a%d]+)%s*")
+    assert(rsrc and id and resMap[rsrc],"Not a resource name")
     local r = resMap[rsrc]
-    local struct = api.get(r.rsrcpath.."/"..id)
+    local struct = api.get("/"..rsrc.."/"..id)
     Log(LOG.LOG,"Writing file...")
     local fn = self.writeFile(r.name,struct,"")
     if fn then
       Log(LOG.LOG,"File %s written",fn)
     end
   end
-
-  commandLines['pull']=function(...) self.pull(table.concat({...})) end
   commandLines['push']=function(...) self.restore(table.concat({...}," ")) end
   commandLines['backup']=function() self.backup("all") end
   return self
-
 end
 
 --------------- Offline support ----------------------
@@ -3568,63 +3739,9 @@ function module.Offline()
   end
   self.setupDBhooks()
 
---------------- refreshState handling ---------------
-  local function createRefreshStateQueue(size)
-    local self = {}
-    local QLAST = 300
-    local function mkQeueu(size)
-      self = { size=size, queue={} }
-      local queue,head,tail = self.queue,1,1
-      function self.pop()
-        if head==tail then return end
-        local e = queue[head]
-        head = head-1; if head==0 then head = size end
-        return e
-      end
-      function self.push(e) 
-        head=head % size + 1
-        if head==tail then tail = tail % size + 1 end
-        queue[head]=e
-      end
-      function self.dump()
-        local h1,t1 = head,tail
-        local e = self.pop()
-        while e do print(json.encode(e)) e = self.pop() end
-        head,tail = h1,t1
-      end
-      return self
-    end
 
-    self.eventQueue=mkQeueu(size) --- 1..QUEUELENGTH
-    local eventQueue = self.eventQueue
-
-    function self.addEvents(events) -- {last=num,events={}}
-      QLAST=QLAST+1
-      events = events[1] and events or {events}
-      eventQueue.push({last=QLAST, events=events})
-    end
-
-    function self.getEvents(last)
-      local res1,res2 = {},{}
-      while true do
-        local e = eventQueue.pop()     ----    5,6,7,8    6
-        if e and e.last > last then res1[#res1+1]=e
-        else break end
-      end
-      if #res1==0 then return { last=last } end
-      last = res1[1].last   ----  { 1, 2, 3, 4, 5}
-      for i=#res1,1,-1 do
-        local es = res1[i].events or {}
-        for j=#es,1,-1 do res2[#res2+1]=es[j] end
-      end
-      return {last = last, events = res2}
-    end
-    self.dump = eventQueue.dump
-    return self
-  end
-
-  refreshStates = createRefreshStateQueue(QUEUESIZE)
-  self.refreshStates = refreshStates
+  self.refreshStates = Trigger.refreshStates
+  refreshStates = self.refreshStates
 
 ---------------- api.* handlers -- simulated calls to offline version of resources
   local function arr(tab) local res={} for _,v in pairs(tab) do res[#res+1]=v end return res end
@@ -4097,6 +4214,12 @@ Files   = module.Files()
 Offline = module.Offline()
 DB      = module.OfflineDB() 
 
+commandLines['help'] = function()
+  for c,f in pairs(commandLines) do
+    Log(LOG.LOG,"Command: -%s",c)
+  end
+end
+
 if arg[1] then
   local cmd = arg[1]
   if cmd:sub(1,1)=='-' then
@@ -4124,45 +4247,44 @@ hc3_emulator.createDevice = Offline.createDevice --(id,tp)
 hc3_emulator.cache = Trigger.cache 
 hc3_emulator.copyFromHC3 = DB.copyFromHC3
 
-hc3_emulator.pullResource = Files.pull
-hc3_emulator.pushResource = Files.push
-hc3_emulator.backup       = Files.backup
+--[[
+hc3_emulator.credentials
+hc3_emulator.offline
+args.speed
+args.traceFibaro
+args.startWeb
+args.startTime / hc3_emulator.startTime
+hc3_emulator.preamble
+hc3_emulator.asyncHTTP
+args.restartQA
+--]]
 
-function hc3_emulator.startup(args)
-  local source = debug.getinfo(2, 'S').short_src
-  dofile(source)
-  hc3_emulator.start(args)
-end
+local function startUp(file)
 
-function hc3_emulator.start(args)
-  if args.deploy==true then
-    Files.deploy(args)
-    return
-  end
   if not hc3_emulator.offline and not hc3_emulator.credentials then
     error("Missing HC3 credentials -- hc3_emulator.credentials{ip=<IP>,user=<string>,pwd=<string>}")
   end
-  hc3_emulator.speeding = args.speed==true and 48 or tonumber(args.speed)
-  if args.traceFibaro then Util.traceFibaro() end
+  hc3_emulator.speeding = hc3_emulator.speed==true and 48 or tonumber(hc3_emulator.speed)
+  if hc3_emulator.traceFibaro then Util.traceFibaro() end
 
   Log(LOG.SYS,"HC3 SDK v%s",hc3_emulator.version)
+  if hc3_emulator.deploy==true then Files.deploy(file) os.exit() end
 
   if hc3_emulator.speeding then Log(LOG.SYS,"Speeding %s hours",hc3_emulator.speeding) end
-  if not (args.startWeb==false) then Web.start(Util.getIPaddress()) end
+  if not (hc3_emulator.startWeb==false) then Web.start(Util.getIPaddress()) end
 
-  hc3_emulator.startTime = args.startTime or hc3_emulator.startTime 
   if type(hc3_emulator.startTime) == 'string' then 
     Timer.setEmulatorTime(Util.parseDate(hc3_emulator.startTime)) 
   end
 
   if hc3_emulator.offline then
-    if args.loadDB then DB.loadDB() end
+    if hc3_emulator.loadDB then DB.loadDB() end
     if #Offline.db.get("/settings/location")==0 then
       Offline.db.modify("/settings","location",{latitude=52.520008,longitude=13.404954}) -- Berlin
     end
     Offline.start()
   end
-
+  local codeType = "Code"
   ::RESTART::
   Timer.setTimeout(function() 
       if hc3_emulator.speeding then Timer.speedTime(hc3_emulator.speeding) end
@@ -4175,18 +4297,29 @@ function hc3_emulator.start(args)
       if hc3_emulator.credentials then 
         hc3_emulator.BasicAuthorization = "Basic "..Util.base64(hc3_emulator.credentials.user..":"..hc3_emulator.credentials.pwd)
       end
-      hc3_emulator.restartQA = args.restartQA
-      if hc3_emulator.conditions and hc3_emulator.actions then 
-        Scene.start(args)  -- Run a scene
-      else 
+      dofile(file)
+      if hc3_emulator.conditions and hc3_emulator.actions then
+        codeType="Scene"
+        Scene.start()  -- Run a scene
+      elseif QuickApp.onInit then
+        codeType = "QuickApp"
         hc3_emulator.isQA = true
-        QA.start(args)
+        QA.start()
       end
     end,0,"Main")
   local stat,res = xpcall(Timer.start,
     function(err)
-      Log(LOG.ERROR,"QuickApp crashed: %s",err)
+      Log(LOG.ERROR,"%s crashed: %s",codeType,err)
       print(debug.traceback(err))
     end)
   if hc3_emulator.restartQA then goto RESTART end
 end
+
+local file = debug.getinfo(3, 'S')                                  -- Find out what file we are running
+if file and file.source then
+  file = file.source
+  if not file:sub(1,1)=='@' then error("Can't locate file:"..file) end  -- Is it a file?
+  file = file:sub(2)
+  startUp(file)
+end
+os.exit()

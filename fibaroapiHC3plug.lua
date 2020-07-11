@@ -24,7 +24,7 @@ local function launchHC3Help() wx.wxLaunchDefaultBrowser(urlHC3Help, 0) end
 local function launchHC3QAHelp() wx.wxLaunchDefaultBrowser(urlHC3QAHelp, 0) end
 local function launchHC3ScHelp() wx.wxLaunchDefaultBrowser(urlHC3ScHelp, 0) end
 
-local function exePath(version)
+local function exePath(self, version)
   local version = tostring(version or ""):gsub('%.','')
   local mainpath = ide:GetRootPath()
   local macExe = mainpath..([[bin/lua.app/Contents/MacOS/lua%s]]):format(version)
@@ -63,7 +63,7 @@ local function callFibaroAPIHC3(cmd,endMessage)
   end
 
   local wfilename = ide:MergePath(ide.config.path.projectdir, 'fibaroapiHC3.lua')
-  local ep = exePath(version)
+  local ep = exePath(nil,version)
   local pid = CommandLineRun( --tooutput,nohide,stringcallback,uid,endcallback)
     ep.." "..wfilename.." "..cmd,    -- command
     ide.config.path.projectdir,      -- working dir
@@ -77,6 +77,8 @@ local function callFibaroAPIHC3(cmd,endMessage)
   if lpath then wx.wxSetEnv(envlpath, lpath) end
   return pid
 end
+
+-------- Commandline commands ---------
 
 local function launchHC3Copy()
   ide:Print("Copying and creating DB from HC3...") 
@@ -111,6 +113,8 @@ local function backupResources()
   ide:Print("Backing up resources from HC3...") 
   callFibaroAPIHC3("-backup","Backup done!")
 end
+
+------------- Scene and QuickApp templates -------------
 
 local SCENE_TEMPL = 
 [[if dofile then
@@ -156,25 +160,22 @@ hc3_emulator.start{
 ]]
 
 local QA_TEMPL =
-[[if dofile then
+[[if dofile and not hc3_emulator then
+  hc3_emulator = {
+    name = "My QA",    -- Name of QA
+    poll = 2000,       -- Poll HC3 for triggers every 2000ms
+    --offline = true,
+  }
   dofile("fibaroapiHC3.lua")
-  local cr = loadfile("credentials.lua"); if cr then cr() end
-  --require('mobdebug').coro()  
 end
-
---hc3_emulator.offline = true
 
 function QuickApp:onInit()
   self:debug("onInit",plugin.mainDeviceId)
 end
 
-if dofile then
-  hc3_emulator.start{
-    name = "My Test",    -- Name of QA
-    poll = 2000,         -- Poll HC3 for triggers every 2000ms
-  }
-end
 ]]
+
+---------- API completion and tooltips --------------
 
 local api = {
   fibaro = {
@@ -583,80 +584,170 @@ local function addTemplates(t)
   end
 end
 
-local name = "fibaro"
-return {
-  name = "HC3 SDK support",
-  description = "Support for HC3 SDK emulator and templates.",
-  author = "Jan Gabrielsson",
-  version = 0.1,
-  dependencies = "1.0",
+local interpreter = {
+  name =  [[HC3 emulator]],
+  description = [[Lua 5.3 for HC3]],
+  api = {"baselib", "HC3"},
+  luaversion = version or '5.3',
+  fexepath = exePath, 
+  frun = function(self,wfilename,rundebug)
+    local exe = self:fexepath(version or "")
+    local filepath = wfilename:GetFullPath()
+    local fibaroName = "fibaroapiHC3.lua"
+    local projectPath = ide:GetProject()
+    if projectPath then fibaroName = projectPath..fibaroName end
+    local tmplua = wx.wxFileName()
+    tmplua:AssignTempFileName(".")
+    tmpluafile = tmplua:GetFullPath()
+    local flua = io.open(tmpluafile, "w")
+    if not flua then
+      DisplayOutput("Can't open temporary file '"..filepath.."' for writing\n")
+      return
+    end
+    flua:write("local md = require('mobdebug')")
+    flua:write("md.basedir([[projectPath]])")
+    flua:write("md.start()")
+    flua:write(("hc3_emulator = {_startFile=[[%s]]}\n"):format(filepath))
+    flua:write("dofile([[fibaroapiHC3.lua]])\n")
+    --flua:write(("dofile([[%s]])\n"):format(fibaroName))
+    --flua:write(("dofile([[%s]])\n"):format(filepath))
+    flua:write(("hc3_emulator.startFile([[%s]])"):format(filepath))
+    flua:close()
 
-  onRegister = function()
-    local menu = ide:FindTopMenu("&View")
-    menu:Append(idem, "HC3 Emulator\tCtrl-Alt-E"..KSC(idem))
-    ide:GetMainFrame():Connect(idem, wx.wxEVT_COMMAND_MENU_SELECTED, launchEmulator)
+    if rundebug then
+      -- prepare tmp file
 
-    menu = ide:FindTopMenu("&Help")
-    menu:Append(ideh3, "HC3 SDK (fibaroapiHC3.lua) help"..KSC(ideh3))
-    ide:GetMainFrame():Connect(ideh3, wx.wxEVT_COMMAND_MENU_SELECTED, launchHC3Help)
-    menu = ide:FindTopMenu("&Help")
-    menu:Append(ideh3QA, "Fibaro QuickApp manual"..KSC(ideh3QA))
-    ide:GetMainFrame():Connect(ideh3QA, wx.wxEVT_COMMAND_MENU_SELECTED, launchHC3QAHelp)
-    menu = ide:FindTopMenu("&Help")
-    menu:Append(ideh3Sc, "Fibaro Lua Scene manual"..KSC(ideh3Sc))
-    ide:GetMainFrame():Connect(ideh3Sc, wx.wxEVT_COMMAND_MENU_SELECTED, launchHC3ScHelp)
+      DebuggerAttachDefault({runstart = true})      
+      -- update arg to point to the proper file
+      rundebug = ('if arg then arg[0] = [[%s]] end '):format(tmpluafile)..rundebug
 
-    menu = ide:FindTopMenu("&File")
-    menu:AppendSeparator()
-    menu:Append(idech33b, "Create HC3 backup"..KSC(idech33b))
-    ide:GetMainFrame():Connect(idech33b, wx.wxEVT_COMMAND_MENU_SELECTED, backupResources)
 
-    menu = ide:FindTopMenu("&File")
-    menu:Append(idech33d, "Download select resource"..KSC(idech33d))
-    ide:GetMainFrame():Connect(idech33d, wx.wxEVT_COMMAND_MENU_SELECTED, downloadResource)
+      -- local tmpfile = wx.wxFileName()
+      -- tmpfile:AssignTempFileName(".")
+      -- tmpluafile = tmpfile:GetFullPath()
+      local f = io.open(tmpluafile, "a")
+      if not f then
+        DisplayOutput("Can't open temporary file '"..tmpluafile.."' for writing\n")
+        return
+      end
+      f:write(rundebug)
+      f:close()
+    else	  
+      -- if running on Windows and can't open the file, this may mean that
+      -- the file path includes unicode characters that need special handling
+      local fh = io.open(tmpluafile, "r")
+      if fh then fh:close() end
+      if ide.osname == 'Windows' and pcall(require, "winapi")
+      and wfilename:FileExists() and not fh then
+        winapi.set_encoding(winapi.CP_UTF8)
+        tmpluafile = winapi.short_path(tmpluafile)
+      end
+    end
+    local params = ide.config.arg.any or ide.config.arg.lua
+    local code = ([[-e "io.stdout:setvbuf('no')" "%s"]]):format(tmpluafile)
+    local cmd = '"'..exe..'" '..code..(params and " "..params or "")
 
-    menu = ide:FindTopMenu("&File")
-    menu:Append(idech33, "Upload HC3 resource"..KSC(idech33))
-    ide:GetMainFrame():Connect(idech33, wx.wxEVT_COMMAND_MENU_SELECTED, uploadResource)
+    -- modify CPATH to work with other Lua versions
+    local clibs = ('/clibs%s/'):format(version and tostring(version):gsub('%.','') or '')
+    local _, cpath = wx.wxGetEnv("LUA_CPATH")
+    if version and cpath and not cpath:find(clibs, 1, true) then
+      wx.wxSetEnv("LUA_CPATH", cpath:gsub('/clibs/', clibs)) end
 
-    menu = ide:FindTopMenu("&File")
-    menu:Append(idech3, "Create HC3sdk database"..KSC(idech3))
-    ide:GetMainFrame():Connect(idech3, wx.wxEVT_COMMAND_MENU_SELECTED, launchHC3Copy)
+      -- CommandLineRun(cmd,wdir,tooutput,nohide,stringcallback,uid,endcallback)
+      local pid = CommandLineRun(cmd,self:fworkdir(wfilename),true,false,nil,nil,
+        function() 
+          if rundebug then wx.wxRemoveFile(tmpluafile) end 
+        end)
 
-    menu = ide:FindTopMenu("&File")
-    menu:Append(idech31, "Download fibaroapiHC3.sdk"..KSC(idech31))
-    ide:GetMainFrame():Connect(idech31, wx.wxEVT_COMMAND_MENU_SELECTED, downloadHC3SDK)
+      if version and cpath then wx.wxSetEnv("LUA_CPATH", cpath) end
+      return pid
+    end, 
+    fprojdir = function(self,wfilename)
+      return wfilename:GetPath(wx.wxPATH_GET_VOLUME)
+    end,
+    fworkdir = function (self,wfilename)
+      return ide.config.path.projectdir or wfilename:GetPath(wx.wxPATH_GET_VOLUME)
+    end,
+    hasdebugger = true,
+    fattachdebug = function(self) DebuggerAttachDefault() end,
+  }
 
-    menu = ide:FindTopMenu("&Edit")
-    templSubMenu = ide:MakeMenu()
-    templ = menu:AppendSubMenu(templSubMenu, TR("HC3 SDK templates..."))
+  local name = "fibaro"
+  return {
+    name = "HC3 SDK support",
+    description = "Support for HC3 SDK emulator and templates.",
+    author = "Jan Gabrielsson",
+    version = 0.1,
+    dependencies = "1.0",
 
-    local idTSC = ID("HC3.temp_SC")
-    local idTER = ID("HC3.temp_ER")
-    templSubMenu:Append(idTER, "QuickApp"..KSC(idTER))
-    ide:GetMainFrame():Connect(idTER, wx.wxEVT_COMMAND_MENU_SELECTED, function() addTemplates("QA") end)
-    templSubMenu:Append(idTSC, "Scene"..KSC(idTSC))
-    ide:GetMainFrame():Connect(idTSC, wx.wxEVT_COMMAND_MENU_SELECTED, function() addTemplates("SCENE") end)
+    onRegister = function()
+      ide:AddInterpreter("HC3", interpreter)
 
-    -- add API with name "sample" and group "lua"
-    table.insert(ide:GetConfig().api, name)
-    ide:AddAPI("lua", name, api)
-  end,
+      local menu = ide:FindTopMenu("&View")
+      menu:Append(idem, "HC3 Emulator\tCtrl-Alt-E"..KSC(idem))
+      ide:GetMainFrame():Connect(idem, wx.wxEVT_COMMAND_MENU_SELECTED, launchEmulator)
 
-  onUnRegister = function()  
-    ide:RemoveMenuItem(idech3)
-    ide:RemoveMenuItem(idech31)
-    ide:RemoveMenuItem(idech33)
-    ide:RemoveMenuItem(idem)
-    ide:RemoveMenuItem(ideh)
-    ide:RemoveMenuItem(idet)
-    -- remove API with name "sample" from group "lua"
-    ide:RemoveAPI("lua", name)
-  end,
+      menu = ide:FindTopMenu("&Help")
+      menu:Append(ideh3, "HC3 SDK (fibaroapiHC3.lua) help"..KSC(ideh3))
+      ide:GetMainFrame():Connect(ideh3, wx.wxEVT_COMMAND_MENU_SELECTED, launchHC3Help)
+      menu = ide:FindTopMenu("&Help")
+      menu:Append(ideh3QA, "Fibaro QuickApp manual"..KSC(ideh3QA))
+      ide:GetMainFrame():Connect(ideh3QA, wx.wxEVT_COMMAND_MENU_SELECTED, launchHC3QAHelp)
+      menu = ide:FindTopMenu("&Help")
+      menu:Append(ideh3Sc, "Fibaro Lua Scene manual"..KSC(ideh3Sc))
+      ide:GetMainFrame():Connect(ideh3Sc, wx.wxEVT_COMMAND_MENU_SELECTED, launchHC3ScHelp)
+
+      menu = ide:FindTopMenu("&File")
+      menu:AppendSeparator()
+      menu:Append(idech33b, "Create HC3 backup"..KSC(idech33b))
+      ide:GetMainFrame():Connect(idech33b, wx.wxEVT_COMMAND_MENU_SELECTED, backupResources)
+
+      menu = ide:FindTopMenu("&File")
+      menu:Append(idech33d, "Download select resource"..KSC(idech33d))
+      ide:GetMainFrame():Connect(idech33d, wx.wxEVT_COMMAND_MENU_SELECTED, downloadResource)
+
+      menu = ide:FindTopMenu("&File")
+      menu:Append(idech33, "Upload HC3 resource"..KSC(idech33))
+      ide:GetMainFrame():Connect(idech33, wx.wxEVT_COMMAND_MENU_SELECTED, uploadResource)
+
+      menu = ide:FindTopMenu("&File")
+      menu:Append(idech3, "Create HC3sdk database"..KSC(idech3))
+      ide:GetMainFrame():Connect(idech3, wx.wxEVT_COMMAND_MENU_SELECTED, launchHC3Copy)
+
+      menu = ide:FindTopMenu("&File")
+      menu:Append(idech31, "Download fibaroapiHC3.sdk"..KSC(idech31))
+      ide:GetMainFrame():Connect(idech31, wx.wxEVT_COMMAND_MENU_SELECTED, downloadHC3SDK)
+
+      menu = ide:FindTopMenu("&Edit")
+      templSubMenu = ide:MakeMenu()
+      templ = menu:AppendSubMenu(templSubMenu, TR("HC3 SDK templates..."))
+
+      local idTSC = ID("HC3.temp_SC")
+      local idTER = ID("HC3.temp_ER")
+      templSubMenu:Append(idTER, "QuickApp"..KSC(idTER))
+      ide:GetMainFrame():Connect(idTER, wx.wxEVT_COMMAND_MENU_SELECTED, function() addTemplates("QA") end)
+      templSubMenu:Append(idTSC, "Scene"..KSC(idTSC))
+      ide:GetMainFrame():Connect(idTSC, wx.wxEVT_COMMAND_MENU_SELECTED, function() addTemplates("SCENE") end)
+
+      -- add API with name "sample" and group "lua"
+      table.insert(ide:GetConfig().api, name)
+      ide:AddAPI("lua", name, api)
+    end,
+
+    onUnRegister = function()  
+      ide:RemoveMenuItem(idech3)
+      ide:RemoveMenuItem(idech31)
+      ide:RemoveMenuItem(idech33)
+      ide:RemoveMenuItem(idem)
+      ide:RemoveMenuItem(ideh)
+      ide:RemoveMenuItem(idet)
+      -- remove API with name "sample" from group "lua"
+      ide:RemoveAPI("lua", name)
+    end,
 
 --  onMenuEditor = function(self, menu, editor, event)
 --    menu:AppendSeparator()
 --    menu:Append(id, "..."..KSC(id))
 --  end
 
-}
+  }
