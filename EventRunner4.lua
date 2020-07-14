@@ -1,14 +1,27 @@
-if dofile then
+if dofile and not hc3_emulator then
+  hc3_emulator = {
+    name="EventRunner4",
+    type="com.fibaro.genericDevice",
+    poll=1000,
+    deploy=true,
+    proxy=true,
+    quickVars = {["Hue_IP"]="$CREDS.Hue_IP",["Hue_User"]="$CREDS.Hue_user" },
+    UI = {
+      {label='name',text="ER 4.0 beta v0.1"},
+      {button='debugTriggers', text='Triggers:ON'},
+      {button='debugPost', text='Post:ON'},
+      {button='debugRules', text='Rules:ON'},
+      {slider='slider'},
+    }
+  }
   dofile("fibaroapiHC3.lua")
-  hc3_emulator.quickVars["Hue_User"]=_HueUserName
-  hc3_emulator.quickVars["Hue_IP"]=_HueIP
 end
 
-E_VERSION,E_FIX = 0.2,"fix3"
+E_VERSION,E_FIX = 0.2,"fix4"
 _HC3IPADDRESS = "192.168.1.58" -- Needs to be defined on the HC3 as /settings/networks seems broken...
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
-local _debugFlags = {  fcall=true  } 
+local _debugFlags = {  fcall=true, trigger=true, post = true, rule=true  } 
 local Util,Device,Event,Remote,Patch,Extras,Rule,Trigger
 local triggerInterval = 500
 
@@ -26,6 +39,7 @@ local triggerInterval = 500
     {type='quickvar',    name=<string>, value=<string>, old=<string>}
     {type='customevent', name=<string>, value=<string>}
     {type='profile',property='activeProfile',value=<number>, old=<number>}
+    {type='onlineStatus', value=<boolean>}
     {type='DeviceEvent', id=<number>, value='created'}
     {type='DeviceEvent', id=<number>, value='modified'}
     {type='DeviceEvent', id=<number>, value='removed'}
@@ -60,10 +74,6 @@ local triggerInterval = 500
     http.delete(url,options)
 --]]
 
-function main()
-  Rule.eval("log('afoo=%s',afoo(7,8))")
-end
-
 function main()    -- EventScript version
   local rule = Rule.eval
 
@@ -78,55 +88,58 @@ function main()    -- EventScript version
 
   Util.defvars(HT)
   Util.reverseMapDef(HT)
-
-  rule("keyfob:central => log('Key:%s',env.event.value.keyId)")
-  rule("motion:value => log('Motion:%s',motion:value)")
-  rule("temp:temp => log('Temp:%s',temp:temp)")
-  rule("lux:lux => log('Lux:%s',lux:lux)")
-  rule("motionHC2:value => log('MotionHC2:%s',motionHC2:value)")
-  rule("tempHC2:temp => log('TempHC2:%s',tempHC2:temp)")
-  rule("lightHC2:value => log('lightHC2:%s',lightHC2:value)")
-
-  rule("keyfob:central.keyId==4 => log('KK'); 1000:off") 
-  rule("keyfob:central.keyId==5 => log('Last:%s',1000:last)") 
-
-  rule("wait(3); log('Res:%s',http.get('https://jsonplaceholder.typicode.com/todos/1').data)")
   
-  -- Name of UI button clicked value==true if button
-  rule("#UI{name='$name', eventType='$et', value='$value'} => log('Clicked:%s %s %s',name,et,value)") 
+    a = rule("keyfob:scene==1 => log('Activation:%s',env.event)")  
+    Event.post({type='device', property='sceneActivationEvent', id=26, value=1},"+/00:00:03")
+
+--  rule("keyfob:central => log('Key:%s',env.event.value.keyId)")
+--  rule("motion:value => log('Motion:%s',motion:value)")
+--  rule("temp:temp => log('Temp:%s',temp:temp)")
+--  rule("lux:lux => log('Lux:%s',lux:lux)")
+--  rule("motionHC2:value => log('MotionHC2:%s',motionHC2:value)")
+--  rule("tempHC2:temp => log('TempHC2:%s',tempHC2:temp)")
+--  rule("lightHC2:value => log('lightHC2:%s',lightHC2:value)")
+
+--  rule("keyfob:central.keyId==4 => log('KK'); 1000:off") 
+--  rule("keyfob:central.keyId==5 => log('Last:%s',1000:last)") 
+
+--  rule("wait(3); log('Res:%s',http.get('https://jsonplaceholder.typicode.com/todos/1').data)")
+
+--  -- Name of UI button clicked value==true if button
+--  rule("#UI{name='$name', eventType='$et', value='$value'} => log('Clicked:%s %s %s',name,et,value)") 
 
   Nodered.connect("http://192.168.1.50:1880/ER_HC3")
   rule("Nodered.post({type='echo1',value=42})")
-  rule("#echo1 => log('ECHO:%s',env.event)")
+  rule("#echo1 => log('ECHO:%s',env.event.value)")
 
-  rule("log('Synchronous call:%s',Nodered.post({type='echo1',value=42},true))")
+--  rule("log('Synchronous call:%s',Nodered.post({type='echo1',value=42},true))")
 
-  rule("#alarm{property='armed', value=true, id='$id'} => log('Zone %d armed',id)")
-  rule("#alarm{property='armed', value=false, id='$id'} => log('Zone %d disarmed',id)")
-  rule("#alarm{property='homeArmed', value=true} => log('Home armed')")
-  rule("#alarm{property='homeArmed', value=false} => log('Home disarmed')")
-  rule("#alarm{property='homeBreached', value=true} => log('Home breached')")
-  rule("#alarm{property='homeBreached', value=false} => log('Home safe')")
+--  rule("#alarm{property='armed', value=true, id='$id'} => log('Zone %d armed',id)")
+--  rule("#alarm{property='armed', value=false, id='$id'} => log('Zone %d disarmed',id)")
+--  rule("#alarm{property='homeArmed', value=true} => log('Home armed')")
+--  rule("#alarm{property='homeArmed', value=false} => log('Home disarmed')")
+--  rule("#alarm{property='homeBreached', value=true} => log('Home breached')")
+--  rule("#alarm{property='homeBreached', value=false} => log('Home safe')")
 
-  rule("#weather{property='$prop', value='$val'} => log('%s = %s',prop,val)")
+--  rule("#weather{property='$prop', value='$val'} => log('%s = %s',prop,val)")
 
-  rule("#profile{property='activeProfile', value='$val'} => log('New profile:%s',profile.name(val))")
-  rule("log('Current profile:%s',profile.name(profile.active()))")
+--  rule("#profile{property='activeProfile', value='$val'} => log('New profile:%s',profile.name(val))")
+--  rule("log('Current profile:%s',profile.name(profile.active()))")
 
-  rule("#customevent{name='$name'} => log('Custom event:%s',name)")
-  rule("#myBroadcast{value='$value'} => log('My broadcast:%s',value)")
-  rule("wait(5); custom.post('myEvent','this is a test')")
-  rule("wait(7); broadcast({type='myBroadcast',value=42})")
+--  rule("#customevent{name='$name'} => log('Custom event:%s',name)")
+--  rule("#myBroadcast{value='$value'} => log('My broadcast:%s',value)")
+--  rule("wait(5); custom.post('myEvent','this is a test')")
+--  rule("wait(7); broadcast({type='myBroadcast',value=42})")
 
-  rule("wait(3); subscribe(#fbar{v=9})")
-  rule("#fbar => log('Got subscription, g=%s',env.event.g)")
-  rule("wait(8); publish(#fbar{v=9,g=8})")
+--  rule("wait(3); subscribe(#fbar{v=9})")
+--  rule("#fbar => log('Got subscription, g=%s',env.event.g)")
+--  rule("wait(8); publish(#fbar{v=9,g=8})")
 
-  rule("#DeviceEvent{id='$id',value='$value'} => log('Device %s %s',id,value)")
-  rule("#SceneEvent{id='$id',value='$value'} => log('Scene %s %s',id,value)")
+--  rule("#DeviceEvent{id='$id',value='$value'} => log('Device %s %s',id,value)")
+--  rule("#SceneEvent{id='$id',value='$value'} => log('Scene %s %s',id,value)")
 
-  rule("#Test => log('Test event received')")
-  rule("wait(3); post(#Test)")
+--  rule("#Test => log('Test event received')")
+--  rule("wait(3); post(#Test)")
 
 end
 
@@ -1085,7 +1098,7 @@ function module.Remote()
   local function makeAddress() ceIndex=ceIndex+1; return format("ER_BROADCAST%dI%d",deviceID,ceIndex) end
 
   local ces = api.get("/customEvents") -- Remove stale events
-  for _,ce in ipairs(ces) do
+  for _,ce in ipairs(ces or {}) do
     if ce.name:match(ceMatch) then api.delete("/customEvents/"..ce.name) end
   end
 
@@ -1409,7 +1422,7 @@ options = { user=<user>, pwd=<pwd>, timeout=<ms>, type=<string> }
         end)..({ '', '==', '=' })[#data%3+1])
   end
   Util.base64 = base64
-  
+
   local function httpCall(url,options,data) 
     local opts = Util.copy(options)
     opts.headers = opts.headers or {}
@@ -1967,6 +1980,7 @@ function module.EventScript()
       local function last(id,prop) return os.time()-select(2,fibaro.get(id,prop)) end
       local function cce(id,prop,e) e=e.event; return e.type=='device' and e.property=='centralSceneEvent' and e.id==id and e.value or {} end
       local function ace(id,prop,e) e=e.event; return e.type=='device' and e.property=='accessControlEvent' and e.id==id and e.value or {} end
+      local function sae(id,prop,e) e=e.event; return e.type=='device' and e.property=='sceneActivationEvent' and e.id==id and e.value or {} end
       local function armed(id,prop) return fibaro.get(id,prop) == 1 end
       local function call(id,cmd) fibaro.call(id,cmd); return true end
       local function set(id,cmd,val) fibaro.call(id,cmd,val); return val end
@@ -1976,7 +1990,7 @@ function module.EventScript()
       getFuns={
         value={get,'value',nil,true},bat={get,'batteryLevel',nil,true},power={get,'power',nil,true},
         isOn={on,'value',mapOr,true},isOff={off,'value',mapAnd,true},isAllOn={on,'value',mapAnd,true},isAnyOff={off,'value',mapOr,true},
-        last={last,'value',nil,true},scene={get,'sceneActivation',nil,true},
+        last={last,'value',nil,true},scene={sae,'sceneActivationEvent',nil,true},
         access={ace,'accessControlEvent',nil,true},central={cce,'centralSceneEvent',nil,true},
         safe={off,'value',mapAnd,true},breached={on,'value',mapOr,true},isOpen={on,'value',mapOr,true},isClosed={off,'value',mapAnd,true},
         lux={get,'value',nil,true},temp={get,'value',nil,true},on={call,'turnOn',mapF,true},off={call,'turnOff',mapF,true},
@@ -2498,7 +2512,7 @@ function module.Nodered()
 end
 --------------- Trigger support -------------------------------
 function module.Trigger()
-  local self = { central={}, access={} }
+  local self = { central={}, access={}, activation={} }
 
   fibaro.setTimeout = setTimeout
   local _setTimeout = setTimeout
@@ -2542,8 +2556,8 @@ function module.Trigger()
         post({type='device', property='centralSceneEvent', id=d.deviceId, value={keyId=d.keyId, keyAttribute=d.keyAttribute}}) 
       end,
       SceneActivationEvent = function(d) 
-        self.activation[d.deviceId]=d; 
-        post({type='device', property='sceneActivationEvent', id=d.deviceId, value=d.value}) 
+        self.activation[d.deviceId]={scene=d.sceneId, name=d.name}; 
+        post({type='device', property='sceneActivationEvent', id=d.deviceId, value=d.sceneId, data=d}) 
       end,
       AccessControlEvent = function(d) 
         self.access[d.id]=d; 
@@ -2567,6 +2581,7 @@ function module.Trigger()
       SceneStartedEvent = function(d)   post({type='SceneEvent', id=d.id, value='started'}) end,
       SceneFinishedEvent = function(d)  post({type='SceneEvent', id=d.id, value='finished'})end,
       SceneRemovedEvent = function(d)  post({type='SceneEvent', id=d.id, value='removed'}) end,
+      OnlineStatusUpdatedEvent = function(d) post({type='onlineEvent', value=d.online}) end,
       onUIEvent = function(d) 
         post({type='uievent', deviceID=d.deviceId, name=d.elementName}) 
       end,
@@ -2674,21 +2689,3 @@ function QuickApp:onInit()
   startUp({type='ready'})
 end 
 
-if dofile then
-  --hc3_emulator.offline=true
-  hc3_emulator.start{
-    name="EventRunner4",
-    type="com.fibaro.genericDevice",
-    --id=949,
-    poll=1000,
-    --deploy=true,
-    proxy=true,
-    UI = {
-      {label='name',text="ER 4.0 beta v0.1"},
-      {button='debugTriggers', text='Triggers:ON'},
-      {button='debugPost', text='Post:ON'},
-      {button='debugRules', text='Rules:ON'},
-      {slider='slider'},
-    }
-  }
-end
