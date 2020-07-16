@@ -31,7 +31,7 @@ json        -- Copyright (c) 2019 rxi
 persistence -- Copyright (c) 2010 Gerhard Roethlin
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.99"
+local FIBAROAPIHC3_VERSION = "0.100"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -149,7 +149,10 @@ local socket = require("socket")
 local ltn12  = require("ltn12")
 
 local _debugFlags = {fcall=true, fget=true, post=true, trigger=true, timers=nil, refreshLoop=false, creation=true, mqtt=true} 
-local function merge(t1,t2) for k,v in pairs(t2) do t1[k]=v end return t1 end
+local function merge(t1,t2)
+  if type(t1)=='table' and type(t2)=='table' then for k,v in pairs(t2) do if not t1[k] then t1[k]=v else merge(t1[k],v) end end end
+  return t1
+end
 
 local Util,Timer,QA,Scene,Web,Trigger,Offline,DB,Files   -- local modules
 fibaro,json,plugin,quickApp = {},{},nil                  -- global exports
@@ -172,7 +175,8 @@ hc3_emulator.quickVars         = hc3_emulator.quickVars or {}
 hc3_emulator.colorDebug        = DEF(hc3_emulator.colorDebug,true)
 hc3_emulator.supressTrigger = {["PluginChangedViewEvent"] = true} -- Ignore noisy triggers...
 
-local cr = not hc3_emulator.credentials and loadfile(hc3_emulator.credentialsFile); if cr then cr() end
+local cr = loadfile(hc3_emulator.credentialsFile);
+if cr then hc3_emulator.credentials = merge(hc3_emulator.credentials or {},cr() or {}) end
 pcall(function() require('mobdebug').coro() end) -- Load mobdebug if available to debug coroutines...
 
 local ostime,osclock,osdate,tostring = os.time,os.clock,os.date,tostring
@@ -281,6 +285,11 @@ function module.FibaroAPI()
       for _,d in ipairs(deviceID) do fibaro.call(d, actionName, ...) end
     else
       __assert_type(deviceID ,"number") 
+      if actionName == "toggle" then
+        local val = fibaro.getValue(deviceID,'value')
+        val = tonumber(val) and val> 0 or val
+        return fibaro.call(deviceID,val and 'turnOff' or 'turnOn')
+      end
       local a = {args={},delay=0} 
       for i,v in ipairs({...}) do a.args[i]=v end
       if deviceID == plugin.mainDeviceId and not _quickApp.hasProxy then
@@ -435,7 +444,7 @@ function module.FibaroAPI()
   function api.post(call, data, hs, to) return rawCall("POST",call,data and json.encode(data),"application/json",hs,to) end
   function api.delete(call, data) return rawCall("DELETE",call,data and json.encode(data),"application/json") end
 
-  ------------  HTTP support ---------------------
+------------  HTTP support ---------------------
 
   local function intercepLocal(url,options,success,error)
     if url:match("://(127%.0%.0%.1)[:/]") then
@@ -445,7 +454,7 @@ function module.FibaroAPI()
         options.headers = options.headers or {}
         options.headers['Authorization'] = hc3_emulator.BasicAuthorization
       end
-      local refresh = url:match("/api/refreshStates?last=(%d+)")
+      local refresh = url:match("/api/refreshStates%?last=(%d+)")
       if refresh then
         local state = Trigger.refreshStates.getEvents(tonumber(refresh))
         if success then success({status=200,data=json.encode(state)}) end
@@ -1014,6 +1023,13 @@ function module.QuickApp()
   function plugin.createChildDevice(prop) return api.post("/plugins/createChildDevice",prop) end
   plugin.getDevice = nil
 
+  plugin._uiValues = {}
+  function self.getWebUIValue(elm,t) return plugin._uiValues[elm][t] end
+  function self.setWebUIValue(elm,t,v) 
+    plugin._uiValues[elm] = plugin._uiValues[elm] or {}
+    plugin._uiValues[elm][t]=tostring(v) 
+  end
+
   class 'QuickAppBase'
   function QuickAppBase:__init(device)
     for k,v in pairs(device) do self[k]=v end
@@ -1021,6 +1037,15 @@ function module.QuickApp()
     for _,cb in ipairs(self.properties.uiCallbacks or {}) do
       cbs[cb.name]=cbs[cb.name] or {}
       cbs[cb.name][cb.eventType] = cb.callback
+      if hc3_emulator.UI then
+        for _,row in ipairs(hc3_emulator.UI) do
+          row = row[1] and row or {row}
+          for _,e in ipairs(row) do
+            QA.setWebUIValue(e.name,"value","0")
+            QA.setWebUIValue(e.name,"text",e.text or "")
+          end
+        end
+      end
     end
     self.uiCallbacks = cbs
   end
@@ -1068,6 +1093,7 @@ function module.QuickApp()
         })
       --fibaro.call(self.id,"updateView",elm,t,value)
     end
+    QA.setWebUIValue(elm,t,value)
   end
 
   function QuickAppBase:updateProperty(prop,value)
@@ -1133,7 +1159,7 @@ function module.QuickApp()
   function QuickApp:initChildDevices(map)
     local echilds = plugin.getChildDevices() 
     local childs = self.childDevices
-    for _,d in pairs(echilds) do
+    for _,d in pairs(echilds or {}) do
       if (not childs[d.id]) and map[d.type] then
         childs[d.id]=map[d.type](d)
       elseif not childs[d.id] then
@@ -1157,6 +1183,62 @@ function module.QuickApp()
     else f(o) end
   end
   local map = Util.mapf
+
+  local function collectViewLayoutRow(u,map)
+    local row = {}
+    local function conv(u)
+      if type(u) == 'table' then
+        if u.name then
+          if u.type=='label' then
+            row[#row+1]={label=u.name, text=u.text}
+          elseif u.type=='button'  then
+            local cb = map["button"..u.name]
+            if cb == u.name.."Clicked" then cb = nil end
+            row[#row+1]={button=u.name, text=u.text, callback=cb}
+          elseif u.type=='slider' then
+            local cb = map["slider"..u.name]
+            if cb == u.name.."Clicked" then cb = nil end
+            row[#row+1]={slider=u.name, text=u.text, callback=cb}
+          end
+        else 
+          for k,v in pairs(u) do conv(v) end 
+        end
+      end
+    end
+    conv(u)
+    return row
+  end
+
+  local function viewLayout2UI(u,map)
+    local function conv(u)
+      local rows = {}
+      for i,j in pairs(u.items) do
+        local row = collectViewLayoutRow(j.components,map)
+        if #row > 0 then
+          if #row == 1 then row=row[1] end
+          rows[#rows+1]=row
+        end
+      end
+      return rows
+    end
+    return conv(u['$jason'].body.sections)
+  end
+
+  function self.view2UI(view,callbacks)
+    local map = {}
+    traverse(callbacks,function(e)
+        if e.eventType=='onChanged' then map["slider"..e.name]=e.callback
+        elseif e.eventType=='onReleased' then map["button"..e.name]=e.callback end
+      end) 
+    local UI = viewLayout2UI(view,map)
+    return UI
+  end
+
+  function self.getQAUI(id)
+    local d = api.get("/devices/"..id)
+    local UI = self.view2UI(d.properties.viewLayout,d.properties.uiCallbacks)
+    return UI
+  end
 
   local ELMS = {
     button = function(d,w)
@@ -1309,10 +1391,12 @@ function module.QuickApp()
     pcall(function()
         code = code:gsub([[require%s*%(%s*[%"%'](.-)[%"%']%s*%)]],
           function(m) 
-            f = io.open(m)
+            f = io.open(m..".lua")
             if f then
-              local c = f:read()
-              return "do\n"..c.."\nend\n"
+              local c = f:read("*all")
+              local c2 = c:match("%-%-%-%-%-%-%-%-%-%-%- Code.-\n(.*)")
+              return c2 or c
+              --return "do\n"..c.."\nend\n"
             end
             return ""
           end)
@@ -1467,6 +1551,11 @@ function QuickApp:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) e
         end
         plugin.isProxy = true
         Log(LOG.SYS,"Connected to HC3 device %s",deviceStruct.id)
+      else -- No proxy
+        if UI then 
+          transformUI(UI)
+          deviceStruct.properties.uiCallbacks  = uiStruct2uiCallbacks(UI)
+        end
       end
     end
 
@@ -1520,10 +1609,12 @@ function QuickApp:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) e
       local elm,etyp = event.elementName, event.eventType
       local cb = self.uiCallbacks
       if cb[elm] and cb[elm][etyp] then 
-        self:callAction(cb[elm][etyp], event)
-      else
-        self:warning("UI callback for element:", elm, " not found.")
-      end 
+        if etyp=='onChanged' then
+          QA.setWebUIValue(elm,'value',event.values[1]) 
+        end
+        return self:callAction(cb[elm][etyp], event)
+      end
+      self:warning("UI callback for element:", elm, " not found.")
     end
   end
 
@@ -2927,7 +3018,51 @@ function module.WebAPI()
         local page = Pages.getPath(call)
         if page~=nil then client:send(page) return true
         else return false end
-      end
+      end,
+      ["/fibaroapiHC3/webQA2%?(.*)"] = function(client,ref,body,args)
+        local res = {}
+        args = split(args,"&")
+        for _,a in ipairs(args) do
+          local i,v = a:match("^(%w+)=(.*)")
+          res[i]=v
+        end
+        hc3_emulator._slideCache = hc3_emulator._slideCache or {}
+        if res.type=='values' then
+          local UI,res = hc3_emulator.UI or {},{}
+          for _,row in ipairs(UI or {}) do
+            row = row[1] and row or {row}
+            for _,e in ipairs(row) do 
+              if e.type=='button' then 
+                res["#"..e.button]={f="text",v=QA.getWebUIValue(e.button,"text")}
+              elseif e.type=="label" then 
+                res["#"..e.label]={f="text",v=QA.getWebUIValue(e.label,"text")}
+              elseif e.type =="slider" then
+                local val = QA.getWebUIValue(e.slider,"value")
+                if hc3_emulator._slideCache[e.slider] ~= val then
+                  hc3_emulator._slideCache[e.slider] = val
+                  res["#"..e.slider]={f="val",v=val}
+                  res["#"..e.slider.."I"]={f="text",v=val}
+                end
+              end
+            end
+          end
+          res = json.encode(res)
+          client:send("HTTP/1.1 200 OK\n")
+          client:send("Access-Control-Allow-Headers: Origin\n")
+          client:send("Content-Type: application/json; charset=utf-8\n")
+          client:send("Content-Length: "..res:len())
+          client:send("\n\n")
+          client:send(res)    
+        else
+          if res.type=='btn' then
+            onUIEvent({eventType='onReleased',values={},elementName=res.id,deviceId=quickApp.id})
+          elseif res.type=='slider' then
+            onUIEvent({eventType='onChanged',values={tonumber(res.val)},elementName=res.id,deviceId=quickApp.id})
+            QA.setWebUIValue(res.id,'value',tonumber(res.val))
+          end
+          client:send("HTTP/1.1 302 Found\nLocation: "..(ref or "/web/main").."\n")
+        end
+      end,
     },
     ["POST"] = {
       ["/fibaroapiHC3/event"] = function(client,ref,body,id,action,args)
@@ -3000,30 +3135,32 @@ function module.WebAPI()
           end)
       end)
     if not stat then return Pages.renderError(res)
-    else p.static=res return res end
-  end
+    else 
+      p.static = p.static and res
+      return res end
+    end
 
-  function Pages.compile(p)
-    local funs={}
-    p.cpage=p.page:gsub("<<<(.-)>>>",
-      function(code)
-        local f = format("do %s end",code)
-        f,m = loadstring(f)
-        if m then Log(LOG.ERROR,"ERROR RENDERING PAGE %s, %s",p.path,m) end
-        funs[#funs+1]=f
-        return (format("<<<%s>>>",#funs))
-      end)
-    p.funs=funs
-  end
+    function Pages.compile(p)
+      local funs={}
+      p.cpage=p.page:gsub("<<<(.-)>>>",
+        function(code)
+          local f = format("do %s end",code)
+          f,m = load(f,nil,nil,{["Web"]=Web,["Pages"]=Pages,hc3_emulator=hc3_emulator})
+          if m then Log(LOG.ERROR,"ERROR RENDERING PAGE %s, %s",p.path,m) end
+          funs[#funs+1]=f
+          return (format("<<<%s>>>",#funs))
+        end)
+      p.funs=funs
+    end
 
-  Pages.P_ERROR1 =
+    Pages.P_ERROR1 =
 [[HTTP/1.1 200 OK
 Content-Type: text/html
 Cache-Control: no-cache, no-store, must-revalidate
 <!DOCTYPE html><html><head><title>Error</title><meta charset="utf-8"></head><body><pre>%s</pre></body></html>
 ]]
 
-  Pages.P_MAIN =
+    Pages.P_MAIN =
 [[HTTP/1.1 200 OK
 Content-Type: text/html
 Cache-Control: no-cache, no-store, must-revalidate
@@ -3031,659 +3168,821 @@ Cache-Control: no-cache, no-store, must-revalidate
 <!DOCTYPE html>
 <html>
 <head>
-    <title>HC3 SDK</title>
+    <title>fibaroapiHC3</title>
     <meta charset="utf-8">
+  
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+<script>
+$(document).ready(function(){
+   $("button.reload").click(reloadData);
+   $("#auto").click(doTimer);
+});
+function reloadData() {
+   $.get("http://192.168.1.18:6872/fibaroapiHC3/webQA2?type=values",
+          function(data, status) {
+            //alert("Data: " + JSON.stringify(data) + "\nStatus: " + status);
+             Object.keys(data).forEach(function(key) {
+                //$(key).text(data[key])
+                var val = data[key];
+                //alert(key + " " + val.f + " " + val.v)
+                //console.log(key + " " + val.f + " " + val.v);
+                $(key)[val.f](val.v);
+                });
+          }).fail(function() {
+             $("#auto").prop("checked", false);
+             doTimer();
+             console.log("Error fetching UI values");
+          });
+}
+var timer, delay = 2000;
+//timer = setInterval(reloadData,delay)
+function doTimer() {
+  if ($('#auto').is(':checked')) {
+    timer = setInterval(reloadData, delay)
+  } else {
+    clearInterval(timer);
+  }
+}
+function QAbutton(id) {
+  $.get('http://192.168.1.18:6872/fibaroapiHC3/webQA2?type=btn&id='+id)
+}
+function QAslider(id,val) {
+  $.get('http://192.168.1.18:6872/fibaroapiHC3/webQA2?type=slider&id='+id+'&val='+val)
+}
+setTimeout(doTimer,10)
+</script>
+<<<return Web._PAGE_STYLE>>>
 </head>
 <body>
-<pre>Sorry, not implemented yet</pre>
+<t1>QuickApp: <<<return hc3_emulator.name>>></t1>
+<div class="frame" align="middle"></p>
+<<<return Web.generateQA_UI()>>>
+</p></div>
+<div>
+  <button class="reload" id="X">Reload</button>
+  <input type="checkbox" id="auto" name="auto" checked>
+  <label for="auto">Auto</label>
+</div>
 </body>
 </html>
 ]]
 
-  Pages.register("main",Pages.P_MAIN).static=true
+    Pages.register("main",Pages.P_MAIN).static=false
 
-  return self
-end
+    function Pages.renderButton(id,name,c)
+      return format([[<button class="button%d" id="%s" onClick="QAbutton('%s');">%s</button>]],c,id,id,name)
+    end
+    function Pages.renderLabel(id,text)
+      return format([[<label class="label" id="%s">%s</label>]],id,text)
+    end
+    function Pages.renderSlider(id,name,value)
+      return format([[<input class="slider" min="0" max="255"
+        type="range" id="%s" value="%s"
+        onmouseup="QAslider('%s',value);"
+        onchange="$('#%sI').text(value);">
+        <label class="slider" id="%sI">0</label>]],id,value,id,id,id,id)
+    end
+
+    function self.generateQA_UI()
+      local code = {}
+      local function add(str) code[#code+1]=str end
+      local UI = hc3_emulator.UI
+      for _,row in ipairs(UI or {}) do
+        row = row[1] and row or {row}
+        for _,e in ipairs(row) do 
+          if e.type=='button' then 
+            add(Pages.renderButton(e.button,QA.getWebUIValue(e.button,"text"),#row))
+          elseif e.type=="label" then 
+            add(Pages.renderLabel(e.label,QA.getWebUIValue(e.label,"text")))
+          elseif e.type =="slider" then 
+            add(Pages.renderSlider(e.slider,e.text,QA.getWebUIValue(e.slider,"value")))
+          end
+          add("&nbsp;")
+        end
+        add("</p>")
+      end
+      return table.concat(code)
+    end
+
+    self._PAGE_STYLE=
+[[<style>
+label.label {
+   // color: blue;
+}
+button {
+	background-color:#e6e1e6;
+	border-radius:5px;
+	border:1px solid #b6bdbd;
+	display:inline-block;
+	cursor:pointer;
+	color:#333333;
+	font-family:Times New Roman;
+	font-size:13px;
+	text-decoration:none;
+	text-shadow:0px 1px 0px #ffee66;
+}
+button:hover {
+	background-color:#d6d1d6;
+}
+button:active {
+	position:relative;
+	top:1px;
+}
+button.button5 { width: 54px; }
+button.button4 { width: 69px; }
+button.button3 { width: 93px; }
+button.button2 { width: 142px; }
+button.button1 { width: 287px; }
+input.slider {
+    color: red;
+}
+input.slider {
+  -webkit-appearance: none;
+  width: 80%;
+  height: 5px;
+  border-radius: 5px;   
+  background: #d3d3d3;
+  outline: none;
+  opacity: 0.7;
+  -webkit-transition: .2s;
+  transition: opacity .2s;
+}
+
+input.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%; 
+  background: #000000;
+  cursor: pointer;
+}
+
+input.slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #4CAF50;
+  cursor: pointer;
+}
+div.frame {
+  border: 1px solid black;
+  width: 300px;
+}
+</style>
+]]
+
+    return self
+  end
 
 --------------- Offline support ----------------------
-function module.Files()
-  local lfs = require("lfs")
-  local self,dir,sep = {},"",package.config:sub(1,1)
+  function module.Files()
+    local lfs = require("lfs")
+    local self,dir,sep = {},"",package.config:sub(1,1)
 
-  local function concatPath(path,file)
-    if path:sub(-1)==sep then return path..file 
-    else return path..sep..file end
-  end
-
-  local function createDir(dir)
-    local r,err =  lfs.mkdir(dir) 
-    if not r and err~="File exists" then error(format("Can't create HC3 data directory: %s (%s)",dir,err)) end
-  end
-
-  local function getHC3dir()
-    local cdir = lfs.currentdir()
-    dir = cdir .. sep .. hc3_emulator.HC3dir
-    if not lfs.attributes(dir) then createDir(dir) end
-  end
-
-  function self.deploy(source)
-    local name,id = hc3_emulator.name
-    assert(name,"Missing name for deployment")
-    --local source = debug.getinfo(2, 'S').short_src
-    local f = io.open(source)
-    assert(f,"Can't find source "..source)
-    net.maxdelay=0
-    local ds = api.get("/devices")
-    for _,d in ipairs(ds) do
-      if d.name==name then id=d.id; break end
+    local function concatPath(path,file)
+      if path:sub(-1)==sep then return path..file 
+      else return path..sep..file end
     end
-    local code = f:read("*all")
-    Log(LOG.SYS,"Deploying %s",name)
-    local quickVars=hc3_emulator.quickVars or {}
-    for k,v in pairs(hc3_emulator.quickVars or {}) do
-      if not quickVars[k] then quickVars[k]=v end
+
+    local function createDir(dir)
+      local r,err =  lfs.mkdir(dir) 
+      if not r and err~="File exists" then error(format("Can't create HC3 data directory: %s (%s)",dir,err)) end
     end
-    local res = QA.createQuickApp{
-      name=name,
-      id = id,
-      type=hc3_emulator.type,
-      code=code,
-      UI=hc3_emulator.UI,
-      quickVars=quickVars
+
+    local function getHC3dir()
+      local cdir = lfs.currentdir()
+      dir = cdir .. sep .. hc3_emulator.HC3dir
+      if not lfs.attributes(dir) then createDir(dir) end
+    end
+
+    function self.deploy(source)
+      local name,id = hc3_emulator.name
+      assert(name,"Missing name for deployment")
+      --local source = debug.getinfo(2, 'S').short_src
+      local f = io.open(source)
+      assert(f,"Can't find source "..source)
+      net.maxdelay=0
+      local ds = api.get("/devices")
+      for _,d in ipairs(ds) do
+        if d.name==name then id=d.id; break end
+      end
+      local code = f:read("*all")
+      Log(LOG.SYS,"Deploying %s",name)
+
+      local quickVars = {}
+      for k,v in pairs(hc3_emulator.quickVars or {}) do
+        if not quickVars[k] then quickVars[k]=v end
+      end
+
+      for k,v in pairs(quickVars) do 
+        if type(v)=='string' and v:match("^%$CREDS") then
+          local p = "return hc3_emulator.credentials"..v:match("^%$CREDS(.*)") 
+          quickVars[k]=load(p)()
+        end
+      end
+
+      local res = QA.createQuickApp{
+        name=name,
+        id = id,
+        type=hc3_emulator.type,
+        code=code,
+        UI=hc3_emulator.UI,
+        quickVars=quickVars
+      }
+    end
+
+    local sortKeys = {
+      'id','name','roomID','type','baseType','enabled','visible','isPlugin','parentId','viewXml','configXml',
+      'interfaces','properties','actions','created','modified','sortOrder'
     }
-  end
+    local sortOrder={}
+    for i,s in ipairs(sortKeys) do sortOrder[s]=i end
+    local nKeys = #sortKeys
+    local function keyCompare(a,b)
+      local av,bv = sortOrder[a], sortOrder[b]
+      if av == nil then nKeys = nKeys+1 sortOrder[a] = nKeys av = nKeys end
+      if bv == nil then nKeys = nKeys+1 sortOrder[b] = nKeys bv = nKeys end
+      return av < bv
+    end
 
-  local sortKeys = {
-    'id','name','roomID','type','baseType','enabled','visible','isPlugin','parentId','viewXml','configXml',
-    'interfaces','properties','actions','created','modified','sortOrder'
-  }
-  local sortOrder={}
-  for i,s in ipairs(sortKeys) do sortOrder[s]=i end
-  local nKeys = #sortKeys
-  local function keyCompare(a,b)
-    local av,bv = sortOrder[a], sortOrder[b]
-    if av == nil then nKeys = nKeys+1 sortOrder[a] = nKeys av = nKeys end
-    if bv == nil then nKeys = nKeys+1 sortOrder[b] = nKeys bv = nKeys end
-    return av < bv
-  end
-
-  function prettyPrint(t)
-    local res = {}
-    local function isArray(t) return type(t)=='table' and t[1] end
-    local function isEmpty(t) return type(t)=='table' and next(t)==nil end
-    local function isKeyVal(t) return type(t)=='table' and t[1]==nil and next(t)~=nil end
-    local function printf(tab,fmt,...) res[#res+1] = string.rep(' ',tab)..string.format(fmt,...) end
-    local function pretty(tab,t,key)
-      if type(t)=='table' then
-        if isEmpty(t) then printf(0,"[]") return end
-        if isArray(t) then
-          printf(key and tab or 0,"[\n")
-          table.sort(t,keyCompare)
-          for i,k in ipairs(t) do
-            local cr = pretty(tab+1,k,true)
-            if i ~= #t then printf(0,',') end
+    function prettyPrint(t)
+      local res = {}
+      local function isArray(t) return type(t)=='table' and t[1] end
+      local function isEmpty(t) return type(t)=='table' and next(t)==nil end
+      local function isKeyVal(t) return type(t)=='table' and t[1]==nil and next(t)~=nil end
+      local function printf(tab,fmt,...) res[#res+1] = string.rep(' ',tab)..string.format(fmt,...) end
+      local function pretty(tab,t,key)
+        if type(t)=='table' then
+          if isEmpty(t) then printf(0,"[]") return end
+          if isArray(t) then
+            printf(key and tab or 0,"[\n")
+            table.sort(t,keyCompare)
+            for i,k in ipairs(t) do
+              local cr = pretty(tab+1,k,true)
+              if i ~= #t then printf(0,',') end
+              printf(tab+1,'\n')
+            end
+            printf(tab,"]")
+            return true
+          end
+          local r = {}
+          for k,v in pairs(t) do r[#r+1]=k end
+          table.sort(r,keyCompare)
+          printf(key and tab or 0,"{\n")
+          for i,k in ipairs(r) do
+            printf(tab+1,'"%s":',k)
+            local cr =  pretty(tab+1,t[k])
+            if i ~= #r then printf(0,',') end
             printf(tab+1,'\n')
           end
-          printf(tab,"]")
+          printf(tab,"}")
           return true
+        elseif type(t)=='number' then
+          printf(key and tab or 0,"%s",t) 
+        elseif type(t)=='boolean' then
+          printf(key and tab or 0,"%s",t and 'true' or 'false') 
+        elseif type(t)=='string' then
+          printf(key and tab or 0,'"%s"',t)
         end
-        local r = {}
-        for k,v in pairs(t) do r[#r+1]=k end
-        table.sort(r,keyCompare)
-        printf(key and tab or 0,"{\n")
-        for i,k in ipairs(r) do
-          printf(tab+1,'"%s":',k)
-          local cr =  pretty(tab+1,t[k])
-          if i ~= #r then printf(0,',') end
-          printf(tab+1,'\n')
-        end
-        printf(tab,"}")
-        return true
-      elseif type(t)=='number' then
-        printf(key and tab or 0,"%s",t) 
-      elseif type(t)=='boolean' then
-        printf(key and tab or 0,"%s",t and 'true' or 'false') 
-      elseif type(t)=='string' then
-        printf(key and tab or 0,'"%s"',t)
       end
+      pretty(0,t,true)
+      return table.concat(res,"")
     end
-    pretty(0,t,true)
-    return table.concat(res,"")
-  end
 
-  self.prettyPrint = prettyPrint
+    self.prettyPrint = prettyPrint
 
-  function self.Scene2Flat(s)
-    local res = {}
-    local function printf(...) res[#res+1]=string.format(...) end
-    local ll = loadstring or load
-    local content = json.decode(s.content)
-    local conds = ll("return "..(content.conditions or "{}"))()
-    s.content = "<content>"
-    printf("--[[ <<Scene>>")
-    printf("  Name      : %s",s.name)
-    printf("  Id        : %s",s.id)
-    if s.type=='json' then
-      printf("  Conditions: %s",prettyPrint(content))
-      printf("--]]\n") 
-    else
-      printf("  Conditions: %s",content.conditions)
-      printf("--]]\n")      
-      content.actions = (content.actions or ""):match("(.-)[%s%c]*$")
-      printf("%s",content.actions)
+    function self.Scene2Flat(s)
+      local res = {}
+      local function printf(...) res[#res+1]=string.format(...) end
+      local ll = loadstring or load
+      local content = json.decode(s.content)
+      local conds = ll("return "..(content.conditions or "{}"))()
+      s.content = "<content>"
+      printf("--[[ <<Scene>>")
+      printf("  Name      : %s",s.name)
+      printf("  Id        : %s",s.id)
+      if s.type=='json' then
+        printf("  Conditions: %s",prettyPrint(content))
+        printf("--]]\n") 
+      else
+        printf("  Conditions: %s",content.conditions)
+        printf("--]]\n")      
+        content.actions = (content.actions or ""):match("(.-)[%s%c]*$")
+        printf("%s",content.actions)
+      end
+      printf("\n--[[ <<Scene struct>>")
+      printf("%s",prettyPrint(s))
+      printf("--]]")
+
+      return table.concat(res,"\n")
     end
-    printf("\n--[[ <<Scene struct>>")
-    printf("%s",prettyPrint(s))
-    printf("--]]")
 
-    return table.concat(res,"\n")
-  end
-
-  function self.flat2Scene(str)
-    local h,code,e = str:match("%-%-%[%[ <<Scene>>(.-)%-%-%]%]%c*(.*)%c*%-%-%[%[ <<Scene struct>>(.-)%-%-%]%][%s%c]*")
-    local s = json.decode(e)
-    local cond = h:match("Conditions: (.*)")
-    if s.type=='json' then
-      s.content = json.decode(cond)
-    else
-      cond = cond
-      local content = json.encode({conditions=cond,actions=code})
-      s.content = content
+    function self.flat2Scene(str)
+      local h,code,e = str:match("%-%-%[%[ <<Scene>>(.-)%-%-%]%]%c*(.*)%c*%-%-%[%[ <<Scene struct>>(.-)%-%-%]%][%s%c]*")
+      local s = json.decode(e)
+      local cond = h:match("Conditions: (.*)")
+      if s.type=='json' then
+        s.content = json.decode(cond)
+      else
+        cond = cond
+        local content = json.encode({conditions=cond,actions=code})
+        s.content = content
+      end
+      return s
     end
-    return s
-  end
 
-  function self.QuickApp2Flat(d)
-    local res = {}
-    local function printf(...) res[#res+1]=string.format(...) end
+    function self.QuickApp2Flat(d)
+      local res = {}
+      local function printf(...) res[#res+1]=string.format(...) end
 
-    if d.initialProperties then
-      d.properties=d.initialProperties
+      if d.initialProperties then
+        d.properties=d.initialProperties
+        d.initialProperties = nil
+      end
+      printf("--[[ <<QuickApp>>")
+      printf("  Name:%s",d.name)
+      printf("  Id:  %s",d.id)
+      printf("  Type:%s",d.type)
+      printf("--]]\n")
+      printf("%s",d.properties.mainFunction)
+      d.properties.mainFunction=""
+      printf("--[[ <<Device struct>>")
+      printf("%s",prettyPrint(d))
+      printf("--]]")
+      return table.concat(res,"\n")
+    end
+
+    function self.flat2QuickApp(str)
+      local h,code,e = str:match("%-%-%[%[ <<QuickApp>>(.-)%-%-%]%]%c*(.*)%c*%-%-%[%[ <<Device struct>>(.-)%-%-%]%][%s%c]*")
+      assert(h and code and e,"Bad flat QuickApp format")
+      local d = json.decode(e)
+
+      local noProps = {
+        logTemp=true,deadReason=true,dead=true,log=true
+      }
+
+      local ip = {}
+      for k,v in pairs(d.properties) do if not noProps[k] then ip[k]=v end end
+      ip.mainFunction = code
+      ip.viewLayout = d.properties.viewLayout
+      d.properties.viewLayout = nil
+      ip.uiCallbacks = d.properties.uiCallbacks
+      d.properties.uiCallbacks = nil
+      ip.quickAppVariables = d.properties.quickAppVariables
+      d.properties.quickAppVariables = nil
+      ip.typeTemplateInitialized=true
+      local ds = {}
+      for _,k in ipairs({'id','name','roomID','type','baseType','enabled','visible','isPlugin','viewXml','configXml',
+          'interfaces','actions','sortOrder'}) do ds[k]=d[k] end
+      ds.initialProperties=ip
+      ds.apiVersion = "1.1"
+      return ds
+    end
+
+    function self.upload2DownloadQAStruct(d)
+      d.properties = d.initialProperties
       d.initialProperties = nil
+      d.properties.apiVersion = d.apiVersion
+      d.apiVersion = nil
+      return d
     end
-    printf("--[[ <<QuickApp>>")
-    printf("  Name:%s",d.name)
-    printf("  Id:  %s",d.id)
-    printf("  Type:%s",d.type)
-    printf("--]]\n")
-    printf("%s",d.properties.mainFunction)
-    d.properties.mainFunction=""
-    printf("--[[ <<Device struct>>")
-    printf("%s",prettyPrint(d))
-    printf("--]]")
-    return table.concat(res,"\n")
-  end
 
-  function self.flat2QuickApp(str)
-    local h,code,e = str:match("%-%-%[%[ <<QuickApp>>(.-)%-%-%]%]%c*(.*)%c*%-%-%[%[ <<Device struct>>(.-)%-%-%]%][%s%c]*")
-    assert(h and code and e,"Bad flat QuickApp format")
-    local d = json.decode(e)
+    function self.writeFile(tp,struct,path)
+      local fileText = self[tp].convertStruct2text(struct)
+      local fname = format("%s_%d_%s.lua",tp,struct.id or 0,struct.name)
+      fname =  fname:gsub("([%s%/])","_")
+      fname = path~="" and concatPath(path,fname) or fname
+      local f,err = io.open(fname,"w")
+      assert(f,"Can't open file for write:"..fname)
+      f:write(fileText)
+      f:close()
+      return fname
+    end
 
-    local noProps = {
-      logTemp=true,deadReason=true,dead=true,log=true
-    }
+    local function checkError(res,err)
+      if res==nil and err > 204 then Log(LOG.ERROR,"Resource update error : %s",err) end
+    end
 
-    local ip = {}
-    for k,v in pairs(d.properties) do if not noProps[k] then ip[k]=v end end
-    ip.mainFunction = code
-    ip.viewLayout = d.properties.viewLayout
-    d.properties.viewLayout = nil
-    ip.uiCallbacks = d.properties.uiCallbacks
-    d.properties.uiCallbacks = nil
-    ip.quickAppVariables = d.properties.quickAppVariables
-    d.properties.quickAppVariables = nil
-    ip.typeTemplateInitialized=true
-    local ds = {}
-    for _,k in ipairs({'id','name','roomID','type','baseType','enabled','visible','isPlugin','viewXml','configXml',
-        'interfaces','actions','sortOrder'}) do ds[k]=d[k] end
-    ds.initialProperties=ip
-    ds.apiVersion = "1.1"
-    return ds
-  end
+    local function warn(test,tp,name)
+      if not test then Log(LOG.WARNING,"%s:%s, name or id mismatch with file content, using file content",tp,name) end
+    end
 
-  function self.upload2DownloadQAStruct(d)
-    d.properties = d.initialProperties
-    d.initialProperties = nil
-    d.properties.apiVersion = d.apiVersion
-    d.apiVersion = nil
-    return d
-  end
-
-  function self.writeFile(tp,struct,path)
-    local fileText = self[tp].convertStruct2text(struct)
-    local fname = format("%s_%d_%s.lua",tp,struct.id or 0,struct.name)
-    fname =  fname:gsub("([%s%/])","_")
-    fname = path~="" and concatPath(path,fname) or fname
-    local f,err = io.open(fname,"w")
-    assert(f,"Can't open file for write:"..fname)
-    f:write(fileText)
-    f:close()
-    return fname
-  end
-
-  local function checkError(res,err)
-    if res==nil and err > 204 then Log(LOG.ERROR,"Resource update error : %s",err) end
-  end
-
-  local function warn(test,tp,name)
-    if not test then Log(LOG.WARNING,"%s:%s, name or id mismatch with file content, using file content",tp,name) end
-  end
-
-  function self.restoreQuickApp(struct,id,name)
-    local sname = struct.name:gsub("([%s%/])","_")
-    warn(sname==name and struct.id==id,"QuickApp",name)
-    local ds = api.get("/devices/"..struct.id)
-    if ds and ds.name==struct.name then
-      Log(LOG.LOG,"Updating existing device %s",struct.name)
-      local d, err = api.put("/devices/"..struct.id,{
-          properties={
-            quickAppVariables = struct.initialProperties.quickAppVariables,
-            mainFunction = struct.initialProperties.mainFunction,
-            uiCallBacks = struct.initialProperties.uiCallbacks,
-          }
-        })
+    function self.restoreQuickApp(struct,id,name)
+      local sname = struct.name:gsub("([%s%/])","_")
+      warn(sname==name and struct.id==id,"QuickApp",name)
+      local ds = api.get("/devices/"..struct.id)
+      if ds and ds.name==struct.name then
+        Log(LOG.LOG,"Updating existing device %s",struct.name)
+        local d, err = api.put("/devices/"..struct.id,{
+            properties={
+              quickAppVariables = struct.initialProperties.quickAppVariables,
+              mainFunction = struct.initialProperties.mainFunction,
+              uiCallBacks = struct.initialProperties.uiCallbacks,
+            }
+          })
+        if d == nil then
+          Log(LOG.LOG,"Error creating device: %s",err)
+        else
+          Log(LOG.LOG,"Device %s with id:%s created",d.name,d.id)
+        end
+        return -- update
+      end
+      Log(LOG.LOG,"Creating new device %s",struct.name)
+      local d,err = api.post("/quickApp/",struct)
       if d == nil then
         Log(LOG.LOG,"Error creating device: %s",err)
       else
         Log(LOG.LOG,"Device %s with id:%s created",d.name,d.id)
       end
-      return -- update
     end
-    Log(LOG.LOG,"Creating new device %s",struct.name)
-    local d,err = api.post("/quickApp/",struct)
-    if d == nil then
-      Log(LOG.LOG,"Error creating device: %s",err)
-    else
-      Log(LOG.LOG,"Device %s with id:%s created",d.name,d.id)
-    end
-  end
 
-  function self.restoreScene(struct,id,name)
-    local sname = struct.name:gsub("([%s%/])","_")
-    warn(sname==name and struct.id==id,"scene",name)
-    if api.get("/scenes/"..struct.id) then
-      Log(LOG.LOG,"Updating existing scene %s",struct.name)
-      checkError(api.put("/scenes/"..struct.id,struct))
-    else
-      Log(LOG.LOG,"Creating new scene %s",struct.name)
-      checkError(api.post("/scenes",struct))
-    end   
-  end
-
-  function self.restoreGlobal(struct,id,name)
-    local sname = struct.name:gsub("([%s%/])","_")
-    warn(sname==name,"globalVariable",name)
-    if api.get("/globalVariables/"..struct.name) then
-      Log(LOG.LOG,"Updating existing globalVariable %s",struct.name)
-      checkError(api.put("/globalVariables/"..struct.name,struct))
-    else
-      Log(LOG.LOG,"Creating new globalVariable %s",struct.name)
-      checkError(api.post("/globalVariables",struct))
-    end
-  end
-
-  function self.restoreLocation(struct,id,name)
-    local sname = struct.name:gsub("([%s%/])","_")
-    warn(sname==name and struct.id==id,"location",name)
-    if api.get("/panels/location/"..struct.id) then
-      Log(LOG.LOG,"Updating existing location %s",struct.name)
-      checkError(api.put("/panels/location/"..struct.id,struct))
-    else
-      Log(LOG.LOG,"Creating new location %s",struct.name)
-      checkError(api.post("/panels/location",struct))
-    end
-  end
-
-  function self.restoreCustom(struct,id,name)
-    local sname = struct.name:gsub("([%s%/])","_")
-    warn(sname==name and struct.id==id,"customEvent",name)
-    if api.get("/customEvents/"..struct.name) then
-      Log(LOG.LOG,"Updating existing customEvent %s",struct.name)
-      checkError(api.put("/customEvents/"..struct.name,struct))
-    else
-      Log(LOG.LOG,"Creating new customEvent %s",struct.name)
-      checkError(api.post("/customEvents",struct.struct))
-    end
-  end
-
-  self.QA,self.Scene,self.Global,self.Location,self.CustomEvent={},{},{},{},{}
-  function self.QA.convertText2struct(text,struct) return self.flat2QuickApp(text) end
-  function self.QA.convertStruct2text(struct) return self.QuickApp2Flat(struct) end
-  function self.QA.restoreStruct(struct,id,name) return self.restoreQuickApp(struct,id,name) end
-  function self.Scene.convertText2struct(text) return self.flat2Scene(text) end
-  function self.Scene.convertStruct2text(struct) return self.Scene2Flat(struct) end
-  function self.Scene.restoreStruct(struct,id,name) return self.restoreScene(struct,id,name) end
-  function self.Global.convertStruct2text(struct) return prettyPrint(struct) end
-  function self.Global.convertText2struct(text) return json.decode(text) end
-  function self.Global.restoreStruct(struct,id,name) return self.restoreGlobal(struct,id,name) end
-  function self.Location.convertStruct2text(struct)  return prettyPrint(struct) end
-  function self.Location.convertText2struct(text)  return json.decode(text) end
-  function self.Location.restoreStruct(struct,id,name) return self.restoreLocation(struct,id,name) end
-  function self.CustomEvent.convertStruct2text(struct)  return prettyPrint(struct) end
-  function self.CustomEvent.convertText2struct(text)  return json.decode(text) end
-  function self.CustomEvent.restoreStruct(struct,id,name) return self.restoreCustomEvent(struct,id,name) end
-
-  local resMap = {
-    scenes={name="Scene",rsrcpath="/scenes", dir="Scenes"},
-    devices={name="QA",rsrcpath="/devices", dir="QAs", test=function(d) return d.id < 4 or (d.parentId and d.parentId > 0) end },
-    globals={name="Global",rsrcpath="/globalVariables", dir="Globals"},
-    locations={name="Location",rsrcpath="/panels/location", dir="Locations"},
-    custom={name="CustomEvent",rsrcpath="/customEvents", dir="CustomEvents"},
-  }
-
-  function self.download(resource,path)
-    local r = resMap[resource]
-    assert(resMap[resource],"Unsupported resource:"..resource)
-    local dpath = path
-    createDir(dpath)
-    for _,d in ipairs(api.get(r.rsrcpath) or {}) do
-      if r.test and r.test(d) then 
-        -- ignore
+    function self.restoreScene(struct,id,name)
+      local sname = struct.name:gsub("([%s%/])","_")
+      warn(sname==name and struct.id==id,"scene",name)
+      if api.get("/scenes/"..struct.id) then
+        Log(LOG.LOG,"Updating existing scene %s",struct.name)
+        checkError(api.put("/scenes/"..struct.id,struct))
       else
-        self.writeFile(r.name,d,dpath)
+        Log(LOG.LOG,"Creating new scene %s",struct.name)
+        checkError(api.post("/scenes",struct))
+      end   
+    end
+
+    function self.restoreGlobal(struct,id,name)
+      local sname = struct.name:gsub("([%s%/])","_")
+      warn(sname==name,"globalVariable",name)
+      if api.get("/globalVariables/"..struct.name) then
+        Log(LOG.LOG,"Updating existing globalVariable %s",struct.name)
+        checkError(api.put("/globalVariables/"..struct.name,struct))
+      else
+        Log(LOG.LOG,"Creating new globalVariable %s",struct.name)
+        checkError(api.post("/globalVariables",struct))
       end
     end
-  end
 
-  function self.backupR(resource,path) -- scenes,devices,globals,locations,customs
-    local r = resMap[resource]
-    assert(resMap[resource],"Unsupported resource:"..resource)
-    path = concatPath(path,r.dir)
-    createDir(path)
-    Log(LOG.LOG,"Backing up %s to %s",resource,path)
-    self.download(resource,path)
-  end
-
-  function self.backup(resource) -- scenes,devices,globals,locations,customs
-    local dpath = concatPath(dir,"backup")
-    createDir(dpath)
-    local dname = os.date(hc3_emulator.backDirFmt)
-    dpath = concatPath(dpath,dname) 
-    createDir(dpath)
-    if resource == 'all' then
-      for r,_ in pairs(resMap) do self.backupR(r,dpath) end 
-    else self.backupR(resource,dpath) end
-  end
-
-  function self.restore(path)
-    local tp,id,name = path:match("(%a+)_(%d+)_([%-%._%w]+)%.lua$")
-    local f = io.open(path)
-    assert(f,"File does not exist: "..path)
-    assert(tp,"Unsupported resource: "..tostring(tp))
-    Log(LOG.LOG,"Restoring resource %s %s",tp,path)
-    local txt = f:read("*all")
-    f:close()
-    local struct = self[tp].convertText2struct(txt)
-    self[tp].restoreStruct(struct,tonumber(id),name)
-  end
-
-  getHC3dir()
-
-  commandLines['pull']=function(...) -- devices/239
-    local path = table.concat({...})
-    local rsrc,id = path:match("^%s*/?(%a+)/([%a%d]+)%s*")
-    assert(rsrc and id and resMap[rsrc],"Not a resource name")
-    local r = resMap[rsrc]
-    local struct = api.get("/"..rsrc.."/"..id)
-    Log(LOG.LOG,"Writing file...")
-    local fn = self.writeFile(r.name,struct,"")
-    if fn then
-      Log(LOG.LOG,"File %s written",fn)
+    function self.restoreLocation(struct,id,name)
+      local sname = struct.name:gsub("([%s%/])","_")
+      warn(sname==name and struct.id==id,"location",name)
+      if api.get("/panels/location/"..struct.id) then
+        Log(LOG.LOG,"Updating existing location %s",struct.name)
+        checkError(api.put("/panels/location/"..struct.id,struct))
+      else
+        Log(LOG.LOG,"Creating new location %s",struct.name)
+        checkError(api.post("/panels/location",struct))
+      end
     end
-  end
-  commandLines['push']=function(...) self.restore(table.concat({...}," ")) end
-  commandLines['backup']=function() self.backup("all") end
-  return self
-end
 
---------------- Offline support ----------------------
-function module.Offline()
-  -- We setup our own /refreshState handler and other REST API handlers and keep our own reosurce states
-  local self,cache,split,urldecode,QUEUESIZE = {},Trigger.cache,Util.split,Util.urldecode,200
-  local refreshStates = nil
+    function self.restoreCustom(struct,id,name)
+      local sname = struct.name:gsub("([%s%/])","_")
+      warn(sname==name and struct.id==id,"customEvent",name)
+      if api.get("/customEvents/"..struct.name) then
+        Log(LOG.LOG,"Updating existing customEvent %s",struct.name)
+        checkError(api.put("/customEvents/"..struct.name,struct))
+      else
+        Log(LOG.LOG,"Creating new customEvent %s",struct.name)
+        checkError(api.post("/customEvents",struct.struct))
+      end
+    end
 
-  ---------------- Resource DB --------------------
-  local function resourceDB()
-    local self,cache = {},{}
-    local resources= {
-      devices = {},
-      scenes = {},
-      globalVariables = {},
-      customEvents = {},
-      rooms = {},
-      sections = {},
-      profiles = {},
-      settings = {info = {}, location={}, network={}, led={}},
-      users={},
-      weather={},
-      iosDevices={},
-      home={},
-      categories={},
-      alarms = {
-        v1 = {
-          devices = {},
-          history = {},
-          partitions = {},
-        }
-      },
-      panels = {
-        family = {}
-      }
+    self.QA,self.Scene,self.Global,self.Location,self.CustomEvent={},{},{},{},{}
+    function self.QA.convertText2struct(text,struct) return self.flat2QuickApp(text) end
+    function self.QA.convertStruct2text(struct) return self.QuickApp2Flat(struct) end
+    function self.QA.restoreStruct(struct,id,name) return self.restoreQuickApp(struct,id,name) end
+    function self.Scene.convertText2struct(text) return self.flat2Scene(text) end
+    function self.Scene.convertStruct2text(struct) return self.Scene2Flat(struct) end
+    function self.Scene.restoreStruct(struct,id,name) return self.restoreScene(struct,id,name) end
+    function self.Global.convertStruct2text(struct) return prettyPrint(struct) end
+    function self.Global.convertText2struct(text) return json.decode(text) end
+    function self.Global.restoreStruct(struct,id,name) return self.restoreGlobal(struct,id,name) end
+    function self.Location.convertStruct2text(struct)  return prettyPrint(struct) end
+    function self.Location.convertText2struct(text)  return json.decode(text) end
+    function self.Location.restoreStruct(struct,id,name) return self.restoreLocation(struct,id,name) end
+    function self.CustomEvent.convertStruct2text(struct)  return prettyPrint(struct) end
+    function self.CustomEvent.convertText2struct(text)  return json.decode(text) end
+    function self.CustomEvent.restoreStruct(struct,id,name) return self.restoreCustomEvent(struct,id,name) end
+
+    local resMap = {
+      scenes={name="Scene",rsrcpath="/scenes", dir="Scenes"},
+      devices={name="QA",rsrcpath="/devices", dir="QAs", test=function(d) return d.id < 4 or (d.parentId and d.parentId > 0) end },
+      globals={name="Global",rsrcpath="/globalVariables", dir="Globals"},
+      locations={name="Location",rsrcpath="/panels/location", dir="Locations"},
+      custom={name="CustomEvent",rsrcpath="/customEvents", dir="CustomEvents"},
     }
-    local auto = { devices = true, globals = true, customevent = true }
-    self.resources,self.auto = resources,auto
 
-    function self.setDB(db) resources=db self.resources=db end
-
-    local function splitPath(path) local p = split(path,"/") p = #p==1 and p[1] or p; cache[path]=p return p end
-    local function copyOver(o1,o2,cm,r)
-      cm = cm or {}
-      for k,v in pairs(o2) do
-        if type(v)=='table' then
-          if o1[k]==nil then o1[k]=copyOver({},v,cm[k],r)
-          elseif type(o1[k])=='table' then copyOver(o1[k],v,cm[k],r) end
-        elseif not (cm and cm[k]==false) then 
-          if cm and type(cm[k])=='function' then cm[k](k,o1[k],v,r) end
-          o1[k]=v 
+    function self.download(resource,path)
+      local r = resMap[resource]
+      assert(resMap[resource],"Unsupported resource:"..resource)
+      local dpath = path
+      createDir(dpath)
+      for _,d in ipairs(api.get(r.rsrcpath) or {}) do
+        if r.test and r.test(d) then 
+          -- ignore
+        else
+          self.writeFile(r.name,d,dpath)
         end
       end
     end
-    local function get(rsrc)
-      local path = cache[rsrc] or splitPath(rsrc)
-      if type(path)=='string' then return resources[path]
-      else
-        local r = resources
-        for _,k in ipairs(path) do r=r[k] end
-        return r
+
+    function self.backupR(resource,path) -- scenes,devices,globals,locations,customs
+      local r = resMap[resource]
+      assert(resMap[resource],"Unsupported resource:"..resource)
+      path = concatPath(path,r.dir)
+      createDir(path)
+      Log(LOG.LOG,"Backing up %s to %s",resource,path)
+      self.download(resource,path)
+    end
+
+    function self.backup(resource) -- scenes,devices,globals,locations,customs
+      local dpath = concatPath(dir,"backup")
+      createDir(dpath)
+      local dname = os.date(hc3_emulator.backDirFmt)
+      dpath = concatPath(dpath,dname) 
+      createDir(dpath)
+      if resource == 'all' then
+        for r,_ in pairs(resMap) do self.backupR(r,dpath) end 
+      else self.backupR(resource,dpath) end
+    end
+
+    function self.restore(path)
+      local tp,id,name = path:match("(%a+)_(%d+)_([%-%._%w]+)%.lua$")
+      local f = io.open(path)
+      assert(f,"File does not exist: "..path)
+      assert(tp,"Unsupported resource: "..tostring(tp))
+      Log(LOG.LOG,"Restoring resource %s %s",tp,path)
+      local txt = f:read("*all")
+      f:close()
+      local struct = self[tp].convertText2struct(txt)
+      self[tp].restoreStruct(struct,tonumber(id),name)
+    end
+
+    getHC3dir()
+
+    commandLines['pull']=function(...) -- devices/239
+      local path = table.concat({...})
+      local rsrc,id = path:match("^%s*/?(%a+)/([%a%d]+)%s*")
+      assert(rsrc and id and resMap[rsrc],"Not a resource name")
+      local r = resMap[rsrc]
+      local struct = api.get("/"..rsrc.."/"..id)
+      Log(LOG.LOG,"Writing file...")
+      local fn = self.writeFile(r.name,struct,"")
+      if fn then
+        Log(LOG.LOG,"File %s written",fn)
       end
     end
-    local creator,modifier,actions= {},{},{}
-    function self.addCreator(rsrc,fun) local r = get(rsrc) creator[r]=fun end
-    function self.addModifier(rsrc,tab) local r = get(rsrc) modifier[r]=tab end
-    function self.addActions(rsrc,a) actions[rsrc]=a end
-    function self.getActions(rsrc) return actions[rsrc] or {} end
-
-    function self.delete(rsrc,key)
-      local r = get(rsrc)
-      if r[key] then actions[r[key]]=nil; r[key]=nil return nil,200 else return nil,404 end
-    end
-
-    function self.add(rsrc,key,value) -- error if exists
-      local r = get(rsrc)
-      if r[key] then return nil,409 end
-      self.get(rsrc,key)
-      self.modify(rsrc,key,value)
-      return r[key],200
-    end
-
-    function self.modify(rsrc,key,value) -- creates if creator
-      local r = get(rsrc)
-      if not r[key] then 
-        local v,err = self.get(rsrc,key)
-        if err~=200 then return v,err end
-      end
-      if type(value) == 'table' then
-        copyOver(r[key],value,modifier[r],r[key])
-      else r[key]=value end
-      return r[key],200
-    end
-
-    function self.get(rsrc,key) -- creates if creator
-      local r = get(rsrc)
-      if key then
-        if r[key] then return r[key],200
-        elseif creator[r] then
-          local v = creator[r](key)
-          if v then r[key]=v; return v,200 end
-        end
-        return nil,404 
-      else 
-        local res = {}
-        if type(next(r))=='table' then
-          for _,v in pairs(r) do res[#res+1]=v end
-          return res,200
-        else return r,200 end
-      end
-    end
+    commandLines['push']=function(...) self.restore(table.concat({...}," ")) end
+    commandLines['backup']=function() self.backup("all") end
     return self
   end
 
-  local db = resourceDB()
+--------------- Offline support ----------------------
+  function module.Offline()
+    -- We setup our own /refreshState handler and other REST API handlers and keep our own reosurce states
+    local self,cache,split,urldecode,QUEUESIZE = {},Trigger.cache,Util.split,Util.urldecode,200
+    local refreshStates = nil
 
-  local function createGlobalVariable(var)
-    var.readOnly = var.readOnly or false
-    var.isEnum = var.isEnum or false
-    var.enumValues = var.enumValues or {}
-    var.created = os.time()
-    var.modified = os.time()
-    return var.name and var
-  end
+    ---------------- Resource DB --------------------
+    local function resourceDB()
+      local self,cache = {},{}
+      local resources= {
+        devices = {},
+        scenes = {},
+        globalVariables = {},
+        customEvents = {},
+        rooms = {},
+        sections = {},
+        profiles = {},
+        settings = {info = {}, location={}, network={}, led={}},
+        users={},
+        weather={},
+        iosDevices={},
+        home={},
+        categories={},
+        alarms = {
+          v1 = {
+            devices = {},
+            history = {},
+            partitions = {},
+          }
+        },
+        panels = {
+          family = {}
+        }
+      }
+      local auto = { devices = true, globals = true, customevent = true }
+      self.resources,self.auto = resources,auto
 
-  local function createCustomEvent(ce)
-    ce.userDescription = ce.userDescription or ""
-    return ce.name and ce
-  end
+      function self.setDB(db) resources=db self.resources=db end
 
-  local deviceTypes = {
-    ["com.fibaro.binarySwitch"] = function(self)
-      self.properties.value = false
-      self.properties.state = false
-      self.actions = {turnOn=0, turnOff=0}
-      local actions = {}
-      function actions.turnOn() actions.setValue("value",true) end
-      function actions.turnOff() actions.setValue("value",false) end
-      function actions.setValue(prop,value) 
-        if prop=='value' or prop=='state' then
-          db.modify("/devices",self.id,{properties ={value=value}}) 
-          db.modify("/devices",self.id,{properties ={state=value}}) 
-          cache.write('devices',prop..self.id,{value=value,modified=os.time()})
-        end
-      end -- could be more efficient
-      return actions
-    end,
-    ["com.fibaro.multilevelSwitch"] = function(self)
-      self.properties.value = 0
-      self.actions = {turnOn=0, turnOff=0, setValue=2}
-      local actions = {}
-      function actions.turnOn() actions.setValue("value",99) end
-      function actions.turnOff() actions.setValue("value",0) end
-      function actions.setValue(prop,value) 
-        db.modify("/devices",self.id,{properties={[prop]=value}}) 
-        if prop=='value' then 
-          db.modify("/devices",self.id,{properties={state=value>0}}) 
-        end 
-        if hc3_emulator.speeding then 
-          cache.write('devices','state'..self.id,{value=value>0,modified=os.time()})
-          cache.write('devices',prop..self.id,{value=value,modified=os.time()})
-        end
-      end
-      return actions
-    end,
-    ["com.fibaro.binarySensor"] = function(self)
-      self.properties.value = false
-      self.properties.state = false
-      self.lastBreached = 0
-      self.actions = {turnOn=0, turnOff=0}
-      local actions = {}
-      function actions.turnOn() actions.setValue("value",true) end
-      function actions.turnOff() actions.setValue("value",false) end
-      function actions.setValue(prop,value) 
-        if prop=='value' or prop=='state' then
-          self.lastBreached = os.time()
-          db.modify("/devices",self.id,{properties ={value=value}}) 
-          db.modify("/devices",self.id,{properties ={state=value}}) 
+      local function splitPath(path) local p = split(path,"/") p = #p==1 and p[1] or p; cache[path]=p return p end
+      local function copyOver(o1,o2,cm,r)
+        cm = cm or {}
+        for k,v in pairs(o2) do
+          if type(v)=='table' then
+            if o1[k]==nil then o1[k]=copyOver({},v,cm[k],r)
+            elseif type(o1[k])=='table' then copyOver(o1[k],v,cm[k],r) end
+          elseif not (cm and cm[k]==false) then 
+            if cm and type(cm[k])=='function' then cm[k](k,o1[k],v,r) end
+            o1[k]=v 
+          end
         end
       end
-      return actions
-    end,
-    ["com.fibaro.multilevelSensor"] = function(self)
-      self.properties.value = 0
-      self.actions = {turnOn=0, turnOff=0, setValue=2}
-      local actions = {}
-      function actions.turnOn() actions.setValue("value",99) end
-      function actions.turnOff() actions.setValue("value",0) end
-      function actions.setValue(prop,value) 
-        db.modify("/devices",self.id,{properties={[prop]=value}}) 
-        if prop=='value' then 
-          db.modify("/devices",self.id,{properties={state=value>0}}) 
-        end 
+      local function get(rsrc)
+        local path = cache[rsrc] or splitPath(rsrc)
+        if type(path)=='string' then return resources[path]
+        else
+          local r = resources
+          for _,k in ipairs(path) do r=r[k] end
+          return r
+        end
       end
-      return actions
-    end,
-  }
+      local creator,modifier,actions= {},{},{}
+      function self.addCreator(rsrc,fun) local r = get(rsrc) creator[r]=fun end
+      function self.addModifier(rsrc,tab) local r = get(rsrc) modifier[r]=tab end
+      function self.addActions(rsrc,a) actions[rsrc]=a end
+      function self.getActions(rsrc) return actions[rsrc] or {} end
 
-  local hierarchyCache={}
-  local function getBaseType(tp)
-    if hierarchyCache[tp] then return hierarchyCache[tp] end
-    local function getHierarchy(tp,tree)
-      if tree.type==tp then return {tp}
+      function self.delete(rsrc,key)
+        local r = get(rsrc)
+        if r[key] then actions[r[key]]=nil; r[key]=nil return nil,200 else return nil,404 end
+      end
+
+      function self.add(rsrc,key,value,force) -- error if exists
+        local r = get(rsrc)
+        if r[key] then return nil,409 end
+        self.get(rsrc,key,force)
+        self.modify(rsrc,key,value)
+        return r[key],200
+      end
+
+      function self.modify(rsrc,key,value) -- creates if creator
+        local r = get(rsrc)
+        if not r[key] then 
+          local v,err = self.get(rsrc,key)
+          if err~=200 then return v,err end
+        end
+        if type(value) == 'table' then
+          copyOver(r[key],value,modifier[r],r[key])
+        else r[key]=value end
+        return r[key],200
+      end
+
+      function self.get(rsrc,key,force) -- creates if creator
+        local r = get(rsrc)
+        if key then
+          if r[key] then return r[key],200
+          elseif creator[r] then
+            local v = creator[r](key,force)
+            if v then r[key]=v; return v,200 end
+          end
+          return nil,404 
+        else 
+          local res = {}
+          if type(next(r))=='table' then
+            for _,v in pairs(r) do res[#res+1]=v end
+            return res,200
+          else return r,200 end
+        end
+      end
+      return self
+    end
+
+    local db = resourceDB()
+
+    local function createGlobalVariable(var)
+      var.readOnly = var.readOnly or false
+      var.isEnum = var.isEnum or false
+      var.enumValues = var.enumValues or {}
+      var.created = os.time()
+      var.modified = os.time()
+      return var.name and var
+    end
+
+    local function createCustomEvent(ce)
+      ce.userDescription = ce.userDescription or ""
+      return ce.name and ce
+    end
+
+    local deviceTypes = {
+      ["com.fibaro.binarySwitch"] = function(self)
+        self.properties.value = false
+        self.properties.state = false
+        self.actions = {turnOn=0, turnOff=0}
+        local actions = {}
+        function actions.turnOn() actions.setValue("value",true) end
+        function actions.turnOff() actions.setValue("value",false) end
+        function actions.setValue(prop,value) 
+          if prop=='value' or prop=='state' then
+            db.modify("/devices",self.id,{properties ={value=value}}) 
+            db.modify("/devices",self.id,{properties ={state=value}}) 
+            cache.write('devices',prop..self.id,{value=value,modified=os.time()})
+          end
+        end -- could be more efficient
+        return actions
+      end,
+      ["com.fibaro.multilevelSwitch"] = function(self)
+        self.properties.value = 0
+        self.actions = {turnOn=0, turnOff=0, setValue=2}
+        local actions = {}
+        function actions.turnOn() actions.setValue("value",99) end
+        function actions.turnOff() actions.setValue("value",0) end
+        function actions.setValue(prop,value) 
+          db.modify("/devices",self.id,{properties={[prop]=value}}) 
+          if prop=='value' then 
+            db.modify("/devices",self.id,{properties={state=value>0}}) 
+          end 
+          if hc3_emulator.speeding then 
+            cache.write('devices','state'..self.id,{value=value>0,modified=os.time()})
+            cache.write('devices',prop..self.id,{value=value,modified=os.time()})
+          end
+        end
+        return actions
+      end,
+      ["com.fibaro.binarySensor"] = function(self)
+        self.properties.value = false
+        self.properties.state = false
+        self.lastBreached = 0
+        self.actions = {turnOn=0, turnOff=0}
+        local actions = {}
+        function actions.turnOn() actions.setValue("value",true) end
+        function actions.turnOff() actions.setValue("value",false) end
+        function actions.setValue(prop,value) 
+          if prop=='value' or prop=='state' then
+            self.lastBreached = os.time()
+            db.modify("/devices",self.id,{properties ={value=value}}) 
+            db.modify("/devices",self.id,{properties ={state=value}}) 
+          end
+        end
+        return actions
+      end,
+      ["com.fibaro.multilevelSensor"] = function(self)
+        self.properties.value = 0
+        self.actions = {turnOn=0, turnOff=0, setValue=2}
+        local actions = {}
+        function actions.turnOn() actions.setValue("value",99) end
+        function actions.turnOff() actions.setValue("value",0) end
+        function actions.setValue(prop,value) 
+          db.modify("/devices",self.id,{properties={[prop]=value}}) 
+          if prop=='value' then 
+            db.modify("/devices",self.id,{properties={state=value>0}}) 
+          end 
+        end
+        return actions
+      end,
+    }
+
+    local hierarchyCache={}
+    local function getBaseType(tp)
+      if hierarchyCache[tp] then return hierarchyCache[tp] end
+      local function getHierarchy(tp,tree)
+        if tree.type==tp then return {tp}
+        else
+          for _,c in ipairs(tree.children) do
+            local m = getHierarchy(tp,c)
+            if m then table.insert(m,tree.type) return m end
+          end
+        end
+      end
+      local h,bt = getHierarchy(tp,typeHierarchy)
+      if h==nil or #h == 0 then return nil
       else
-        for _,c in ipairs(tree.children) do
-          local m = getHierarchy(tp,c)
-          if m then table.insert(m,tree.type) return m end
-        end
+        for _,t in ipairs(h) do if deviceTypes[t] then bt = t break end end
+        return bt
       end
     end
-    local h,bt = getHierarchy(tp,typeHierarchy)
-    if h==nil or #h == 0 then return nil
-    else
-      for _,t in ipairs(h) do if deviceTypes[t] then bt = t break end end
-      return bt
+
+    local function createDevice(dev)
+      if dev.id == 1 then
+        dev.id=1
+        dev.properties={sunsetHour="20:00",sunriseHour="06:00"}
+        dev.type="com.fibaro.zwavePrimaryController"
+        dev.baseType=""
+      else
+        dev.properties = dev.properties or {}
+        dev.created = os.time()
+        dev.modified = dev.created
+        dev.name = dev.name or ""
+        dev.type = dev.type or hc3_emulator.defaultDevice or "com.fibaro.binarySwitch"
+        dev.baseType = getBaseType(dev.type)
+        if not (dev.id and dev.baseType) then return end
+        db.addActions(dev,deviceTypes[dev.baseType](dev))
+      end
+      Debug(dev.id ~= 1 and _debugFlags.creation,"DeviceId:%s (%s) created",dev.id,dev.type)
+      return dev
     end
-  end
 
-  local function createDevice(dev)
-    if dev.id == 1 then
-      dev.id=1
-      dev.properties={sunsetHour="20:00",sunriseHour="06:00"}
-      dev.type="com.fibaro.zwavePrimaryController"
-      dev.baseType=""
-    else
-      dev.properties = dev.properties or {}
-      dev.created = os.time()
-      dev.modified = dev.created
-      dev.name = dev.name or ""
-      dev.type = dev.type or hc3_emulator.defaultDevice or "com.fibaro.binarySwitch"
-      dev.baseType = getBaseType(dev.type)
-      if not (dev.id and dev.baseType) then return end
-      db.addActions(dev,deviceTypes[dev.baseType](dev))
+    local initExemptions = { ['HC_User']=true,['com.fibaro.zwavePrimaryController']=true}
+    function self.initExistingDevice(dev)
+      if initExemptions[dev.type] then return end
+      local baseType = getBaseType(dev.type)
+      dev.baseType = baseType or "com.fibaro.multilevelSwitch" 
+      if dev.baseType~="" then db.addActions(dev,deviceTypes[dev.baseType](dev)) end
     end
-    Debug(dev.id ~= 1 and _debugFlags.creation,"DeviceId:%s (%s) created",dev.id,dev.type)
-    return dev
-  end
 
-  local initExemptions = { ['HC_User']=true,['com.fibaro.zwavePrimaryController']=true}
-  function self.initExistingDevice(dev)
-    if initExemptions[dev.type] then return end
-    local baseType = getBaseType(dev.type)
-    dev.baseType = baseType or "com.fibaro.multilevelSwitch" 
-    if dev.baseType~="" then db.addActions(dev,deviceTypes[dev.baseType](dev)) end
-  end
+    --local function pr(o) print(json.encode(o)) end
 
-  --local function pr(o) print(json.encode(o)) end
-
-  self.db = db
-  hc3_emulator.autocreate = db.auto
+    self.db = db
+    hc3_emulator.autocreate = db.auto
 
 
 --[[
@@ -3700,324 +3999,324 @@ function module.Offline()
     {type='ActiveProfileChangedEvent', data={newActiveProfile=<val1>, oldActiveProfile=<val2>}}
 --]]
 
-  local function propChange(prop,oldValue,newValue,d)
-    if oldValue ~= newValue then
-      d.modified = os.time()
-      refreshStates.addEvents(
-        {type='DevicePropertyUpdatedEvent', data={id=tonumber(d.id),newValue=newValue,oldValue=oldValue,property=prop}}
-      )
-      Trigger.pollOneEvent()
-    end
-  end
-
-  function self.setupDBhooks()
-    db.addCreator("/devices",function(id) return db.auto.devices and createDevice({id=tonumber(id)}) end)
-    db.addCreator("/globalVariables",function(name) return db.auto.globals and createGlobalVariable({name=name}) end)
-    db.addCreator("/customEvents",function(name) return db.auto.customevents and createCustomEvent({name=name}) end)
-    db.addModifier("/globalVariables",
-      {
-        name=false, 
-        value=function(_,oldValue,newValue,v) 
-          if oldValue ~= newValue then
-            refreshStates.addEvents(
-              {type='GlobalVariableChangedEvent', data={variableName=v.name, newValue=newValue, old=oldValue}}
-            )
-            Trigger.pollOneEvent()
-          end
-        end
-      })
-    db.addModifier("/devices",
-      {
-        name=false, 
-        id=false, 
-        type=false, 
-        properties = {
-          value=propChange,
-          color=propChange,
-        }
-      })
-  end
-  self.setupDBhooks()
-
-
-  self.refreshStates = Trigger.refreshStates
-  refreshStates = self.refreshStates
-
----------------- api.* handlers -- simulated calls to offline version of resources
-  local function arr(tab) local res={} for _,v in pairs(tab) do res[#res+1]=v end return res end
-  local OFFLINE_HANDLERS = {
-    ["GET"] = {
-      ["/callAction%?deviceID=(%d+)&name=(%w+)(.*)"] = function(call,data,cType,id,action,args)
-        local res = {}
-        args,id = split(args,"&"),tonumber(id)
-        for _,a in ipairs(args) do
-          local i,v = a:match("^arg(%d+)=(.*)")
-          res[tonumber(i)]=urldecode(v)
-        end
-        local d,err1 = db.get("/devices",id)
-        if err1 then return d,err1 end
-        local fun = db.getActions(d)[action]
-        local stat,err2 = pcall(function() fun(table.unpack(res)) end)
-        if not stat then 
-          Log(LOG.ERROR,"Bad fibaro.call(%s,'%s',%s)",id,action,json.encode(res):sub(2,-2),err2)
-          return nil,501
-        end
-        return nil,200
-      end,
-      ["/devices/(%d+)/properties/(.+)$"] = function(call,data,cType,deviceID,property) 
-        local d,err1 = db.get("/devices",tonumber(deviceID))
-        if err1 and err1~=200 then return nil,err1 end
-        return {value=d.properties[property],modified=d.modified},200
-      end,
-      ["/devices/(%d+)$"] = function(call,data,cType,id) return db.get("/devices",tonumber(id)) end,
-      ["/devices/?$"] = function(call,data,cType,name) return arr(db.get("/devices")) end,    
-      ["/globalVariables/(.+)"] = function(call,data,cType,name) return db.get("/globalVariables",name) end,
-      ["/globalVariables/?$"] = function(call,data,cType,name) return arr(db.get("/globalVariables")) end,
-      ["/customEvents/(.+)"] = function(call,data,cType,name) return db.get("/customEvents",name) end,
-      ["/customEvents/?$"] = function(call,data,cType,name) return arr(db.get("/customEvents")) end,
-      ["/scenes/(%d+)"] = function(call,data,cType,id) return db.get("/scenes",tonumber(id)) end,
-      ["/scenes/?$"] = function(call,data,cType,name) return arr(db.get("/scenes")) end,
-      ["/rooms/(%d+)"] = function(call,data,cType,id) return db.get("/rooms",tonumber(id)) end,
-      ["/rooms/?$"] = function(call,data,cType,name) return arr(db.get("/rooms")) end,
-      ["/iosUser/(%d+)"] = function(call,data,cType,id) return db.get("/rooms",tonumber(id)) end,
-      ["/rooms/?$"] = function(call,data,cType,name) return arr(db.get("/rooms")) end,
-      ["/sections/(%d+)"] = function(call,data,cType,id) return db.get("/sections",tonumber(id)) end,
-      ["/sections/?$"] = function(call,data,cType,name) return arr(db.get("/sections")) end,
-      ["/refreshStates%?last=(%d+)"] = function(call,data,cType,last) return refreshStates.getEvents(tonumber(last)),200 end,
-      ["/settings/location/?$"] = function(_) return db.get("/settings/location/") end
-    },
-    ["POST"] = {
-      ["/globalVariables/?$"] = function(call,data,_) -- Create variable.
-        data = json.decode(data) 
-        return db.add("/globalVariables",data.name,data)
-      end,
-      ["/customEvents/?$"] = function(call,data,_) -- Create customEvent.
-        data = json.decode(data) 
-        return db.add("/customEvents",data.name,data)
-      end,
-      ["/scenes/?$"] = function(call,data,_) -- Create scene.
-        data = json.decode(data) 
-        return db.add("/scenes",data.id,data)
-      end,
-      ["/rooms/?$"] = function(call,data,_) -- Create room.
-        data = json.decode(data) 
-        return db.add("/rooms",data.id,data)
-      end,
-      ["/sections/?$"] = function(call,data,_) -- Create section.
-        data = json.decode(data) 
-        return db.add("/sections",data.id,data)
-      end,   
-      ["/devices/(%d+)/action/(.+)$"] = function(call,data,cType,deviceID,action) -- call device action
-        data = json.decode(data)
-        local d,err1 = db.get("/devices",tonumber(deviceID))
-        if err1 and err1~=200 then return d,err1 end
-        local fun = db.getActions(d)[action]
-        local stat,err2 = pcall(function() fun(table.unpack(data.args)) end)
-        if not stat then 
-          Log(LOG.ERROR,"Bad fibaro.call(%s,'%s',%s)",deviceID,action,json.encode(data.args):sub(2,-2),err2)
-          return nil,501
-        end
-        return nil,200
-      end,
-      ["/customEvents/(.+)$"] = function(call,data,cType,name)
-        if db.get("/customEvents",name) then
-          refreshStates.addEvents({type='CustomEvent', data={name=name,}})
-        end
-      end
-    },
-    ["PUT"] = {
-      ["/globalVariables/(.+)"] = function(call,data,cType,name) -- modify value
-        data = json.decode(data)
-        return db.modify("/globalVariables",name,data)
-      end,
-      ["/customEvents/(.+)"] = function(call,data,cType,name) -- modify value
-        data = json.decode(data)
-        return db.modify("/customEvents",name,data)
-      end,
-      ["/devices/(%d+)"] = function(call,data,cType,id) -- modify value
-        data = json.decode(data)
-        return db.modify("/devices",tonumber(id),data)
-      end,
-    },
-    ["DELETE"] = {
-      ["/globalVariables/(.+)"] = function(call,data,cType,name) 
-        return db.delete("/globalVariables",name)
-      end,
-      ["/customEvents/(.+)"] = function(call,data,cType,name) 
-        return db.delete("/customEvents",name)
-      end,
-      ["/devices/(%d+)"] = function(call,data,cType,id) 
-        return db.delete("/device",tonumber(id))
-      end,
-      ["/rooms/(%d+)"] = function(call,data,cType,id) 
-        return db.delete("/rooms",tonumber(id))
-      end,
-      ["/sections/(%d+)"] = function(call,data,cType,id) 
-        return db.delete("/sections",tonumber(id))
-      end,
-      ["/scenes/(%d+)"] = function(call,data,cType,id) 
-        return db.delete("/scenes",tonumber(id))
-      end,
-    },
-  }
-
-  local olh = {} -- Factor path one step.
-  for k,v in pairs(OFFLINE_HANDLERS) do
-    olh[k]={}
-    local o = olh[k]
-    for i,j in pairs(v) do
-      local m,r = i:match("(/%w+)(.*)")
-      if not m then 
-        o[i]=j
-      else 
-        o[m] = o[m] or {}
-        o[m]["^"..r]=j
+    local function propChange(prop,oldValue,newValue,d)
+      if oldValue ~= newValue then
+        d.modified = os.time()
+        refreshStates.addEvents(
+          {type='DevicePropertyUpdatedEvent', data={id=tonumber(d.id),newValue=newValue,oldValue=oldValue,property=prop}}
+        )
+        --Trigger.pollOneEvent()
       end
     end
-  end
-  OFFLINE_HANDLERS=olh
 
-  local function offlineApi(method,call,data,cType)
-    local f = OFFLINE_HANDLERS[method]
-    local m,r = call:match("(/%w+)(.*)")
-    if m then
-      local hs = f[m]
-      for p,h in pairs(hs or {}) do
-        local match = {r:match(p)}
-        if match and #match>0 then
-          return h(call,data,cType,table.unpack(match))
-        end
-      end
-    end
-    fibaro.warning("","API not supported yet: "..method..":"..call)
-  end
-
---hc3_emulator.createDevice(99,"com.fibaro.multilevelSwitch")
-  function self.createDevice(id,tp,name)
-    assert(hc3_emulator.offline,"createDevice can only run offline")
-    local temp
-    temp,hc3_emulator.defaultDevice = hc3_emulator.defaultDevice,tp or hc3_emulator.defaultDevice
-    local d = db.add("/devices",id,{id=id,type=tp,name=name})
-    hc3_emulator.defaultDevice = temp
-    return d
-  end
-
-  local function userDev(d0)
-    local u,d = {},d0
-    for k,v in pairs(db.getActions(d)) do u[k]=v end
-    function u.breach(secRestore)
-      u.turnOn()
-      setTimeout(function() u.turnOff() end,1000*secRestore)
-    end
-    function u.delay(s)
-      local res = {}
-      for k,v in pairs(u) do 
-        res[k]=function(...) local a={...} setTimeout(function() v(table.unpack(a)) end,s*1000) end
-      end 
-      return res
-    end
-    return u
-  end
-
-  hc3_emulator.create = {}
-  function hc3_emulator.create.motionSensor(id,name) return userDev(self.createDevice(id,"com.fibaro.motionSensor",name)) end
-  function hc3_emulator.create.tempSensor(id,name) return userDev(self.createDevice(id,"com.fibaro.temperatureSensor",name)) end
-  function hc3_emulator.create.doorSensor(id,name) return userDev(self.createDevice(id,"com.fibaro.doorSensor",name)) end
-  function hc3_emulator.create.luxSensor(id,name) return userDev(self.createDevice(id,"com.fibaro.lightSensor",name)) end
-  function hc3_emulator.create.dimmer(id,name) return userDev(self.createDevice(id,"com.fibaro.multilevelSwitch",name)) end
-  function hc3_emulator.create.light(id,name) return userDev(self.createDevice(id,"com.fibaro.binarySwitch",name)) end
-
-  function self.start()
-    if #db.get("/settings/location")==0 then
-      db.modify("/settings","location",{latitude=52.520008,longitude=13.404954}) -- Berlin
-    end
-    local function setupSuntimes()
-      local sunrise,sunset = Util.sunCalc()
-      db.modify("/devices",1,{properties={sunriseHour=sunrise,sunsetHour=sunset}})
-    end
-    local t = os.date("*t")
-    t.min,t.hour,t.sec=0,0,0
-    t = os.time(t)+24*60*60
-    local function midnight()
-      setupSuntimes()
-      t = t+24*60*60
-      setTimeout(midnight,1000*(t-os.time()))
-    end
-    setTimeout(midnight,1000*(t-os.time()))
-    setupSuntimes()
-  end
-
-  self.api = offlineApi
-  return self
-
-end -- Offline
-
--------------- OfflineDB functions ------------------
-function module.OfflineDB()
-  local fname = "HC3sdk.db"
-  local self,persistence = {},nil
-  local cr = not hc3_emulator.credentials and loadfile(hc3_emulator.credentialsFile); if cr then cr() end
-
-  function self.downloadFibaroAPI()
-    net.maxdelay=0; net.mindelay=0
-    net.HTTPClient():request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/fibaroapiHC3.lua",{
-        options={method="GET", checkCertificate = false, timeout=5000},
-        success=function(res) 
-          local version = res.data:match("FIBAROAPIHC3_VERSION%s*=%s*\"(.-)\"")
-          if version then
-            Log(LOG.LOG,"Writing file fibaroapiHC3.lua v%s",version)
-            local f = io.open("fibaroapiHC3.lua","w")
-            f:write(res.data)
-            f:close()
-          else
-            Log(LOG.ERROR,"Bad file - fibaroapiHC3.lua")
-          end
-        end,
-        error=function(res) Log(LOG.ERROR,"Unable to read file fibaroapiHC3.lua:"..res) end,
-      })
-  end
-
-  function self.copyFromHC3()
-    local function mapIDS(r)
-      if type(r)~='table' or r[1]==nil then return r end
-      local v = r[1]
-      if not (v.id or v.name or v.partionId) then return end
-      local res={}
-      for _,r0 in ipairs(r) do 
-        res[r0.id or r0.name or r0.partionId]=r0 
-      end
-      return res
-    end
-    local resources = Offline.db.resources
-    local stat,res = pcall(function()
-        local function copy(resources,path)
-          for k,v in pairs(resources) do
-            if next(v)==nil then 
-              Log(LOG.LOG,"Reading %s",path..k)
-              resources[k]=mapIDS(api.get(path..k))
-            else copy(v,path..k.."/")
+    function self.setupDBhooks()
+      db.addCreator("/devices",function(id,force) return (force or db.auto.devices) and createDevice({id=tonumber(id)}) end)
+      db.addCreator("/globalVariables",function(name,force) return (force or db.auto.globals) and createGlobalVariable({name=name}) end)
+      db.addCreator("/customEvents",function(name,force) return (force or db.auto.customevents) and createCustomEvent({name=name}) end)
+      db.addModifier("/globalVariables",
+        {
+          name=false, 
+          value=function(_,oldValue,newValue,v) 
+            if oldValue ~= newValue then
+              refreshStates.addEvents(
+                {type='GlobalVariableChangedEvent', data={variableName=v.name, newValue=newValue, old=oldValue}}
+              )
+              --Trigger.pollOneEvent()
             end
           end
-        end
-        copy(resources,"/")
-      end)
-    if not stat then
-      Log(LOG.ERROR,"Failed copying HC3 data:%s",res)
-    else
-      Log(LOG.LOG,"Writing HC3 resources to file (%s)",fname)
-      persistence.store(fname,resources)
+        })
+      db.addModifier("/devices",
+        {
+          name=false, 
+          id=false, 
+          type=false, 
+          properties = {
+            value=propChange,
+            color=propChange,
+          }
+        })
     end
-  end
+    self.setupDBhooks()
 
-  function self.loadDB()
-    local r = persistence.load(fname)
-    for _,dev in pairs(r.devices) do
-      Offline.initExistingDevice(dev)
+
+    self.refreshStates = Trigger.refreshStates
+    refreshStates = self.refreshStates
+
+---------------- api.* handlers -- simulated calls to offline version of resources
+    local function arr(tab) local res={} for _,v in pairs(tab) do res[#res+1]=v end return res end
+    local OFFLINE_HANDLERS = {
+      ["GET"] = {
+        ["/callAction%?deviceID=(%d+)&name=(%w+)(.*)"] = function(call,data,cType,id,action,args)
+          local res = {}
+          args,id = split(args,"&"),tonumber(id)
+          for _,a in ipairs(args) do
+            local i,v = a:match("^arg(%d+)=(.*)")
+            res[tonumber(i)]=urldecode(v)
+          end
+          local d,err1 = db.get("/devices",id)
+          if err1 then return d,err1 end
+          local fun = db.getActions(d)[action]
+          local stat,err2 = pcall(function() fun(table.unpack(res)) end)
+          if not stat then 
+            Log(LOG.ERROR,"Bad fibaro.call(%s,'%s',%s)",id,action,json.encode(res):sub(2,-2),err2)
+            return nil,501
+          end
+          return nil,200
+        end,
+        ["/devices/(%d+)/properties/(.+)$"] = function(call,data,cType,deviceID,property) 
+          local d,err1 = db.get("/devices",tonumber(deviceID))
+          if err1 and err1~=200 then return nil,err1 end
+          return {value=d.properties[property],modified=d.modified},200
+        end,
+        ["/devices/(%d+)$"] = function(call,data,cType,id) return db.get("/devices",tonumber(id)) end,
+        ["/devices/?$"] = function(call,data,cType,name) return arr(db.get("/devices")) end,    
+        ["/globalVariables/(.+)"] = function(call,data,cType,name) return db.get("/globalVariables",name) end,
+        ["/globalVariables/?$"] = function(call,data,cType,name) return arr(db.get("/globalVariables")) end,
+        ["/customEvents/(.+)"] = function(call,data,cType,name) return db.get("/customEvents",name) end,
+        ["/customEvents/?$"] = function(call,data,cType,name) return arr(db.get("/customEvents")) end,
+        ["/scenes/(%d+)"] = function(call,data,cType,id) return db.get("/scenes",tonumber(id)) end,
+        ["/scenes/?$"] = function(call,data,cType,name) return arr(db.get("/scenes")) end,
+        ["/rooms/(%d+)"] = function(call,data,cType,id) return db.get("/rooms",tonumber(id)) end,
+        ["/rooms/?$"] = function(call,data,cType,name) return arr(db.get("/rooms")) end,
+        ["/iosUser/(%d+)"] = function(call,data,cType,id) return db.get("/rooms",tonumber(id)) end,
+        ["/rooms/?$"] = function(call,data,cType,name) return arr(db.get("/rooms")) end,
+        ["/sections/(%d+)"] = function(call,data,cType,id) return db.get("/sections",tonumber(id)) end,
+        ["/sections/?$"] = function(call,data,cType,name) return arr(db.get("/sections")) end,
+        ["/refreshStates%?last=(%d+)"] = function(call,data,cType,last) return refreshStates.getEvents(tonumber(last)),200 end,
+        ["/settings/location/?$"] = function(_) return db.get("/settings/location/") end
+      },
+      ["POST"] = {
+        ["/globalVariables/?$"] = function(call,data,_) -- Create variable.
+          data = json.decode(data) 
+          return db.add("/globalVariables",data.name,data,true)
+        end,
+        ["/customEvents/?$"] = function(call,data,_) -- Create customEvent.
+          data = json.decode(data) 
+          return db.add("/customEvents",data.name,data,true)
+        end,
+        ["/scenes/?$"] = function(call,data,_) -- Create scene.
+          data = json.decode(data) 
+          return db.add("/scenes",data.id,data,true)
+        end,
+        ["/rooms/?$"] = function(call,data,_) -- Create room.
+          data = json.decode(data) 
+          return db.add("/rooms",data.id,data,true)
+        end,
+        ["/sections/?$"] = function(call,data,_) -- Create section.
+          data = json.decode(data) 
+          return db.add("/sections",data.id,data,true)
+        end,   
+        ["/devices/(%d+)/action/(.+)$"] = function(call,data,cType,deviceID,action) -- call device action
+          data = json.decode(data)
+          local d,err1 = db.get("/devices",tonumber(deviceID))
+          if err1 and err1~=200 then return d,err1 end
+          local fun = db.getActions(d)[action]
+          local stat,err2 = pcall(function() fun(table.unpack(data.args)) end)
+          if not stat then 
+            Log(LOG.ERROR,"Bad fibaro.call(%s,'%s',%s)",deviceID,action,json.encode(data.args):sub(2,-2),err2)
+            return nil,501
+          end
+          return nil,200
+        end,
+        ["/customEvents/(.+)$"] = function(call,data,cType,name)
+          if db.get("/customEvents",name) then
+            refreshStates.addEvents({type='CustomEvent', data={name=name,}})
+          end
+        end
+      },
+      ["PUT"] = {
+        ["/globalVariables/(.+)"] = function(call,data,cType,name) -- modify value
+          data = json.decode(data)
+          return db.modify("/globalVariables",name,data)
+        end,
+        ["/customEvents/(.+)"] = function(call,data,cType,name) -- modify value
+          data = json.decode(data)
+          return db.modify("/customEvents",name,data)
+        end,
+        ["/devices/(%d+)"] = function(call,data,cType,id) -- modify value
+          data = json.decode(data)
+          return db.modify("/devices",tonumber(id),data)
+        end,
+      },
+      ["DELETE"] = {
+        ["/globalVariables/(.+)"] = function(call,data,cType,name) 
+          return db.delete("/globalVariables",name)
+        end,
+        ["/customEvents/(.+)"] = function(call,data,cType,name) 
+          return db.delete("/customEvents",name)
+        end,
+        ["/devices/(%d+)"] = function(call,data,cType,id) 
+          return db.delete("/device",tonumber(id))
+        end,
+        ["/rooms/(%d+)"] = function(call,data,cType,id) 
+          return db.delete("/rooms",tonumber(id))
+        end,
+        ["/sections/(%d+)"] = function(call,data,cType,id) 
+          return db.delete("/sections",tonumber(id))
+        end,
+        ["/scenes/(%d+)"] = function(call,data,cType,id) 
+          return db.delete("/scenes",tonumber(id))
+        end,
+      },
+    }
+
+    local olh = {} -- Factor path one step.
+    for k,v in pairs(OFFLINE_HANDLERS) do
+      olh[k]={}
+      local o = olh[k]
+      for i,j in pairs(v) do
+        local m,r = i:match("(/%w+)(.*)")
+        if not m then 
+          o[i]=j
+        else 
+          o[m] = o[m] or {}
+          o[m]["^"..r]=j
+        end
+      end
     end
-    Offline.db.setDB(r)
-    Offline.setupDBhooks()
-    Log(LOG.SYS,"Loaded database '%s'",fname)
-  end
+    OFFLINE_HANDLERS=olh
+
+    local function offlineApi(method,call,data,cType)
+      local f = OFFLINE_HANDLERS[method]
+      local m,r = call:match("(/%w+)(.*)")
+      if m then
+        local hs = f[m]
+        for p,h in pairs(hs or {}) do
+          local match = {r:match(p)}
+          if match and #match>0 then
+            return h(call,data,cType,table.unpack(match))
+          end
+        end
+      end
+      fibaro.warning("","API not supported yet: "..method..":"..call)
+    end
+
+--hc3_emulator.createDevice(99,"com.fibaro.multilevelSwitch")
+    function self.createDevice(id,tp,name)
+      assert(hc3_emulator.offline,"createDevice can only run offline")
+      local temp
+      temp,hc3_emulator.defaultDevice = hc3_emulator.defaultDevice,tp or hc3_emulator.defaultDevice
+      local d = db.add("/devices",id,{id=id,type=tp,name=name})
+      hc3_emulator.defaultDevice = temp
+      return d
+    end
+
+    local function userDev(d0)
+      local u,d = {},d0
+      for k,v in pairs(db.getActions(d)) do u[k]=v end
+      function u.breach(secRestore)
+        u.turnOn()
+        setTimeout(function() u.turnOff() end,1000*secRestore)
+      end
+      function u.delay(s)
+        local res = {}
+        for k,v in pairs(u) do 
+          res[k]=function(...) local a={...} setTimeout(function() v(table.unpack(a)) end,s*1000) end
+        end 
+        return res
+      end
+      return u
+    end
+
+    hc3_emulator.create = {}
+    function hc3_emulator.create.motionSensor(id,name) return userDev(self.createDevice(id,"com.fibaro.motionSensor",name)) end
+    function hc3_emulator.create.tempSensor(id,name) return userDev(self.createDevice(id,"com.fibaro.temperatureSensor",name)) end
+    function hc3_emulator.create.doorSensor(id,name) return userDev(self.createDevice(id,"com.fibaro.doorSensor",name)) end
+    function hc3_emulator.create.luxSensor(id,name) return userDev(self.createDevice(id,"com.fibaro.lightSensor",name)) end
+    function hc3_emulator.create.dimmer(id,name) return userDev(self.createDevice(id,"com.fibaro.multilevelSwitch",name)) end
+    function hc3_emulator.create.light(id,name) return userDev(self.createDevice(id,"com.fibaro.binarySwitch",name)) end
+
+    function self.start()
+      if #db.get("/settings/location")==0 then
+        db.modify("/settings","location",{latitude=52.520008,longitude=13.404954}) -- Berlin
+      end
+      local function setupSuntimes()
+        local sunrise,sunset = Util.sunCalc()
+        db.modify("/devices",1,{properties={sunriseHour=sunrise,sunsetHour=sunset}})
+      end
+      local t = os.date("*t")
+      t.min,t.hour,t.sec=0,0,0
+      t = os.time(t)+24*60*60
+      local function midnight()
+        setupSuntimes()
+        t = t+24*60*60
+        setTimeout(midnight,1000*(t-os.time()))
+      end
+      setTimeout(midnight,1000*(t-os.time()))
+      setupSuntimes()
+    end
+
+    self.api = offlineApi
+    return self
+
+  end -- Offline
+
+-------------- OfflineDB functions ------------------
+  function module.OfflineDB()
+    local fname = "HC3sdk.db"
+    local self,persistence = {},nil
+    local cr = not hc3_emulator.credentials and loadfile(hc3_emulator.credentialsFile); cr = cr and cr()
+
+    function self.downloadFibaroAPI()
+      net.maxdelay=0; net.mindelay=0
+      net.HTTPClient():request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/fibaroapiHC3.lua",{
+          options={method="GET", checkCertificate = false, timeout=5000},
+          success=function(res) 
+            local version = res.data:match("FIBAROAPIHC3_VERSION%s*=%s*\"(.-)\"")
+            if version then
+              Log(LOG.LOG,"Writing file fibaroapiHC3.lua v%s",version)
+              local f = io.open("fibaroapiHC3.lua","w")
+              f:write(res.data)
+              f:close()
+            else
+              Log(LOG.ERROR,"Bad file - fibaroapiHC3.lua")
+            end
+          end,
+          error=function(res) Log(LOG.ERROR,"Unable to read file fibaroapiHC3.lua:"..res) end,
+        })
+    end
+
+    function self.copyFromHC3()
+      local function mapIDS(r)
+        if type(r)~='table' or r[1]==nil then return r end
+        local v = r[1]
+        if not (v.id or v.name or v.partionId) then return end
+        local res={}
+        for _,r0 in ipairs(r) do 
+          res[r0.id or r0.name or r0.partionId]=r0 
+        end
+        return res
+      end
+      local resources = Offline.db.resources
+      local stat,res = pcall(function()
+          local function copy(resources,path)
+            for k,v in pairs(resources) do
+              if next(v)==nil then 
+                Log(LOG.LOG,"Reading %s",path..k)
+                resources[k]=mapIDS(api.get(path..k))
+              else copy(v,path..k.."/")
+              end
+            end
+          end
+          copy(resources,"/")
+        end)
+      if not stat then
+        Log(LOG.ERROR,"Failed copying HC3 data:%s",res)
+      else
+        Log(LOG.LOG,"Writing HC3 resources to file (%s)",fname)
+        persistence.store(fname,resources)
+      end
+    end
+
+    function self.loadDB()
+      local r = persistence.load(fname)
+      for _,dev in pairs(r.devices) do
+        Offline.initExistingDevice(dev)
+      end
+      Offline.db.setDB(r)
+      Offline.setupDBhooks()
+      Log(LOG.SYS,"Loaded database '%s'",fname)
+    end
 
 -----------------------------
 -- persistence
@@ -4025,227 +4324,228 @@ function module.OfflineDB()
 
 --------------------
 -- Private methods
-  local write, writeIndent, writers, refCount;
+    local write, writeIndent, writers, refCount;
 
-  persistence = {
-    store = function (path, ...)
-      local file, e;
-      if type(path) == "string" then
-        -- Path, open a file
-        file, e = io.open(path, "w");
-        if not file then
-          return error(e);
+    persistence = {
+      store = function (path, ...)
+        local file, e;
+        if type(path) == "string" then
+          -- Path, open a file
+          file, e = io.open(path, "w");
+          if not file then
+            return error(e);
+          end
+        else
+          -- Just treat it as file
+          file = path;
         end
-      else
-        -- Just treat it as file
-        file = path;
-      end
-      local n = select("#", ...);
-      -- Count references
-      local objRefCount = {}; -- Stores reference that will be exported
-      for i = 1, n do
-        refCount(objRefCount, (select(i,...)));
-      end;
-      -- Export Objects with more than one ref and assign name
-      -- First, create empty tables for each
-      local objRefNames = {};
-      local objRefIdx = 0;
-      file:write("-- Persistent Data\n");
-      file:write("local multiRefObjects = {\n");
-      for obj, count in pairs(objRefCount) do
-        if count > 1 then
-          objRefIdx = objRefIdx + 1;
-          objRefNames[obj] = objRefIdx;
-          file:write("{};"); -- table objRefIdx
+        local n = select("#", ...);
+        -- Count references
+        local objRefCount = {}; -- Stores reference that will be exported
+        for i = 1, n do
+          refCount(objRefCount, (select(i,...)));
         end;
-      end;
-      file:write("\n} -- multiRefObjects\n");
-      -- Then fill them (this requires all empty multiRefObjects to exist)
-      for obj, idx in pairs(objRefNames) do
-        for k, v in pairs(obj) do
-          file:write("multiRefObjects["..idx.."][");
-          write(file, k, 0, objRefNames);
-          file:write("] = ");
-          write(file, v, 0, objRefNames);
-          file:write(";\n");
+        -- Export Objects with more than one ref and assign name
+        -- First, create empty tables for each
+        local objRefNames = {};
+        local objRefIdx = 0;
+        file:write("-- Persistent Data\n");
+        file:write("local multiRefObjects = {\n");
+        for obj, count in pairs(objRefCount) do
+          if count > 1 then
+            objRefIdx = objRefIdx + 1;
+            objRefNames[obj] = objRefIdx;
+            file:write("{};"); -- table objRefIdx
+          end;
         end;
-      end;
-      -- Create the remaining objects
-      for i = 1, n do
-        file:write("local ".."obj"..i.." = ");
-        write(file, (select(i,...)), 0, objRefNames);
-        file:write("\n");
-      end
-      -- Return them
-      if n > 0 then
-        file:write("return obj1");
-        for i = 2, n do
-          file:write(" ,obj"..i);
+        file:write("\n} -- multiRefObjects\n");
+        -- Then fill them (this requires all empty multiRefObjects to exist)
+        for obj, idx in pairs(objRefNames) do
+          for k, v in pairs(obj) do
+            file:write("multiRefObjects["..idx.."][");
+            write(file, k, 0, objRefNames);
+            file:write("] = ");
+            write(file, v, 0, objRefNames);
+            file:write(";\n");
+          end;
         end;
-        file:write("\n");
-      else
-        file:write("return\n");
+        -- Create the remaining objects
+        for i = 1, n do
+          file:write("local ".."obj"..i.." = ");
+          write(file, (select(i,...)), 0, objRefNames);
+          file:write("\n");
+        end
+        -- Return them
+        if n > 0 then
+          file:write("return obj1");
+          for i = 2, n do
+            file:write(" ,obj"..i);
+          end;
+          file:write("\n");
+        else
+          file:write("return\n");
+        end;
+        file:close();
       end;
-      file:close();
-    end;
 
-    load = function (path)
-      local f, e = loadfile(path);
-      if f then
-        return f();
-      else
-        return nil, e;
+      load = function (path)
+        local f, e = loadfile(path);
+        if f then
+          return f();
+        else
+          return nil, e;
+        end;
       end;
-    end;
-  }
+    }
 
 -- Private methods
 
 -- write thing (dispatcher)
-  write = function (file, item, level, objRefNames)
-    writers[type(item)](file, item, level, objRefNames);
-  end;
+    write = function (file, item, level, objRefNames)
+      writers[type(item)](file, item, level, objRefNames);
+    end;
 
 -- write indent
-  writeIndent = function (file, level)
-    for i = 1, level do
-      file:write("\t");
+    writeIndent = function (file, level)
+      for i = 1, level do
+        file:write("\t");
+      end;
     end;
-  end;
 
 -- recursively count references
-  refCount = function (objRefCount, item)
-    -- only count reference types (tables)
-    if type(item) == "table" then
-      -- Increase ref count
-      if objRefCount[item] then
-        objRefCount[item] = objRefCount[item] + 1;
-      else
-        objRefCount[item] = 1;
-        -- If first encounter, traverse
-        for k, v in pairs(item) do
-          refCount(objRefCount, k);
-          refCount(objRefCount, v);
+    refCount = function (objRefCount, item)
+      -- only count reference types (tables)
+      if type(item) == "table" then
+        -- Increase ref count
+        if objRefCount[item] then
+          objRefCount[item] = objRefCount[item] + 1;
+        else
+          objRefCount[item] = 1;
+          -- If first encounter, traverse
+          for k, v in pairs(item) do
+            refCount(objRefCount, k);
+            refCount(objRefCount, v);
+          end;
         end;
       end;
     end;
-  end;
 
 -- Format items for the purpose of restoring
-  writers = {
-    ["nil"] = function (file, item)
-      file:write("nil");
-    end;
-    ["number"] = function (file, item)
-      file:write(tostring(item));
-    end;
-    ["string"] = function (file, item)
-      file:write(string.format("%q", item));
-    end;
-    ["boolean"] = function (file, item)
-      if item then
-        file:write("true");
-      else
-        file:write("false");
-      end
-    end;
-    ["table"] = function (file, item, level, objRefNames)
-      local refIdx = objRefNames[item];
-      if refIdx then
-        -- Table with multiple references
-        file:write("multiRefObjects["..refIdx.."]");
-      else
-        -- Single use table
-        file:write("{\n");
-        for k, v in pairs(item) do
-          writeIndent(file, level+1);
-          file:write("[");
-          write(file, k, level+1, objRefNames);
-          file:write("] = ");
-          write(file, v, level+1, objRefNames);
-          file:write(";\n");
-        end
-        writeIndent(file, level);
-        file:write("}");
+    writers = {
+      ["nil"] = function (file, item)
+        file:write("nil");
       end;
-    end;
-    ["function"] = function (file, item)
-      -- Does only work for "normal" functions, not those
-      -- with upvalues or c functions
-      local dInfo = debug.getinfo(item, "uS");
-      if dInfo.nups > 0 then
-        file:write("nil --[[functions with upvalue not supported]]");
-      elseif dInfo.what ~= "Lua" then
-        file:write("nil --[[non-lua function not supported]]");
-      else
-        local r, s = pcall(string.dump,item);
-        if r then
-          file:write(string.format("loadstring(%q)", s));
+      ["number"] = function (file, item)
+        file:write(tostring(item));
+      end;
+      ["string"] = function (file, item)
+        file:write(string.format("%q", item));
+      end;
+      ["boolean"] = function (file, item)
+        if item then
+          file:write("true");
         else
-          file:write("nil --[[function could not be dumped]]");
+          file:write("false");
         end
-      end
-    end;
-    ["thread"] = function (file, item)
-      file:write("nil --[[thread]]\n");
-    end;
-    ["userdata"] = function (file, item)
-      file:write("nil --[[userdata]]\n");
-    end;
-  }
+      end;
+      ["table"] = function (file, item, level, objRefNames)
+        local refIdx = objRefNames[item];
+        if refIdx then
+          -- Table with multiple references
+          file:write("multiRefObjects["..refIdx.."]");
+        else
+          -- Single use table
+          file:write("{\n");
+          for k, v in pairs(item) do
+            writeIndent(file, level+1);
+            file:write("[");
+            write(file, k, level+1, objRefNames);
+            file:write("] = ");
+            write(file, v, level+1, objRefNames);
+            file:write(";\n");
+          end
+          writeIndent(file, level);
+          file:write("}");
+        end;
+      end;
+      ["function"] = function (file, item)
+        -- Does only work for "normal" functions, not those
+        -- with upvalues or c functions
+        local dInfo = debug.getinfo(item, "uS");
+        if dInfo.nups > 0 then
+          file:write("nil --[[functions with upvalue not supported]]");
+        elseif dInfo.what ~= "Lua" then
+          file:write("nil --[[non-lua function not supported]]");
+        else
+          local r, s = pcall(string.dump,item);
+          if r then
+            file:write(string.format("loadstring(%q)", s));
+          else
+            file:write("nil --[[function could not be dumped]]");
+          end
+        end
+      end;
+      ["thread"] = function (file, item)
+        file:write("nil --[[thread]]\n");
+      end;
+      ["userdata"] = function (file, item)
+        file:write("nil --[[userdata]]\n");
+      end;
+    }
 
-  commandLines['copysdkdb']=self.copyFromHC3
-  commandLines['downloadsdk']=self.downloadFibaroAPI
-  self.persistence = persistence
+    commandLines['copysdkdb']=self.copyFromHC3
+    commandLines['downloadsdk']=self.downloadFibaroAPI
+    self.persistence = persistence
 
-  return self
-end -- OfflineDB
+    return self
+  end -- OfflineDB
 
 --------------- Load modules  and start ------------------------------
-Util    = module.Utilities()
-json    = module.Json()
-Timer   = module.Timer()
-Trigger = module.Trigger()
-fibaro  = module.FibaroAPI()
-QA      = module.QuickApp()
-Scene   = module.Scene()
-Web     = module.WebAPI()
-Files   = module.Files()
-Offline = module.Offline()
-DB      = module.OfflineDB() 
+  Util    = module.Utilities()
+  json    = module.Json()
+  Timer   = module.Timer()
+  Trigger = module.Trigger()
+  fibaro  = module.FibaroAPI()
+  QA      = module.QuickApp()
+  Scene   = module.Scene()
+  Web     = module.WebAPI()
+  Files   = module.Files()
+  Offline = module.Offline()
+  DB      = module.OfflineDB() 
 
-commandLines['help'] = function()
-  for c,f in pairs(commandLines) do
-    Log(LOG.LOG,"Command: -%s",c)
-  end
-end
-
-if arg[1] then
-  local cmd = arg[1]
-  if cmd:sub(1,1)=='-' then
-    cmd = cmd:sub(2)
-    if commandLines[cmd] then --- When fibaroapiHC3.lua is used as a command from ZBS
-      commandLines[cmd](select(2,table.unpack(arg)))
-      os.exit()
+  commandLines['help'] = function()
+    for c,f in pairs(commandLines) do
+      Log(LOG.LOG,"Command: -%s",c)
     end
   end
-  Log(LOG.ERROR,"Unrecognized command line argument: %s",table.concat(arg," "))
-  os.exit()
-end
 
-local function DEFAULT(v,d) if v~=nil then return v else return d end end
-hc3_emulator.offline = DEFAULT(hc3_emulator.offline,false)
-hc3_emulator.defaultDevice =     DEFAULT(hc3_emulator.defaultDevice,"com.fibaro.binarySwitch")
-hc3_emulator.autocreateDevices = DEFAULT(hc3_emulator.autocreateDevices,true)
-hc3_emulator.autocreateGlobals = DEFAULT(hc3_emulator.autocreateGlobals,true)
+  if arg[1] then
+    local cmd = arg[1]
+    if cmd:sub(1,1)=='-' then
+      cmd = cmd:sub(2)
+      if commandLines[cmd] then --- When fibaroapiHC3.lua is used as a command from ZBS
+        commandLines[cmd](select(2,table.unpack(arg)))
+        os.exit()
+      end
+    end
+    Log(LOG.ERROR,"Unrecognized command line argument: %s",table.concat(arg," "))
+    os.exit()
+  end
 
-hc3_emulator.updateViewLayout = QA.updateViewLayout
-hc3_emulator.createQuickApp = QA.createQuickApp
-hc3_emulator.createProxy = QA.createProxy
-hc3_emulator.getIPaddress = Util.getIPaddress
-hc3_emulator.createDevice = Offline.createDevice --(id,tp)
-hc3_emulator.cache = Trigger.cache 
-hc3_emulator.copyFromHC3 = DB.copyFromHC3
+  local function DEFAULT(v,d) if v~=nil then return v else return d end end
+  hc3_emulator.offline = DEFAULT(hc3_emulator.offline,false)
+  hc3_emulator.defaultDevice     = DEFAULT(hc3_emulator.defaultDevice,"com.fibaro.binarySwitch")
+  hc3_emulator.autocreateDevices = DEFAULT(hc3_emulator.autocreateDevices,true)
+  hc3_emulator.autocreateGlobals = DEFAULT(hc3_emulator.autocreateGlobals,true)
+
+  hc3_emulator.updateViewLayout  = QA.updateViewLayout
+  hc3_emulator.getUI             = QA.getQAUI
+  hc3_emulator.createQuickApp    = QA.createQuickApp
+  hc3_emulator.createProxy       = QA.createProxy
+  hc3_emulator.getIPaddress      = Util.getIPaddress
+  hc3_emulator.createDevice      = Offline.createDevice --(id,tp)
+  hc3_emulator.cache             = Trigger.cache 
+  hc3_emulator.copyFromHC3       = DB.copyFromHC3
 
 --[[
 hc3_emulator.credentials
@@ -4259,67 +4559,67 @@ hc3_emulator.asyncHTTP
 args.restartQA
 --]]
 
-local function startUp(file)
+  local function startUp(file)
 
-  if not hc3_emulator.offline and not hc3_emulator.credentials then
-    error("Missing HC3 credentials -- hc3_emulator.credentials{ip=<IP>,user=<string>,pwd=<string>}")
-  end
-  hc3_emulator.speeding = hc3_emulator.speed==true and 48 or tonumber(hc3_emulator.speed)
-  if hc3_emulator.traceFibaro then Util.traceFibaro() end
-
-  Log(LOG.SYS,"HC3 SDK v%s",hc3_emulator.version)
-  if hc3_emulator.deploy==true then Files.deploy(file) os.exit() end
-
-  if hc3_emulator.speeding then Log(LOG.SYS,"Speeding %s hours",hc3_emulator.speeding) end
-  if not (hc3_emulator.startWeb==false) then Web.start(Util.getIPaddress()) end
-
-  if type(hc3_emulator.startTime) == 'string' then 
-    Timer.setEmulatorTime(Util.parseDate(hc3_emulator.startTime)) 
-  end
-
-  if hc3_emulator.offline then
-    if hc3_emulator.loadDB then DB.loadDB() end
-    if #Offline.db.get("/settings/location")==0 then
-      Offline.db.modify("/settings","location",{latitude=52.520008,longitude=13.404954}) -- Berlin
+    if not hc3_emulator.offline and not hc3_emulator.credentials then
+      error("Missing HC3 credentials -- hc3_emulator.credentials{ip=<IP>,user=<string>,pwd=<string>}")
     end
-    Offline.start()
-  end
-  local codeType = "Code"
-  ::RESTART::
-  Timer.setTimeout(function() 
-      if hc3_emulator.speeding then Timer.speedTime(hc3_emulator.speeding) end
-      if type(hc3_emulator.preamble) == 'function' then -- Stuff to run before starting up QA/Scene
-        hc3_emulator.inhibitTriggers = true -- preamble stuff don't generate triggers
-        hc3_emulator.preamble() 
-        hc3_emulator.inhibitTriggers = false
-      end
-      if hc3_emulator.asyncHTTP then net.HTTPClient = net.HTTPAsyncClient end
-      if hc3_emulator.credentials then 
-        hc3_emulator.BasicAuthorization = "Basic "..Util.base64(hc3_emulator.credentials.user..":"..hc3_emulator.credentials.pwd)
-      end
-      dofile(file)
-      if hc3_emulator.conditions and hc3_emulator.actions then
-        codeType="Scene"
-        Scene.start()  -- Run a scene
-      elseif QuickApp.onInit then
-        codeType = "QuickApp"
-        hc3_emulator.isQA = true
-        QA.start()
-      end
-    end,0,"Main")
-  local stat,res = xpcall(Timer.start,
-    function(err)
-      Log(LOG.ERROR,"%s crashed: %s",codeType,err)
-      print(debug.traceback(err))
-    end)
-  if hc3_emulator.restartQA then goto RESTART end
-end
+    hc3_emulator.speeding = hc3_emulator.speed==true and 48 or tonumber(hc3_emulator.speed)
+    if hc3_emulator.traceFibaro then Util.traceFibaro() end
 
-local file = debug.getinfo(3, 'S')                                  -- Find out what file we are running
-if file and file.source then
-  file = file.source
-  if not file:sub(1,1)=='@' then error("Can't locate file:"..file) end  -- Is it a file?
-  file = file:sub(2)
-  startUp(file)
-end
-os.exit()
+    Log(LOG.SYS,"HC3 SDK v%s",hc3_emulator.version)
+    if hc3_emulator.deploy==true then Files.deploy(file) os.exit() end
+
+    if hc3_emulator.speeding then Log(LOG.SYS,"Speeding %s hours",hc3_emulator.speeding) end
+    if not (hc3_emulator.startWeb==false) then Web.start(Util.getIPaddress()) end
+
+    if type(hc3_emulator.startTime) == 'string' then 
+      Timer.setEmulatorTime(Util.parseDate(hc3_emulator.startTime)) 
+    end
+
+    if hc3_emulator.offline then
+      if hc3_emulator.loadDB then DB.loadDB() end
+      if #Offline.db.get("/settings/location")==0 then
+        Offline.db.modify("/settings","location",{latitude=52.520008,longitude=13.404954}) -- Berlin
+      end
+      Offline.start()
+    end
+    local codeType = "Code"
+    ::RESTART::
+    Timer.setTimeout(function() 
+        if hc3_emulator.speeding then Timer.speedTime(hc3_emulator.speeding) end
+        if type(hc3_emulator.preamble) == 'function' then -- Stuff to run before starting up QA/Scene
+          hc3_emulator.inhibitTriggers = true -- preamble stuff don't generate triggers
+          hc3_emulator.preamble() 
+          hc3_emulator.inhibitTriggers = false
+        end
+        if hc3_emulator.asyncHTTP then net.HTTPClient = net.HTTPAsyncClient end
+        if hc3_emulator.credentials then 
+          hc3_emulator.BasicAuthorization = "Basic "..Util.base64(hc3_emulator.credentials.user..":"..hc3_emulator.credentials.pwd)
+        end
+        dofile(file)
+        if hc3_emulator.conditions and hc3_emulator.actions then
+          codeType="Scene"
+          Scene.start()  -- Run a scene
+        elseif QuickApp.onInit then
+          codeType = "QuickApp"
+          hc3_emulator.isQA = true
+          QA.start()
+        end
+      end,0,"Main")
+    local stat,res = xpcall(Timer.start,
+      function(err)
+        Log(LOG.ERROR,"%s crashed: %s",codeType,err)
+        print(debug.traceback(err))
+      end)
+    if hc3_emulator.restartQA then goto RESTART end
+  end
+
+  local file = debug.getinfo(3, 'S')                                  -- Find out what file we are running
+  if file and file.source then
+    file = file.source
+    if not file:sub(1,1)=='@' then error("Can't locate file:"..file) end  -- Is it a file?
+    file = file:sub(2)
+    startUp(file)
+  end
+  os.exit()
