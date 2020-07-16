@@ -1997,7 +1997,6 @@ function module.Trigger()
       cache.write('accessControlEvent',d.id,d)
       post({type='device', property='accessControlEvent', id = d.deviceID, value=d}) 
     end,
-    RoomModifiedEvent = function(self,d) end,
     CustomEvent = function(self,d) if d.name == tickEvent then return else post({type='custom-event', name=d.name}) end end,
     PluginChangedViewEvent = function(self,d) post({type='PluginChangedViewEvent', value=d}) end,
     WizardStepStateChangedEvent = function(self,d) post({type='WizardStepStateChangedEvent', value=d})  end,
@@ -2017,8 +2016,14 @@ function module.Trigger()
       post({type='profile',property='activeProfile',value=d.newActiveProfile, old=d.oldActiveProfile}) 
     end,
     OnlineStatusUpdatedEvent = function(self,d)  post({type='OnlineStatusUpdatedEvent', value=d}) end,
-    NotificationCreatedEvent = function(d) end,
-    NotificationRemovedEvent = function(d) end,
+    NotificationCreatedEvent = function(_) end,
+    NotificationRemovedEvent = function(_) end,
+    RoomCreatedEvent = function(_) end,
+    RoomRemovedEvent = function(_) end,
+    RoomModifiedEvent = function(_) end,
+    SectionCreatedEvent = function(_) end,
+    SectionRemovedEvent = function(_) end,
+    SectionModifiedEvent = function(_) end,
   }
 
   local function checkEvents(events)
