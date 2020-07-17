@@ -18,7 +18,7 @@ if dofile and not hc3_emulator then
   dofile("fibaroapiHC3.lua")
 end
 
-E_VERSION,E_FIX = 0.3,"fix1"
+E_VERSION,E_FIX = 0.3,"fix2"
 _HC3IPADDRESS = "192.168.1.57" -- Needs to be defined on the HC3 as /settings/networks seems broken...
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
@@ -125,6 +125,7 @@ end
 Module          = {}
 local _MARSHALL = true
 local format    = string.format 
+_ENV = _ENV or _G 
 
 ----------------- Module objects support -----------------------
 function Module.objects()  
