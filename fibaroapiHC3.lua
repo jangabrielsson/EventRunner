@@ -603,6 +603,7 @@ function module.FibaroAPI()
     if hs then for k,v in pairs(hs) do req.headers[k]=v end end
     local r, c, h
     if hc3_emulator.apiHTTPS then
+      req.url = "https"..req.url:sub(5)
       r,c,h = http.request(req)
     else 
       r,c,h = https.request(req)
