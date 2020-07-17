@@ -777,7 +777,7 @@ function Module.triggers(self)
     end,
     SceneActivationEvent = function(d) 
       self.TR.activation[d.deviceId]={scene=d.sceneId, name=d.name}; 
-      post({type='device', property='sceneActivationEvent', id=d.deviceId, value={sceneId=d.value}}) 
+      post({type='device', property='sceneActivationEvent', id=d.deviceId, value={sceneId=d.sceneId}})     
     end,
     AccessControlEvent = function(d) 
       self.TR.access[d.id]=d; 

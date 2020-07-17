@@ -2,7 +2,7 @@ if dofile and not hc3_emulator then
   hc3_emulator = {
     name="EventRunner4",
     type="com.fibaro.genericDevice",
-    poll=1000,
+    --poll=1000,
     --startTime="10:00:00 5/12/2020",
     --speed = 48,
     deploy=true,
@@ -18,7 +18,7 @@ if dofile and not hc3_emulator then
   dofile("fibaroapiHC3.lua")
 end
 
-E_VERSION,E_FIX = 0.3,"fix2"
+E_VERSION,E_FIX = 0.3,"fix3"
 _HC3IPADDRESS = "192.168.1.57" -- Needs to be defined on the HC3 as /settings/networks seems broken...
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
@@ -84,7 +84,7 @@ function QuickApp:main()    -- EventScript version
   Util.defvars(HT)
   Util.reverseMapDef(HT)
 
-  rule("@@00:00:05 => log(now % 2 == 1 & 'Tick' | 'Tock')")
+  --rule("@@00:00:05 => log(now % 2 == 1 & 'Tick' | 'Tock')")
   
 --  rule("keyfob:central => log('Key:%s',env.event.value.keyId)")
 --  rule("motion:value => log('Motion:%s',motion:value)")
@@ -118,7 +118,7 @@ function QuickApp:main()    -- EventScript version
 --  rule("#deviceEvent{id='$id',value='$value'} => log('Device %s %s',id,value)")
 --  rule("#sceneEvent{id='$id',value='$value'} => log('Scene %s %s',id,value)")
 
---  dofile("verifyHC3scripts.lua")
+    dofile("verifyHC3scripts.lua")
 end
 
 ------------------- EventSupport - Don't change! -------------------- 
