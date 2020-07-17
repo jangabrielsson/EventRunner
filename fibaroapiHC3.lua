@@ -31,7 +31,7 @@ json        -- Copyright (c) 2019 rxi
 persistence -- Copyright (c) 2010 Gerhard Roethlin
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.100"
+local FIBAROAPIHC3_VERSION = "0.101"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -400,8 +400,10 @@ function module.FibaroAPI()
   end
 
   function fibaro.alert(alert_type, user_ids, notification_content) 
+    alert_type = ({push='sendPush',email='sendEmail',sms='sendSms'})[alert_type]
+    assert(alert_type,"Missing alert type: 'push', 'email', 'sms'")
     __assert_type(user_ids,'table') 
-    for _,u in ipairs(alert_type) do fibaro.call(u,alert_type,notification_content) end
+    for _,u in ipairs(user_ids) do fibaro.call(u,alert_type,notification_content) end
   end
 
 -- User PIN?
@@ -601,8 +603,8 @@ function module.FibaroAPI()
     if hs then for k,v in pairs(hs) do req.headers[k]=v end end
     local r, c, h = http.request(req)
     if not r then
+      Log(LOG.ERROR,"Error connnecting to HC3: '%s' - URL: '%s'.",c,req.url)
       return nil,c, h
-      --error(format("Error connnecting to HC3: '%s' - URL: '%s'.",c,req.url))
     end
     if c>=200 and c<300 then
       return resp[1] and safeDecode(table.concat(resp)) or nil,c
@@ -1050,7 +1052,7 @@ function module.QuickApp()
     self.uiCallbacks = cbs
   end
 
-  function QuickAppBase:debug(...) fibaro.debug("",table.concat({...})) end
+  function QuickAppBase:debug(...) fibaro.debug("",table.concat({...})) end -- Should we add _TAG ?
   function QuickAppBase:trace(...) fibaro.trace("",table.concat({...})) end
   function QuickAppBase:warning(...) fibaro.warning("",table.concat({...})) end
   function QuickAppBase:error(...) fibaro.error("",table.concat({...})) end
@@ -1074,8 +1076,7 @@ function module.QuickApp()
     if self.hasProxy then
       fibaro.call(self.id,"setVariable",name,value)
     end
-    local vs = self.properties.quickAppVariables
-    vs = vs or {}
+    local vs = self.properties.quickAppVariables or {}
     for _,v in ipairs(vs) do
       if v.name==name then v.value=value; return end
     end
@@ -1122,7 +1123,7 @@ function module.QuickApp()
   function QuickApp:__init(device) 
     QuickAppBase.__init(self,device)
     if hc3_emulator.quickVars then 
-      local vs = self.properties.quickAppVariables or {}
+      -- Override quickAppVariables with ex. values from hc3_emulator.quickVars
       for k,v in pairs(hc3_emulator.quickVars) do self:setVariable(k,v) end
     end
     self.childDevices = {}
@@ -1532,9 +1533,11 @@ function QuickApp:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) e
       end
     end
 
+    local qv = {}
+    for k,v in pairs(quickVars) do qv[#qv+1]={name=k,value=v} end
     local deviceStruct= {
       id=hc3_emulator.id or 999,name=name,type=ptype,
-      properties={quickAppVariables=quickVars}
+      properties={quickAppVariables=qv}
     }
 
     if hc3_emulator.offline then              -- Offline
@@ -1561,7 +1564,7 @@ function QuickApp:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) e
 
     plugin.mainDeviceId = deviceStruct.id
     plugin.type = deviceStruct.type
-
+    
     Log(LOG.HEADER,"QuickApp '%s', deviceID:%s started at %s",deviceStruct.name,deviceStruct.id,os.date("%c"))
 
     if hc3_emulator.poll and not hc3_emulator.offline then Trigger.startPolling(tonumber(hc3_emulator.poll ) or 2000) end
@@ -2241,7 +2244,8 @@ function module.Utilities()
           color = DEBUGCOLORS[flag] or color
           color = ZBCOLORMAP[color]
           if flag == LOG.HEADER then
-            print(color..logHeader(100,str).."\027[0m")
+            str = color..logHeader(100,str).."\027[0m"
+            print(format("%s |%s|: %s",os.date("[%d.%m.%Y] [%X]"),"-----",str))
             return str
           else
             flag = format('%s%s\027[0m', color, flag)
@@ -2260,14 +2264,17 @@ function module.Utilities()
     local h,m,s = dateStr:match("(%d+):(%d+):?(%d*)")
     local d,mon,y = dateStr:match("(%d+)/(%d+)/?(%d*)")
     s = s~="" and s or 0
-    local t = os.date("*t")
+    local t = os.date("*t") 
     t.hour = tonumber(h) or t.hour
     t.min = tonumber(m) or t.min
     t.sec = tonumber(s) or t.sec
     t.day = tonumber(d) or t.day
     t.month = tonumber(mon) or t.month
     t.year = tonumber(y) or t.year
-    return os.time(t)
+    local t1 = os.time(t)
+    local t2 = os.date("*t",t1)
+    if t.isdst ~= t2.isdst then t.isdst = t2.isdst t1 = os.time(t) end
+    return t1
   end
 
   function self.printf(arg1,...) local args={...} if #args==0 then print(arg1) else print(format(arg1,...)) end end

@@ -4,12 +4,13 @@ if false then
       name="QA_toolbox",
       type="com.fibaro.genericDevice",
       poll=1000,
+      --deploy=true,
     }
     dofile("fibaroapiHC3.lua")
   end
 
-  local _version = "1.0"
-  local modules = {"childs","events","triggers","rpc"}
+  _version = "1.0"
+  modules = {"childs","events","triggers","rpc"}
 
   function QuickApp:turnOn()
   end
@@ -78,7 +79,7 @@ function QuickApp:setTriggerInterval(ms)            -- Set polling interval. Def
 function QuickApp:importRPC(deviceId,timeout,env)   -- Import remote functions from QA with deviceId
 --]]
 
-local QA_toolbox_version = "0.8"
+local QA_toolbox_version = "0.9"
 local format = string.format
 local stat,_init = pcall(function() return QuickApp.onInit end)
 _init = stat and _init
@@ -104,7 +105,7 @@ function QuickApp:onInit()
   self._NOTIFY = false
   local d = __fibaro_get_device(self.id)
   local function printf(...) self:debug(format(...)) end
-  printf("QA %s - version:%s (toolbox %s)",self.name,_version or "1.0",QA_toolbox_version)
+  printf("QA %s - version:%s (QA toolbox %s)",self.name,_version or "1.0",QA_toolbox_version)
   printf("DeviceId..:%d",d.id)
   printf("Type......:%s",d.type)
   printf("Interfaces:%s",json.encode(d.interfaces or {}))
@@ -838,10 +839,11 @@ function Module.triggers(self)
       })
   end
   loop()
-  function self:enableTriggerType(trs) 
+  function self:enableTriggerType(trs,enable) 
+    if enable ~= false then enable = true end
     if type(trs)=='table' then 
       for _,t in ipairs(trs) do self:enableTriggerType(t) end
-    else ENABLEDTRIGGERS[trs]=true end
+    else ENABLEDTRIGGERS[trs]=enable end
   end
   function self:enableTriggerPolling(bool) if bool ~= enabled then enabled = bool end end -- ToDo
   function self:setTriggerInterval(ms) INTERVAL = ms end
