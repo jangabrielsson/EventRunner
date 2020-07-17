@@ -601,7 +601,12 @@ function module.FibaroAPI()
       req.source = ltn12.source.string(data)
     end
     if hs then for k,v in pairs(hs) do req.headers[k]=v end end
-    local r, c, h = http.request(req)
+    local r, c, h
+    if hc3_emulator.apiHTTPS then
+      r,c,h = http.request(req)
+    else 
+      r,c,h = https.request(req)
+    end
     if not r then
       Log(LOG.ERROR,"Error connnecting to HC3: '%s' - URL: '%s'.",c,req.url)
       return nil,c, h
@@ -1564,7 +1569,7 @@ function QuickApp:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) e
 
     plugin.mainDeviceId = deviceStruct.id
     plugin.type = deviceStruct.type
-    
+
     Log(LOG.HEADER,"QuickApp '%s', deviceID:%s started at %s",deviceStruct.name,deviceStruct.id,os.date("%c"))
 
     if hc3_emulator.poll and not hc3_emulator.offline then Trigger.startPolling(tonumber(hc3_emulator.poll ) or 2000) end
@@ -4572,6 +4577,10 @@ args.restartQA
 --]]
 
   local function startUp(file)
+
+    for k,v in pairs(hc3_emulator.quickVars or {}) do
+      assertf(type(k)=='string',"Corrupt quickVars table, key=%s, value=%s",k,json.encode(v))
+    end
 
     if not hc3_emulator.offline and not hc3_emulator.credentials then
       error("Missing HC3 credentials -- hc3_emulator.credentials{ip=<IP>,user=<string>,pwd=<string>}")
