@@ -31,7 +31,7 @@ json        -- Copyright (c) 2019 rxi
 persistence -- Copyright (c) 2010 Gerhard Roethlin
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.101"
+local FIBAROAPIHC3_VERSION = "0.102"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -1079,15 +1079,15 @@ function module.QuickApp()
 
   function QuickAppBase:setVariable(name,value)
     __assert_type(name,'string')
-    if self.hasProxy then
-      fibaro.call(self.id,"setVariable",name,value)
-    end
     local vs = self.properties.quickAppVariables or {}
     for _,v in ipairs(vs) do
       if v.name==name then v.value=value; return end
     end
     vs[#vs+1]={name=name,value=value}
     self.properties.quickAppVariables = vs
+    if self.hasProxy then
+      self:updateProperty('quickAppVariables', self.properties.quickAppVariables)
+    end
   end
 
   function QuickAppBase:updateView(elm,t,value) 
@@ -2016,7 +2016,8 @@ function module.Trigger()
     DeviceCreatedEvent = function(self,d)  post({type='DeviceCreatedEvent', value=d}) end,
     DeviceModifiedEvent = function(self,d) post({type='DeviceModifiedEvent', value=d}) end,
     SceneStartedEvent = function(self,d)   post({type='SceneStartedEvent', value=d}) end,
-    SceneFinishedEvent = function(self,d)  post({type='SceneFinishedEvent', value=d})end,
+    SceneFinishedEvent = function(self,d)  post({type='SceneFinishedEvent', value=d}) end,
+    SceneCreatedEvent = function(self,d)  post({type='SceneCreatedEvent', value=d})end,
     -- {"data":{"id":219},"type":"RoomModifiedEvent"}
     SceneRemovedEvent = function(self,d)  post({type='SceneRemovedEvent', value=d}) end,
     PluginProcessCrashedEvent = function(self,d) post({type='PluginProcessCrashedEvent', value=d}) end,
@@ -2284,11 +2285,9 @@ function module.Utilities()
   end
 
   function self.printf(arg1,...) local args={...} if #args==0 then print(arg1) else print(format(arg1,...)) end end
-  function self.split(s, sep)
-    local fields = {}
-    sep = sep or " "
-    local pattern = format("([^%s]+)", sep)
-    string.gsub(s, pattern, function(c) fields[#fields + 1] = c end)
+  function self.split(str, sep)
+    local fields,s = {},sep or "%s"
+    str:gsub("([^"..s.."]+)", function(c) fields[#fields + 1] = c end)
     return fields
   end
 

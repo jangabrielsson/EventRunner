@@ -2,7 +2,7 @@ if dofile and not hc3_emulator then
   hc3_emulator = {
     name="EventRunner4",
     type="com.fibaro.genericDevice",
-    --poll=1000,
+    poll=1000,
     --startTime="10:00:00 5/12/2020",
     --speed = 48,
     deploy=true,
@@ -18,11 +18,11 @@ if dofile and not hc3_emulator then
   dofile("fibaroapiHC3.lua")
 end
 
-E_VERSION,E_FIX = 0.3,"fix3"
+E_VERSION,E_FIX = 0.3,"fix4"
 _HC3IPADDRESS = "192.168.1.57" -- Needs to be defined on the HC3 as /settings/networks seems broken...
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
-local _debugFlags = {  fcall=true, trigger=true, post = true, rule=true  } 
+local _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
 local Util
 local triggerInterval = 500
 
@@ -83,9 +83,9 @@ function QuickApp:main()    -- EventScript version
 
   Util.defvars(HT)
   Util.reverseMapDef(HT)
-
-  --rule("@@00:00:05 => log(now % 2 == 1 & 'Tick' | 'Tock')")
   
+  rule("@@00:00:05 => log(now % 2 == 1 & 'Tick' | 'Tock')")
+
 --  rule("keyfob:central => log('Key:%s',env.event.value.keyId)")
 --  rule("motion:value => log('Motion:%s',motion:value)")
 --  rule("temp:temp => log('Temp:%s',temp:temp)")
@@ -118,7 +118,7 @@ function QuickApp:main()    -- EventScript version
 --  rule("#deviceEvent{id='$id',value='$value'} => log('Device %s %s',id,value)")
 --  rule("#sceneEvent{id='$id',value='$value'} => log('Scene %s %s',id,value)")
 
-    dofile("verifyHC3scripts.lua")
+--    dofile("verifyHC3scripts.lua")
 end
 
 ------------------- EventSupport - Don't change! -------------------- 
@@ -134,42 +134,54 @@ function Module.objects()
 end
 
 ----------------- Module device support -----------------------
-function Module.device()
-  local QA = quickApp
-  QA:debugf("Setup: ER Device")
-  local self = { deviceID = QA.id }
-  function self.updateProperty(prop,value) return QA:updateProperty(prop,value)  end
-  function self.updateView(componentID, property, value) return QA:updateView(componentID, property, value)  end
-  function self.getView(id,name,typ)
-    local function find(s)
-      if type(s) == 'table' then
-        if s.name==name then return s[typ]
-        else for _,v in pairs(s) do local r = find(v) if r then return r end end end
-      end
-    end
-    return find(api.get("/plugins/getView?id="..(id or QA.id))["$jason"].body.sections)
-  end
-  function self.setVariable(name,value) return QA:setVariable(name,value) end
-  function self.getVariable(name) return QA:getVariable(name) end
+function Module.device(self)
+  self:debugf("Setup: ER Device")
+  local dev = { deviceID = self.id }
 
-  local uiCallbacks = QA.properties.uiCallbacks or {}
+  local uiCallbacks = self.properties.uiCallbacks or {}
   for _,e in ipairs(uiCallbacks) do 
     local name = e.eventType=='onChanged' and e.name.."Change" or e.name.."Clicked"
-    if QA[name] then 
-      local old = QA[name];
-      QA[name] = function(self,arg) 
-        QA:post({type='UI',name=e.name,eventType=arg.eventType,value=arg.values[1] or true}) 
-        if arg.eventType=='onChanged' then QA:updateView(e.name,"value",tostring(arg.values[1])) end
+    if self[name] then 
+      local old = self[name];
+      self[name] = function(self,arg) 
+        self:post({type='UI',name=e.name,eventType=arg.eventType,value=arg.values[1] or true}) 
+        if arg.eventType=='onChanged' then self:updateView(e.name,"value",tostring(arg.values[1])) end
         old(self,arg) 
       end
     else
-      QA[name] = function(self,arg) 
-        QA:post({type='UI',name=e.name,eventType=arg.eventType,value=arg.values[1] or true}) 
-        if arg.eventType=='onChanged' then QA:updateView(e.name,"value",tostring(arg.values[1])) end
+      self[name] = function(self,arg) 
+        self:post({type='UI',name=e.name,eventType=arg.eventType,value=arg.values[1] or true}) 
+        if arg.eventType=='onChanged' then self:updateView(e.name,"value",tostring(arg.values[1])) end
       end
     end
   end
-  return self
+  
+  -- Patch fibaro.call to track manual switches
+  local lastID = {}
+  local oldFibaroCall = fibaro.call
+  function fibaro.call(id,action,...)
+    if ({turnOff=true,turnOn=true,on=true,toggle=true,off=true,setValue=true})[action] then lastID[id]={script=true,time=os.time()} end
+    return oldFibaroCall(id,action,...)
+  end
+  local orgEventHandler = self._eventHandler
+  local function lastHandler(ev)
+    if ev.type=='device' and ev.property=='value' then
+      local last = lastID[ev.id]
+      local _,t = fibaro.get(ev.id,'value')
+      --if last and last.script then print("T:"..(t-last.time)) end
+      if not(last and last.script and t-last.time <= 2) then
+        lastID[ev.id]={script=false, time=t}
+      end
+    end
+    orgEventHandler(ev)
+  end
+  self._eventHandler = lastHandler
+  function self:lastManual(id)
+    local last = lastID[id]
+    if not last then return -1 end
+    return last.script and -1 or os.time()-last.time
+  end
+  return dev
 end
 
 ----------------- Module utilities ----------------------------
@@ -324,7 +336,7 @@ function Module.utilities()
   function perror(...) return quickApp:errorf(...) end
   function psys(...) return quickApp:tracef(...) end
 
-  function Debug(flag,...) if flag then QA.debugf(...) end end
+  function Debug(flag,...) if flag then quickApp:debugf(...) end end
 
   function _assert(test,msg,...) if not test then error(string.format(msg,...),3) end end
   function _assertf(test,msg,fun) if not test then error(string.format(msg,fun and fun() or ""),3) end end
@@ -1416,7 +1428,7 @@ function Module.eventScript()
         HTname={function(id) return Util.reverseVar(id) end,nil,nil,false},
         roomName={function(id) return fibaro.getRoomNameByDeviceID(id) end,nil,nil,false},
         trigger={function() return true end,'value',nil,true},time={get,'time',nil,true},armed={armed,'armed',mapOr,true},
-        manual={function(id) return QA.EM.lastManual(id) end,'value',nil,true},
+        manual={function(id) return QA:lastManual(id) end,'value',nil,true},
         start={function(id) return fibaro.scene("execute",{id}) end,"",mapF,false},
         kill={function(id) return fibaro.scene("kill",{id}) end,"",mapF,false},
         toggle={call,'toggle',mapF,true},wake={call,'wakeUpDeadDevice',mapF,true},
@@ -1943,7 +1955,7 @@ modules = {
 _version = "v"..E_VERSION..E_FIX
 
 function QuickApp:onInit()
-  --self.debugFlags.triggers = true
+  self.debugFlags.triggers = true
   fibaro.ID = self.id
   psys("IP address:%s",Util.getIPaddress())  
   local main = self.main
@@ -1960,4 +1972,5 @@ function QuickApp:onInit()
   end
 end 
 
+TOOLBOX = true
 require("QA_toolbox")

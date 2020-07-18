@@ -1,10 +1,10 @@
-if false then 
+if not TOOLBOX then 
   if dofile and not hc3_emulator then
     hc3_emulator = {
       name="QA_toolbox",
       type="com.fibaro.genericDevice",
       poll=1000,
-      --deploy=true,
+      deploy=true,
     }
     dofile("fibaroapiHC3.lua")
   end
@@ -79,7 +79,7 @@ function QuickApp:setTriggerInterval(ms)            -- Set polling interval. Def
 function QuickApp:importRPC(deviceId,timeout,env)   -- Import remote functions from QA with deviceId
 --]]
 
-local QA_toolbox_version = "0.9"
+local QA_toolbox_version = "0.11"
 local format = string.format
 local stat,_init = pcall(function() return QuickApp.onInit end)
 _init = stat and _init
@@ -159,7 +159,7 @@ function Module.basic(self)
 
   local function _printf(self,fun,fmt,...)
     local str = _format(fmt,...)
-    if self._HTML then 
+    if self._HTML and not hc3_emulator then 
       str = str:gsub("(\n)","<br>")
       str = str:gsub("(%s)",'&nbsp;')
     end
@@ -307,7 +307,7 @@ end
 
 ------------   Device children ---------------
 function Module.childs(self)
-  local version = "0.1"
+  local version = "0.3"
   self:debugf("Setup: Child manager (%s)",version) 
 
   function self:setChildIconPath(childId,path)
@@ -346,8 +346,9 @@ function Module.childs(self)
 
   function QuickApp:_annotateClass(classObj)
     if not classObj then return end
-    if pcall(function() return classObj._annotated end) then return end
-    self:debug("Annotating class")
+    local stat,res = pcall(function() return classObj._annotated end) 
+    if stat and res then return end
+    --self:debug("Annotating class")
     for _,m in ipairs({
         "notify","setType","setVisible","setEnabled","setIconMessage","setName","getView",
         "setView","debug","trace","error","warning","debugf","tracef","errorf","warningf","basicAuthorization"}) 
@@ -367,7 +368,6 @@ function Module.childs(self)
     type = "com.fibaro.binarySwitch", -- Type of child device
     properties = {},                  -- Initial properties
     interfaces = {},                  -- Initial interfaces
-    data = ...                        -- Optional data passed to child:setup(data) after initialized
   }
 --]]
   function self:createChild(args)
@@ -377,6 +377,10 @@ function Module.childs(self)
     local tpe = args.type or "com.fibaro.binarySensor"
     local properties = args.properties or {}
     local interfaces = args.interfaces or {}
+    properties.quickAppVariables = properties.quickAppVariables or {}
+    for n,v in pairs(args.quickVars or {}) do table.insert(properties.quickAppVariables,1,{name=n,value=v}) end
+    -- Save class name so we know when we load it next time
+    table.insert(properties.quickAppVariables,1,{name='className', value=className}) -- Add first
     local child = self:createChildDevice({
         name = name,
         type=tpe,
@@ -385,7 +389,6 @@ function Module.childs(self)
       },
       _G[className] -- Fetch class constructor from class name
     )
-    child:setVariable("className",className)  -- Save class name so we know when we load it next time
     return child
   end
 
@@ -799,6 +802,7 @@ function Module.triggers(self)
     SceneFinishedEvent = function(d)  post({type='sceneEvent', id=d.id, value='finished'})end,
     SceneRunningInstancesEvent = function(d) post({type='sceneEvent', id=d.id, value='instance', instance=d}) end,
     SceneRemovedEvent = function(d)  post({type='sceneEvent', id=d.id, value='removed'}) end,
+    SceneCreatedEvent = function(d)  post({type='sceneEvent', id=d.id, value='created'}) end,
     OnlineStatusUpdatedEvent = function(d) post({type='onlineEvent', value=d.online}) end,
     --onUIEvent = function(d) post({type='uievent', deviceID=d.deviceId, name=d.elementName}) end,
     ActiveProfileChangedEvent = function(d) 
