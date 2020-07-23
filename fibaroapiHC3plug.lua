@@ -6,6 +6,7 @@ local idech31 = ID("HC3.sdkHC3")
 local idech33 = ID("HC3.uploadHC3")
 local idech33b = ID("HC3.backupHC3")
 local idech33d = ID("HC3.downloadRsrcHC3")
+local ide_deploy = ID("HC3.deployQA")
 local idem = ID("HC3.web")
 local idet = ID("HC3.templ")
 
@@ -82,7 +83,7 @@ end
 
 local function launchHC3Copy()
   ide:Print("Copying and creating DB from HC3...") 
-  callFibaroAPIHC3("-copysdkdb","Copying done! - HC3sdk.db")
+  callFibaroAPIHC3("-downloaddb","Copying done! - HC3sdk.db")
 end 
 
 local function downloadHC3SDK()
@@ -107,6 +108,14 @@ local function downloadResource()
   if rsrc and rsrc~="" then
     callFibaroAPIHC3("-pull "..rsrc,"Download done!")
   end
+end
+
+local function deployQA()
+  ide:Print("Deploying QuickApp...") 
+  local ed = ide:GetEditor()
+  if not ed then return end -- all editor tabs are closed
+  local file = ide:GetDocument(ed):GetFilePath()
+  callFibaroAPIHC3("-deploy "..file,"Deploy done!")
 end
 
 local function backupResources()
@@ -697,31 +706,35 @@ local interpreter = {
       menu:Append(ideh3Sc, "Fibaro Lua Scene manual"..KSC(ideh3Sc))
       ide:GetMainFrame():Connect(ideh3Sc, wx.wxEVT_COMMAND_MENU_SELECTED, launchHC3ScHelp)
 
-      menu = ide:FindTopMenu("&File")
-      menu:AppendSeparator()
-      menu:Append(idech33b, "Create HC3 backup"..KSC(idech33b))
-      ide:GetMainFrame():Connect(idech33b, wx.wxEVT_COMMAND_MENU_SELECTED, backupResources)
+--      menu = ide:FindTopMenu("&File")
+--      menu:AppendSeparator()
+--      menu:Append(idech33b, "Create HC3 backup"..KSC(idech33b))
+--      ide:GetMainFrame():Connect(idech33b, wx.wxEVT_COMMAND_MENU_SELECTED, backupResources)
+
+--      menu = ide:FindTopMenu("&File")
+--      menu:Append(idech33d, "Download select resource"..KSC(idech33d))
+--      ide:GetMainFrame():Connect(idech33d, wx.wxEVT_COMMAND_MENU_SELECTED, downloadResource)
+
+--      menu = ide:FindTopMenu("&File")
+--      menu:Append(idech33, "Upload HC3 resource"..KSC(idech33))
+--      ide:GetMainFrame():Connect(idech33, wx.wxEVT_COMMAND_MENU_SELECTED, uploadResource)
 
       menu = ide:FindTopMenu("&File")
-      menu:Append(idech33d, "Download select resource"..KSC(idech33d))
-      ide:GetMainFrame():Connect(idech33d, wx.wxEVT_COMMAND_MENU_SELECTED, downloadResource)
-
-      menu = ide:FindTopMenu("&File")
-      menu:Append(idech33, "Upload HC3 resource"..KSC(idech33))
-      ide:GetMainFrame():Connect(idech33, wx.wxEVT_COMMAND_MENU_SELECTED, uploadResource)
-
-      menu = ide:FindTopMenu("&File")
-      menu:Append(idech3, "Create HC3sdk database"..KSC(idech3))
+      menu:Append(idech3, "Download and create HC3sdk database"..KSC(idech3))
       ide:GetMainFrame():Connect(idech3, wx.wxEVT_COMMAND_MENU_SELECTED, launchHC3Copy)
 
       menu = ide:FindTopMenu("&File")
-      menu:Append(idech31, "Download fibaroapiHC3.sdk"..KSC(idech31))
+      menu:Append(idech31, "Download fibaroapiHC3.lua"..KSC(idech31))
       ide:GetMainFrame():Connect(idech31, wx.wxEVT_COMMAND_MENU_SELECTED, downloadHC3SDK)
 
+      menu = ide:FindTopMenu("&Project")
+      menu:Append(ide_deploy, "Deploy QuickApp"..KSC(ide_deploy))
+      ide:GetMainFrame():Connect(ide_deploy, wx.wxEVT_COMMAND_MENU_SELECTED, deployQA)
+      
       menu = ide:FindTopMenu("&Edit")
       templSubMenu = ide:MakeMenu()
       templ = menu:AppendSubMenu(templSubMenu, TR("HC3 SDK templates..."))
-
+      
       local idTSC = ID("HC3.temp_SC")
       local idTER = ID("HC3.temp_ER")
       templSubMenu:Append(idTER, "QuickApp"..KSC(idTER))

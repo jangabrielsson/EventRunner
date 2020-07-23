@@ -4,9 +4,11 @@ if not TOOLBOX then
       name="QA_toolbox",
       type="com.fibaro.genericDevice",
       poll=1000,
-      deploy=true,
+      offline=true,
+      --proxy=true,
+      --deploy=true,
     }
-    dofile("fibaroapiHC3.lua")
+    dofile("fibaroapiHC3-2.lua")
   end
 
   _version = "1.0"
@@ -34,6 +36,9 @@ if not TOOLBOX then
       basicAuthorization={user="admin",password="admin"}
     }
 
+    setInterval(function()
+        self:notify("info","Test",os.date("%c"))
+      end,5000)
   end
 
   function QuickApp:onInit()
@@ -79,7 +84,7 @@ function QuickApp:setTriggerInterval(ms)            -- Set polling interval. Def
 function QuickApp:importRPC(deviceId,timeout,env)   -- Import remote functions from QA with deviceId
 --]]
 
-local QA_toolbox_version = "0.11"
+local QA_toolbox_version = "0.12"
 local format = string.format
 local stat,_init = pcall(function() return QuickApp.onInit end)
 _init = stat and _init
@@ -102,7 +107,7 @@ function QuickApp:onInit()
   self._DEBUG = true
   self._TRACE = true
   self._HTML = not hc3_emulator
-  self._NOTIFY = false
+  self._NOTIFY = true
   local d = __fibaro_get_device(self.id)
   local function printf(...) self:debug(format(...)) end
   printf("QA %s - version:%s (QA toolbox %s)",self.name,_version or "1.0",QA_toolbox_version)
@@ -267,6 +272,7 @@ function Module.basic(self)
 
 -- Add notification to notification center
   function self:notify(priority, title, text)
+    assert(({info=true,warning=true,critical=true})[priority],"Wrong 'priority' - info/warning/critical")
     self._lastNotification = self._lastNotification or {}
     local msgId = title..self.id
     local data = {
@@ -281,8 +287,12 @@ function Module.basic(self)
         text = tostring(text)
       }
     }
+    if self._lastNotification[msgId] then
+      local res,code = api.put("/notificationCenter/"..self._lastNotification[msgId].id, data)
+      if code==200 then return self._lastNotification[msgId].id end
+    end
     self._lastNotification[msgId] = api.post("/notificationCenter", data)
-    return self._lastNotification
+    return self._lastNotification[msgId].id
   end
 
   do
@@ -719,7 +729,7 @@ Supported events:
 {type='device', id=<id>, property=<property>, value=<value>, old=<value>}
 {type='device', id=<id>, property='centralSceneEvent', value={keyId=<value>, keyAttribute=<value>}}
 {type='device', id=<id>, property='accessControlEvent', value=<value>}
-{type='device', id=<id>, property='sceneACtivationEvent', value=<value>}
+{type='device', id=<id>, property='sceneActivationEvent', value=<value>}
 {type='profile', property='activeProfile', value=<value>, old=<value>}
 {type='custom-event', name=<name>}
 {type='UpdateReadyEvent', value=_}
@@ -810,6 +820,7 @@ function Module.triggers(self)
     end,
     NotificationCreatedEvent = function(_) end,
     NotificationRemovedEvent = function(_) end,
+    NotificationUpdatedEvent = function(_) end,
     RoomCreatedEvent = function(_) end,
     RoomRemovedEvent = function(_) end,
     RoomModifiedEvent = function(_) end,
