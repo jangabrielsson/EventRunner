@@ -31,7 +31,7 @@ json        -- Copyright (c) 2019 rxi
 persistence -- Copyright (c) 2010 Gerhard Roethlin
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.105"
+local FIBAROAPIHC3_VERSION = "0.106"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -479,7 +479,8 @@ function module.FibaroAPI()
     return false,url
   end
 
-  net = net or {mindelay=10,maxdelay=1000} -- An emulation of Fibaro's net.HTTPClient and net.TCPSocket()
+-- An emulation of Fibaro's net.HTTPClient, net.TCPSocket() and net.UDPSocket()
+  net = net or {mindelay=10,maxdelay=1000} 
 
   function net.HTTPClient(i_options)     -- It is synchronous, but synchronous is a speciell case of asynchronous.. :-)
     local self = {}                    -- Not sure I got all the options right..
@@ -570,7 +571,7 @@ function module.FibaroAPI()
     return self
   end
 
-  function net.TCPSocket(opts) --error("TCPSocket - Not implemented yet")
+  function net.TCPSocket(opts) 
     local self = { opts = opts }
     local sock = socket.tcp()
     function self:connect(ip, port, opts) 
@@ -591,6 +592,33 @@ function module.FibaroAPI()
       elseif res==nil and opts.error then opts.error(err) end
     end
     function self:close() self.sock:close() end
+    return self
+  end
+
+  function net.UDPSocket(opts) --error("TCPSocket - Not implemented yet")
+    self = {}
+    opts = opts or {}
+    local sock = socket.udp()
+    if opts.broadcast~=nil then sock:setoption("broadcast", opts.broadcast) end
+    if opts.timeout~=nil then sock:settimeout(opts.timeout) end
+    
+    function self:sendTo(datagram, ip,port, callbacks) 
+      local stat,res = sendto(datagram, ip, port)
+      if stat and callbacks.sucess then 
+        pcall(function() callbacks.success(1) end)
+      elseif stat==nil and callbacks.error then
+         pcall(function() callbacks.success(res) end)
+      end
+    end
+    function self:receive(callbacks) 
+      local stat,res = sock:receive()
+      if stat and callbacks.sucess then 
+        pcall(function() callbacks.success(stat) end)
+      elseif stat==nil and callbacks.error then
+         pcall(function() callbacks.success(res) end)
+      end
+    end
+    function self:close() sock:close() end
     return self
   end
 
@@ -1410,7 +1438,7 @@ function module.QuickApp()
     local c = code:match("%-%-%-%-%-%-%-%-%-%-%- Code.-\n(.*)")
     return c or code
   end
-  
+
   local function replaceRequires(code)
     pcall(function()
         code = code:gsub([[require%s*%(%s*[%"%'](.-)[%"%']%s*%)]],
@@ -5112,4 +5140,5 @@ if not hc3_emulator.sourceFile then
 end
 --print("SOURCE:"..hc3_emulator.sourceFile)
 if hc3_emulator.sourceFile then  startUp(hc3_emulator.sourceFile) end
+Log(LOG.SYS,"fibaroapiHC3 version:%s",FIBAROAPIHC3_VERSION)
 os.exit()
