@@ -31,7 +31,7 @@ json        -- Copyright (c) 2019 rxi
 persistence -- Copyright (c) 2010 Gerhard Roethlin
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.104"
+local FIBAROAPIHC3_VERSION = "0.105"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file

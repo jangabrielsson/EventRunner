@@ -6,7 +6,7 @@ if not hc3_emulator or hc3_emulator.name=="QA_toolbox" then
       poll=1000,
       --offline=true,
       --proxy=true,
-      --deploy=true,
+      deploy=true,
     }
     dofile("fibaroapiHC3.lua")
   end
