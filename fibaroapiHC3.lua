@@ -31,7 +31,7 @@ json        -- Copyright (c) 2019 rxi
 persistence -- Copyright (c) 2010 Gerhard Roethlin
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.106"
+local FIBAROAPIHC3_VERSION = "0.106" 
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -607,7 +607,7 @@ function module.FibaroAPI()
       if stat and callbacks.sucess then 
         pcall(function() callbacks.success(1) end)
       elseif stat==nil and callbacks.error then
-         pcall(function() callbacks.success(res) end)
+         pcall(function() callbacks.error(res) end)
       end
     end
     function self:receive(callbacks) 
@@ -615,7 +615,7 @@ function module.FibaroAPI()
       if stat and callbacks.sucess then 
         pcall(function() callbacks.success(stat) end)
       elseif stat==nil and callbacks.error then
-         pcall(function() callbacks.success(res) end)
+         pcall(function() callbacks.error(res) end)
       end
     end
     function self:close() sock:close() end
