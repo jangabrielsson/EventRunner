@@ -1,18 +1,18 @@
-if not TOOLBOX then 
+if not hc3_emulator or hc3_emulator.name=="QA_toolbox" then 
   if dofile and not hc3_emulator then
     hc3_emulator = {
       name="QA_toolbox",
       type="com.fibaro.genericDevice",
       poll=1000,
-      offline=true,
+      --offline=true,
       --proxy=true,
       --deploy=true,
     }
-    dofile("fibaroapiHC3-2.lua")
+    dofile("fibaroapiHC3.lua")
   end
 
   _version = "1.0"
-  modules = {"childs","events","triggers","rpc"}
+  modules = {"childs","events","triggers","rpc", "file"}
 
   function QuickApp:turnOn()
   end
@@ -80,11 +80,14 @@ function QuickApp:registerTriggerHandler(handler)   -- Register handler for trig
 function QuickApp:enableTriggerType(trs)            -- Enable trigger type. <string> or table of <strings>
 function QuickApp:enableTriggerPolling(bool)        -- Enable/disable trigger polling loop
 function QuickApp:setTriggerInterval(ms)            -- Set polling interval. Default 1000ms
+-- Module "File"
+function QuickApp:copyFileFromTo(fileName,deviceFrom,deviceTo) -- Copies file from one QA to another
+function QuickApp:addFileTo(fileContent,device)     -- Creates a new file for a QA
 -- Module "rpc"
 function QuickApp:importRPC(deviceId,timeout,env)   -- Import remote functions from QA with deviceId
 --]]
 
-local QA_toolbox_version = "0.12"
+QA_toolbox_version = "0.14"
 local format = string.format
 local stat,_init = pcall(function() return QuickApp.onInit end)
 _init = stat and _init
@@ -101,7 +104,7 @@ local Module = Module or {}
     quickAppVariables will be loaded into self.config
       Ex. a quickAppVariable "Test" with value 42 is available as self.config.Test
 --]]
-function QuickApp:onInit()
+function QuickApp:loadToolbox()
   quickApp = self 
   self._2JSON = true
   self._DEBUG = true
@@ -131,9 +134,11 @@ function QuickApp:onInit()
     local nc = self:loadChildren()
     if nc == 0 then self:debug("No children") else self:debugf("%d children",nc) end
   end
+  self.loadToolbox = function() end
   if _init then _init(self) end -- Call  user's own :onInit()
   if self.main and type(self.main)=='function' then setTimeout(function() self:main() end,0) end -- If we have a main(), call it...
 end
+function QuickApp:onInit() self:loadToolbox() end
 
 function Module.basic(self)
 -- tostring optionally converting tables to json or custom conversion
@@ -292,7 +297,7 @@ function Module.basic(self)
       if code==200 then return self._lastNotification[msgId].id end
     end
     self._lastNotification[msgId] = api.post("/notificationCenter", data)
-    return self._lastNotification[msgId].id
+    return self._lastNotification[msgId] and self._lastNotification[msgId].id
   end
 
   do
@@ -864,6 +869,48 @@ function Module.triggers(self)
   function self:setTriggerInterval(ms) INTERVAL = ms end
 end
 
+------------  FILE --------------
+function Module.file(self)
+  local version = "0.1"
+  self:debugf("Setup: File manager (%s)",version)
+
+  function self:copyFileFromTo(fileName,deviceFrom,deviceTo)
+    deviceTo = deviceTo or self.id
+    local copyFile = api.get(("/quickApp/%s/files/%s"):format(deviceFrom,fileName))
+    assert(copyFile,"File doesn't exists")
+    self:addFileTo(copyFile.content,fileName,deviceTo)
+  end
+
+  function self:addFileTo(fileContent,fileName,deviceId)
+    local file = api.get(("/quickApp/%s/files/%s"):format(deviceId,fileName))
+    if not file then
+      local stat,res = api.post(("/quickApp/%s/files"):format(deviceId),{   -- Create new file
+          name=fileName,
+          type="lua",
+          isMain=false,
+          isOpen=false,
+          content=fileContent
+        })
+      if res == 200 then
+        self:debug("File '",fileName,"' added")
+      else self:error("Error:",res) end
+    elseif file.content ~= fileContent then
+      local stat,res = api.put(("/quickApp/%s/files/%s"):format(deviceId,fileName),{   -- Update existing file
+          name=fileName,
+          type="lua",
+          isMain=false,
+          isOpen=false,
+          content=fileContent
+        })
+      if res == 200 then
+        self:debug("File '",fileName,"' updated")
+      else self:error("Error:",res) end
+    else
+      self:debug("File '",fileName,"' not changed")
+    end
+  end
+
+end
 ------------   RPC ---------------
 function Module.rpc(self)
   local version = "0.1"

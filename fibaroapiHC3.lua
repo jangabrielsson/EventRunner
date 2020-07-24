@@ -1392,14 +1392,13 @@ function module.QuickApp()
       })
   end
 
-  local function makeInitialProperties(code,UI,vars,height)
+  local function makeInitialProperties(UI,vars,height)
     local ip = {}
     vars = vars or {}
-    ip.mainFunction = code
     transformUI(UI)
     ip.viewLayout = mkViewLayout(UI,height)
     ip.uiCallbacks = uiStruct2uiCallbacks(UI)
-    ip.apiVersion = "1.1"
+    ip.apiVersion = "1.2"
     local varList = {}
     for n,v in pairs(vars) do varList[#varList+1]={name=n,value=v} end
     ip.quickAppVariables = varList
@@ -1407,6 +1406,11 @@ function module.QuickApp()
     return ip
   end
 
+  local function pruneCode(code)
+    local c = code:match("%-%-%-%-%-%-%-%-%-%-%- Code.-\n(.*)")
+    return c or code
+  end
+  
   local function replaceRequires(code)
     pcall(function()
         code = code:gsub([[require%s*%(%s*[%"%'](.-)[%"%']%s*%)]],
@@ -1414,14 +1418,55 @@ function module.QuickApp()
             f = io.open(m..".lua")
             if f then
               local c = f:read("*all")
-              local c2 = c:match("%-%-%-%-%-%-%-%-%-%-%- Code.-\n(.*)")
-              return c2 or c
-              --return "do\n"..c.."\nend\n"
+              return pruneCode(c)
             end
             return ""
           end)
       end)
     return code
+  end
+
+  local function updateFiles(newFiles,id)
+    local oldFiles = api.get("/quickApp/"..id.."/files")
+    local newFileMap,oldFileMap = {},{}
+    for _,f in ipairs(newFiles) do newFileMap[f.name]=f end
+    for _,f in ipairs(oldFiles) do oldFileMap[f.name]=f end
+    for _,f in pairs(newFileMap) do
+      if oldFileMap[f.name] then
+        local _,res = api.put("/quickApp/"..id.."/files/"..f.name,f) -- Update existing
+        if res > 201 then return res end
+      else
+        local _,res = api.post("/quickApp/"..id.."/files",f)         -- Create new
+        if res > 201 then return res end
+      end
+    end
+    for _,f in pairs(oldFileMap) do
+      if not newFileMap[f.name] then
+        local _,res = api.delete("/quickApp/"..id.."/files/"..f.name)
+        if res > 201 then return res end
+      end
+    end
+    return 200
+  end
+
+  function hc3_emulator.FILE(file,name) dofile(file) end
+
+  local function createFilesFromSource(source)
+    local files = {}
+    pcall(function() 
+        source = source:gsub([[hc3_emulator%s*.%s*FILE%s*%(%s*[%"%'](.-)[%"%']%s*,%s*[%"%'](.-)[%"%']%s*%)]],
+          function(file,name) 
+            f = io.open(file)
+            if f then
+              local c = f:read("*all")
+              c = pruneCode(c)
+              files[#files+1]={name=name,content=c,isMain=false,isOpen=false}
+            else Log(LOG.ERROR,"Can't find FILE:%s - ignoring",file) end
+            return ""
+          end)
+      end)
+    table.insert(files,1,{name="main",content=pruneCode(source),isMain=true,isOpen=false})
+    return files
   end
 
 -- name of device - string
@@ -1438,31 +1483,39 @@ function module.QuickApp()
     local d = {} -- Our device
     d.name = args.name or "QuickApp"
     d.type = args.type or "com.fibaro.binarySensor"
-    local body = args.code or ""
-    body = replaceRequires(body)
+    local files = args.code or ""
+    --body = replaceRequires(body)
     local UI = args.UI or {}
     local variables = args.quickVars or {}
     local dryRun = args.dryrun or false
-    d.apiVersion = "1.1"
-    d.initialProperties = makeInitialProperties(body,UI,variables,args.height)
+    d.apiVersion = "1.2"
+    d.initialProperties = makeInitialProperties(UI,variables,args.height)
+    if type(files)=='string' then files = createFilesFromSource(files) end
+    d.files  = {}
+    for _,f in ipairs(files) do f.isOpen=false; d.files[#d.files+1]=f end
     if dryRun then return d end
     --Log(LOG.SYS,"Creating device...")--..json.encode(d)) 
     if not d.initialProperties.uiCallbacks[1] then
       d.initialProperties.uiCallbacks = nil
     end
+
     local what,d1,res="updated"
     if args.id then
       d1,res = api.put("/devices/"..args.id,{
           properties={
             quickAppVariables = d.initialProperties.quickAppVariables,
-            mainFunction = d.initialProperties.mainFunction,
+            viewLayout= d.initialProperties.viewLayout,
             uiCallBacks = d.initialProperties.uiCallbacks,
           }
         })
+      if res <= 201 then
+        res = updateFiles(files,args.id)
+      end
     else
       d1,res = api.post("/quickApp/",d)
       what = "created"
     end
+
     if type(res)=='string' or res > 201 then 
       Log(LOG.ERROR,"D:%s,RES:%s",json.encode(d1),json.encode(res))
       return nil
@@ -1489,6 +1542,10 @@ function module.QuickApp()
       end 
     end
     ID   = device and device.id
+    if ID and tp ~= device.type then
+      Log(LOG.SYS,"Proxy type changed")
+      ID=nil
+    end
     tp   = tp or "com.fibaro.binarySensor"
     vars = vars or {}
     UI   = UI or {}
@@ -1521,15 +1578,7 @@ function QuickApp:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) e
 
     local newVars = {}
     if ID then
-      for _,v in ipairs(device.properties.quickAppVariables or {}) do newVars[v.name]=v.value end   -- Move over vars from existing QA
-      local nip = makeInitialProperties("",UI)
-      local nUIstr = Util.prettyJson({nip.uiCallbacks,nip.viewLayout})
-      local eUIstr = Util.prettyJson({device.properties.uiCallbacks or {},device.properties.viewLayout or {}})
-      if nUIstr ~= eUIstr then 
-        Log(LOG.SYS,"Proxy: QuickApp changed UI")
-        api.delete("/devices/"..ID)
-        ID = nil 
-      end   
+      for _,v in ipairs(device.properties.quickAppVariables or {}) do newVars[v.name]=v.value end   -- Move over vars from existing QA  
     end
 
     Log(LOG.SYS,ID and "Proxy: Reusing QuickApp proxy" or "Proxy: Creating new proxy")
@@ -1547,7 +1596,7 @@ function QuickApp:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) e
 
     hc3_emulator.name = name
     hc3_emulator.type = ptype
-    
+
     for k,v in pairs(quickVars) do 
       if type(v)=='string' and v:match("^%$CREDS") then
         local p = "return hc3_emulator.credentials"..v:match("^%$CREDS(.*)") 
@@ -2065,6 +2114,7 @@ function module.Trigger()
     SectionCreatedEvent = function() end,
     SectionRemovedEvent = function() end,
     SectionModifiedEvent = function() end,
+    DeviceActionRanEvent = function() end,
   }
 
   local function checkEvents(events)
@@ -3024,7 +3074,7 @@ function module.WebAPI()
 
   local Pages = nil
   local lastDeviceUpdate = 0
-  
+
   local GUI_HANDLERS = {  -- External calls
     ["GET"] = {
       ["/api/callAction%?deviceID=(%d+)&name=(%w+)(.*)"] = function(client,ref,body,id,action,args)
@@ -3535,7 +3585,7 @@ tr:nth-child(even) {
 ]]
 
   Pages.register("events",Pages.P_EVENTS).static=false
-  
+
   Pages.P_QA =
 [[HTTP/1.1 200 OK
 Content-Type: text/html
@@ -5033,6 +5083,7 @@ local function startUp(file)
       if hc3_emulator.credentials then 
         hc3_emulator.BasicAuthorization = "Basic "..Util.base64(hc3_emulator.credentials.user..":"..hc3_emulator.credentials.pwd)
       end
+      hc3_emulator.inited = true
       dofile(file)
       if hc3_emulator.conditions and hc3_emulator.actions then
         codeType="Scene"
