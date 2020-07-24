@@ -738,7 +738,7 @@ function Module.autopatch(self)
         end})
   end
 
-  function Util.patchFile(file)
+  function Util.updateFile(file)
     local fname = patchFiles[file].fname
     local req = net.HTTPClient()
     req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/"..file,{

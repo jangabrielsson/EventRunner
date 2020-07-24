@@ -5,7 +5,7 @@ if dofile and not hc3_emulator then
     poll=1000,
     --startTime="10:00:00 5/12/2020",
     --speed = 48,
-    --deploy=true,
+    deploy=true,
     --proxy=true,
     --offline=true,
     UI = {
@@ -41,7 +41,10 @@ function QuickApp:main()    -- EventScript version
   
   rule("@@00:00:05 => log(now % 2 == 1 & 'Tick' | 'Tock')")
 
-  Util.checkForUpdates()
+  rule("@{catch,05:00} => Util.checkForUpdates()")
+  rule("#File_update{} => log('New file version:%s - %s',env.event.file,env.event.version)")
+  --rule("#File_update{} => Util.updayeFile(env.event.file)")
+  
 --  rule("keyfob:central => log('Key:%s',env.event.value.keyId)")
 --  rule("motion:value => log('Motion:%s',motion:value)")
 --  rule("temp:temp => log('Temp:%s',temp:temp)")

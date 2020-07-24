@@ -832,6 +832,7 @@ function Module.triggers(self)
     SectionCreatedEvent = function(_) end,
     SectionRemovedEvent = function(_) end,
     SectionModifiedEvent = function(_) end,
+    DeviceActionRanEvent = function(_) end,
   }
 
   local lastRefresh,enabled = 0,true
