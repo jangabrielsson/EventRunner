@@ -4,7 +4,7 @@ _HC3IPADDRESS = "192.168.1.57" -- Needs to be defined on the HC3 as /settings/ne
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
 Util = nil
-triggerInterval = 500
+triggerInterval = 500 
 
 --[[ Supported events:
 

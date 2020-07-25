@@ -610,7 +610,7 @@ function module.FibaroAPI()
       elseif stat==nil and callbacks.error then
         pcall(function() callbacks.error(res) end)
       end
-    end
+    end 
     function self:receive(callbacks) 
       local stat,res = sock:receive()
       if stat and callbacks.success then 

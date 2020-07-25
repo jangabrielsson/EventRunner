@@ -51,7 +51,7 @@ function QuickApp:loadToolbox()
   self._DEBUG = true
   self._TRACE = true
   self._HTML = not hc3_emulator
-  self._NOTIFY = true
+  self._NOTIFY = true 
   local d = __fibaro_get_device(self.id)
   local function printf(...) self:debug(format(...)) end
   printf("QA %s - version:%s (QA toolbox %s)",self.name,_version or "1.0",QA_toolbox_version)

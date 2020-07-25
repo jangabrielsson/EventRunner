@@ -2,7 +2,7 @@ if dofile and not hc3_emulator then
   hc3_emulator = {
     name="EventRunner4",
     type="com.fibaro.genericDevice",
-    poll=1000,
+    poll=1000, 
     --startTime="10:00:00 5/12/2020",
     --speed = 48,
     --deploy=true,
