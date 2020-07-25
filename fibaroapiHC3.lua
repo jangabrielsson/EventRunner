@@ -25,13 +25,14 @@ SOFTWARE.
 Contributions & bugfixes:
 -  @petergebruers, forum.fibaro.com
 -  @tinman, forum.fibaro.com
+-  @10der, forum.fibaro.com
 
 Sources:
 json        -- Copyright (c) 2019 rxi
 persistence -- Copyright (c) 2010 Gerhard Roethlin
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.108" 
+local FIBAROAPIHC3_VERSION = "0.109" 
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -601,21 +602,21 @@ function module.FibaroAPI()
     local sock = socket.udp()
     if opts.broadcast~=nil then sock:setoption("broadcast", opts.broadcast) end
     if opts.timeout~=nil then sock:settimeout(opts.timeout) end
-    
+
     function self:sendTo(datagram, ip,port, callbacks) 
-      local stat,res = sendto(datagram, ip, port)
-      if stat and callbacks.sucess then 
+      local stat,res = sock:sendto(datagram, ip, port)
+      if stat and callbacks.success then 
         pcall(function() callbacks.success(1) end)
       elseif stat==nil and callbacks.error then
-         pcall(function() callbacks.error(res) end)
+        pcall(function() callbacks.error(res) end)
       end
     end
     function self:receive(callbacks) 
       local stat,res = sock:receive()
-      if stat and callbacks.sucess then 
+      if stat and callbacks.success then 
         pcall(function() callbacks.success(stat) end)
       elseif stat==nil and callbacks.error then
-         pcall(function() callbacks.error(res) end)
+        pcall(function() callbacks.error(res) end)
       end
     end
     function self:close() sock:close() end
@@ -1081,7 +1082,9 @@ function module.QuickApp()
 
   class 'QuickAppBase'
   function QuickAppBase:__init(device)
-    for k,v in pairs(device) do self[k]=v end
+    for k,v in pairs(device) do 
+      self[k]=v 
+    end
     local cbs = {}
     for _,cb in ipairs(self.properties.uiCallbacks or {}) do
       cbs[cb.name]=cbs[cb.name] or {}
@@ -2278,39 +2281,73 @@ end
 function module.Utilities()
   local self = {}
 
-  function class(name)
-    local cl,parent = {},nil
-    cl._name = name
-    cl.__index = cl
+  function self.property(getter,setter)
+    return {['%CLASSPROPERTY%']=true,get=getter,set=setter}
+  end
+
+  local function isProp(x) return type(x)=='table' and x['%CLASSPROPERTY%']  end
+
+  function self.class(name)
+    local c = {}    -- a new class instance
     local mt = {}
-    mt.__tostring = function(_) return string.format("<Class %s>",name) end
 
-    local fun=function(parent2) 
-      assert(parent2,"Missing parent, use without () if no parent")
-      parent = parent2
-      for n,p in pairs(parent or {}) do cl[n]=p end
-      cl._name = name
-      cl.__index = cl
-      return cl
-    end
-
+--  mt.__index = function(tab,key) return rawget(c,key) end
+--  mt.__newindex = function(tab,key,value) rawset(c,key,value) end
     mt.__call = function(class_tbl, ...)
       local obj = {}
-      setmetatable(obj,cl)
-      if cl.__init then cl.__init(obj,...)
+      setmetatable(obj,c)
+      if c.__init then
+        c.__init(obj,...)
       else 
-        if parent and parent.__init then parent.__init(obj, ...) end
+        if c.__base and c.__base.__init then
+          c.__base.__init(obj, ...)
+        end
       end
       return obj
     end
 
-    setmetatable(cl,mt)
-    if _ENV then _ENV[name]=cl else _G[name]=cl end
-    return fun
+    c.__index = function(tab,key)
+      local v = c[key]
+      if v==nil then
+        local p = rawget(tab,'__props')
+        if p and p[key] then return p[key].get(tab) end
+      end
+      return rawget(c,key) --c[key]
+    end
+
+    c.__newindex = function(tab,key,value)
+      local p = rawget(tab,'__props')
+      if isProp(value) then
+        if not p then 
+          p = {}
+          rawset(tab,'__props',p)
+        end
+        p[key]=value
+      elseif p and p[key] then p[key].set(tab,value) 
+      else rawset(c,key,value) end
+    end
+
+    setmetatable(c, mt)
+    _G[name] = c
+
+    return function(base)
+      local mb = getmetatable(base)
+      setmetatable(base,nil)
+      for i,v in pairs(base) do 
+        if not ({__index=true,__newindex=true,__base=true})[i] then 
+          rawset(c,i,v) 
+        end
+      end
+      rawset(c,'__base',base)
+      setmetatable(base,mb)
+      return c
+    end
   end
 
-
-  if not class then class=self.class end -- If we already have 'class' from Luabind - let's hope it wors as a substitute....
+  if not class then     -- If we already have 'class' from Luabind - let's hope it wors as a substitute....
+    class=self.class 
+    property=self.property 
+  end 
 
   function self.urlencode (str) 
     return str and string.gsub(str ,"([^% w])",function(c) return format("%%% 02X",string.byte(c))  end) 
@@ -3828,7 +3865,7 @@ function module.Files()
       quickVars=quickVars
     }
   end
-  
+
   getHC3dir()
 
   commandLines['backup']=function() self.backup("all") end
@@ -3853,8 +3890,8 @@ function module.Offline(self)
     else return from end
   end
 
-  class 'Global'
-  function Global:__init(name,g)
+  class '_Global'
+  function _Global:__init(name,g)
     self.data = {
       readOnly = false,
       isEnum =  false,
@@ -3870,7 +3907,7 @@ function module.Offline(self)
     if Web then Web.invalidateGlobalsPage() end
   end
 
-  function Global:modify(data)
+  function _Global:modify(data)
     if self.data.value ~= data.value then
       Trigger.checkEvents{
         type='GlobalVariableChangedEvent',
@@ -4045,7 +4082,7 @@ function module.Offline(self)
     return tab
   end
 
-  function globalCreator(name,data) return Global(name,data) end
+  function globalCreator(name,data) return _Global(name,data) end
 
   local function deviceCreator(id,data)
     local base = baseMap[hc3_emulator.defaultDevice] or "com.fibaro.multilevelSwitch"

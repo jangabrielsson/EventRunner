@@ -40,7 +40,7 @@ local _init = QuickApp.__init
 local _onInit = nil
 
 function QuickApp.__init(self,...)
-   _ownInit = self.onInit
+   _onInit = self.onInit
    self.onInit = self.loadToolbox
    _init(self,...)
 end
@@ -76,7 +76,7 @@ function QuickApp:loadToolbox()
     if nc == 0 then self:debug("No children") else self:debugf("%d children",nc) end
   end
   self.loadToolbox = function() end
-  if _ownInit then _ownInit(self) end
+  if _onInit then _onInit(self) end
   if self.main and type(self.main)=='function' then setTimeout(function() self:main() end,0) end -- If we have a main(), call it...
 end
 

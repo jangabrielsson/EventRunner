@@ -5,7 +5,7 @@ if dofile and not hc3_emulator then
     poll=1000,
     --startTime="10:00:00 5/12/2020",
     --speed = 48,
-    deploy=true,
+    --deploy=true,
     --proxy=true,
     --offline=true,
     UI = {
