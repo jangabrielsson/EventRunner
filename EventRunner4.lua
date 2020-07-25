@@ -18,7 +18,11 @@ if dofile and not hc3_emulator then
   dofile("fibaroapiHC3.lua")
 end
 if hc3_emulator then hc3_emulator.FILE("EventRunner4Engine.lua","EventRunner") end
-if hc3_emulator then hc3_emulator.FILE("QA_toolbox.lua","Toolbox") end
+if hc3_emulator then hc3_emulator.FILE("Toolbox/Toolbox_basic.lua","Toolbox") end
+if hc3_emulator then hc3_emulator.FILE("Toolbox/Toolbox_events.lua","Toolbox_events") end
+if hc3_emulator then hc3_emulator.FILE("Toolbox/Toolbox_triggers.lua","Toolbox_triggers") end
+if hc3_emulator then hc3_emulator.FILE("Toolbox/Toolbox_files.lua","Toolbox_files") end
+if hc3_emulator then hc3_emulator.FILE("Toolbox/Toolbox_rpc.lua","Toolbox_rpc") end
 ----------- Code -----------------------------------------------------------
 
 _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 

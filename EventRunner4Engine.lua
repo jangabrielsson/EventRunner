@@ -102,7 +102,8 @@ Missing
 --end
 
 ------------------- EventSupport - Don't change! -------------------- 
-Module          = {}
+Toolbox_Module  = Toolbox_Module or {}
+local Module    = Toolbox_Module
 local _MARSHALL = true
 local format    = string.format 
 _ENV = _ENV or _G 
@@ -1925,7 +1926,7 @@ _version = "v"..E_VERSION..E_FIX
 function QuickApp:onInit()
 --  self.debugFlags.triggers = true
   fibaro.ID = self.id
-  psys("IP address:%s",Util.getIPaddress())  
+  --psys("IP address:%s",Util.getIPaddress())  
   local main = self.main
   self.main = function(self)
     psys("Sunrise:%s,  Sunset:%s",(fibaro.get(1,"sunriseHour")),(fibaro.get(1,"sunsetHour")))
