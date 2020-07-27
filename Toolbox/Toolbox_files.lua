@@ -5,6 +5,8 @@
 
   function QuickApp:copyFileFromTo(fileName,deviceFrom,deviceTo) -- Copies file from one QA to another
   function QuickApp:addFileTo(fileContent,device)                -- Creates a new file for a QA
+  function QuickApp:listFiles(device)                            -- Get list of all files
+  function QuickApp:getFile(fileName,device)                     -- Get file
 --]]
 
 Toolbox_Module = Toolbox_Module or {}
@@ -12,6 +14,14 @@ Toolbox_Module = Toolbox_Module or {}
 function Toolbox_Module.file(self)
   local version = "0.1"
   self:debugf("Setup: File manager (%s)",version)
+
+  function self:listFiles(device)   
+    return api.get(("/quickApp/%s/files"):format(device or self.id))
+  end
+
+  function self:getFile(fileName,device)
+    api.get(("/quickApp/%s/files/%s"):format(device or self.id,fileName))
+  end
 
   function self:copyFileFromTo(fileName,deviceFrom,deviceTo)
     deviceTo = deviceTo or self.id

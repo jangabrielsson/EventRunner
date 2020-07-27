@@ -32,7 +32,7 @@ json        -- Copyright (c) 2019 rxi
 persistence -- Copyright (c) 2010 Gerhard Roethlin
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.109" 
+local FIBAROAPIHC3_VERSION = "0.112" 
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -369,7 +369,7 @@ function module.FibaroAPI()
   function fibaro.getAllDeviceIds() return api.get('/devices/') end
 
   function fibaro.getDevicesID(filter) 
-    local function encode(s) return tostring(s) end --urlencode(tostring(s)) end
+    local function encode(s) return tostring(s) end -- urlencode(tostring(s)) end
     if type(filter) ~= 'table' or (type(filter) == 'table' and next( filter ) == nil) then 
       return fibaro.getIds(__fibaro_get_devices()) 
     end
@@ -483,7 +483,7 @@ function module.FibaroAPI()
 -- An emulation of Fibaro's net.HTTPClient, net.TCPSocket() and net.UDPSocket()
   net = net or {mindelay=10,maxdelay=1000} 
 
-  function net.HTTPClient(i_options)     -- It is synchronous, but synchronous is a speciell case of asynchronous.. :-)
+  function net.HTTPClient(i_options)   -- It is synchronous, but synchronous is a speciell case of asynchronous.. :-)
     local self = {}                    -- Not sure I got all the options right..
     function self:request(url,args)
       local req = {}; for k,v in pairs(i_options or {}) do req[k]=v end
@@ -596,15 +596,18 @@ function module.FibaroAPI()
     return self
   end
 
-  function net.UDPSocket(opts) --error("TCPSocket - Not implemented yet")
+  function net.UDPSocket(opts) 
     self = {}
-    opts = opts or {}
+    self.opts = opts or {}
     local sock = socket.udp()
-    if opts.broadcast~=nil then sock:setoption("broadcast", opts.broadcast) end
-    if opts.timeout~=nil then sock:settimeout(opts.timeout) end
+    if self.opts.broadcast~=nil then 
+      sock:setsockname(Util.getIPaddress(), 0)
+      sock:setoption("broadcast", self.opts.broadcast) 
+    end
+    if opts.timeout~=nil then sock:settimeout(opts.timeout / 1000) end
 
-    function self:sendTo(datagram, ip,port, callbacks) 
-      local stat,res = sock:sendto(datagram, ip, port)
+    function self:sendTo(datagram, ip,port, callbacks)
+      local stat, res = sock:sendto(datagram, ip, port)
       if stat and callbacks.success then 
         pcall(function() callbacks.success(1) end)
       elseif stat==nil and callbacks.error then
@@ -612,9 +615,9 @@ function module.FibaroAPI()
       end
     end 
     function self:receive(callbacks) 
-      local stat,res = sock:receive()
+      local stat, res = sock:receivefrom()
       if stat and callbacks.success then 
-        pcall(function() callbacks.success(stat) end)
+        pcall(function() callbacks.success(stat, res) end)
       elseif stat==nil and callbacks.error then
         pcall(function() callbacks.error(res) end)
       end
@@ -628,7 +631,7 @@ function module.FibaroAPI()
     if call:match("/refreshStates") then return Offline.api(method,call,data,cType,hs) end
     local resp = {}
     local req={ method=method, timeout=to or 5000,
-      url = "http://"..hc3_emulator.credentials.ip.."/api"..call,
+      url = "http://"..hc3_emulator.credentials.ip.."/api"..urlencode(call),
       sink = ltn12.sink.table(resp),
       user=hc3_emulator.credentials.user,
       password=hc3_emulator.credentials.pwd,
@@ -2149,6 +2152,10 @@ function module.Trigger()
     SectionRemovedEvent = function() end,
     SectionModifiedEvent = function() end,
     DeviceActionRanEvent = function() end,
+    QuickAppFilesChangedEvent = function() end,
+    ZwaveDeviceParametersChangedEvent = function() end,
+    ZwaveNodeAddedEvent = function() end,
+    RefreshRequiredEvent = function() end,
   }
 
   local function checkEvents(events)
@@ -2312,7 +2319,7 @@ function module.Utilities()
         local p = rawget(tab,'__props')
         if p and p[key] then return p[key].get(tab) end
       end
-      return rawget(c,key) --c[key]
+      return v --c[key]
     end
 
     c.__newindex = function(tab,key,value)
@@ -2324,7 +2331,7 @@ function module.Utilities()
         end
         p[key]=value
       elseif p and p[key] then p[key].set(tab,value) 
-      else rawset(c,key,value) end
+      else rawset(tab,key,value) end
     end
 
     setmetatable(c, mt)
@@ -3890,8 +3897,8 @@ function module.Offline(self)
     else return from end
   end
 
-  class '_Global'
-  function _Global:__init(name,g)
+  class 'O_Global'
+  function O_Global:__init(name,g)
     self.data = {
       readOnly = false,
       isEnum =  false,
@@ -3907,7 +3914,7 @@ function module.Offline(self)
     if Web then Web.invalidateGlobalsPage() end
   end
 
-  function _Global:modify(data)
+  function O_Global:modify(data)
     if self.data.value ~= data.value then
       Trigger.checkEvents{
         type='GlobalVariableChangedEvent',
@@ -4082,7 +4089,7 @@ function module.Offline(self)
     return tab
   end
 
-  function globalCreator(name,data) return _Global(name,data) end
+  function globalCreator(name,data) return O_Global(name,data) end
 
   local function deviceCreator(id,data)
     local base = baseMap[hc3_emulator.defaultDevice] or "com.fibaro.multilevelSwitch"
@@ -4381,7 +4388,7 @@ function module.Offline(self)
 
   hc3_emulator.create = {}
   function hc3_emulator.create.global(name,value) 
-    local g = Global(name,{name=name,value=value},true)
+    local g = O_Global(name,{name=name,value=value},true)
     function g:set(value) self:modify({value=value}) end
     g.data.actions = {set=1 }
     return userDev(g) 
@@ -4513,7 +4520,7 @@ function module.Offline(self)
         end
         Log(LOG.SYS,"Loading global variables")
         for name,g in pairs(r.globalVariables or {}) do
-          rawset(resources.globalVariables,name,Global(name,g))
+          rawset(resources.globalVariables,name,O_Global(name,g))
         end
         local keys = {}
         for k,_ in pairs(resources) do keys[k]=true end
@@ -4791,7 +4798,8 @@ local function startUp(file)
   if hc3_emulator.deploy==true or _G["DEPLOY"] then Files.deploy(file) os.exit() end
 
   if hc3_emulator.speeding then Log(LOG.SYS,"Speeding %s hours",hc3_emulator.speeding) end
-  if not (hc3_emulator.startWeb==false) then Web.start(Util.getIPaddress()) end
+  hc3_emulator.IPaddress = Util.getIPaddress()
+  if not (hc3_emulator.startWeb==false) then Web.start(hc3_emulator.IPaddress) end
 
   if type(hc3_emulator.startTime) == 'string' then 
     Timer.setEmulatorTime(Util.parseDate(hc3_emulator.startTime)) 
@@ -4829,9 +4837,10 @@ local function startUp(file)
   local stat,res = xpcall(Timer.start,
     function(err)
       Log(LOG.ERROR,"%s crashed: %s",codeType,err)
-      print(debug.traceback(err))
+      print(debug.traceback(err,1))
     end)
   if hc3_emulator.restartQA then goto RESTART end
+  hc3_emulator.sourceFile=nil
 end
 
 if not hc3_emulator.sourceFile then 
@@ -4845,4 +4854,4 @@ end
 --print("SOURCE:"..hc3_emulator.sourceFile)
 if hc3_emulator.sourceFile then  startUp(hc3_emulator.sourceFile) end
 Log(LOG.SYS,"fibaroapiHC3 version:%s",FIBAROAPIHC3_VERSION)
-os.exit()
+--os.exit()

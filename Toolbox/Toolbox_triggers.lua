@@ -120,6 +120,9 @@ function Toolbox_Module.triggers(self)
     SectionModifiedEvent = function(_) end,
     DeviceActionRanEvent = function(_) end,
     QuickAppFilesChangedEvent = function(_) end,
+    ZwaveDeviceParametersChangedEvent = function(_) end,
+    ZwaveNodeAddedEvent = function(_) end,
+    RefreshRequiredEvent = function(_) end,
   }
 
   local lastRefresh,enabled = 0,true
@@ -134,7 +137,9 @@ function Toolbox_Module.triggers(self)
               for _,e in ipairs(states.events) do
                 local handler = EventTypes[e.type]
                 if handler then handler(e.data)
-                elseif handler==nil then self:debugf("[Note] Unhandled event:%s -- please report",e) end
+              elseif handler==nil and self._UNHANDLED_EVENTS then 
+                self:debugf("[Note] Unhandled event:%s -- please report",e) 
+              end
               end
             end
             setTimeout(loop,INTERVAL)

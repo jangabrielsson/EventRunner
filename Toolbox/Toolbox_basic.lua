@@ -40,18 +40,19 @@ local _init = QuickApp.__init
 local _onInit = nil
 
 function QuickApp.__init(self,...)
-   _onInit = self.onInit
-   self.onInit = self.loadToolbox
-   _init(self,...)
+  _onInit = self.onInit
+  self.onInit = self.loadToolbox
+  _init(self,...)
 end
 
 function QuickApp:loadToolbox()
   quickApp = self 
-  self._2JSON = true
-  self._DEBUG = true
-  self._TRACE = true
-  self._HTML = not hc3_emulator
-  self._NOTIFY = true 
+  self._2JSON = true             -- Automatically convert tables to json when logging - debug/trace/error/warning
+  self._DEBUG = true             -- False, silence self:debug statements
+  self._TRACE = true             -- Same for self:trace
+  self._HTML = not hc3_emulator  -- Output HTML debug statements (line beaks, spaces)
+  self._NOTIFY = true            -- Automatically call notifyCenter for self:error and self:warning
+  self._UNHANDLED_EVENTS = false -- Log unknow events
   local d = __fibaro_get_device(self.id)
   local function printf(...) self:debug(format(...)) end
   printf("QA %s - version:%s (QA toolbox %s)",self.name,_version or "1.0",QA_toolbox_version)
@@ -247,6 +248,19 @@ function Toolbox_Module.basic(self)
     end
     self._lastNotification[msgId] = api.post("/notificationCenter", data)
     return self._lastNotification[msgId] and self._lastNotification[msgId].id
+  end
+
+  local IPaddress = nil
+  function self:getHC3IPaddress()
+    if IPaddress then return IPaddress end
+    if hc3_emulator then return hc3_emulator.IPaddress
+    else
+      local networkdata = api.get("/proxy?url=http://localhost:11112/api/settings/network")
+      networkdata = networkdata.networkConfig
+      for n,d in pairs(networkdata) do
+        if d.enabled then IPaddress = d.ipConfig.ip; return IPaddress end
+      end
+    end
   end
 
   do
