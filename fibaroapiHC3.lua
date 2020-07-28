@@ -28,11 +28,12 @@ Contributions & bugfixes:
 -  @10der, forum.fibaro.com
 
 Sources:
-json        -- Copyright (c) 2019 rxi
-persistence -- Copyright (c) 2010 Gerhard Roethlin
+json           -- Copyright (c) 2019 rxi
+persistence    -- Copyright (c) 2010 Gerhard Roethlin
+file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.112" 
+local FIBAROAPIHC3_VERSION = "0.117" 
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -66,6 +67,7 @@ hc3_emulator.apiHTTPS=<boolean>,     -- If true use https to call HC3 REST apis.
 hc3_emulator.deploy=<boolean>,       -- If true deploy code to HC3 instead of running it. default false
 hc3_emulator.db=<boolean/string>,    -- If true load data from "HC3sdk.db" or string file
 hc3_emulator.colorDebug=<bbolean>    -- If use color console logs in ZBS - not so good if you cut&paste to other apps...
+hc3_emulator.backupDir=<dir>         -- Default directory to store backup files
 
 Implemented APIs:
 ---------------------------------
@@ -169,8 +171,10 @@ local function merge(t1,t2)
   return t1
 end
 
-local Util,Timer,QA,Scene,Web,Trigger,Offline,Files   -- local modules
-fibaro,json,plugin,quickApp = {},{},nil                  -- global exports
+local Util,Timer,QA,Scene,Web,Trigger,Offline,Files      -- local modules
+-- luacheck: globals hc3_emulator fibaro json plugin quickApp
+-- luacheck: globals QuickApp QuickAppBase QuickAppChild
+fibaro,json,plugin,quickApp = {},{},nil,nil              -- global exports
 QuickApp,QuickAppBase,QuickAppChild = nil,nil,nil        -- global exports
 
 local function DEF(x,y) if x==nil then return y else return x end end
@@ -178,6 +182,7 @@ hc3_emulator = hc3_emulator or {}
 hc3_emulator.version           = FIBAROAPIHC3_VERSION
 hc3_emulator.credentialsFile   = hc3_emulator.credentialsFile or "credentials.lua" 
 hc3_emulator.HC3dir            = hc3_emulator.HC3dir or "HC3files" 
+hc3_emulator.backupDir         = hc3_emulator.backupDir or "/tmp" 
 hc3_emulator.backDirFmt        = "%m-%d-%Y %H.%M.%S"
 hc3_emulator.conditions        = false
 hc3_emulator.actions           = false
@@ -205,6 +210,8 @@ local onAction,onUIEvent,_quickApp
 
 -------------- Fibaro API functions ------------------
 function module.FibaroAPI()
+  --luacheck: globals __assert_type __fibaro_get_device __assert_type __fibaro_get_devices __fibaro_get_room
+  --luacheck: globals __fibaro_get_scene __fibaro_get_global_variable __fibaro_get_device_property __fibaro_add_debug_message
   fibaro.version = "1.0.0"
   local cache,safeDecode = Trigger.cache,Util.safeDecode
 
@@ -392,7 +399,7 @@ function module.FibaroAPI()
       end 
     end
     args =  string.sub(args,1,-2) 
-    return fibaro.getIds(api.get('/devices'..args)) 
+    return fibaro.getIds(api.get(urlencode('/devices'..args)))
   end
 
   function fibaro.scene(action, sceneIDs) -- execute or kill
@@ -597,7 +604,7 @@ function module.FibaroAPI()
   end
 
   function net.UDPSocket(opts) 
-    self = {}
+    local self = {}
     self.opts = opts or {}
     local sock = socket.udp()
     if self.opts.broadcast~=nil then 
@@ -614,6 +621,7 @@ function module.FibaroAPI()
         pcall(function() callbacks.error(res) end)
       end
     end 
+    function self:bind(ip,port) sock:setsockname(ip,port) end
     function self:receive(callbacks) 
       local stat, res = sock:receivefrom()
       if stat and callbacks.success then 
@@ -631,7 +639,7 @@ function module.FibaroAPI()
     if call:match("/refreshStates") then return Offline.api(method,call,data,cType,hs) end
     local resp = {}
     local req={ method=method, timeout=to or 5000,
-      url = "http://"..hc3_emulator.credentials.ip.."/api"..urlencode(call),
+      url = "http://"..hc3_emulator.credentials.ip.."/api"..call, --urlencode(call),
       sink = ltn12.sink.table(resp),
       user=hc3_emulator.credentials.user,
       password=hc3_emulator.credentials.pwd,
@@ -1564,7 +1572,7 @@ function module.QuickApp()
 
 -- Create a Proxy device - will be named "Proxy "..name, returns deviceID if successful
   local function createProxy(name,tp,UI,vars)
-    local ID,device = nil,nil
+    local ID,device
     if tonumber(name) then
       device = api.get("/devices/"..name)
       if device then name = device.name end
@@ -1578,7 +1586,7 @@ function module.QuickApp()
         break 
       end 
     end
-    ID   = device and device.id
+    ID  = device and device.id
     if ID and tp ~= device.type then
       Log(LOG.SYS,"Proxy type changed")
       ID=nil
@@ -1946,21 +1954,21 @@ function module.Scene()
       ['global-variable:*'] = function(c,all)
         local name,value,comp = c.property,c.value,condCompFuns[c.operator]
         if c.isTrigger then triggers[name] = true end
-        return function(ctx)
+        return function(_)
           local cv = fibaro.getGlobalVariable(name)
           return comp(cv,value)
         end
       end, 
       ['date:sunset'] = function(c,all) 
         local comp,offset = condCompFuns["n"..c.operator],c.value
-        local function mkRes(ctx) return {type='date', property='sunset', value=offset} end
+        local function mkRes(_) return {type='date', property='sunset', value=offset} end
         local test = function(ctx) if comp(ctx.hour*60+ctx.min,ctx.sunset+offset) then return mkRes(ctx) end end
         if c.isTrigger then dates[#dates+1]=function(ctx) if all[1] then return all[1](ctx) and mkRes(ctx) else return test(ctx) end end end
         return test
       end,
       ['date:sunrise'] = function(c,all)
         local comp,offset = condCompFuns["n"..c.operator],c.value
-        local function mkRes(ctx) return {type='date', property='sunrise', value=offset} end
+        local function mkRes(_ctx) return {type='date', property='sunrise', value=offset} end
         local test = function(ctx) if comp(ctx.hour*60+ctx.min,ctx.sunrise+offset) then return mkRes() end end
         if c.isTrigger then dates[#dates+1]=function(ctx) if all[1] then return all[1](ctx) and mkRes(ctx) else return test(ctx) end end end
         return test
@@ -3818,26 +3826,174 @@ end
 
 --------------- Offline support ----------------------
 function module.Files()
+  local self = {}
+  local format = string.format 
   local lfs = require("lfs")
-  local self,dir,sep = {},"",package.config:sub(1,1)
 
-  local function concatPath(path,file)
-    if path:sub(-1)==sep then return path..file 
-    else return path..sep..file end
+  -- File functions credit pkulchenko - ZeroBraneStudio
+  local win = (os.getenv('WINDIR') or (os.getenv('OS') or ''):match('[Ww]indows'))
+  and not (os.getenv('OSTYPE') or ''):match('cygwin') -- exclude cygwin
+  local arch          = win and "Windows" or "Linux" -- Host architecture
+
+  local function path_separator() return arch == "Windows" and "\\" or "/" end
+
+  local function escape_magic(str)
+    assert(type(str) == "string", "utils.escape: Argument 'str' is not a string.")
+    local escaped = str:gsub('[%-%.%+%[%]%(%)%^%%%?%*%^%$]','%%%1')
+    return escaped
   end
 
-  local function createDir(dir)
-    local r,err =  lfs.mkdir(dir) 
-    if not r and err~="File exists" then error(format("Can't create HC3 data directory: %s (%s)",dir,err)) end
+  local function exists(path)
+    assert(type(path) == "string", "sys.exists: Argument 'path' is not a string.")
+    local attr, err = lfs.attributes(path)
+    return (not not attr), err
   end
 
-  local function getHC3dir()
-    local cdir = lfs.currentdir()
-    dir = cdir .. sep .. hc3_emulator.HC3dir
-    if not lfs.attributes(dir) then createDir(dir) end
+  local function is_root(path)
+    assert(type(path) == "string", "sys.is_root: Argument 'path' is not a string.")
+    return (not not path:find("^[a-zA-Z]:[/\\]$") or path:find("^[/\\]$"))
   end
 
-  function self.deploy(sourceFile)
+  local function remove_trailing(path)
+    assert(type(path) == "string", "sys.remove_trailing: Argument 'path' is not a string.")
+    if path:sub(-1) == path_separator() and not is_root(path) then path = path:sub(1,-2) end
+    return path
+  end
+
+  local function remove_curr_dir_dots(path)
+    assert(type(path) == "string", "sys.remove_curr_dir_dots: Argument 'path' is not a string.")
+    while path:match(path_separator() .. "%." .. path_separator()) do                       -- match("/%./")
+      path = path:gsub(path_separator() .. "%." .. path_separator(), path_separator())    -- gsub("/%./", "/")
+    end
+    return path:gsub(path_separator() .. "%.$", "")                                         -- gsub("/%.$", "")
+  end
+
+  local function extract_name(path)
+    assert(type(path) == "string", "sys.extract_name: Argument 'path' is not a string.")
+    if is_root(path) then return path end
+    path = remove_trailing(path)
+    path = path:gsub("^.*" .. path_separator(), "")
+    return path
+  end
+
+  local function make_path(...)
+    -- arg is deprecated in lua 5.2 in favor of table.pack we mimic here
+    local arg = {n=select('#',...),...}
+    local parts = arg
+    assert(type(parts) == "table", "sys.make_path: Argument 'parts' is not a table.")
+
+    local path, err
+    if parts.n == 0 then
+      path, err = current_dir()
+    else
+      path, err = table.concat(parts, path_separator())
+    end
+    if not path then return nil, err end
+
+    -- squeeze repeated occurences of a file separator
+    path = path:gsub(path_separator() .. "+", path_separator())
+
+    -- remove unnecessary trailing path separator
+    path = remove_trailing(path)
+
+    return path
+  end
+
+  local function parent_dir(path)
+    assert(type(path) == "string", "sys.parent_dir: Argument 'path' is not a string.")
+    path = remove_curr_dir_dots(path)
+    path = remove_trailing(path)
+
+    local dir = path:gsub(escape_magic(extract_name(path)) .. "$", "")
+    if dir == "" then
+      return nil
+    else
+      return make_path(dir)
+    end
+  end
+
+  local function make_dir(dir_name)
+    assert(type(dir_name) == "string", "sys.make_dir: Argument 'dir_name' is not a string.")
+    if exists(dir_name) then
+      return true
+    else
+      local par_dir = parent_dir(dir_name)
+      if par_dir then
+        local ok, err = make_dir(par_dir)
+        if not ok then return nil, err end
+      end
+      return lfs.mkdir(dir_name)
+    end
+  end
+
+  function self.backup(args)
+    local self = {}
+
+    local function createDir(dir)
+      local r,err = make_dir(dir)
+      if not r and err~="File exists" then error(format("Can't create backup directory: %s (%s)",dir,err)) end
+    end
+
+    local function fixName(s,name)
+      name = ""..s.id.."_"..name:gsub("[^%w]","_")
+      return name
+    end
+
+    function self:devices(dir,namer)
+      local qas = api.get("/devices/?interface=quickApp")
+      namer = namer or fixName
+      for _,q in ipairs(qas or {}) do
+        local p = {namer(q,q.name)}
+        if #p > 0 then
+          local fqa = api.get("/quickApp/export/"..q.id)
+          local path = make_path(dir,table.unpack(p))
+          path = path..".fqa"
+          local fn = extract_name(path)
+          local dd = parent_dir(path)
+          createDir(dd)
+          Log(LOG.SYS,"Writing '%s' -> %s",q.name,path)
+          local f = io.open(path,"w+")
+          f:write(json.encode(fqa))
+          f:close()
+        end
+      end
+    end
+
+    function self:scenes(dir,namer)
+      local scenes = api.get("/scenes")
+      namer = namer or fixName
+      for _,s in ipairs(scenes or {}) do
+        local p = {namer(s,s.name)}
+        if #p > 0 then
+          local path = make_path(dir,table.unpack(p))
+          path = path..".json"
+          local fn = extract_name(path)
+          local dd = parent_dir(path)
+          createDir(dd)
+          Log(LOG.SYS,"Writing '%s' -> %s",s.name,path)
+          local f = io.open(path,"w+")
+          f:write(json.encode(s))
+          f:close()
+        end
+      end
+    end
+
+    local rsrc = args.type
+    local dir = args.dir
+    local namer = args.namer
+    
+    if dir == nil then
+      dir = hc3_emulator.backupDir or "/tmp"
+    end
+    if self[rsrc] then self[rsrc](self,dir,namer)
+    elseif rsrc=="*" then 
+      self:devices(dir,namer)
+      self:scenes(dir,namer)
+    else error("Resource unsupported") end
+    print("Done")
+  end
+
+  function self.deployQA(sourceFile)
     local name,id = hc3_emulator.name
     assert(name,"Missing name for deployment")
     --local source = debug.getinfo(2, 'S').short_src
@@ -3873,9 +4029,20 @@ function module.Files()
     }
   end
 
-  getHC3dir()
-
-  commandLines['backup']=function() self.backup("all") end
+  self.file = {
+    arch = arch,
+    escape_magic = escape_magic, --(str)
+    exists = exists, --(path)
+    is_root = is_root, --(path)
+    remove_trailing = remove_trailing, --(path)
+    remove_curr_dir_dots = remove_curr_dir_dots, --(path)
+    path_separatoR = path_separator, --()
+    extract_name = extract_name, --(path)
+    make_path = make_path, --(...)
+    parent_dir = parent_dir, --(path)
+    make_dir = make_dir, --(dir_name)
+  }
+  commandLines['backup']=function() self.backup(nil,"*") end
   return self
 end
 
@@ -4139,7 +4306,7 @@ function module.Offline(self)
   offline.resources = resources
 
 ---------------- api.* handlers -- simulated calls to offline version of resources
-  local function arr(tab) local res={} for _,v in pairs(tab) do res[#res+1]=v.data or v end return res end
+  local function arr(tab) local res={} for _,v in pairs(tab) do res[#res+1]=v.data or v end return res,200 end
   local function get(res,id) local r = res[id] if r then return r.data or r,200 else return nil,404 end end
   local function copyTo(from,to) for k,v in pairs(to) do if from[k] then from[k]=v end end end
   local function modify(rsrc,id,data) if rsrc[id].modify then rsrc[id]:modify(data) else copyTo(data,rsrc[id]) end end
@@ -4184,15 +4351,10 @@ function module.Offline(self)
       ["/devices/?$"] = function(call,data,cType,name) return arr(resources.devices) end,    
       ["/devices/?%?(.*)"] = function(call,data,cType,args) 
         local props = {}
+        if args:sub(1,1)=='%' then args = urldecode(args) end
         args:gsub("([%w%%]+)=([%w%%%[%]%,]+)",
           function(k,v) props[k]=v end)
         local a,b = next(props)
-        if a and (a:match("%%") or b:match("%%")) then
-          local p2 = {}
-          local urldecode = Util.urldecode
-          for k,v in pairs(props) do p2[urldecode(k)]=urldecode(v) end
-          props = p2
-        end
         for k,v in pairs(props) do props[k]=valueOf(v) end
         local ds = arr(resources.devices) 
         local res = {}
@@ -4221,7 +4383,6 @@ function module.Offline(self)
       ["/rooms/(%d+)"] = function(call,data,cType,id) return get(resources.rooms,tonumber(id)) end,
       ["/rooms/?$"] = function(call,data,cType,name) return arr(resources.rooms) end,
       ["/iosUser/(%d+)"] = function(call,data,cType,id) return get(resources.rooms,tonumber(id)) end,
-      ["/rooms/?$"] = function(call,data,cType,name) return arr(resources.rooms) end,
       ["/sections/(%d+)"] = function(call,data,cType,id) return get(resources.sections,tonumber(id)) end,
       ["/sections/?$"] = function(call,data,cType,name) return arr(resources.sections) end,
       ["/refreshStates%?last=(%d+)"] = function(call,data,cType,last) return refreshStates.getEvents(tonumber(last)),200 end,
@@ -4261,9 +4422,9 @@ function module.Offline(self)
       end,   
       ["/devices/(%d+)/action/(.+)$"] = function(call,data,cType,id,action) -- call device action
         data = json.decode(data)
-        local dev,err = resources.devices[tonumber(id)]
+        local dev,err,stat = resources.devices[tonumber(id)]
         if not dev then return dev,404 end
-        local stat,err = pcall(dev[action],dev,table.unpack(data.args))
+        stat,err = pcall(dev[action],dev,table.unpack(data.args))
         if not stat then 
           Log(LOG.ERROR,"Bad fibaro.call(%s,'%s',%s)",id,action,json.encode(data.args):sub(2,-2),err)
           return nil,501
@@ -4765,6 +4926,8 @@ hc3_emulator.createProxy       = QA.createProxy
 hc3_emulator.getIPaddress      = Util.getIPaddress
 hc3_emulator.cache             = Trigger.cache 
 hc3_emulator.copyFromHC3       = Offline.copyFromHC3
+hc3_emulator.backup            = Files.backup
+hc3_emulator.file              = Files.file
 
 --[[
 hc3_emulator.credentials
@@ -4795,7 +4958,7 @@ local function startUp(file)
   if hc3_emulator.traceFibaro then Util.traceFibaro() end
 
   Log(LOG.SYS,"HC3 SDK v%s",hc3_emulator.version)
-  if hc3_emulator.deploy==true or _G["DEPLOY"] then Files.deploy(file) os.exit() end
+  if hc3_emulator.deploy==true or _G["DEPLOY"] then Files.deployQA(file) os.exit() end
 
   if hc3_emulator.speeding then Log(LOG.SYS,"Speeding %s hours",hc3_emulator.speeding) end
   hc3_emulator.IPaddress = Util.getIPaddress()
@@ -4852,6 +5015,9 @@ if not hc3_emulator.sourceFile then
   end
 end
 --print("SOURCE:"..hc3_emulator.sourceFile)
-if hc3_emulator.sourceFile then  startUp(hc3_emulator.sourceFile) end
-Log(LOG.SYS,"fibaroapiHC3 version:%s",FIBAROAPIHC3_VERSION)
---os.exit()
+if hc3_emulator.sourceFile then  startUp(hc3_emulator.sourceFile) 
+else
+  Log(LOG.SYS,"fibaroapiHC3 version:%s",FIBAROAPIHC3_VERSION)
+end
+--socket.sleep(1)
+if not hc3_emulator.notexit then os.exit() end
