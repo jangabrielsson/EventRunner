@@ -33,7 +33,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.117" 
+local FIBAROAPIHC3_VERSION = "0.119" 
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -198,6 +198,7 @@ hc3_emulator.supressTrigger = {["PluginChangedViewEvent"] = true} -- Ignore nois
 local cr = loadfile(hc3_emulator.credentialsFile);
 if cr then hc3_emulator.credentials = merge(hc3_emulator.credentials or {},cr() or {}) end
 pcall(function() require('mobdebug').coro() end) -- Load mobdebug if available to debug coroutines...
+local function osExit() os.exit(0,true) end
 
 local ostime,osclock,osdate,tostring = os.time,os.clock,os.date,tostring
 local _timeAdjust = 0
@@ -1032,7 +1033,7 @@ function module.Timer()
     end
     self.coprocess(0,function()
         while true do
-          if os.time() >= maxTime then Log(LOG.SYS,"Max time - exit")  os.exit() end
+          if os.time() >= maxTime then Log(LOG.SYS,"Max time - exit")  osExit() end
           if fastTimer then
             --dumpTimers()
             local time = fastTimer.time
@@ -1751,7 +1752,7 @@ function QuickApp:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) e
     arg={}
     hc3_emulator=nil
     loadfile(file,nil,_G)()
-    os.exit()
+    osExit()
   end
 
 -- Export functions
@@ -2439,7 +2440,9 @@ function module.Utilities()
     str:gsub("([^"..s.."]+)", function(c) fields[#fields + 1] = c end)
     return fields
   end
-
+  string.split = self.split
+  string.starts = function(str,pat) return str:sub(1,#pat)==pat end
+  
   function self.map(f,l) local r={}; for _,e in ipairs(l) do r[#r+1]=f(e) end; return r end
   function self.mapf(f,l) for _,e in ipairs(l) do f(e) end; end
   function self.mapk(f,l) local r={}; for k,v in pairs(l) do r[k]=f(v) end; return r end
@@ -2459,6 +2462,7 @@ function module.Utilities()
     for k2,v2 in pairs(e2) do if e1[k2] == nil or not equal(e1[k2],v2) then return false end end
     return true
   end
+  function self.member(k,tab) for _,v in ipairs(tab) do if v==k then return true end end return false end
 
   do
     local sortKeys = {"type","device","deviceID","value","oldValue","val","key","arg","event","events","msg","res"}
@@ -3854,6 +3858,27 @@ function module.Files()
     return (not not path:find("^[a-zA-Z]:[/\\]$") or path:find("^[/\\]$"))
   end
 
+  local function is_dir(dir)
+    assert(type(dir) == "string", "sys.is_dir: Argument 'dir' is not a string.")
+    return lfs.attributes(dir, "mode") == "directory"
+  end
+
+  local function current_dir()
+    local dir, err = lfs.currentdir()
+    if not dir then return nil, err end
+    return dir
+  end
+
+  local function get_directory(dir)
+    dir = dir or current_dir()
+    assert(type(dir) == "string", "sys.get_directory: Argument 'dir' is not a string.")
+    if is_dir(dir) then
+      return lfs.dir(dir)
+    else
+      return nil, "Error: '".. dir .. "' is not a directory."
+    end
+  end
+
   local function remove_trailing(path)
     assert(type(path) == "string", "sys.remove_trailing: Argument 'path' is not a string.")
     if path:sub(-1) == path_separator() and not is_root(path) then path = path:sub(1,-2) end
@@ -3981,7 +4006,7 @@ function module.Files()
     local rsrc = args.type
     local dir = args.dir
     local namer = args.namer
-    
+
     if dir == nil then
       dir = hc3_emulator.backupDir or "/tmp"
     end
@@ -3991,6 +4016,24 @@ function module.Files()
       self:scenes(dir,namer)
     else error("Resource unsupported") end
     print("Done")
+  end
+
+  local function deleteQA(deviceId)
+    local d = api.get("/devices/"..deviceId)
+    assert(d and Util.member("quickApp",d.interfaces or {}),"device is not a QuickApp")
+    return api.delete("/devices/"..deviceId)
+  end
+
+  function self.updateQA(fileName)
+  end
+
+  local function uploadQA(fileName)
+    local f = io.open(fileName)
+    assert(f,"Can't find file"..fileName)
+    local code = f:read("*all")
+    code = json.decode(code)
+    assert(code.interfaces and Util.member("quickApp",code.interfaces),"File not an quickApp")
+    return api.post("/devices",code)
   end
 
   function self.deployQA(sourceFile)
@@ -4041,6 +4084,10 @@ function module.Files()
     make_path = make_path, --(...)
     parent_dir = parent_dir, --(path)
     make_dir = make_dir, --(dir_name)
+    dir = get_directory, --(dir)
+    deleteQA = deleteQA,
+    uploadQA = uploadQA,
+    updateQA = updateQA
   }
   commandLines['backup']=function() self.backup(nil,"*") end
   return self
@@ -4096,6 +4143,7 @@ function module.Offline(self)
   function OfflineDevice:__init(id,type,base,data,className)
     self.data = {
       id = id,
+      interfaces = data and data.interfaces or {"quickApp"},
       name = data and data.name or "Device:"..id,
       baseType = data and data.baseType or base,
       type = data and data.type or type,
@@ -4103,6 +4151,9 @@ function module.Offline(self)
       created = os.time(),
       modified = os.time(),
     }
+    if not Util.member("quickApp",self.data.interfaces) then
+      table.insert(self.data.interfaces,"quickApp")
+    end
     mergeDeep(self.data,data or {})
     self.propsModified={}
     self._className=className or "OfflineDevice"
@@ -4319,7 +4370,7 @@ function module.Offline(self)
     if tonumber(v) then return tonumber(v) end
     if v=="true" then return true elseif v=="false" then return false else return v end
   end
-  local function member(k,tab) for _,v in ipairs(tab) do if v==k then return true end end return false end
+  local member = Util.member
   local notificationsID=1
   local notifications={}
 
@@ -4905,12 +4956,12 @@ if arg[1] then
     cmd = cmd:sub(2)
     if commandLines[cmd] then --- When fibaroapiHC3.lua is used as a command from ZBS
       res = commandLines[cmd](select(2,table.unpack(arg)))
-      if not res then os.exit() end
+      if not res then osExit() end
     end
   end
   if not res then 
     Log(LOG.ERROR,"Unrecognized command line argument: %s",table.concat(arg," "))
-    os.exit()
+    osExit()
   end
 end
 local function DEFAULT(v,d) if v~=nil then return v else return d end end
@@ -4958,7 +5009,7 @@ local function startUp(file)
   if hc3_emulator.traceFibaro then Util.traceFibaro() end
 
   Log(LOG.SYS,"HC3 SDK v%s",hc3_emulator.version)
-  if hc3_emulator.deploy==true or _G["DEPLOY"] then Files.deployQA(file) os.exit() end
+  if hc3_emulator.deploy==true or _G["DEPLOY"] then Files.deployQA(file) osExit() end
 
   if hc3_emulator.speeding then Log(LOG.SYS,"Speeding %s hours",hc3_emulator.speeding) end
   hc3_emulator.IPaddress = Util.getIPaddress()
@@ -5019,5 +5070,4 @@ if hc3_emulator.sourceFile then  startUp(hc3_emulator.sourceFile)
 else
   Log(LOG.SYS,"fibaroapiHC3 version:%s",FIBAROAPIHC3_VERSION)
 end
---socket.sleep(1)
-if not hc3_emulator.notexit then os.exit() end
+osExit()
