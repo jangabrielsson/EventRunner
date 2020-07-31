@@ -179,7 +179,7 @@ local QA_TEMPL =
 end
 
 function QuickApp:onInit()
-  self:debug("onInit",plugin.mainDeviceId)
+  self:debug("onInit ",self.id)
 end
 
 ]]

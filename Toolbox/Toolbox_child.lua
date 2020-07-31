@@ -51,7 +51,7 @@ function Toolbox_Module.childs(self)
     return ""
   end
 
-  function QuickApp:_annotateClass(classObj)
+  function self:_annotateClass(classObj)
     if not classObj then return end
     local stat,res = pcall(function() return classObj._annotated end) 
     if stat and res then return end

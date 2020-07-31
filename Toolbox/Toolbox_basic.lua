@@ -33,7 +33,7 @@
 
 --]]
 
-local QA_toolbox_version = "0.15"
+local QA_toolbox_version = "0.16"
 local format = string.format
 Toolbox_Module,modules = Toolbox_Module or {},modules or {}
 local _init = QuickApp.__init
@@ -135,7 +135,7 @@ function Toolbox_Module.basic(self)
   function self:basicAuthorization(user,password) return "Basic "..self:encodeBase64(user..":"..password) end
 
   local HC3version = nil
-  function QuickApp:version(version)                 -- Return/optional check HC3 version
+  function self:version(version)                 -- Return/optional check HC3 version
     if HC3version == nil then
       if hc3_emulator then HC3version="5.040.37"
       else HC3version = api.get("/settings/info").currentVersion.version end
@@ -248,6 +248,94 @@ function Toolbox_Module.basic(self)
     end
     self._lastNotification[msgId] = api.post("/notificationCenter", data)
     return self._lastNotification[msgId] and self._lastNotification[msgId].id
+  end
+
+  local refs = {}
+  function self:INTERACTIVE_OK_BUTTON(ref) if refs[ref] then refs[ref]() end refs[ref]=nil end
+
+--  self:pushYesNo(
+--    839,                                          -- Mobile ID  (api.get("/iosDevices"))
+--    "Test",                                       -- Title
+--    "Please, press yes",                          -- Message
+--    function() self:debug("User said Yes!") end,  -- Callback function if user press yes
+--    5*60                                          -- Timout in seconds, after we ignore reply.
+--  )
+  
+  function self:pushYesNo(mobileId,title,message,callback,timeout)
+    local ref = tostring({}):match("(0x.*)")
+    api.post("/mobile/push", 
+      {
+        category = "YES_NO", 
+        title = title, 
+        message = message, 
+        service = "Device", 
+        data = {
+          actionName = "INTERACTIVE_OK_BUTTON", 
+          deviceId = self.id, 
+          args = {ref}
+        }, 
+        action = "RunAction", 
+        mobileDevices = { mobileId }, 
+      })
+    local timer = setTimeout(function() refs[ref]=nil; self:debug("Timeout") end, timeout*1000)
+    timeout = timeout or 20*60
+    refs[ref]=function() clearTimeout(timer) callback() end
+  end
+
+  do -- Used for print device table structs - sortorder for device structs
+    local sortKeys = {
+      'id','name','roomID','type','baseType','enabled','visible','isPlugin','parentId','viewXml','configXml',
+      'interfaces','properties','view', 'actions','created','modified','sortOrder'
+    }
+    local sortOrder={}
+    for i,s in ipairs(sortKeys) do sortOrder[s]="\n"..string.char(i+64).." "..s end
+    local function keyCompare(a,b)
+      local av,bv = sortOrder[a] or a, sortOrder[b] or b
+      return av < bv
+    end
+
+    function self:prettyJsonStruct(t)
+      local res = {}
+      local function isArray(t) return type(t)=='table' and t[1] end
+      local function isEmpty(t) return type(t)=='table' and next(t)==nil end
+      local function isKeyVal(t) return type(t)=='table' and t[1]==nil and next(t)~=nil end
+      local function printf(tab,fmt,...) res[#res+1] = string.rep(' ',tab)..string.format(fmt,...) end
+      local function pretty(tab,t,key)
+        if type(t)=='table' then
+          if isEmpty(t) then printf(0,"[]") return end
+          if isArray(t) then
+            printf(key and tab or 0,"[\n")
+            for i,k in ipairs(t) do
+              local cr = pretty(tab+1,k,true)
+              if i ~= #t then printf(0,',') end
+              printf(tab+1,'\n')
+            end
+            printf(tab,"]")
+            return true
+          end
+          local r = {}
+          for k,v in pairs(t) do r[#r+1]=k end
+          table.sort(r,keyCompare)
+          printf(key and tab or 0,"{\n")
+          for i,k in ipairs(r) do
+            printf(tab+1,'"%s":',k)
+            local cr =  pretty(tab+1,t[k])
+            if i ~= #r then printf(0,',') end
+            printf(tab+1,'\n')
+          end
+          printf(tab,"}")
+          return true
+        elseif type(t)=='number' then
+          printf(key and tab or 0,"%s",t) 
+        elseif type(t)=='boolean' then
+          printf(key and tab or 0,"%s",t and 'true' or 'false') 
+        elseif type(t)=='string' then
+          printf(key and tab or 0,'"%s"',t)
+        end
+      end
+      pretty(0,t,true)
+      return table.concat(res,"")
+    end
   end
 
   local IPaddress = nil

@@ -33,7 +33,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.119" 
+local FIBAROAPIHC3_VERSION = "0.121" 
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -638,6 +638,7 @@ function module.FibaroAPI()
   function rawCall(method,call,data,cType,hs,to)
     if hc3_emulator.offline then return Offline.api(method,call,data,cType,hs) end
     if call:match("/refreshStates") then return Offline.api(method,call,data,cType,hs) end
+    if call:match("/devices/%?.+") then call=urlencode(call) end
     local resp = {}
     local req={ method=method, timeout=to or 5000,
       url = "http://"..hc3_emulator.credentials.ip.."/api"..call, --urlencode(call),
@@ -1079,11 +1080,13 @@ function module.QuickApp()
   plugin = {}
   plugin.mainDeviceId = nil
   function plugin.deleteDevice(deviceId) return api.delete("/devices/"..deviceId) end
-  function plugin.restart(deviceId) return api.post("/plugins/restart",{deviceId=deviceId}) end
+  function plugin.restart(deviceId) return api.post("/plugins/restart",{deviceId=deviceId or plugin.mainDeviceId}) end
   function plugin.getProperty(id,prop) return api.get("/devices/"..id.."/property/"..prop) end
   function plugin.getChildDevices(id) return api.get("/devices?parentId="..(id or plugin.mainDeviceId)) end
-  function plugin.createChildDevice(prop) return api.post("/plugins/createChildDevice",prop) end
-  plugin.getDevice = nil
+  function plugin.createChildDevice(prop) 
+    return api.post("/plugins/createChildDevice",prop) 
+  end
+  function getDevice(deviceId) return api.get("/devices/"..deviceId) end
 
   plugin._uiValues = {}
   function self.getWebUIValue(elm,t) return plugin._uiValues[elm][t] end
@@ -1094,6 +1097,7 @@ function module.QuickApp()
 
   class 'QuickAppBase'
   function QuickAppBase:__init(device)
+    if tonumber(device) then device =  api.get("/devices/"..device) end
     for k,v in pairs(device) do 
       self[k]=v 
     end
@@ -1162,10 +1166,11 @@ function module.QuickApp()
   function QuickAppBase:updateProperty(prop,value)
     __assert_type(prop,'string')
     if self.hasProxy then
-      local stat,res=api.put("/devices/"..self.id,{properties = {[prop]=value}})
-    else 
-      self.properties[prop]=tostring(value)
+      local stat,res=api.put("/devices/"..self.id,{properties = {[prop]=value}}) -- Let HC3 generate trigger
+    else
+      --- ToDo. generate offline trigger if we are not connected - move from OffLineDevice etc.
     end
+    self.properties[prop]=value
   end
 
   function QuickAppBase:callAction(fun, ...)
@@ -1181,7 +1186,7 @@ function module.QuickApp()
     end
   end
 
-  class 'QuickApp'(QuickAppBase)
+  Util.class2 'QuickApp'(QuickAppBase)
   function QuickApp:__init(device) 
     QuickAppBase.__init(self,device)
     if hc3_emulator.quickVars then 
@@ -1236,6 +1241,7 @@ function module.QuickApp()
 
   class 'QuickAppChild'(QuickAppBase)
   function QuickAppChild:__init(device) 
+    assert(type(device)=='number' or type(device)=='table',"QuickAppChild:__init needs number/table")
     QuickAppBase.__init(self,device) 
     self.hasProxy=true
   end
@@ -1469,29 +1475,6 @@ function module.QuickApp()
     return code
   end
 
-  local function updateFiles(newFiles,id)
-    local oldFiles = api.get("/quickApp/"..id.."/files")
-    local newFileMap,oldFileMap = {},{}
-    for _,f in ipairs(newFiles) do newFileMap[f.name]=f end
-    for _,f in ipairs(oldFiles) do oldFileMap[f.name]=f end
-    for _,f in pairs(newFileMap) do
-      if oldFileMap[f.name] then
-        local _,res = api.put("/quickApp/"..id.."/files/"..f.name,f) -- Update existing
-        if res > 201 then return res end
-      else
-        local _,res = api.post("/quickApp/"..id.."/files",f)         -- Create new
-        if res > 201 then return res end
-      end
-    end
-    for _,f in pairs(oldFileMap) do
-      if not newFileMap[f.name] then
-        local _,res = api.delete("/quickApp/"..id.."/files/"..f.name)
-        if res > 201 then return res end
-      end
-    end
-    return 200
-  end
-
   function hc3_emulator.FILE(file,name) dofile(file) end
 
   local function createFilesFromSource(source)
@@ -1555,7 +1538,7 @@ function module.QuickApp()
           }
         })
       if res <= 201 then
-        res = updateFiles(files,args.id)
+        _,res = Files.file.updateFiles(files,args.id)
       end
     else
       d1,res = api.post("/quickApp/",d)
@@ -1580,12 +1563,11 @@ function module.QuickApp()
     end
     name = "Proxy "..name
     Log(LOG.SYS,"Proxy: Looking for QuickApp on HC3...")
-    for _,d in pairs(api.get("/devices") or {}) do 
-      if d.name==name then 
-        device = d
-        Log(LOG.SYS,"Proxy: Found ID:"..device.id)
-        break 
-      end 
+    local d,res = api.get("/devices/?name="..name)
+    if d and #d>0 then
+      table.sort(d,function(a,b) return a.id >= b.id end)
+      device = d[1]
+      Log(LOG.SYS,"Proxy: Found ID:"..device.id)
     end
     ID  = device and device.id
     if ID and tp ~= device.type then
@@ -2312,6 +2294,15 @@ function module.Utilities()
     mt.__call = function(class_tbl, ...)
       local obj = {}
       setmetatable(obj,c)
+
+      if hc3_emulator.noClassProps then
+        for i,v in pairs(c) do 
+          if not ({__index=true,__newindex=true,__base=true})[i] then 
+            rawset(obj,i,v) 
+          end
+        end
+      end
+
       if c.__init then
         c.__init(obj,...)
       else 
@@ -2322,25 +2313,66 @@ function module.Utilities()
       return obj
     end
 
-    c.__index = function(tab,key)
-      local v = c[key]
-      if v==nil then
-        local p = rawget(tab,'__props')
-        if p and p[key] then return p[key].get(tab) end
+    if not hc3_emulator.noClassProps then
+      c.__index = function(tab,key)
+        local v = c[key]
+        if v==nil then
+          local p = rawget(tab,'__props')
+          if p and p[key] then return p[key].get(tab) end
+        end
+        return v --c[key]
       end
-      return v --c[key]
+
+      c.__newindex = function(tab,key,value)
+        local p = rawget(tab,'__props')
+        if isProp(value) then
+          if not p then 
+            p = {}
+            rawset(tab,'__props',p)
+          end
+          p[key]=value
+        elseif p and p[key] then p[key].set(tab,value) 
+        else rawset(tab,key,value) end
+      end
     end
 
-    c.__newindex = function(tab,key,value)
-      local p = rawget(tab,'__props')
-      if isProp(value) then
-        if not p then 
-          p = {}
-          rawset(tab,'__props',p)
+    setmetatable(c, mt)
+    _G[name] = c
+
+    return function(base)
+      local mb = getmetatable(base)
+      setmetatable(base,nil)
+      for i,v in pairs(base) do 
+        if not ({__index=true,__newindex=true,__base=true})[i] then 
+          rawset(c,i,v) 
         end
-        p[key]=value
-      elseif p and p[key] then p[key].set(tab,value) 
-      else rawset(tab,key,value) end
+      end
+      rawset(c,'__base',base)
+      setmetatable(base,mb)
+      return c
+    end
+  end
+
+  function self.class2(name)
+    local c = {}    -- a new class instance
+    local mt = {}
+    mt.__call = function(class_tbl, ...)
+      local obj = {}
+      setmetatable(obj,c)
+      for i,v in pairs(c) do 
+        if not ({__index=true,__newindex=true,__base=true})[i] then 
+          rawset(obj,i,v) 
+        end
+      end
+
+      if c.__init then
+        c.__init(obj,...)
+      else 
+        if c.__base and c.__base.__init then
+          c.__base.__init(obj, ...)
+        end
+      end
+      return obj
     end
 
     setmetatable(c, mt)
@@ -2442,7 +2474,7 @@ function module.Utilities()
   end
   string.split = self.split
   string.starts = function(str,pat) return str:sub(1,#pat)==pat end
-  
+
   function self.map(f,l) local r={}; for _,e in ipairs(l) do r[#r+1]=f(e) end; return r end
   function self.mapf(f,l) for _,e in ipairs(l) do f(e) end; end
   function self.mapk(f,l) local r={}; for k,v in pairs(l) do r[k]=f(v) end; return r end
@@ -3951,8 +3983,52 @@ function module.Files()
     end
   end
 
-  function self.backup(args)
-    local self = {}
+  local function isType(struct)
+    if not (struct and type(struct)=='table') then return end
+    if struct.mode and struct.name then return "Scene" end
+    if struct.initialProperties or struct.actions then return "QA" end
+  end
+
+  local function loadStruct(fileName)
+    local f = io.open(fileName)
+    local code,stat = f:read("*all")
+    f:close()
+    stat,code = pcall(json.decode,code)
+    local typ = isType(code or {})
+    return stat and typ and code,typ
+  end
+
+  local function saveStruct(fileName,struct)
+    local f = io.open(fileName,"w+")
+    assert(f,"Can't open file "..fileName)
+    f:write((json.encode(struct)))
+    f:close()
+  end
+
+  local function updateFiles(newFiles,id)
+    local oldFiles = api.get("/quickApp/"..id.."/files")
+    local newFileMap,oldFileMap = {},{}
+    for _,f in ipairs(newFiles) do newFileMap[f.name]=f end
+    for _,f in ipairs(oldFiles) do oldFileMap[f.name]=f end
+    for _,f in pairs(newFileMap) do
+      if oldFileMap[f.name] then
+        local _,res = api.put("/quickApp/"..id.."/files/"..f.name,f) -- Update existing
+        if res > 201 then return nil,res end
+      else
+        local _,res = api.post("/quickApp/"..id.."/files",f)         -- Create new
+        if res > 201 then return nil,res end
+      end
+    end
+    for _,f in pairs(oldFileMap) do
+      if not newFileMap[f.name] then
+        local _,res = api.delete("/quickApp/"..id.."/files/"..f.name)
+        if res > 201 then return nil,res end
+      end
+    end
+    return newFiles,200
+  end
+
+  local function backup(args)
 
     local function createDir(dir)
       local r,err = make_dir(dir)
@@ -3964,27 +4040,26 @@ function module.Files()
       return name
     end
 
-    function self:devices(dir,namer)
+    local function devices(dir,namer)
       local qas = api.get("/devices/?interface=quickApp")
       namer = namer or fixName
       for _,q in ipairs(qas or {}) do
         local p = {namer(q,q.name)}
         if #p > 0 then
           local fqa = api.get("/quickApp/export/"..q.id)
+          fqa.id = q.id
           local path = make_path(dir,table.unpack(p))
           path = path..".fqa"
           local fn = extract_name(path)
           local dd = parent_dir(path)
           createDir(dd)
           Log(LOG.SYS,"Writing '%s' -> %s",q.name,path)
-          local f = io.open(path,"w+")
-          f:write(json.encode(fqa))
-          f:close()
+          saveStruct(path,fqa)
         end
       end
     end
 
-    function self:scenes(dir,namer)
+    local function scenes(dir,namer)
       local scenes = api.get("/scenes")
       namer = namer or fixName
       for _,s in ipairs(scenes or {}) do
@@ -3996,9 +4071,7 @@ function module.Files()
           local dd = parent_dir(path)
           createDir(dd)
           Log(LOG.SYS,"Writing '%s' -> %s",s.name,path)
-          local f = io.open(path,"w+")
-          f:write(json.encode(s))
-          f:close()
+          saveStruct(path,s)
         end
       end
     end
@@ -4010,30 +4083,60 @@ function module.Files()
     if dir == nil then
       dir = hc3_emulator.backupDir or "/tmp"
     end
-    if self[rsrc] then self[rsrc](self,dir,namer)
+    if self[rsrc] then self[rsrc](dir,namer)
     elseif rsrc=="*" then 
-      self:devices(dir,namer)
-      self:scenes(dir,namer)
+      devices(dir,namer)
+      scenes(dir,namer)
     else error("Resource unsupported") end
     print("Done")
   end
 
+  local function deleteScene(sceneId)
+    local s = api.get("/scenes/"..sceneId)
+    assert(s and isType(s)=='Scene',"Scene does not exist")
+    return api.delete("/scenes/"..sceneId)
+  end
+
+  local function replaceScene(path)
+    local scene,typ = loadStruct(path)
+    assert(typ=='Scene',"File is not a scene")
+    local s = api.get("/scenes/"..scene.id)
+    assert(s.name == scene.name,"Scene name mismatch")
+    return api.put("/scenes/"..scene.id,scene)
+  end
+
+  local function uploadScene(path)
+    local struct,typ = loadStruct(path)
+    assert(typ=='Scene',"File is not a scene")
+    return api.post("/scenes",struct)
+  end
+
   local function deleteQA(deviceId)
     local d = api.get("/devices/"..deviceId)
-    assert(d and Util.member("quickApp",d.interfaces or {}),"device is not a QuickApp")
+    assert(d and isType(d)=='QA',"device does not exists or is not a QuickApp")
     return api.delete("/devices/"..deviceId)
   end
 
-  function self.updateQA(fileName)
+  local function replaceQA(fileName,id)
+    local qa,typ = loadStruct(fileName)
+    assert(typ and typ=='QA',"File not a QuickApp")
+    id = id or qa.id
+    qa.id=nil
+    id = id or fileName:match("/(%d+)[%w_%-]*%.fqa")
+    assert(id,"Missing QA id")
+    local d = api.get("/devices/"..id)
+    assert(d,"QuickApp id missing")
+    assert(d.name==qa.name,"QuickApp name mismatch")
+    local res,code = api.put("/devices/"..id,qa)
+    assert(code==200,"Error replacing QA - "..code)
+    return updateFiles(qa.files,id)
   end
 
   local function uploadQA(fileName)
-    local f = io.open(fileName)
-    assert(f,"Can't find file"..fileName)
-    local code = f:read("*all")
-    code = json.decode(code)
-    assert(code.interfaces and Util.member("quickApp",code.interfaces),"File not an quickApp")
-    return api.post("/devices",code)
+    local qa,typ = loadStruct(fileName)
+    assert(typ and typ=='QA',"File not a QuickApp")
+    qa.id = nil
+    return api.post("/devices",qa)
   end
 
   function self.deployQA(sourceFile)
@@ -4043,10 +4146,12 @@ function module.Files()
     local f = io.open(sourceFile)
     assert(f,"Can't find source file"..sourceFile)
     net.maxdelay=0
-    local ds = api.get("/devices")
-    for _,d in ipairs(ds) do
-      if d.name==name then id=d.id; break end
+    local ds = api.get("/devices/?name="..name)
+    if ds and #ds>0 then
+      table.sort(ds,function(a,b) return a.id >= b.id end)
+      ds = ds[1]
     end
+    if ds then id=ds.id end
     local code = f:read("*all")
     Log(LOG.SYS,"Deploying '%s'",name)
 
@@ -4087,8 +4192,16 @@ function module.Files()
     dir = get_directory, --(dir)
     deleteQA = deleteQA,
     uploadQA = uploadQA,
-    updateQA = updateQA
+    replaceQA = replaceQA,
+    deleteScene = deleteScene,
+    uploadScene = uploadScene,
+    replaceScene = replaceScene,
+    isType = isType,
+    loadStruct = loadStruct,
+    saveStruct = saveStruct,
+    updateFiles = updateFiles
   }
+  self.backup = backup
   commandLines['backup']=function() self.backup(nil,"*") end
   return self
 end
@@ -4976,6 +5089,8 @@ hc3_emulator.createQuickApp    = QA.createQuickApp
 hc3_emulator.createProxy       = QA.createProxy
 hc3_emulator.getIPaddress      = Util.getIPaddress
 hc3_emulator.cache             = Trigger.cache 
+hc3_emulator.prettyJsonStruct  = Util.prettyJsonStruct
+hc3_emulator.prettyJson        = Util.prettyJson
 hc3_emulator.copyFromHC3       = Offline.copyFromHC3
 hc3_emulator.backup            = Files.backup
 hc3_emulator.file              = Files.file
