@@ -35,20 +35,23 @@
 --]]
 
 Toolbox_Module = Toolbox_Module or {}
+Toolbox_Module.triggers ={
+  name = "Trigger manager",
+  author = "jan@gabrielsson.com",
+  version = "0.3"
+}
 
-function Toolbox_Module.triggers(self)
-  local version = "0.2"
-  self:debugf("Setup: Trigger manager (%s)",version)
+function Toolbox_Module.triggers.init(self)
   self.TR = { central={}, access={}, activation={} }
   local ENABLEDTRIGGERS={}
   local INTERVAL = 1000 -- every second, could do more often...
 
   local function post(ev)
     if ENABLEDTRIGGERS[ev.type] then
-      if self.debugFlags.triggers then self:debugf("Incoming event:%s",ev) end
+      if self.debugFlags.trigger then self:debugf("Incoming trigger:%s",ev) end
       ev._trigger=true
       ev.__tostring = _eventPrint
-      if self._eventHandler then self._eventHandler(ev) end
+      if self._Events then self._Events.postEvent(ev) end
     end
   end
 
@@ -109,6 +112,7 @@ function Toolbox_Module.triggers(self)
     ActiveProfileChangedEvent = function(d) 
       post({type='profile',property='activeProfile',value=d.newActiveProfile, old=d.oldActiveProfile}) 
     end,
+    DeviceActionRanEvent = function(_) end,
     NotificationCreatedEvent = function(_) end,
     NotificationRemovedEvent = function(_) end,
     NotificationUpdatedEvent = function(_) end,
@@ -129,17 +133,17 @@ function Toolbox_Module.triggers(self)
   local http = net.HTTPClient()
   local function loop()
     local stat,res = http:request("http://127.0.0.1:11111/api/refreshStates?last=" .. lastRefresh,{
-        success=function(res) 
-          local states = json.decode(res.data)
+        success=function(res)
+          local states = res.status == 200 and json.decode(res.data)
           if states then
             lastRefresh=states.last
             if states.events and #states.events>0 then 
               for _,e in ipairs(states.events) do
                 local handler = EventTypes[e.type]
                 if handler then handler(e.data)
-              elseif handler==nil and self._UNHANDLED_EVENTS then 
-                self:debugf("[Note] Unhandled event:%s -- please report",e) 
-              end
+                elseif handler==nil and self._UNHANDLED_EVENTS then 
+                  self:debugf("[Note] Unhandled event:%s -- please report",e) 
+                end
               end
             end
             setTimeout(loop,INTERVAL)

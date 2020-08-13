@@ -11,12 +11,15 @@
 
 --]]
 
-local format = string.format
 Toolbox_Module = Toolbox_Module or {}
+Toolbox_Module.events ={
+  name = "Event manager",
+  author = "jan@gabrielsson.com",
+  version = "0.2"
+}
 
-function Toolbox_Module.events(self)
-  local version = "0.1"
-  self:debugf("Setup: Event manager (%s)",version) 
+local format = string.format
+function Toolbox_Module.events.init(self)
   local em,handlers = { sections = {}},{}
   em.BREAK, em.TIMER, em.RULE = '%%BREAK%%', '%%TIMER%%', '%%RULE%%'
   local function isEvent(e) return type(e)=='table' and e.type end
@@ -90,7 +93,7 @@ function Toolbox_Module.events(self)
     if type(ev) == 'function' then
       timer.ref = setTimeout(function() timer.ref=nil; ev() end,1000*(t-now))
     else
-      timer.ref = setTimeout(function() timer.ref=nil; if self._eventHandler then self._eventHandler(ev) end end,1000*(t-now))
+      timer.ref = setTimeout(function() timer.ref=nil; self._Events.postEvent(ev) end,1000*(t-now))
     end
     return timer
   end
@@ -296,5 +299,7 @@ function Toolbox_Module.events(self)
   em.midnight,em.hm2sec,em.toTime,em.transform,em.copy,em.equal,em.isEvent,em.isRule,em.coerce,em.comboEvent = 
   midnight,hm2sec,toTime,transform,copy,equal,isEvent,isRule,coerce,comboEvent
   self.EM = em
-  self._eventHandler = handleEvent
+  
+  self._Events.addEventHandler(handleEvent) -- Wants to read events...
+
 end -- events

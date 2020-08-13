@@ -12,10 +12,13 @@
 --]]
 
 Toolbox_Module = Toolbox_Module or {}
+Toolbox_Module.childs = {
+  name = "Child device manager",
+  author = "jan@gabrielsson.com",
+  version = "0.3"
+}
 
-function Toolbox_Module.childs(self)
-  local version = "0.3"
-  self:debugf("Setup: Child manager (%s)",version) 
+function Toolbox_Module.childs.init(self)
 
   function self:setChildIconPath(childId,path)
     api.put("/devices/"..childId,{properties={icon={path=path}}})

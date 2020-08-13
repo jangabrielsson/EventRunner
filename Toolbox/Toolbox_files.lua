@@ -10,11 +10,13 @@
 --]]
 
 Toolbox_Module = Toolbox_Module or {}
+Toolbox_Module.file ={
+  name = "File manager",
+  author = "jan@gabrielsson.com",
+  version = "0.1"
+}
 
-function Toolbox_Module.file(self)
-  local version = "0.1"
-  self:debugf("Setup: File manager (%s)",version)
-
+function Toolbox_Module.file.init(self)
   function self:listFiles(device)   
     return api.get(("/quickApp/%s/files"):format(device or self.id))
   end

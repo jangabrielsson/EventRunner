@@ -20,11 +20,13 @@
 --]]
 
 Toolbox_Module = Toolbox_Module or {}
+Toolbox_Module.rpc ={
+  name = "RPC manager",
+  author = "jan@gabrielsson.com",
+  version = "0.1"
+}
 
-function Toolbox_Module.rpc(self)
-  local version = "0.1"
-  self:debugf("Setup: RPC manager (%s)",version)
-
+function Toolbox_Module.rpc.init(self)
   local var,n = "RPC_"..self.id,0
   api.post("/globalVariables",{name=var,value=""})
 

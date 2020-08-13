@@ -5,8 +5,8 @@ if dofile and not hc3_emulator then
     type="com.fibaro.genericDevice",
     poll=1000,
     --offline=true,
-    --proxy=true,
-    deploy=true,
+    proxy=true,
+    --deploy=true,
   }
   dofile("fibaroapiHC3.lua")
 end
@@ -17,6 +17,7 @@ hc3_emulator.FILE("Toolbox/Toolbox_events.lua","Toolbox_events")
 hc3_emulator.FILE("Toolbox/Toolbox_triggers.lua","Toolbox_triggers")
 hc3_emulator.FILE("Toolbox/Toolbox_files.lua","Toolbox_files")
 hc3_emulator.FILE("Toolbox/Toolbox_rpc.lua","Toolbox_rpc")
+hc3_emulator.FILE("Toolbox/Toolbox_pubsub.lua","Toolbox_pubsub")
 ----------- Code -----------------------------------------------------------
 ----------- QA toolbox functions -------------------------------------------
 --[[
@@ -36,6 +37,9 @@ function QuickApp:warningf(fmt,...)                 -- Like self:warning but wit
 function QuickApp:encodeBase64(data)                -- Base 64 encoder
 function QuickApp:basicAuthorization(user,password) -- Create basic authorization data (for http requests)
 function QuickApp:version(<string>)                 -- Return/optional check HC3 version
+function QuickApp:pushYesNo(mobileId,title,message,callback,timeout)
+function QuickApp:prettyJsonStruct(expr)            -- Creates indented json string for expr
+function QuickApp:getHC3IPaddress()                 -- Returns first enabled ip interface, ex. eth0 ip address
 -- Module "childs"
 function QuickApp:createChild(args)                 -- Create child device, see code below...
 function QuickApp:numberOfChildren()                -- Returns number of existing children
@@ -58,11 +62,14 @@ function QuickApp:copyFileFromTo(fileName,deviceFrom,deviceTo) -- Copies file fr
 function QuickApp:addFileTo(fileContent,device)     -- Creates a new file for a QA
 -- Module "rpc"
 function QuickApp:importRPC(deviceId,timeout,env)   -- Import remote functions from QA with deviceId
+-- Module "pubsub"
+function QuickApp:publish(event)                    -- Publish event to subscribing QAs
+function QuickApp:subscribe(event)                  -- Subscribe to events from publishing QAs
 --]]
 
 -- Example
 _version = "1.0"  -- Version of our app, will be logged at startup
-modules = {"childs","events","triggers","rpc", "file"} -- Modules we want to load (the files need to be copied to our QA)
+modules = {"childs","events","triggers","rpc", "file","pubsub"} -- Modules we want to load (the files need to be copied to our QA)
 
 -- main() if available, will be called after onInit. Everything is setup after we exit onInit() so this is a safer place to start running your main code...
 function QuickApp:main()   
@@ -72,6 +79,7 @@ function QuickApp:main()
       "device","global-variable","alarm","weather","profile","custom-event","deviceEvent","sceneEvent","onlineEvent"
     })
 
+  self:subscribe({type='test'})
   -- We want to log all triggers arriving
   self.debugFlags.triggers = true -- Log all incoming (enabled) triggers
 
@@ -103,6 +111,7 @@ function QuickApp:copyToolbox(a,b)local c=api.get(("/quickApp/%s/files/%s"):form
 -- Here we setup some Toolbox flags and load Toolbox files
 function QuickApp:onInit()
   self._NOTIFY = true
+  self.debugFlags.trigger=true
 --  Here is a good place to copy over the Toolbox files to your QA. 'Toolbox' is needed by all modules.
 --  Assume QA_Toolbox has deviceId 1333
 --  self:copyToolbox(1333,"Toolbox")
@@ -111,5 +120,6 @@ function QuickApp:onInit()
 --  self:copyToolbox(1333,"Toolbox_trigger")
 --  self:copyToolbox(1333,"Toolbox_files")
 --  self:copyToolbox(1333,"Toolbox_rpc")
+--  self:copyToolbox(1333,"Toolbox_pubsub")
 end
 

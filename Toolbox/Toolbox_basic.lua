@@ -33,7 +33,7 @@
 
 --]]
 
-local QA_toolbox_version = "0.16"
+local QA_toolbox_version = "0.17"
 local format = string.format
 Toolbox_Module,modules = Toolbox_Module or {},modules or {}
 local _init = QuickApp.__init
@@ -45,7 +45,13 @@ function QuickApp.__init(self,...)
   _init(self,...)
 end
 
+_debugFlags = _debugFlags or { }
+
 function QuickApp:loadToolbox()
+  if self.properties.model ~= "ToolboxUser" then
+     self:updateProperty("model","ToolboxUser")
+  end
+  self.debugFlags = _debugFlags
   quickApp = self 
   self._2JSON = true             -- Automatically convert tables to json when logging - debug/trace/error/warning
   self._DEBUG = true             -- False, silence self:debug statements
@@ -65,10 +71,15 @@ function QuickApp:loadToolbox()
   printf("Modified..:%s",os.date("%c",d.modified or os.time()))
   Toolbox_Module['basic'](self)
   local ms,Module = {},Toolbox_Module
-  for _,m in ipairs(modules or {}) do if Module[m] then ms[m]=Module[m](self) end end
-  modules = ms
+  for _,m in ipairs(modules or {}) do 
+    if Module[m] then 
+      self:debugf("Setup: %s (%s)",Module[m].name,Module[m].version)
+      modules[m]=Module[m].init(self) 
+    else self:warning("Module '"..m.."' missing") end
+  end
+  --modules = ms
   for m,_ in pairs(Module) do Module[m] = nil end
-  self.config,self.debugFlags = {},{}
+  self.config = {}
   for _,v in ipairs(self.properties.quickAppVariables or {}) do
     self.config[v.name] = v.value
   end
@@ -99,6 +110,9 @@ function Toolbox_Module.basic(self)
     for i,v in ipairs(args) do if type(v)=='table' then args[i]=tostring(v) end end
     return format(fmt,table.unpack(args))
   end
+  --self._format = _format 
+
+  function assertf(test,...) if not test then error(_format(...)) end end
 
   local function _print(s,fun,...)
     local res = {}
@@ -260,7 +274,7 @@ function Toolbox_Module.basic(self)
 --    function() self:debug("User said Yes!") end,  -- Callback function if user press yes
 --    5*60                                          -- Timout in seconds, after we ignore reply.
 --  )
-  
+
   function self:pushYesNo(mobileId,title,message,callback,timeout)
     local ref = tostring({}):match("(0x.*)")
     api.post("/mobile/push", 
@@ -351,22 +365,48 @@ function Toolbox_Module.basic(self)
     end
   end
 
+  self._Events = {}
+  local eventHandlers = {}
+
+  function self._Events.postEvent(event)
+    for i=1,#eventHandlers do if eventHandlers[i](event) then return end end -- Handler returning true breaks chain
+  end
+
+  function self._Events.addEventHandler(handler,front)
+    for _,h in ipairs(eventHandlers) do if h==handler then return end end
+    if front then table.insert(eventHandlers,1,handler) else eventHandlers[#eventHandlers+1]=handler end
+  end
+
+  function self._Events.removeEventHandler(handler,front)
+    for i=1,#eventHandlers do if eventHandlers[i]==handler then table.remove(eventHandlers,i) return end end
+  end
+
   do
-    local oldSetTimeout = setTimeout -- gives us a better error messages when function in setTimeout crashes
+    local settimeout,setinterval,encode,decode =  -- gives us a better error messages
+    setTimeout, setInterval, json.encode, json.decode
     function setTimeout(fun,ms)
-      return oldSetTimeout(function()
+      return settimeout(function()
           local stat,res = pcall(fun)
           if not stat then 
-            self:errorf("Error in setTimeout:%s",res)
+            self:errorf(res,2)
           end
         end,ms)
     end
-    function split(s, sep)
-      local fields = {}
-      sep = sep or " "
-      local pattern = format("([^%s]+)", sep)
-      string.gsub(s, pattern, function(c) fields[#fields + 1] = c end)
-      return fields
+    function setInterval(fun,ms)
+      return setinterval(function()
+          local stat,res = pcall(fun)
+          if not stat then 
+            self:errorf(res,2)
+          end
+        end,ms)
+    end
+    function json.decode(...)
+      local stat,res = pcall(decode,...)
+      if not stat then error(res,2) else return res end
+    end
+    function json.encode(...)
+      local stat,res = pcall(encode,...)
+      if not stat then error(res,2) else return res end
     end
   end
 end
