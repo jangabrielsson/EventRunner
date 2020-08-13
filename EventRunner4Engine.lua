@@ -685,6 +685,7 @@ function Module.autopatch.init(self)
 
   function Util.updateFile(file)
     local finfo = patchFiles[file]
+    if true then return end
     assert(file,"PatchFile: No such file "..(file or "nil"))
     local files = {}
     local function patcher(files)
