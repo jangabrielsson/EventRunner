@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix1"
+E_VERSION,E_FIX = 0.5,"fix2"
 _HC3IPADDRESS = "192.168.1.57" -- Needs to be defined on the HC3 as /settings/networks seems broken...
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
@@ -634,6 +634,7 @@ end -- Utils
 ----------------- Autopatch support ---------------------------
 Module.autopatch = { name="ER Autopatch", version="0.2"}
 function Module.autopatch.init(self)
+
   local patchFiles = {
     ["EventRunner4Engine.lua"] = {
       version = _version, 
@@ -671,7 +672,7 @@ function Module.autopatch.init(self)
     req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/"..path,{
         options = {method = 'GET', checkCertificate = false, timeout=20000},
         success=function(data) 
-          if data.status == 200 then 
+          if data.status == 200 then
             files[file]=data.data
             local n = 0
             for _,_ in pairs(files) do n=n+1 end
@@ -685,28 +686,55 @@ function Module.autopatch.init(self)
 
   function Util.updateFile(file)
     local finfo = patchFiles[file]
-    if true then return end
     assert(file,"PatchFile: No such file "..(file or "nil"))
     local files = {}
-    local function patcher(files)
-      if hc3_emulator then return end
-      local id = self.id
-      local of = self:listFiles(id)
-      for _,f in pairs(of) do 
-        if not f.isMain then 
-          local res,code = self:deleteFile(f.name,id) 
-          res = code
-        end 
-      end
-      local list = {}
-      for f,d in pairs(files) do
-        local res,code = self:addFileTo(d,f,id)
-      end
-    end
     local n = 0;
     for _,_ in pairs(finfo.files) do n=n+1 end
-    for f,path in pairs(finfo.files) do fetchFile(f,path,files,n,patcher) end
+    local function patcher(nfiles)
+      --if hc3_emulator then return end  -- not in emulator
+      local id,cfiles = self.id,{}
+      id = 1356
+      local of = self:listFiles(id)
+      for _,f in pairs(of) do
+        if not f.isMain then 
+          local d = self:getFile(f.name,id)
+          if not(nfiles[f.name] and nfiles[f.name]==d.content) then
+            cfiles[f.name]=d.content
+          else nfiles[f.name]= nil end
+        end 
+      end -- current files
+      local updates,adds,dels = {},{},{}
+      local updates_n,adds_n,dels_n = 0,0,0
+      for f,d in pairs(nfiles) do
+        if d~=cfiles[f] then  -- different
+          if cfiles[f]== nil then adds[f]=d adds_n=adds_n+1 -- missing
+          else updates[f]=d updates_n=updates_n+1 end      -- changed
+        end
+      end
+      for f,d in pairs(cfiles) do if not nfiles[f] then dels[f]=d dels_n=dels_n+1 end end
+      -- Files needing to update
+      self:debugf("%d files needs to be updated",updates_n)
+      self:debugf("%d files needs to be added",adds_n)
+      self:debugf("%d files needs to be deleted",dels_n)
+      for f,d in pairs(dels) do self:debugf("Deleting %s",f) self:deleteFile(f,id) end
+      for f,d in pairs(adds) do self:debugf("Adding %s",f) self:addFileTo(d,f,id) end
+      local ups = {}
+      for f,d in pairs(updates) do 
+        self:debugf("Updating %s",f)  
+        ups[#ups+1]={
+          name=f,
+          content=d,
+          isMain=false,
+          isOpen=false
+        }
+      end
+      if #ups > 0 then
+        self:addFileList(ups,id)
+      end
+    end
+    for file,path in pairs(finfo.files) do fetchFile(file,path,files,n,patcher) end
   end
+
 end
 
 ----------------- Module Extras -------------------------------

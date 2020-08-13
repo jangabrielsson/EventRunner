@@ -30,7 +30,7 @@ function Toolbox_Module.file.init(self)
   end
 
   function self:getFile(fileName,device)
-    api.get(("/quickApp/%s/files/%s"):format(device or self.id,fileName))
+    return api.get(("/quickApp/%s/files/%s"):format(device or self.id,fileName))
   end
 
   function self:copyFileFromTo(fileName,deviceFrom,deviceTo)
