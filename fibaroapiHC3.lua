@@ -33,7 +33,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.121" 
+local FIBAROAPIHC3_VERSION = "0.122" 
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -167,7 +167,7 @@ local ltn12  = require("ltn12")
 
 local _debugFlags = {fcall=true, fget=true, post=true, trigger=true, timers=nil, refreshLoop=false, creation=true, mqtt=true} 
 local function merge(t1,t2)
-  if type(t1)=='table' and type(t2)=='table' then for k,v in pairs(t2) do if not t1[k] then t1[k]=v else merge(t1[k],v) end end end
+  if type(t1)=='table' and type(t2)=='table' then for k,v in pairs(t2) do if t1[k]==nil then t1[k]=v else merge(t1[k],v) end end end
   return t1
 end
 
@@ -188,7 +188,8 @@ hc3_emulator.conditions        = false
 hc3_emulator.actions           = false
 hc3_emulator.offline           = DEF(hc3_emulator.offline,false)
 hc3_emulator.emulated          = true 
-hc3_emulator.debug             = merge(_debugFlags,hc3_emulator.debug  or {})
+hc3_emulator.debug             = merge(hc3_emulator.debug  or {},_debugFlags)
+_debugFlags  = hc3_emulator.debug 
 hc3_emulator.runSceneAtStart   = false
 hc3_emulator.webPort           = hc3_emulator.webPort or 6872
 hc3_emulator.quickVars         = hc3_emulator.quickVars or {}
@@ -1365,6 +1366,7 @@ function module.QuickApp()
   local function mkViewLayout(list,height)
     local items = {}
     for _,i in ipairs(list) do items[#items+1]=mkRow(i) end
+--    if #items == 0 then  return nil end
     return 
     { ['$jason'] = {
         body = {
@@ -1506,7 +1508,7 @@ function module.QuickApp()
 -- dryrun - if true only returns the quickapp without deploying
 
   local function createQuickApp(args)
-    if hc3_emulator.HC3version < "5.040.37" then
+    if (hc3_emulator.HC3version or "5.040.37") < "5.040.37" then
       error("Sorry, QuickApp creation need HC3 version >= 5.040.37")
     end
     local d = {} -- Our device
@@ -2203,10 +2205,10 @@ function module.Trigger()
     Timer.setTimeout(pollRefresh,0).isSystem=true
   end
 
-  function hc3_emulator.post(ev,t)
-    assert(type(ev)=='table' and ev.type,"Bad event format:"..ev)
+  function self.postTrigger(ev,t)
+    assert(type(ev)=='table' and ev.type,"Bad event format:"..json.encode(ev))
     t = t or 0
-    setTimeout(function() HC3_handleEvent(ev) end,t).isSystem=true
+    setTimeout(function() self.refreshStates.addEvents(ev) end,t).isSystem=true
   end
 
 --------------- refreshState handling ---------------
@@ -2804,7 +2806,9 @@ function module.Json()
     stack = stack or {}
 
     -- Circular reference?
-    if stack[val] then error("circular reference") end
+    if stack[val] then 
+      error("circular reference") 
+    end
 
     stack[val] = true
 
@@ -2860,7 +2864,7 @@ function module.Json()
     [ "string"  ] = encode_string,
     [ "number"  ] = encode_number,
     [ "boolean" ] = tostring,
-    [ "function" ] = tostring,
+ --   [ "function" ] = tostring,
   }
 
   encode = function(val, stack)
@@ -3370,7 +3374,7 @@ function module.WebAPI()
         return p.cpage:gsub("<<<(%d+)>>>",
           function(i)
             local l = p.funs[tonumber(i)]()
-            return l --p.funs[tonumber(i)]()
+            return tostring(l) --p.funs[tonumber(i)]()
           end)
       end)
     if not stat then
@@ -3437,7 +3441,7 @@ Content-Type: text/html
 <<<return Web._PAGE_NAV>>>
 <t1>fibaroapiHC3 v<<<return FIBAROAPIHC3_VERSION>>></t1><br>
 <t1>poll: <<<if hc3_emulator.poll== nil then return "false" else return hc3_emulator.poll end>>></t1><br>
-<t1>proxy: <<<return hc3_emulator.proxy== nil then return "false" else return hc3_emulator.proxy end>>></t1>
+<t1>proxy: <<<if hc3_emulator.proxy== nil then return "false" else return hc3_emulator.proxy end>>></t1>
 </div>
 <<<return Web._PAGE_FOOTER>>>
 </body>
@@ -5094,6 +5098,7 @@ hc3_emulator.prettyJson        = Util.prettyJson
 hc3_emulator.copyFromHC3       = Offline.copyFromHC3
 hc3_emulator.backup            = Files.backup
 hc3_emulator.file              = Files.file
+hc3_emulator.postTrigger       = Trigger.postTrigger
 
 --[[
 hc3_emulator.credentials
@@ -5118,7 +5123,7 @@ local function startUp(file)
   end 
   if not hc3_emulator.offline then
     typeHierarchy = api.get('/devices/hierarchy')
-    hc3_emulator.HC3version = api.get("/settings/info").currentVersion.version
+    hc3_emulator.HC3version = api.get("/settings/info").currentVersion.version or "5.040.37"
   end
   hc3_emulator.speeding = hc3_emulator.speed==true and 48 or tonumber(hc3_emulator.speed)
   if hc3_emulator.traceFibaro then Util.traceFibaro() end

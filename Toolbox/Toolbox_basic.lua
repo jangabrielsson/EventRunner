@@ -377,7 +377,7 @@ function Toolbox_Module.basic(self)
     if front then table.insert(eventHandlers,1,handler) else eventHandlers[#eventHandlers+1]=handler end
   end
 
-  function self._Events.removeEventHandler(handler,front)
+  function self._Events.removeEventHandler(handler)
     for i=1,#eventHandlers do if eventHandlers[i]==handler then table.remove(eventHandlers,i) return end end
   end
 

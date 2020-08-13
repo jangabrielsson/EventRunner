@@ -50,7 +50,7 @@ function Toolbox_Module.triggers.init(self)
     if ENABLEDTRIGGERS[ev.type] then
       if self.debugFlags.trigger then self:debugf("Incoming trigger:%s",ev) end
       ev._trigger=true
-      ev.__tostring = _eventPrint
+      --ev.__tostring = _eventPrint
       if self._Events then self._Events.postEvent(ev) end
     end
   end

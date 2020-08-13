@@ -38,7 +38,7 @@ function Toolbox_Module.events.init(self)
       hmstr,offs = fibaro.getValue(1,sun.."Hour"), tonumber(offs) or 0
     end
     local sg,h,m,s = hmstr:match("^(%-?)(%d+):(%d+):?(%d*)")
-    assert(h and m,"Bad hm2sec string %s",hmstr)
+    assertf(h and m,"Bad hm2sec string %s",hmstr)
     return (sg == '-' and -1 or 1)*(h*3600+m*60+(tonumber(s) or 0)+(offs or 0)*60)
   end
 

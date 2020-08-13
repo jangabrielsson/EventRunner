@@ -22,7 +22,6 @@ function Toolbox_Module.pubsub.init(self)
   local function DEBUG(...) if self.debugFlags.pubsub then self:debugf(...) end end
   local mySubscriptions = {}
   local subList = {}
-  local sendEvent
   local peers = {}
 
   local function isEvent(event) return type(event)=='table' and event.type end
@@ -108,7 +107,7 @@ function Toolbox_Module.pubsub.init(self)
       if equal(s,sub) then DEBUG("Subscription already exist") return end 
     end 
     mySubscriptions[#mySubscriptions+1]=sub
-    self:setVariable("SUB_VAR",mySubscriptions)
+    self:setVariable(SUB_VAR,mySubscriptions)
     for id,_ in pairs(peers) do
       fibaro.call(id,"SYNCPUBSUB",self.id,sub)
     end
@@ -151,7 +150,7 @@ function Toolbox_Module.pubsub.init(self)
     for _,d in ipairs(devs or {}) do
       peers[d.id]=true
       for _,v in ipairs(d.properties.quickAppVariables or {}) do
-        if v.name == "SUB_VAR" then
+        if v.name == SUB_VAR then
           local stat,subs = pcall(function()
               local r = {}
               if type(v.value)=='string' then r = json.decode(v.value)
@@ -168,7 +167,7 @@ function Toolbox_Module.pubsub.init(self)
     end -- for devices
   end --function
 
-  self:setVariable("SUB_VAR",{})
+  self:setVariable(SUB_VAR,{})
   getOthersSubscriptions() -- Ask for subscriptions when we start up / restarts
   if self.enableTriggerType then self:enableTriggerType({"deviceEvent"}) end
 
