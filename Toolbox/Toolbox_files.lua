@@ -21,6 +21,14 @@ function Toolbox_Module.file.init(self)
     return api.get(("/quickApp/%s/files"):format(device or self.id))
   end
 
+  function self:deleteFile(fileName,device) 
+    return api.delete(("/quickApp/%s/files/%s"):format(device or self.id,fileName))
+  end
+
+  function self:addFileList(list,device) 
+    return api.put(("/quickApp/%s/files"):format(device or self.id),list)
+  end
+
   function self:getFile(fileName,device)
     api.get(("/quickApp/%s/files/%s"):format(device or self.id,fileName))
   end
