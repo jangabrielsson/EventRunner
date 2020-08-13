@@ -691,9 +691,9 @@ function Module.autopatch.init(self)
     local n = 0;
     for _,_ in pairs(finfo.files) do n=n+1 end
     local function patcher(nfiles)
-      --if hc3_emulator then return end  -- not in emulator
+      if hc3_emulator then return end  -- not in emulator
       local id,cfiles = self.id,{}
-      id = 1356
+--      id = 1356
       local of = self:listFiles(id)
       for _,f in pairs(of) do
         if not f.isMain then 
