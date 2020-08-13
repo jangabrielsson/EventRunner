@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.4,"fix4"
+E_VERSION,E_FIX = 0.5,"fix1"
 _HC3IPADDRESS = "192.168.1.57" -- Needs to be defined on the HC3 as /settings/networks seems broken...
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
@@ -688,16 +688,18 @@ function Module.autopatch.init(self)
     assert(file,"PatchFile: No such file "..(file or "nil"))
     local files = {}
     local function patcher(files)
-      local of = self:listFiles(1356)
+      if hc3_emulator then return end
+      local id = self.id
+      local of = self:listFiles(id)
       for _,f in pairs(of) do 
         if not f.isMain then 
-          local res,code = self:deleteFile(f.name,1356) 
+          local res,code = self:deleteFile(f.name,id) 
           res = code
         end 
       end
       local list = {}
       for f,d in pairs(files) do
-        local res,code = self:addFileTo(d,f,1356)
+        local res,code = self:addFileTo(d,f,id)
       end
     end
     local n = 0;
