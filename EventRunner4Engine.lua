@@ -1,8 +1,8 @@
-E_VERSION,E_FIX = 0.4,"fix3"
+E_VERSION,E_FIX = 0.4,"fix4"
 _HC3IPADDRESS = "192.168.1.57" -- Needs to be defined on the HC3 as /settings/networks seems broken...
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
-_debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
+-- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
 Util = nil
 triggerInterval = 500 
 
@@ -109,14 +109,15 @@ local format    = string.format
 _ENV = _ENV or _G 
 
 ----------------- Module objects support -----------------------
-function Module.objects()  
+Module.objects = { name="ER Object manager", version="0.1"}
+function Module.objects.init()  
   -- TBD
   return self
 end
 
 ----------------- Module device support -----------------------
-function Module.device(self)
-  self:debugf("Setup: ER Device")
+Module.device = { name="ER Device", version="0.2"}
+function Module.device.init(self)
   local dev = { deviceID = self.id }
 
   local uiCallbacks = self.properties.uiCallbacks or {}
@@ -144,7 +145,6 @@ function Module.device(self)
     if ({turnOff=true,turnOn=true,on=true,toggle=true,off=true,setValue=true})[action] then lastID[id]={script=true,time=os.time()} end
     return oldFibaroCall(id,action,...)
   end
-  local orgEventHandler = self._eventHandler
   local function lastHandler(ev)
     if ev.type=='device' and ev.property=='value' then
       local last = lastID[ev.id]
@@ -154,9 +154,8 @@ function Module.device(self)
         lastID[ev.id]={script=false, time=t}
       end
     end
-    orgEventHandler(ev)
   end
-  self._eventHandler = lastHandler
+  self._Events.addEventHandler(lastHandler)
   function self:lastManual(id)
     local last = lastID[id]
     if not last then return -1 end
@@ -166,9 +165,9 @@ function Module.device(self)
 end
 
 ----------------- Module utilities ----------------------------
-function Module.utilities()
+Module.utilities = { name="ER Utilities", version="0.6"}
+function Module.utilities.init()
   local self,format,QA = {},string.format,quickApp
-  QA:debugf("Setup: ER Utilities")
   local midnight,hm2sec,toTime,transform,copy,equal=QA.EM.midnight,QA.EM.hm2sec,QA.EM.toTime,QA.EM.transform,QA.EM.copy,QA.EM.equal
 
   function self.findEqual(tab,obj)
@@ -237,6 +236,9 @@ function Module.utilities()
     end
   end
   function self.reverseVar(id) return Util._reverseVarTable[tostring(id)] or id end
+  local function isVar(v) return type(v)=='table' and v[1]=='%var' end
+  self.isVar = isVar
+  function self.isGlob(v) return isVar(v) and v[3]=='glob' end
 
   self.coroutine = {
     create = function(code,src,env)
@@ -629,97 +631,22 @@ function Module.utilities()
   return self
 end -- Utils
 
------------------ Module Subscriptions support -----------------------
-function Module.subscriptions(self)
-  self:debugf("Setup: ER Remote")
-  local isEvent = quickApp.EM.isEvent
-  self.SB = {}
-  self.SB.selfpost=false
-
-  local ceIndex,ceBrMatch = 99,"^ER_BROADCAST"
-  local function makeAddress() ceIndex=ceIndex+1; return format("ER_BROADCAST%dI%d",self.id,ceIndex) end
-
-  local ces = api.get("/customEvents") -- Remove stale events
-  for _,ce in ipairs(ces or {}) do
-    local ceMatch = "^ER_BROADCAST"..self.id
-    if ce.name:match(ceMatch) then api.delete("/customEvents/"..ce.name) end
-  end
-
-  function self:broadcastEvent(event)
-    assert(isEvent(event),"Bad argument to post")
-    event._from = self.id
-    event._time = os.time()
-    local ename = makeAddress()
-    self:postCustomEvent(ename,(json.encode(event)))
-    setTimeout(function() api.delete("/customEvents/"..ename) end,4000)
-  end
-
-  Util.defvar('remote',function(id,event,time)
-      return self:post(function()
-          ptrace("Remote post to %d %s",id,event)
-          self:postRemote(id,event)
-        end,time)
-    end)
-
-  Util.defvar('broadcast',function(event,time) 
-      return self:post(function()
-          ptrace("Broadcast %s",event)
-          self:broadcastEvent(event)
-        end,time)
-    end)
-
-  self:event({type='custom-event'}, -- Triggering on a custom event
-    function(env) 
-      local ev = env.event
-      local id = ev.name:match("ER_BROADCAST(%d)")
-      if id and (self.SB.selfpost or tonumber(id) ~= self.id) then
-        self:post((json.decode(ev.value)))
-        return self.EM.BREAK
-      end
-    end)
-
-  local subscribers = {}    -- publish/subscribe is similar to broadcast at event match, but with source filtering
-  self:event({type='ER_SUBSCRIBE'},  -- incoming subscriptions
-    function(env)
-      local subs = env.event.subs or {}
-      for _,s in ipairs(subs) do s = self.EM.compilePattern(s) end
-      subscribers[env.event.id] = subs
-    end)
-
-  function self:publishEvent(event,t)
-    return self:post(function()
-        for id,subs in pairs(subscribers) do
-          for _,pattern in ipairs(subs) do
-            if self.EM.match(pattern,event) then self:postRemote(id,event); break end
-          end
-        end
-      end,t)
-  end
-
-  self:event({type='%startup%'},function() self:broadcastEvent({type='ER_STARTED',id=self.id}) end)
-
-  local subscriptions = {}
-  self:event({type='ER_STARTED'},function(env)
-      if #subscriptions > 0 then
-        self:postRemote(env.event.id,{type='ER_SUBSCRIBE',id=self.id,subs=subscriptions})
-      end
-    end)
-
-  function self:subscribeEvent(event)
-    if not Util.findEqual(subscriptions,event) then
-      subscriptions[#subscriptions+1]=event
-      self:broadcastEvent({type='ER_SUBSCRIBE',id=self.id,subs=subscriptions})
-    end 
-  end
-
-end -- Subscription support
-
 ----------------- Autopatch support ---------------------------
-function Module.autopatch(self)
-  self:debugf("Setup: ER Autopatch")
+Module.autopatch = { name="ER Autopatch", version="0.2"}
+function Module.autopatch.init(self)
   local patchFiles = {
-    ["EventRunner4Engine.lua"] = {version = _version, fname = "EventRunner"},
-    ["QA_Toolbox.lua"] = {version = QA_toolbox_version, fname = "Toolbox"}
+    ["EventRunner4Engine.lua"] = {
+      version = _version, 
+      files = {
+        ['EventRunner']="EventRunner4Engine.lua",
+        ['Toolbox']="Toolbox/Toolbox_basic.lua",
+        ['Toolbox_events']="Toolbox/Toolbox_events.lua",
+        ['Toolbox_triggers']="Toolbox/Toolbox_triggers.lua",
+        ['Toolbox_files']="Toolbox/Toolbox_files.lua",
+        ['Toolbox_rpc']="Toolbox/Toolbox_rpc.lua",
+        ['Toolbox_pubsub']="Toolbox/Toolbox_pubsub.lua",
+      }
+    },
   }
   local versionInfo = nil
 
@@ -739,29 +666,49 @@ function Module.autopatch(self)
         end})
   end
 
-  function Util.updateFile(file)
-    local fname = patchFiles[file].fname
+  local function fetchFile(file,path,files,mn,cont)
     local req = net.HTTPClient()
-    req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/"..file,{
+    req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/"..path,{
         options = {method = 'GET', checkCertificate = false, timeout=20000},
         success=function(data) 
           if data.status == 200 then 
-            self:debug("Updating ",fname)
-            if not hc3_emulator then 
-              self:addFileTo(data.data,fname,self.id)
-            end
+            files[file]=data.data
+            local n = 0
+            for _,_ in pairs(files) do n=n+1 end
+            if n==mn then cont(files) end
           end 
         end,
-        error=function(status) Log(LOG.ERROR,"Get src code from Github: %s",status) end
+        error=function(status) self:errorf("Get src code from Github: %s",status) end
       })
     return
   end
 
+  function Util.updateFile(file)
+    local finfo = patchFiles[file]
+    assert(file,"PatchFile: No such file "..(file or "nil"))
+    local files = {}
+    local function patcher(files)
+      local of = self:listFiles(1356)
+      for _,f in pairs(of) do 
+        if not f.isMain then 
+          local res,code = self:deleteFile(f.name,1356) 
+          res = code
+        end 
+      end
+      local list = {}
+      for f,d in pairs(files) do
+        local res,code = self:addFileTo(d,f,1356)
+      end
+    end
+    local n = 0;
+    for _,_ in pairs(finfo.files) do n=n+1 end
+    for f,path in pairs(finfo.files) do fetchFile(f,path,files,n,patcher) end
+  end
 end
 
 ----------------- Module Extras -------------------------------
-function Module.extras(self)
-  self:debugf("Setup: ER Extras")
+Module.extras = { name="ER Extras", version="0.2"}
+function Module.extras.init(self)
   -- Sunset/sunrise patch -- first time in the day someone asks for sunsethours we calculate and cache
   local _SUNTIMEDAY = nil
   local _SUNTIMEVALUES = {sunsetHour="00:00",sunriseHour="00:00",dawnHour="00:00",duskHour="00:00"}
@@ -776,7 +723,7 @@ function Module.extras(self)
       return true,{_SUNTIMEVALUES[prop],os.time()}
     end)
 
-  local DEBUGKEYS = {debugTriggers=true,debugRules=true,debugPost=true}
+  local DEBUGKEYS = {debugTrigger=true,debugRules=true,debugPost=true}
 
   local function updateDebugKey(key,upd)
     local name = key:match("debug(.*)")
@@ -785,7 +732,7 @@ function Module.extras(self)
     self:updateView(key,"text",name..":"..(_debugFlags[dkey] and "ON" or "OFF"))
   end
 
-  for k,_ in pairs(DEBUGKEYS) do updateDebugKey(k) end
+  setTimeout(function() for k,_ in pairs(DEBUGKEYS) do updateDebugKey(k) end end,5)
   self:event({type='UI'},function(env)
       local b = env.event.name
       if DEBUGKEYS[b] then updateDebugKey(b,true) end
@@ -814,6 +761,13 @@ function Module.extras(self)
 
   function self:getCustomEvent(name) return (api.get("customEvents/"..name) or {}).description end 
   function self:deleteCustomEvent(name) return api.delete("customEvents/"..name) end
+
+  Util.defvar('remote',function(id,event,time)
+      return self:post(function()
+          ptrace("Remote post to %d %s",id,event)
+          self:postRemote(id,event)
+        end,time)
+    end)
 
   local function httpCall(url,options,data) 
     local opts = Util.copy(options)
@@ -849,9 +803,9 @@ function Module.extras(self)
 end
 
 ----------------- EventScript support -------------------------
-function Module.eventScript()
+Module.eventScript = { name="ER EventScript", version="0.7"}
+function Module.eventScript.init()
   local QA = quickApp
-  QA:debugf("Setup: ER EventScript")
   local ScriptParser,ScriptCompiler,ScriptEngine
 
   function makeEventScriptParser()
@@ -1373,7 +1327,7 @@ function Module.eventScript()
       local get = _getFun
       local function on(id,prop) return BN(fibaro.get(id,prop)) > 0 end
       local function off(id,prop) return BN(fibaro.get(id,prop)) == 0 end
-      local function last(id,prop) return os.time()-select(2,fibaro.get(id,prop)) end
+      local function last(id,prop) local v,t=fibaro.get(id,prop); return t and os.time()-t or 0 end
       local function cce(id,prop,e) e=e.event; return e.type=='device' and e.property=='centralSceneEvent' and e.id==id and e.value or {} end
       local function ace(id,prop,e) e=e.event; return e.type=='device' and e.property=='accessControlEvent' and e.id==id and e.value or {} end
       local function sae(id,prop,e) e=e.event; return e.type=='device' and e.property=='sceneActivationEvent' and e.id==id and e.value.sceneId end
@@ -1498,8 +1452,8 @@ function Module.eventScript()
     instr['enable'] = function(s,n,e,i) local t,g = s.pop(),false; if n==2 then g,t=t,s.pop() end s.push(QA.RE:enable(t,g)) end
     instr['disable'] = function(s,n,e,i) s.push(QA.RE.disable(s.pop())) end
     instr['post'] = function(s,n,ev) local e,t=s.pop(),nil; if n==2 then t=e; e=s.pop() end s.push(QA:post(e,t,ev.rule)) end
-    instr['subscribe'] = function(s,n,ev) QA:subscribeEvent(s.pop()) s.push(true) end
-    instr['publish'] = function(s,n,ev) local e,t=s.pop(),nil; if n==2 then t=e; e=s.pop() end QA:publishEvent(e,t) s.push(e) end
+    instr['subscribe'] = function(s,n,ev) QA:subscribe(s.pop()) s.push(true) end
+    instr['publish'] = function(s,n,ev) local e,t=s.pop(),nil; if n==2 then t=e; e=s.pop() end QA:publish(e,t) s.push(e) end
     instr['remote'] = function(s,n,ev) _assert(n==2,"Wrong number of args to 'remote/2'"); 
       local e,u=s.pop(),s.pop(); 
       QA:postRemote(u,e) 
@@ -1874,8 +1828,8 @@ function Module.eventScript()
   return Rule
 end
 ----------------- Node-red support ----------------------------
-function Module.nodered(self)
-  self:debugf("Setup: ER Nodered")
+Module.nodered={ name = "ER Nodered", version="0.5" }
+function Module.nodered.init(self)
   local nr = { _nrr = {}, _timeout = 4000, _last=nil }
   local isEvent,gensym,asyncCall,receiveAsync = self.EM.isEvent,Util.gensym,Util.asyncCall,Util.receiveAsync
   function nr.connect(url) 
@@ -1916,18 +1870,18 @@ function Module.nodered(self)
 end
 
 modules = {
-  "events","triggers","rpc","file",
-  "utilities","autopatch","objects","device","subscriptions","extras","eventScript","nodered"
+  "events","triggers","rpc","file","pubsub",
+  "utilities","autopatch","objects","device","extras","eventScript","nodered"
 }
 
 ----------------- Main ----------------------------------------
 _version = "v"..E_VERSION..E_FIX
 
 function QuickApp:onInit()
---  self.debugFlags.triggers = true
   fibaro.ID = self.id
   --psys("IP address:%s",Util.getIPaddress())  
   local main = self.main
+  _HC3IPADDRESS = self.getHC3IPaddress()
   self.main = function(self)
     psys("Sunrise:%s,  Sunset:%s",(fibaro.get(1,"sunriseHour")),(fibaro.get(1,"sunsetHour")))
     Util.printBanner("Setting up rules (main)")
