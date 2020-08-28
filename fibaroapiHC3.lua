@@ -33,7 +33,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.122" 
+local FIBAROAPIHC3_VERSION = "0.124" 
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -709,6 +709,7 @@ function module.FibaroAPI()
       options = options or {}
       local args = {}
       args.uri = uri
+      args.uri = string.gsub(uri, "mqtt://", "")
       args.username = options.username
       args.password = options.password
       args.clean = options.cleanSession
@@ -1138,17 +1139,19 @@ function module.QuickApp()
     return ""
   end
 
-  function QuickAppBase:setVariable(name,value)
-    __assert_type(name,'string')
-    local vs = self.properties.quickAppVariables or {}
-    for _,v in ipairs(vs) do
-      if v.name==name then v.value=value; return end
+  function QuickAppBase:setVariable(name,value)     
+    __assert_type(name,'string')     
+    local vs,flag = self.properties.quickAppVariables or {},false    
+    for _,v in ipairs(vs) do       
+      if v.name==name then v.value=value; flag=true; break end     
     end
-    vs[#vs+1]={name=name,value=value}
-    self.properties.quickAppVariables = vs
-    if self.hasProxy then
-      self:updateProperty('quickAppVariables', self.properties.quickAppVariables)
+    if not flag then -- variable not found, add it
+      vs[#vs+1]={name=name,value=value}     
+      self.properties.quickAppVariables = vs  
     end
+    if self.hasProxy then  -- update HC3 proxy if it exist
+      self:updateProperty('quickAppVariables', vs)    
+    end   
   end
 
   function QuickAppBase:updateView(elm,t,value) 
@@ -2864,7 +2867,7 @@ function module.Json()
     [ "string"  ] = encode_string,
     [ "number"  ] = encode_number,
     [ "boolean" ] = tostring,
- --   [ "function" ] = tostring,
+    --   [ "function" ] = tostring,
   }
 
   encode = function(val, stack)
