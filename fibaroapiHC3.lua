@@ -96,6 +96,7 @@ fibaro.callGroupAction(action,args)
 fibaro.alert(alert_type, user_ids, notification_content) 
 fibaro.alarm(partition_id, action)
 fibaro.setTimeout(ms, func)
+fibaro.clearTimeout(ref)
 fibaro.emitCustomEvent(name)
 fibaro.wakeUpDeadDevice
 fibaro.sleep(ms) -- simple busy wait...
@@ -343,6 +344,7 @@ function module.FibaroAPI()
   function fibaro.emitCustomEvent(name) return api.post("/customEvents/"..name,{}) end
 
   function fibaro.setTimeout(value, func) return setTimeout(func, value) end
+  function fibaro.clearTimeout(ref) return clearTimeout(ref) end
 
   function fibaro.getRoomName(roomID) 
     __assert_type(roomID,'number') 
