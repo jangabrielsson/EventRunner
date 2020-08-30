@@ -5,7 +5,7 @@ if dofile and not hc3_emulator then
     poll=1000, 
     --startTime="10:00:00 5/12/2020",
     speed = 48,
-    deploy=true,
+    --deploy=true,
     --proxy=true,
     --offline=true,
     debug = {trigger=false},
@@ -50,14 +50,14 @@ function QuickApp:main()    -- EventScript version
   Util.defvars(HT)
   Util.reverseMapDef(HT)
   
-  --rule("@@00:01 & date('0/5 12-15 *') => log('ping')")
-  --rule("@@00:00:05 => log(now % 2 == 1 & 'Tick' | 'Tock')")
-  --  rule("remote(1356,#foo)")
-  --  rule("wait(5); publish(#foo)")
-  --rule("motion:value => log('Motion:%s',motion:last)")
-
---  rule("@{catch,05:00} => Util.checkForUpdates()")
---  rule("#File_update{} => log('New file version:%s - %s',env.event.file,env.event.version)")
+  -- rule("@@00:01 & date('0/5 12-15 *') => log('ping')")
+  -- rule("@@00:00:05 => log(now % 2 == 1 & 'Tick' | 'Tock')")
+  -- rule("remote(1356,#foo)")
+  -- rule("wait(5); publish(#foo)")
+  -- rule("motion:value => log('Motion:%s',motion:last)")
+  
+-- rule("@{catch,05:00} => Util.checkForUpdates()")
+-- rule("#File_update{} => log('New file version:%s - %s',env.event.file,env.event.version)")
 --  rule("#File_update{} => Util.updateFile(env.event.file)")
   
 --  rule("keyfob:central => log('Key:%s',env.event.value.keyId)")

@@ -39,7 +39,7 @@ Toolbox_Module,modules = Toolbox_Module or {},modules or {}
 local _init = QuickApp.__init
 local _onInit = nil
 
-function QuickApp.__init(self,...)
+function QuickApp.__init(self,...) -- We hijack the __init methods so we can control users :onInit() method
   _onInit = self.onInit
   self.onInit = self.loadToolbox
   _init(self,...)
@@ -162,18 +162,19 @@ function Toolbox_Module.basic(self)
       local title = text:match("(.-)[:%s]") or format("%s deviceId:%d",self.id,self.name)
       self:notify(p,title,text)
     end
+    return text
   end
 
 -- Enhanced debug functions converting tables to json and with formatting version
   local _debug,_trace,_error,_warning = self.debug,self.trace,self.error,self.warning
-  function self:debug(...) if self._DEBUG then _print(self,_debug,...) end end
-  function self:trace(...) if self._TRACE then _print(self,_trace,...) end end
-  function self:error(...) notifyIf(self,"critical",_print(self,_error,...)) end
-  function self:warning(...) notifyIf(self,"warning",_print(self,_warning,...)) end
-  function self:debugf(fmt,...) if self._DEBUG then _printf(self,_debug,fmt,...) end end
-  function self:tracef(fmt,...) _printf(self,_trace,fmt,...) end
-  function self:errorf(fmt,...) notifyIf(self,"critical",_printf(self,_error,fmt,...)) end
-  function self:warningf(fmt,...) notifyIf(self,"warning",_printf(self,_warning,fmt,...)) end
+  function self:debug(...) if self._DEBUG then return _print(self,_debug,...) else return "" end end
+  function self:trace(...) if self._TRACE then return _print(self,_trace,...) else return "" end end
+  function self:error(...) return notifyIf(self,"critical",_print(self,_error,...)) end
+  function self:warning(...) return notifyIf(self,"warning",_print(self,_warning,...)) end
+  function self:debugf(fmt,...) if self._DEBUG then return _printf(self,_debug,fmt,...) else return "" end end
+  function self:tracef(fmt,...) return _printf(self,_trace,fmt,...) end
+  function self:errorf(fmt,...) return notifyIf(self,"critical",_printf(self,_error,fmt,...)) end
+  function self:warningf(fmt,...) return notifyIf(self,"warning",_printf(self,_warning,fmt,...)) end
 
 -- Like self:updateView but with formatting. Ex self:setView("label","text","Now %d days",days)
   function self:setView(elm,prop,fmt,...)

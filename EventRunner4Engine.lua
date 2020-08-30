@@ -1,5 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix4"
-_HC3IPADDRESS = "192.168.1.57" -- Needs to be defined on the HC3 as /settings/networks seems broken...
+E_VERSION,E_FIX = 0.5,"fix5"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
