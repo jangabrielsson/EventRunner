@@ -6,7 +6,7 @@ if dofile and not hc3_emulator then
     poll=1000,
     --offline=true,
     proxy=true,
-    --deploy=true,
+    deploy=true,
   }
   dofile("fibaroapiHC3.lua")
 end

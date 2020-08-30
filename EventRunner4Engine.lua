@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix3"
+E_VERSION,E_FIX = 0.5,"fix4"
 _HC3IPADDRESS = "192.168.1.57" -- Needs to be defined on the HC3 as /settings/networks seems broken...
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
@@ -349,7 +349,12 @@ function Module.utilities.init()
         cbr[tag]=nil 
         perror("No response from %s call",errstr)
       end,timeout)
-    return tag,{['<cont>']=function(cont) cbr[tag][2]=cont end}
+    return tag,{
+      ['<cont>']=
+      function(cont) 
+        cbr[tag][2]=cont 
+        end
+      }
   end
 
   function self.receiveAsync(tag,res)
@@ -1365,6 +1370,7 @@ function Module.eventScript.init()
       local function armed(id,prop) return fibaro.get(id,prop) == 1 end
       local function call(id,cmd) fibaro.call(id,cmd); return true end
       local function set(id,cmd,val) fibaro.call(id,cmd,val); return val end
+      local function pushMsg(id,cmd,val) fibaro.alert(cmd,{id},val,false); return val end
       local function setArmed(id,cmd,val) fibaro.call(id,cmd,val and 1 or 0); return val end
       local function set2(id,cmd,val) fibaro.call(id,cmd,table.unpack(val)); return val end
       local mapOr,mapAnd,mapF=Util.mapOr,Util.mapAnd,function(f,l,s) Util.mapF(f,l,s); return true end
@@ -1403,10 +1409,10 @@ function Module.eventScript.init()
         mode={set,'setMode'},setpointMode={set,'setSetpointMode'},defaultPartyTime={set,'setDefaultPartyTime'},
         scheduleState={set,'setScheduleState'},color={set2,'setColor'},
         thermostatSetpoint={set2,'setThermostatSetpoint'},schedule={set2,'setSchedule'},dim={set2,'dim'},
-        msg={set,'sendPush'},
+        msg={pushMsg,'push'},
         defemail={set,'sendDefinedEmailNotification'},
         btn={set,'pressButton'}, -- ToDo: click button on QA?
-        email={function(id,cmd,val) local h,m = val:match("(.-):(.*)"); fibaro.call(id,'sendEmail',h,m) return val end,""},
+        email={function(id,cmd,val) local h,m = val:match("(.-):(.*)"); fibaro.alert('email',{id},val) return val end,""},
         start={function(id,cmd,val) 
             if isEvent(val) then QA:postRemote(id,val) else fibaro.scene("execute",{id},val) return true end 
           end,""},

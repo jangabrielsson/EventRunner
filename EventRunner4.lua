@@ -4,8 +4,8 @@ if dofile and not hc3_emulator then
     type="com.fibaro.genericDevice",
     poll=1000, 
     --startTime="10:00:00 5/12/2020",
-    --speed = 48,
-    --deploy=true,
+    speed = 48,
+    deploy=true,
     --proxy=true,
     --offline=true,
     debug = {trigger=false},
@@ -28,11 +28,10 @@ if hc3_emulator then hc3_emulator.FILE("Toolbox/Toolbox_rpc.lua","Toolbox_rpc") 
 if hc3_emulator then hc3_emulator.FILE("Toolbox/Toolbox_pubsub.lua","Toolbox_pubsub") end
 ----------- Code -----------------------------------------------------------
 
-
 _debugFlags.trigger = true -- log incoming triggers
 _debugFlags.fcall=true     -- log fibaro.call
 _debugFlags.post = true    -- log internal posts
-_debugFlags.rule=true      -- log rules being invoked (true or false)
+_debugFlags.rule=false      -- log rules being invoked (true or false)
 _debugFlags.ruleTrue=true  -- log only rules that are true
 _debugFlags.pubsub=true    -- log only rules that are true
 ------------- Put your rules inside QuickApp:main() -------------------
@@ -51,14 +50,15 @@ function QuickApp:main()    -- EventScript version
   Util.defvars(HT)
   Util.reverseMapDef(HT)
   
+  --rule("@@00:01 & date('0/5 12-15 *') => log('ping')")
   --rule("@@00:00:05 => log(now % 2 == 1 & 'Tick' | 'Tock')")
-  rule("remote(1356,#foo)")
-  rule("wait(5); publish(#foo)")
+  --  rule("remote(1356,#foo)")
+  --  rule("wait(5); publish(#foo)")
   --rule("motion:value => log('Motion:%s',motion:last)")
 
-  rule("@{catch,05:00} => Util.checkForUpdates()")
-  rule("#File_update{} => log('New file version:%s - %s',env.event.file,env.event.version)")
-  rule("#File_update{} => Util.updateFile(env.event.file)")
+--  rule("@{catch,05:00} => Util.checkForUpdates()")
+--  rule("#File_update{} => log('New file version:%s - %s',env.event.file,env.event.version)")
+--  rule("#File_update{} => Util.updateFile(env.event.file)")
   
 --  rule("keyfob:central => log('Key:%s',env.event.value.keyId)")
 --  rule("motion:value => log('Motion:%s',motion:value)")
@@ -67,11 +67,12 @@ function QuickApp:main()    -- EventScript version
 
 --  rule("wait(3); log('Res:%s',http.get('https://jsonplaceholder.typicode.com/todos/1').data)")
 
---  Nodered.connect("http://192.168.1.50:1880/ER_HC3")
+--   Nodered.connect("http://192.168.1.49:1880/ER_HC3")
+--   rule("Nodered.post({type='echo1',value='Hello'},true).value")
 --  rule("Nodered.post({type='echo1',value=42})")
 --  rule("#echo1 => log('ECHO:%s',env.event.value)")
 
---  rule("log('Synchronous call:%s',Nodered.post({type='echo1',value=42},true))")
+--    rule("log('Synchronous call:%s',Nodered.post({type='echo1',value=42},true).value)")
 
 --  rule("#alarm{property='armed', value=true, id='$id'} => log('Zone %d armed',id)")
 --  rule("#alarm{property='armed', value=false, id='$id'} => log('Zone %d disarmed',id)")

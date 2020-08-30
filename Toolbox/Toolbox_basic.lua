@@ -49,7 +49,7 @@ _debugFlags = _debugFlags or { }
 
 function QuickApp:loadToolbox()
   if self.properties.model ~= "ToolboxUser" then
-     self:updateProperty("model","ToolboxUser")
+    self:updateProperty("model","ToolboxUser")
   end
   self.debugFlags = _debugFlags
   quickApp = self 
@@ -380,6 +380,67 @@ function Toolbox_Module.basic(self)
   function self._Events.removeEventHandler(handler)
     for i=1,#eventHandlers do if eventHandlers[i]==handler then table.remove(eventHandlers,i) return end end
   end
+
+  function urlencode(str) -- very useful
+    if str then
+      str = str:gsub("\n", "\r\n")
+      str = str:gsub("([^%w %-%_%.%~])", function(c)
+          return ("%%%02X"):format(string.byte(c))
+        end)
+      str = str:gsub(" ", "%%20")
+    end
+    return str	
+  end
+
+  local function copy(expr)
+    if type(expr)=='table' then
+      local r = {}
+      for k,v in pairs(expr) do r[k]=copy(v) end
+      return r
+    else return expr end
+  end
+
+  netSync = { HTTPClient = function (log)   
+      local self,queue,HTTP,key = {},{},net.HTTPClient(),0
+      local _request
+      local function dequeue()
+        table.remove(queue,1)
+        local v = queue[1]
+        if v then 
+          if _debugFlags.netSync then self:debugf("netSync:Pop %s (%s)",v[3],#queue) end
+          --setTimeout(function() _request(table.unpack(v)) end,1) 
+          _request(table.unpack(v))
+        end
+      end
+      _request = function(url,params,key)
+        params = copy(params)
+        local uerr,usucc = params.error,params.success
+        params.error = function(status)
+          if _debugFlags.netSync then self:debugf("netSync:Error %s %s",key,status) end
+          dequeue()
+          if params._logErr then perror(" %s:%s",log or "netSync:",tojson(status)) end
+          if uerr then uerr(status) end
+        end
+        params.success = function(status)
+          if _debugFlags.netSync then self:debugf("netSync:Success %s",key) end
+          dequeue()
+          if usucc then usucc(status) end
+        end
+        if _debugFlags.netSync then self:debugf("netSync:Calling %s",key) end
+        HTTP:request(url,params)
+      end
+      function self:request(url,parameters)
+        key = key+1
+        if next(queue) == nil then
+          queue[1]='RUN'
+          _request(url,parameters,key)
+        else 
+          if _debugFlags.netSync then self:debugf("netSync:Push %s",key) end
+          queue[#queue+1]={url,parameters,key} 
+        end
+      end
+      return self
+    end}
 
   do
     local settimeout,setinterval,encode,decode =  -- gives us a better error messages
