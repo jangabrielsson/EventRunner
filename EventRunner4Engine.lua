@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix7"
+E_VERSION,E_FIX = 0.5,"fix8"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -1871,7 +1871,7 @@ function Module.eventScript.init()
   Util.defvar("defvars",Util.defvars)
   Util.defvar("mapvars",Util.reverseMapDef)
   Util.defvar("print",Util.printColorAndTag)
-  Util.defvar("QA",self2)
+  Util.defvar("QA",quickApp)
 
   ScriptParser   = makeEventScriptParser()
   ScriptCompiler = makeEventScriptCompiler(ScriptParser)
