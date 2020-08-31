@@ -99,7 +99,7 @@ function QuickApp:main()
 
   -- Create an infoCenter post every 5s with the current time
   --setInterval(function()
-  --    self:notify("info","Test",os.date("%c"))
+  --    self:notify("info","Test",os.date("%c"),true)
   --  end,5000)
 end
 

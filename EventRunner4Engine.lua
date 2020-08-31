@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix5"
+E_VERSION,E_FIX = 0.5,"fix6"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -312,6 +312,22 @@ function Module.utilities.init()
   end
   function self.printBanner(str) QA:debug(self.makeBanner(str)) end
 
+  function self.printColorAndTag(tag,color,fmt,...)
+    assert(tag and color and fmt,"print needs tag, color, and args")
+    local args={...}
+    if #args > 0 then
+      for i,v in ipairs(args) do if type(v)=='table' then args[i]=tostring(v) end end
+      fmt=string.format(fmt,table.unpack(args))
+    end
+    local t = __TAG
+    __TAG = tag or __TAG
+    if hc3_emulator or not color then quickApp:trace(fmt) 
+    else
+      quickApp:trace("<font color="..color..">"..fmt.."</font>") 
+    end
+    __TAG = t
+  end
+
   function pdebug(...) return quickApp:debugf(...) end
   function ptrace(...) return quickApp:tracef(...) end
   function pwarning(...) return quickApp:warningf(...) end
@@ -352,8 +368,8 @@ function Module.utilities.init()
       ['<cont>']=
       function(cont) 
         cbr[tag][2]=cont 
-        end
-      }
+      end
+    }
   end
 
   function self.receiveAsync(tag,res)
@@ -758,7 +774,7 @@ function Module.extras.init(self)
       return true,{_SUNTIMEVALUES[prop],os.time()}
     end)
 
-  local DEBUGKEYS = {debugTrigger=true,debugRules=true,debugPost=true}
+  local DEBUGKEYS = {debugTrigger=true,debugRule=true,debugPost=true}
 
   local function updateDebugKey(key,upd)
     local name = key:match("debug(.*)")
@@ -1437,6 +1453,7 @@ function Module.eventScript.init()
     end
     instr['%rule'] = function(s,n,e,i) local b,h=s.pop(),s.pop(); s.push(Rule.compRule({'=>',h,b,e.log},e)) end
     instr['log'] = function(s,n) s.push(ptrace(table.unpack(s.lift(n)))) end
+    instr['log'] = function(s,n) s.push(ptrace(table.unpack(s.lift(n)))) end
     instr['%logRule'] = function(s,n,e,i) local src,res = s.pop(),s.pop() 
       Debug(_debugFlags.rule or (_debugFlags.ruleTrue and res),"[%s]>>'%s'",tojson(res),src) s.push(res) 
     end
@@ -1852,6 +1869,7 @@ function Module.eventScript.init()
   Util.defvar('catch',math.huge)
   Util.defvar("defvars",Util.defvars)
   Util.defvar("mapvars",Util.reverseMapDef)
+  Util.defvar("print",Util.printColorAndTag)
 
   ScriptParser   = makeEventScriptParser()
   ScriptCompiler = makeEventScriptCompiler(ScriptParser)
@@ -1919,6 +1937,7 @@ function QuickApp:onInit()
   local main = self.main
   _HC3IPADDRESS = self.getHC3IPaddress()
   self.main = function(self)
+    self:notify("info","Started",os.date("%c"),true)
     psys("Sunrise:%s,  Sunset:%s",(fibaro.get(1,"sunriseHour")),(fibaro.get(1,"sunsetHour")))
     Util.printBanner("Setting up rules (main)")
     local stat,res = pcall(function()

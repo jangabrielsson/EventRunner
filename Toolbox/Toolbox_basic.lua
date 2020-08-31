@@ -33,7 +33,7 @@
 
 --]]
 
-local QA_toolbox_version = "0.17"
+local QA_toolbox_version = "0.18"
 local format = string.format
 Toolbox_Module,modules = Toolbox_Module or {},modules or {}
 local _init = QuickApp.__init
@@ -123,12 +123,13 @@ function Toolbox_Module.basic(self)
   end
 
   local function _printf(self,fun,fmt,...)
-    local str = _format(fmt,...)
+    local str,str2 = _format(fmt,...)
+    str2=str
     if self._HTML and not hc3_emulator then 
-      str = str:gsub("(\n)","<br>")
-      str = str:gsub("(%s)",'&nbsp;')
+      str2 = str:gsub("(\n)","<br>")
+      str2 = str:gsub("(%s)",'&nbsp;')
     end
-    fun(self,str)
+    fun(self,str2)
     return str
   end
 
@@ -241,10 +242,9 @@ function Toolbox_Module.basic(self)
 --end
 
 -- Add notification to notification center
-  function self:notify(priority, title, text)
+  function self:notify(priority, title, text, reuse)
     assert(({info=true,warning=true,critical=true})[priority],"Wrong 'priority' - info/warning/critical")
-    self._lastNotification = self._lastNotification or {}
-    local msgId = title..self.id
+    local msgId = nil
     local data = {
       canBeDeleted = true,
       wasRead = false,
@@ -257,12 +257,20 @@ function Toolbox_Module.basic(self)
         text = tostring(text)
       }
     }
-    if self._lastNotification[msgId] then
-      local res,code = api.put("/notificationCenter/"..self._lastNotification[msgId].id, data)
-      if code==200 then return self._lastNotification[msgId].id end
+    if reuse then
+      local notifications = api.get("/notificationCenter")
+      for _,n in ipairs(notifications) do
+        if n.data and n.data.deviceId == self.id and n.data.title == title then
+          msgId = n.id
+          break
+        end
+      end
     end
-    self._lastNotification[msgId] = api.post("/notificationCenter", data)
-    return self._lastNotification[msgId] and self._lastNotification[msgId].id
+    if msgId then
+      api.put("/notificationCenter/"..msgId, data)
+    else
+      api.post("/notificationCenter", data)
+    end
   end
 
   local refs = {}
