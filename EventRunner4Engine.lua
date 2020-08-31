@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix6"
+E_VERSION,E_FIX = 0.5,"fix7"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -1288,7 +1288,8 @@ function Module.eventScript.init()
     local function getArg(s,e) if e then return e[1] else return s.pop() end end
     instr['%aref'] = function(s,n,e,i) local k,tab 
       if n==1 then k,tab=i[3],s.pop() else k,tab=s.pop(),s.pop() end
-      _assert(type(tab)=='table',"attempting to index non table with key:'%s'",k); e._lastR = k
+      local tt = type(tab)
+      _assert(tt=='table' or tt=='userdata',"attempting to index non table with key:'%s'",k); e._lastR = k
       s.push(tab[k])
     end
     instr['%setaref'] = function(s,n,e,i) local r,v,k = s.pop(),getArg(s,i[3]),getArg(s,i[4])
@@ -1870,6 +1871,7 @@ function Module.eventScript.init()
   Util.defvar("defvars",Util.defvars)
   Util.defvar("mapvars",Util.reverseMapDef)
   Util.defvar("print",Util.printColorAndTag)
+  Util.defvar("QA",self2)
 
   ScriptParser   = makeEventScriptParser()
   ScriptCompiler = makeEventScriptCompiler(ScriptParser)
