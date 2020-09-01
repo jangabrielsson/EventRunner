@@ -33,7 +33,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.124" 
+local FIBAROAPIHC3_VERSION = "0.125" 
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -433,8 +433,19 @@ function module.FibaroAPI()
 
 -- User PIN?
   function fibaro.alarm(partition_id, action)
-    if action then return api.post("/alarms/v1/partitions/"..partition_id.."/actions/"..action)
-    else return api.post("/alarms/v1/partitions/actions/"..partition_id) end -- partition_id -> action
+    if not action then
+      if action=='arm' then
+        api.post("/alarms/v1/partitions/actions/arm")
+      elseif action=='disarm' then
+        api.delete("/alarms/v1/partitions/actions/arm")
+      end
+    else
+      if action=='arm' then
+        return api.post("/alarms/v1/partitions/actions/arm")
+      elseif action=='disarm' then
+        return api.delete("/alarms/v1/partitions/actions/arm")
+      end
+    end
   end
 
   function fibaro.__houseAlarm() end -- ToDo:
@@ -653,6 +664,7 @@ function module.FibaroAPI()
     --req.headers["Accept"] = 'application/json'
     req.headers["Accept"] = '*/*'
     req.headers["X-Fibaro-Version"] = 2
+    req.headers["Fibaro-User-PIN"] = hc3_emulator.USERPIN
     if data then
       req.headers["Content-Type"] = cType
       req.headers["content-length"] = #data
@@ -4559,7 +4571,8 @@ function module.Offline(self)
       ["/sections/(%d+)"] = function(call,data,cType,id) return get(resources.sections,tonumber(id)) end,
       ["/sections/?$"] = function(call,data,cType,name) return arr(resources.sections) end,
       ["/refreshStates%?last=(%d+)"] = function(call,data,cType,last) return refreshStates.getEvents(tonumber(last)),200 end,
-      ["/settings/location/?$"] = function(_) return resources.settings.location end
+      ["/settings/location/?$"] = function(_) return resources.settings.location end,
+      ["/notificationCenter"] = function(call,data,cType,name) return {},200 end,
     },
     ["POST"] = {
       ["/globalVariables/?$"] = function(call,data,_) -- Create variable.

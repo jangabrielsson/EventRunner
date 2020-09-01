@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix8"
+E_VERSION,E_FIX = 0.5,"fix9"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -851,6 +851,39 @@ function Module.extras.init(self)
   function http.delete(url,options) options=options or {}; options.method="DELETE" return httpCall(url,options) end
   Util.defvar("http",http)
   Util.defvar("QA",self)
+
+  equations = {
+    linear = function(t, b, c, d) return c * t / d + b; end,
+    inQuad = function(t, b, c, d) t = t / d; return c * math.pow(t, 2) + b; end,
+    inOutQuad = function(t, b, c, d) t = t / d * 2; return t < 1 and c / 2 * math.pow(t, 2) + b or -c / 2 * ((t - 1) * (t - 3) - 1) + b end,
+    outInExpo = function(t, b, c, d) return t < d / 2 and equations.outExpo(t * 2, b, c / 2, d) or equations.inExpo((t * 2) - d, b + c / 2, c / 2, d) end,
+    inExpo = function(t, b, c, d) return t == 0 and b or c * math.pow(2, 10 * (t / d - 1)) + b - c * 0.001 end,
+    outExpo = function(t, b, c, d) return t == d and  b + c or c * 1.001 * (-math.pow(2, -10 * t / d) + 1) + b end,
+    inOutExpo = function(t, b, c, d)
+      if t == 0 then return b elseif t == d then return b + c end
+      t = t / d * 2
+      if t < 1 then return c / 2 * math.pow(2, 10 * (t - 1)) + b - c * 0.0005 else t = t - 1; return c / 2 * 1.0005 * (-math.pow(2, -10 * t) + 2) + b end
+    end,
+  }
+
+  function Util.dimLight(id,sec,dir,step,curve,start,stop)
+    _assert(tonumber(sec), "Bad dim args for deviceID:%s",id)
+    local f = curve and equations[curve] or equations['linear']
+    dir,step = dir == 'down' and -1 or 1, step or 1
+    start,stop = start or 0,stop or 99
+    local t = dir == 1 and 0 or sec
+    self:post({type='%dimLight',id=id,sec=sec,dir=dir,fun=f,t=dir == 1 and 0 or sec,start=start,stop=stop,step=step})
+  end
+
+  self:event({type='%dimLight'},function(env)
+      local e = env.event
+      local ev,currV = e.v or -1,tonumber(fibaro.getValue(e.id,"value"))
+      if e.v and currV ~= e.v then return end -- Someone changed the lightning, stop dimming
+      e.v = math.floor(e.fun(e.t,e.start,e.stop,e.sec)+0.5)
+      if ev ~= e.v then fibaro.call(e.id,"setValue",e.v) end
+      e.t=e.t+e.dir*e.step
+      if 0 <= e.t and  e.t <= e.sec then self:post(e,os.time()+e.step) end
+    end)
 end
 
 ----------------- EventScript support -------------------------
