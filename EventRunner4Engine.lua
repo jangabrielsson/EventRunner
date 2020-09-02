@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix10"
+E_VERSION,E_FIX = 0.5,"fix11"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -1903,7 +1903,7 @@ function Module.eventScript.init()
   Util.defvar('catch',math.huge)
   Util.defvar("defvars",Util.defvars)
   Util.defvar("mapvars",Util.reverseMapDef)
-  Util.defvar("print",Util.printTagAndColor)
+  Util.defvar("print",function(...) quickApp:printTagAndColor(...) end)
   Util.defvar("QA",quickApp)
 
   ScriptParser   = makeEventScriptParser()
