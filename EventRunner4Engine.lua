@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix11"
+E_VERSION,E_FIX = 0.5,"fix12"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -628,7 +628,7 @@ function Module.utilities.init()
   end
 
   if not hc3_emulator then
-    local _IPADDRESS = _HC3IPADDRESS
+    _IPADDRESS = _HC3IPADDRESS
     function self.getIPaddress()
       if _IPADDRESS then return _IPADDRESS end
       local nets = api.get("/settings/network").networkConfig or {}
