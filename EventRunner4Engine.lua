@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix9"
+E_VERSION,E_FIX = 0.5,"fix10"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -1903,7 +1903,7 @@ function Module.eventScript.init()
   Util.defvar('catch',math.huge)
   Util.defvar("defvars",Util.defvars)
   Util.defvar("mapvars",Util.reverseMapDef)
-  Util.defvar("print",Util.printColorAndTag)
+  Util.defvar("print",Util.printTagAndColor)
   Util.defvar("QA",quickApp)
 
   ScriptParser   = makeEventScriptParser()
@@ -1970,7 +1970,8 @@ function QuickApp:onInit()
   fibaro.ID = self.id
   --psys("IP address:%s",Util.getIPaddress())  
   local main = self.main
-  _HC3IPADDRESS = self.getHC3IPaddress()
+  _IPADDRESS = self.getHC3IPaddress()
+  self:debug("IP:",_IPADDRESS)
   self.main = function(self)
     self:notify("info","Started",os.date("%c"),true)
     psys("Sunrise:%s,  Sunset:%s",(fibaro.get(1,"sunriseHour")),(fibaro.get(1,"sunsetHour")))

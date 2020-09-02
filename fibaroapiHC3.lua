@@ -33,7 +33,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.125" 
+local FIBAROAPIHC3_VERSION = "0.126" 
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -244,7 +244,7 @@ function module.FibaroAPI()
     end 
   end
   function __fibaro_get_device(deviceID) __assert_type(deviceID,"number") 
-    if _quickApp.id == deviceID then
+    if _quickApp and _quickApp.id == deviceID then
       return _quickApp
     end
     return api.get("/devices/"..deviceID) 

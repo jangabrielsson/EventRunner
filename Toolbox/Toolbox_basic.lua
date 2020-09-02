@@ -133,6 +133,18 @@ function Toolbox_Module.basic(self)
     return str
   end
 
+  function self:printTagAndColor(tag,color,fmt,...)
+    assert(fmt,"print needs tag, color, and args")
+    fmt = _format(fmt,...)
+    local t = __TAG
+    __TAG = tag or __TAG
+    if hc3_emulator or not color then self:trace(fmt) 
+    else
+      self:trace("<font color="..color..">"..fmt.."</font>") 
+    end
+    __TAG = t
+  end
+
   function self:encodeBase64(data)
     local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
     return ((data:gsub('.', function(x) 
