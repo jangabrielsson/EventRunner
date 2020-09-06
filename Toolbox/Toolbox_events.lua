@@ -208,7 +208,7 @@ function Toolbox_Module.events.init(self)
     local rm = {[em.RULE]=e, action=action, doc=doc, subs=rl}
     rm.enable = function() mapF(function(e) e.enable() end,rl) return rm end
     rm.disable = function() mapF(function(e) e.disable() end,rl) return rm end
-    rm.start = function(event) self._invokeRule({rule=rm,event=event}) return rm end
+    rm.start = function(event) invokeHandler({rule=rm,event=event}) return rm end
     rm.__tostring = comboToStr
     return rm
   end

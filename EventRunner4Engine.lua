@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix12"
+E_VERSION,E_FIX = 0.5,"fix14"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -1011,6 +1011,7 @@ function Module.eventScript.init()
 --2019/3/30/20:30
     token("%d?%d?%d?%d?/?%d+/%d+/%d%d:%d%d:?%d?%d?",function (t) return {type="number", sw='num', value=toTimeDate(t)} end)
     token("%d%d:%d%d:?%d?%d?",function (t) return {type="number", sw='num', value=toTime(t)} end)
+    token("%d+:%d+",function (t) error('Bad time constant') end)
     token("[t+n][/]", function (op) return {type="operator", sw='op', value=op} end)
     token("#[A-Za-z_][%w_%-]*", function (w) return {type="event", sw='ev', value=w} end)
 --token("[A-Za-z_][%w_]*", function (w) return {type=nopers[w] and 'operator' or "name", sw=nopers[w] and 'op' or 'nam', value=w} end)
