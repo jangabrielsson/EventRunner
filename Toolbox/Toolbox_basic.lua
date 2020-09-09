@@ -8,6 +8,7 @@
   self._DEBUG == false will inhibit all self:debug messages
   self._TRACE == false will inhibit all self:trace messages
   self._NOTIFY == true will create NotificationCenter messages for self:error and self:warning
+  self._NOTIFYREUSE == true will reuse notifications with same title
   self._HTML == true will format space/nl with html codes for log with self:*f functions
   
   Children will be loaded if there are any children (and module 'child' is loaded)
@@ -254,8 +255,10 @@ function Toolbox_Module.basic(self)
 --end
 
 -- Add notification to notification center
+  local cachedNots = {}
   function self:notify(priority, title, text, reuse)
     assert(({info=true,warning=true,critical=true})[priority],"Wrong 'priority' - info/warning/critical")
+    if reuse==nil then reuse = self._NOTIFYREUSE end
     local msgId = nil
     local data = {
       canBeDeleted = true,
@@ -269,19 +272,25 @@ function Toolbox_Module.basic(self)
         text = tostring(text)
       }
     }
+    local nid = title..self.id
     if reuse then
-      local notifications = api.get("/notificationCenter")
-      for _,n in ipairs(notifications) do
-        if n.data and n.data.deviceId == self.id and n.data.title == title then
-          msgId = n.id
-          break
+      if cachedNots[nid] then
+        msgId = cachedNots[nid]
+      else
+        local notifications = api.get("/notificationCenter")
+        for _,n in ipairs(notifications) do
+          if n.data and n.data.deviceId == self.id and n.data.title == title then
+            msgId = n.id
+            break
+          end
         end
       end
     end
     if msgId then
       api.put("/notificationCenter/"..msgId, data)
     else
-      api.post("/notificationCenter", data)
+      local id = api.post("/notificationCenter", data)
+      cachedNots[nid] = id
     end
   end
 

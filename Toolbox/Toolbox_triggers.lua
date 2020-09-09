@@ -127,6 +127,9 @@ function Toolbox_Module.triggers.init(self)
     ZwaveDeviceParametersChangedEvent = function(_) end,
     ZwaveNodeAddedEvent = function(_) end,
     RefreshRequiredEvent = function(_) end,
+    GeofenceEvent = function(d) 
+      post({type='location',id=d.userId,property=d.locationId,value=d.geofenceAction,timestamp=d.timestamp})
+      end,
   }
 
   local lastRefresh,enabled = 0,true
