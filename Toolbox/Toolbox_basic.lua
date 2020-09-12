@@ -289,8 +289,8 @@ function Toolbox_Module.basic(self)
     if msgId then
       api.put("/notificationCenter/"..msgId, data)
     else
-      local id = api.post("/notificationCenter", data)
-      cachedNots[nid] = id
+      local d = api.post("/notificationCenter", data)
+      if d then cachedNots[nid] = d.id end
     end
   end
 
@@ -420,6 +420,15 @@ function Toolbox_Module.basic(self)
       str = str:gsub(" ", "%%20")
     end
     return str	
+  end
+  
+  local function syncGet(url,user,pwd)
+    local h,b = url:match("(.-)//(.*)")
+    if pwd then
+      pwd = urlencode(user)..":"..urlencode(pwd).."@"
+    else pwd = "" end
+    url=h.."//"..pwd..b
+    return api.get("/proxy?url="..urlencode(url))
   end
 
   local function copy(expr)

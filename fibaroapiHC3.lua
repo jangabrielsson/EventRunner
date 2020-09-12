@@ -26,6 +26,7 @@ Contributions & bugfixes:
 -  @petergebruers, forum.fibaro.com
 -  @tinman, forum.fibaro.com
 -  @10der, forum.fibaro.com
+-  @rangee, forum.fibaro.com
 
 Sources:
 json           -- Copyright (c) 2019 rxi
@@ -33,7 +34,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.126" 
+local FIBAROAPIHC3_VERSION = "0.128" 
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -595,7 +596,7 @@ function module.FibaroAPI()
   end
 
   function net.TCPSocket(opts) 
-    local self = { opts = opts }
+    local self = { opts = opts or {} }
     local sock = socket.tcp()
     function self:connect(ip, port, opts) 
       for k,v in pairs(self.opts) do opts[k]=v end
@@ -619,8 +620,7 @@ function module.FibaroAPI()
   end
 
   function net.UDPSocket(opts) 
-    local self = {}
-    self.opts = opts or {}
+    local self = { opts = opts or {} }
     local sock = socket.udp()
     if self.opts.broadcast~=nil then 
       sock:setsockname(Util.getIPaddress(), 0)
@@ -1605,7 +1605,7 @@ local function POST2IDE(path,payload)
     url = "http://"..IP..path
     net.HTTPClient():request(url,{options={method='POST',data=json.encode(payload)}})
 end
-local IGNORE={updateView=true,setVariable=true,updateProperty=true} -- Rewrite!!!!
+local IGNORE={updateView=true,setVariable=true,updateProperty=true,APIPOST=true,APIPUT=true,APIGET=true} -- Rewrite!!!!
 function QuickApp:actionHandler(action) 
       if IGNORE[action.actionName] then 
         return self:callAction(action.actionName, table.unpack(action.args))
@@ -1614,6 +1614,9 @@ function QuickApp:actionHandler(action)
 end
 function QuickApp:UIHandler(UIEvent) POST2IDE("/fibaroapiHC3/ui/"..self.id,UIEvent) end
 function QuickApp:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) end
+function QuickApp:APIGET(url) api.get(url) end
+function QuickApp:APIPOST(url,data) api.post(url,data) end -- to get around some access restrictions
+function QuickApp:APIPUT(url,data) api.put(url,data) end
 ]]
     code[#code+1]= "function QuickApp:onInit()"
     code[#code+1]= " self:debug('"..name.."',' deviceId:',self.id)"
@@ -1654,7 +1657,7 @@ function QuickApp:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) e
     local qv = {}
     for k,v in pairs(quickVars) do qv[#qv+1]={name=k,value=v} end
     local deviceStruct= {
-      id=hc3_emulator.id or 999,name=name,type=ptype,
+      id=hc3_emulator.id or 999,name=name,type=ptype, roomID = 219,
       properties={quickAppVariables=qv}
     }
 
@@ -2083,7 +2086,8 @@ function module.Trigger()
   local self = {}
   local tickEvent = "ERTICK"
 
-  local cache = { polling=false, devices={}, globals={}, centralSceneEvents={}} -- Caching values when we poll to reduce traffic to HC3...
+  local cache = { polling=false, devices={}, globals={}, 
+    centralSceneEvents={},accessControlEvents={},sceneActivationEvents={}} -- Caching values when we poll to reduce traffic to HC3...
   self.cacheStore=cache
   function cache.write(type,id,prop,value) 
     cache[type][id] = cache[type][id] or {}
@@ -2129,9 +2133,16 @@ function module.Trigger()
       cache.write('centralSceneEvents',d.deviceId,"",d) 
       post({type='device', property='centralSceneEvent', id=d.deviceId, value = {keyId=d.keyId, keyAttribute=d.keyAttribute}}) 
     end,
+    SceneActivationEvent = function(d) 
+      cache.write('sceneActivationEvents',d.deviceId,"",d) 
+      post({type='device', property='sceneActivationEvent', id=d.deviceId, value = {sceneId=d.sceneId, name=d.name}}) 
+    end,
     AccessControlEvent = function(d) 
-      cache.write('accessControlEvent',d.id,"",d)
+      cache.write('accessControlEvents',d.id,"",d)
       post({type='device', property='accessControlEvent', id = d.deviceID, value=d}) 
+    end,
+    GeofenceEvent = function(d) 
+      post({type='location',id=d.userId,property=d.locationId,value=d.geofenceAction,timestamp=d.timestamp})
     end,
     ActiveProfileChangedEvent = function(d) 
       post({type='profile',property='activeProfile',value=d.newActiveProfile, old=d.oldActiveProfile}) 
@@ -2217,7 +2228,7 @@ function module.Trigger()
     local function pollRefresh()
       pollOnce()
       Timer.setTimeout(pollRefresh,INTERVAL,"RefreshState").isSystem=true
-      fibaro.setGlobalVariable(tickEvent,tostring(os.clock())) -- emit hangs
+--      fibaro.setGlobalVariable(tickEvent,tostring(os.clock())) -- emit hangs
     end
     Timer.setTimeout(pollRefresh,0).isSystem=true
   end
@@ -2232,34 +2243,41 @@ function module.Trigger()
   local function createRefreshStateQueue(size)
     local self = {}
     local QLAST = 300
-    local function mkQeueu(size)
-      self = { size=size, queue={} }
-      local queue,head,tail = self.queue,1,1
-      function self.pop()
-        if head==tail then return end
-        local e = queue[head]
-        head = head-1; if head==0 then head = size end
-        return e
+    local function mkQueue(size)
+      local self = { size=size, queue={} }
+      local queue,first,last = self.queue,0,-1
+      function self.push(value)
+        last = last + 1
+        queue[last] = value
       end
-      function self.push(e) 
-        head=head % size + 1
-        if head==tail then tail = tail % size + 1 end
-        queue[head]=e
+      function self.pop()
+        if first > last then return nil end
+        local value = queue[first]
+        queue[first] = nil        -- to allow garbage collection
+        first = first + 1
+        return value
       end
       function self.dump()
-        local h1,t1 = head,tail
-        local e = self.pop()
-        while e do print(json.encode(e)) e = self.pop() end
-        head,tail = h1,t1
       end
       return self
     end
 
-    self.eventQueue=mkQeueu(size) --- 1..QUEUELENGTH
+--    local qq = mkQueue(20)
+--    for i=1,10 do qq.push(i) end
+--    for i=1,10 do print(qq.pop()) end
+
+    self.eventQueue=mkQueue(size) --- 1..QUEUELENGTH
     local eventQueue = self.eventQueue
+
+    local function filter(events)
+      local res = {}
+      for _,e in ipairs(events) do res[#res+1]=e.type end
+      return res
+    end
 
     function self.addEvents(events) -- {last=num,events={}}
       QLAST=QLAST+1
+      --print("ADD:"..json.encode(filter(events)))
       events = events[1] and events or {events}
       eventQueue.push({last=QLAST, events=events})
     end
@@ -2273,11 +2291,12 @@ function module.Trigger()
         else break end
       end
       if #res1==0 then return { last=last } end
-      last = res1[1].last   ----  { 1, 2, 3, 4, 5}
-      for i=#res1,1,-1 do
-        local es = res1[i].events or {}
-        for j=#es,1,-1 do res2[#res2+1]=es[j] end
+      last = res1[#res1].last   ----  { 1, 2, 3, 4, 5}
+      for i=1,#res1 do
+        local es = res1[i].events
+        if es then for j=1,#es do res2[#res2+1]=es[j] end end
       end
+      --print("RET:"..json.encode(filter(res2)))
       return {last = last, events = res2}
     end
     self.dump = eventQueue.dump
@@ -2417,7 +2436,8 @@ function module.Utilities()
   end 
 
   function self.urlencode (str) 
-    return str and string.gsub(str ,"([^% w])",function(c) return format("%%% 02X",string.byte(c))  end) 
+    local s = str and string.gsub(str ,"([^% w])",function(c) return format("%%% 02X",string.byte(c))  end) 
+    return s
   end
   function self.urldecode(str) return str:gsub('%%(%x%x)',function (x) return string.char(tonumber(x,16)) end) end
   function self.safeDecode(x) local stat,res = pcall(function() return json.decode(x) end) return stat and res end
@@ -4752,6 +4772,18 @@ function module.Offline(self)
   function offline.start()
     if next(resources.settings.location)==nil then
       resources.settings.location={latitude=52.520008,longitude=13.404954}-- Berlin
+    end
+    if next(resources.rooms)==nil then
+      resources.rooms[219]={
+        id = 219,
+        name = "Default Room",
+        sectionID = 219,
+        isDefault = true,
+        visible = true,
+        icon = "",
+        defaultSensors = {},
+        defaultThermostat = 0,
+      }
     end
     local function setupSuntimes()
       local sunrise,sunset = Util.sunCalc()
