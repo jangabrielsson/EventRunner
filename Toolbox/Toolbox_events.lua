@@ -269,7 +269,7 @@ function Toolbox_Module.events.init(self)
     headers={},
     timeout=60,
     basicAuthorization = {user="admin",password="admin"}
-    useCertificate=0,
+    checkCertificate=0,
     method="GET"}
 --]]
 

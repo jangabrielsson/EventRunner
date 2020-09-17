@@ -1,7 +1,8 @@
 --[[
   Toolbox.
   
-  Additional QuickApp functions for logging and loading other toolbox modules
+  Additional QuickApp functions for logging and loading other toolbox modules.
+  This is not strictly a "module" as it is neccessary for the other modules
 
   Debug flags:
   self._2JSON == true will convert tables to json strings before printing (debug etc)
@@ -34,7 +35,7 @@
 
 --]]
 
-local QA_toolbox_version = "0.18"
+local QA_toolbox_version = "0.19"
 local format = string.format
 Toolbox_Module,modules = Toolbox_Module or {},modules or {}
 local _init = QuickApp.__init

@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix15"
+E_VERSION,E_FIX = 0.5,"fix16"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -119,21 +119,19 @@ Module.device = { name="ER Device", version="0.2"}
 function Module.device.init(self)
   local dev = { deviceID = self.id }
 
-  local uiCallbacks = self.properties.uiCallbacks or {}
-  for _,e in ipairs(uiCallbacks) do 
-    local name = e.eventType=='onChanged' and e.name.."Change" or e.name.."Clicked"
-    if self[name] then 
-      local old = self[name];
-      self[name] = function(self,arg) 
-        self:post({type='UI',name=e.name,eventType=arg.eventType,value=arg.values[1] or true}) 
-        if arg.eventType=='onChanged' then self:updateView(e.name,"value",tostring(arg.values[1])) end
-        old(self,arg) 
-      end
+  function self:UIHandler(event)
+    local obj = self
+    if self.id ~= event.deviceId then obj = (self.childDevices or {})[event.deviceId] end
+    if not obj then return end
+    local elm,etyp = event.elementName, event.eventType
+    local cb = obj.uiCallbacks or {}
+    if obj[elm] then return obj:callAction(elm, event) end
+    if cb[elm] and cb[elm][etyp] and self[cb[elm][etyp]] then return obj:callAction(cb[elm][etyp], event) end
+    if obj[elm.."Clicked"] then return obj:callAction(elm.."Clicked", event) end
+    if self.EM then
+      self:post({type='UI',name=event.elementName,event=event.eventType,value=event.values})
     else
-      self[name] = function(self,arg) 
-        self:post({type='UI',name=e.name,eventType=arg.eventType,value=arg.values[1] or true}) 
-        if arg.eventType=='onChanged' then self:updateView(e.name,"value",tostring(arg.values[1])) end
-      end
+      self:warning("UI callback for element:", elm, " not found.")
     end
   end
 
@@ -774,19 +772,27 @@ function Module.extras.init(self)
       return true,{_SUNTIMEVALUES[prop],os.time()}
     end)
 
-  local DEBUGKEYS = {debugTrigger=true,debugRule=true,debugPost=true}
+  local debugButtons = {
+    debugTrigger='Trigger',
+    debugPost='Post',
+    debugRule='Rule',
+  }
 
-  local function updateDebugKey(key,upd)
-    local name = key:match("debug(.*)")
-    local dkey = name:lower()
-    if upd then _debugFlags[dkey] = not _debugFlags[dkey] end
-    self:updateView(key,"text",name..":"..(_debugFlags[dkey] and "ON" or "OFF"))
+  for b,n in pairs(debugButtons) do
+    local name = n..":"..(_debugFlags[n:lower()] and "ON" or "OFF")
+    self:updateView(b,"text",name)
   end
 
-  setTimeout(function() for k,_ in pairs(DEBUGKEYS) do updateDebugKey(k) end end,5)
-  self:event({type='UI'},function(env)
-      local b = env.event.name
-      if DEBUGKEYS[b] then updateDebugKey(b,true) end
+  self:event({type='UI'},
+    function(env)
+      local trigger = (debugButtons)[env.event.name]
+      if trigger then
+        local tname = trigger:lower()
+        _debugFlags[tname] = not _debugFlags[tname]
+        local name = trigger..":"..(_debugFlags[tname] and "ON" or "OFF")
+        self:updateView(env.event.name,"text",name)
+        return self._Events.BREAK
+      end
     end)
 
   function self:profileName(id) for _,p in ipairs(api.get("/profiles").profiles) do if p.id == id then return p.name end end end

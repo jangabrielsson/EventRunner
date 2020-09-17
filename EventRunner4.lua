@@ -39,27 +39,27 @@ _debugFlags.pubsub=true    -- log only rules that are true
 function QuickApp:main()    -- EventScript version
   local rule = function(...) return self:evalScript(...) end          -- old rule function
   self:enableTriggerType({"device","global-variable","custom-event"}) -- types of events we want
-  
+
   HT = { 
     keyfob = 26, 
     motion= 21,
     temp = 22, 
     lux = 23,
   }
-
+  
   Util.defvars(HT)
   Util.reverseMapDef(HT)
-  
+
   -- rule("@@00:01 & date('0/5 12-15 *') => log('ping')")
   -- rule("@@00:00:05 => log(now % 2 == 1 & 'Tick' | 'Tock')")
   -- rule("remote(1356,#foo)")
   -- rule("wait(5); publish(#foo)")
   -- rule("motion:value => log('Motion:%s',motion:last)")
-  
+
 -- rule("@{catch,05:00} => Util.checkForUpdates()")
 -- rule("#File_update{} => log('New file version:%s - %s',env.event.file,env.event.version)")
 --  rule("#File_update{} => Util.updateFile(env.event.file)")
-  
+
 --  rule("keyfob:central => log('Key:%s',env.event.value.keyId)")
 --  rule("motion:value => log('Motion:%s',motion:value)")
 --  rule("temp:temp => log('Temp:%s',temp:temp)")

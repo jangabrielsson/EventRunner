@@ -120,13 +120,17 @@ function Toolbox_Module.childs.init(self)
 -- UI handler to pass button clicks to children
   function self:UIHandler(event)
     local obj = self
-    if self.id ~= event.deviceId then obj = self.childDevices[event.deviceId] end
+    if self.id ~= event.deviceId then obj = (self.childDevices or {})[event.deviceId] end
     if not obj then return end
     local elm,etyp = event.elementName, event.eventType
     local cb = obj.uiCallbacks or {}
     if obj[elm] then return obj:callAction(elm, event) end
-    if cb[elm] and cb[elm][etyp] then return obj:callAction(cb[elm][etyp], event) end
-    if obj[elm.."Clicked"] then return obj:callAction(elm.."Clicked", table.unpack(event.values or {})) end
-    self:warning("UI callback for element:", elm, " not found.")
+    if cb[elm] and cb[elm][etyp] and self[cb[elm][etyp]] then return obj:callAction(cb[elm][etyp], event) end
+    if obj[elm.."Clicked"] then return obj:callAction(elm.."Clicked", event) end
+    if self.EM then
+      self:post({type='UI',name=event.elementName,event=event.eventType,value=event.values})
+    else
+      self:warning("UI callback for element:", elm, " not found.")
+    end
   end
 end

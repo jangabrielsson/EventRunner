@@ -139,7 +139,7 @@ function Toolbox_Module.ui.init(self)
     return cb
   end
 
-  function self:updateViewLayout(id,UI,height,forceUpdate) --- This may not work anymore....
+  function self:updateViewLayout(id,UI,height,forceUpdate) 
     if forceUpdate==nil then forceUpdate = true end
     transformUI(UI)
     local cb = api.get("/devices/"..id).properties.uiCallbacks or {}
@@ -159,6 +159,43 @@ function Toolbox_Module.ui.init(self)
           viewLayout = viewLayout,
           uiCallbacks = cb},
       })
+  end
+
+  function self:insertLabel(name,text,pos)
+    local id = self.id
+    local vl = api.get("/devices/"..id).properties.viewLayout
+    local v = vl['$jason'].body.sections.items
+    for _,i in ipairs(v) do
+      for _,j in ipairs(i.components or {}) do
+        if j.type=='label' and j.name==name then return false end
+      end
+    end
+    local elm = {name=name,style={weight="1.2"},text=text,type="label"}
+    table.insert(v,pos,
+      {
+        components={
+          elm,
+          {style={weight="0.5"},type="space"}
+        },
+        style={weight="1.2"},
+        type="vertical"
+      })
+    return api.put("/devices/"..id,{properties={viewLayout=vl}})
+  end
+
+  function self:removeLabel(name)
+    local id = self.id
+    local vl = api.get("/devices/"..id).properties.viewLayout
+    local v = vl['$jason'].body.sections.items
+    for _,i in ipairs(v) do
+      for _,j in ipairs(i.components or {}) do
+        if j.type=='label' and j.name==name then
+          table.remove(v,i)
+          return api.put("/devices/"..id,{properties={viewLayout=vl}})
+          return
+        end
+      end
+    end
   end
 
 end
