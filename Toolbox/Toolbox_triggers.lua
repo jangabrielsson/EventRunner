@@ -20,6 +20,7 @@
   {type='device', id=<id>, property='accessControlEvent', value=<value>}
   {type='device', id=<id>, property='sceneActivationEvent', value=<value>}
   {type='profile', property='activeProfile', value=<value>, old=<value>}
+  {type='location',id=<userId>,property=<locationId>,value=<geofenceAction>,timestamp=<timestamp>}
   {type='custom-event', name=<name>}
   {type='UpdateReadyEvent', value=_}
   {type='deviceEvent', id=<id>, value='removed'}
@@ -27,6 +28,7 @@
   {type='deviceEvent', id=<id>, value='created'}
   {type='deviceEvent', id=<id>, value='modified'}
   {type='deviceEvent', id=<id>, value='crashed', error=<string>}
+  {type='sceneEvent',  id=<id>, value='created'}
   {type='sceneEvent',  id=<id>, value='started'}
   {type='sceneEvent',  id=<id>, value='finished'}
   {type='sceneEvent',  id=<id>, value='instance', instance=d}

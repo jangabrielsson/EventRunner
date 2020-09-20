@@ -34,7 +34,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.128" 
+local FIBAROAPIHC3_VERSION = "0.130" 
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -1329,18 +1329,18 @@ function module.QuickApp()
 
   local ELMS = {
     button = function(d,w)
-      return {name=d.name,style={weight=w or "0.50"},text=d.text,type="button"}
+      return {name=d.name,style={weight=d.weight or w or "0.50"},text=d.text,type="button"}
     end,
     select = function(d,w)
       if d.options then map(function(e) e.type='option' end,d.options) end
-      return {name=d.name,style={weight=w or "0.50"},text=d.text,type="select", selectionType='single',
+      return {name=d.name,style={weight=d.weight or w or "0.50"},text=d.text,type="select", selectionType='single',
         options = d.options or {{value="1", type="option", text="option1"}, {value = "2", type="option", text="option2"}},
         values = d.values or { "option1" }
       }
     end,
     multi = function(d,w)
       if d.options then map(function(e) e.type='option' end,d.options) end
-      return {name=d.name,style={weight=w or "0.50"},text=d.text,type="select", selectionType='multi',
+      return {name=d.name,style={weight=d.weight or w or "0.50"},text=d.text,type="select", selectionType='multi',
         options = d.options or {{value="1", type="option", text="option2"}, {value = "2", type="option", text="option3"}},
         values = d.values or { "option3" }
       }
@@ -1349,16 +1349,16 @@ function module.QuickApp()
       return {name=d.name,style={dynamic="1"},type="image", url=d.url}
     end,
     switch = function(d,w)
-      return {name=d.name,style={weight=w or "0.50"},type="switch", value=d.value or "true"}
+      return {name=d.name,style={weight=w or d.weight or "0.50"},type="switch", value=d.value or "true"}
     end,
     option = function(d,w)
       return {name=d.name, type="option", value=d.value or "Hupp"}
     end,
     slider = function(d)
-      return {name=d.name,max=tostring(d.max),min=tostring(d.min),style={weight="1.2"},text=d.text,type="slider"}
+      return {name=d.name,step=tostring(d.step),value=tostring(d.value),max=tostring(d.max),min=tostring(d.min),style={weight=d.weight or w or "1.2"},text=d.text,type="slider"}
     end,
     label = function(d)
-      return {name=d.name,style={weight="1.2"},text=d.text,type="label"}
+      return {name=d.name,style={weight=d.weight or w or "1.2"},text=d.text,type="label"}
     end,
     space = function(d,w)
       return {style={weight=w or "0.50"},type="space"}
@@ -1370,8 +1370,10 @@ function module.QuickApp()
     if elms[1] then
       local c = {}
       local width = format("%.2f",1/#elms)
+      if width:match("%.00") then width=width:match("^(%d+)") end
       for _,e in ipairs(elms) do c[#c+1]=ELMS[e.type](e,width) end
-      comp[#comp+1]={components=c,style={weight="1.2"},type='horizontal'}
+      if #elms > 1 then comp[#comp+1]={components=c,style={weight="1.2"},type='horizontal'}
+      else comp[#comp+1]=c[1] end
       comp[#comp+1]=ELMS['space']({},"0.5")
     else
       comp[#comp+1]=ELMS[elms.type](elms,"1.2")
@@ -1417,6 +1419,28 @@ function module.QuickApp()
       end)
   end
 
+--  local function uiStruct2uiCallbacks(UI)
+--    local cb = {}
+--    --- "callback": "self:button1Clicked()",
+--    traverse(UI,
+--      function(e)
+--        if e.name then 
+--          -- {callback="foo",name="foo",eventType="onReleased"}
+--          local cbt,et = e.name..(e.button and "Clicked" or "Change"),e.button and "onReleased" or "onChanged"
+--          if e.onReleased then 
+--            cbt = e.onReleased
+--          elseif e.onChanged then
+--            cbt = e.onChanged
+--            et = "onChanged"
+--          end
+--          if e.button or e.slider then 
+--            cb[#cb+1]={callback=cbt,eventType=et,name=e.name} 
+--          end
+--        end
+--      end)
+--    return cb
+--  end
+
   local function uiStruct2uiCallbacks(UI)
     local cb = {}
     --- "callback": "self:button1Clicked()",
@@ -1424,15 +1448,18 @@ function module.QuickApp()
       function(e)
         if e.name then 
           -- {callback="foo",name="foo",eventType="onReleased"}
-          local cbt,et = e.name..(e.button and "Clicked" or "Change"),e.button and "onReleased" or "onChanged"
+          local defu = e.button and "Clicked" or e.slider and "Change" or (e.switch or e.select) and "Toggle" or ""
+          local deff = e.button and "onReleased" or e.slider and "onChanged" or (e.switch or e.select) and "onToggled" or ""
+          local cbt = e.name..defu
           if e.onReleased then 
             cbt = e.onReleased
           elseif e.onChanged then
             cbt = e.onChanged
-            et = "onChanged"
+          elseif e.onToggled then
+            cbt = e.onToggled
           end
-          if e.button or e.slider then 
-            cb[#cb+1]={callback=cbt,eventType=et,name=e.name} 
+          if e.button or e.slider or e.switch or e.select then 
+            cb[#cb+1]={callback=cbt,eventType=deff,name=e.name} 
           end
         end
       end)

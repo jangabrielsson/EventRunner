@@ -184,6 +184,43 @@ end
 
 ]]
 
+local QAwT_TEMPL =
+[[if dofile and not hc3_emulator then
+  hc3_emulator = {
+    name="My QA",
+    --proxy=true,
+    --deploy=true,
+    type="com.fibaro.deviceController",
+    poll=1000,
+    UI = {}
+  }
+  dofile("fibaroapiHC3.lua")
+end
+
+hc3_emulator.FILE("Toolbox/Toolbox_basic.lua","Toolbox")
+--hc3_emulator.FILE("Toolbox/Toolbox_child.lua","Toolbox_child")
+--hc3_emulator.FILE("Toolbox/Toolbox_events.lua","Toolbox_events")
+--hc3_emulator.FILE("Toolbox/Toolbox_trigger.lua","Toolbox_trigger")
+--hc3_emulator.FILE("Toolbox/Toolbox_files.lua","Toolbox_files")
+--hc3_emulator.FILE("Toolbox/Toolbox_rpc.lua","Toolbox_rpc")
+--hc3_emulator.FILE("Toolbox/Toolbox_pubsub.lua","Toolbox_pubsub")
+--hc3_emulator.FILE("Toolbox/Toolbox_ui.lua","Toolbox_ui")
+----------- Code -----------------------------------------------------------
+_version = "0.1"
+modules = {
+--  "childs",
+--  "events",
+--  "triggers",
+--  "files","rpc",
+--  "pubsub",
+--  "ui"
+}
+
+function QuickApp:onInit()
+  self:debug("onInit",self.id)
+end
+]]
+
 ---------- API completion and tooltips --------------
 
 local api = {
@@ -590,6 +627,8 @@ local function addTemplates(t)
     ide:GetEditor():InsertText(-1, SCENE_TEMPL)
   elseif t=="QA" then
     ide:GetEditor():InsertText(-1, QA_TEMPL)
+  elseif t=="QAwToolbox" then
+    ide:GetEditor():InsertText(-1, QAwT_TEMPL)
   end
 end
 
@@ -737,8 +776,11 @@ local interpreter = {
       
       local idTSC = ID("HC3.temp_SC")
       local idTER = ID("HC3.temp_ER")
+      local idTERT = ID("HC3.temp_ERT")
       templSubMenu:Append(idTER, "QuickApp"..KSC(idTER))
       ide:GetMainFrame():Connect(idTER, wx.wxEVT_COMMAND_MENU_SELECTED, function() addTemplates("QA") end)
+      templSubMenu:Append(idTERT, "QuickApp w. toolbox"..KSC(idTERT))
+      ide:GetMainFrame():Connect(idTERT, wx.wxEVT_COMMAND_MENU_SELECTED, function() addTemplates("QAwToolbox") end)
       templSubMenu:Append(idTSC, "Scene"..KSC(idTSC))
       ide:GetMainFrame():Connect(idTSC, wx.wxEVT_COMMAND_MENU_SELECTED, function() addTemplates("SCENE") end)
 
