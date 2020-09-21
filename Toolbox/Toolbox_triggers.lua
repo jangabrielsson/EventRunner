@@ -131,7 +131,7 @@ function Toolbox_Module.triggers.init(self)
     RefreshRequiredEvent = function(_) end,
     GeofenceEvent = function(d) 
       post({type='location',id=d.userId,property=d.locationId,value=d.geofenceAction,timestamp=d.timestamp})
-      end,
+    end,
   }
 
   local lastRefresh,enabled = 0,true
@@ -161,6 +161,7 @@ function Toolbox_Module.triggers.init(self)
       })
   end
   loop()
+
   function self:enableTriggerType(trs,enable) 
     if enable ~= false then enable = true end
     if type(trs)=='table' then 

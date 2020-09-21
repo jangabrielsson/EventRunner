@@ -34,7 +34,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.130" 
+local FIBAROAPIHC3_VERSION = "0.131" 
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -1419,28 +1419,6 @@ function module.QuickApp()
       end)
   end
 
---  local function uiStruct2uiCallbacks(UI)
---    local cb = {}
---    --- "callback": "self:button1Clicked()",
---    traverse(UI,
---      function(e)
---        if e.name then 
---          -- {callback="foo",name="foo",eventType="onReleased"}
---          local cbt,et = e.name..(e.button and "Clicked" or "Change"),e.button and "onReleased" or "onChanged"
---          if e.onReleased then 
---            cbt = e.onReleased
---          elseif e.onChanged then
---            cbt = e.onChanged
---            et = "onChanged"
---          end
---          if e.button or e.slider then 
---            cb[#cb+1]={callback=cbt,eventType=et,name=e.name} 
---          end
---        end
---      end)
---    return cb
---  end
-
   local function uiStruct2uiCallbacks(UI)
     local cb = {}
     --- "callback": "self:button1Clicked()",
@@ -1526,18 +1504,18 @@ function module.QuickApp()
   local function createFilesFromSource(source)
     local files = {}
     pcall(function() 
-        source = source:gsub([[hc3_emulator%s*.%s*FILE%s*%(%s*[%"%'](.-)[%"%']%s*,%s*[%"%'](.-)[%"%']%s*%)]],
+        source = source:gsub([[[^%-]hc3_emulator%s*.%s*FILE%s*%(%s*[%"%'](.-)[%"%']%s*,%s*[%"%'](.-)[%"%']%s*%)]],
           function(file,name) 
             f = io.open(file)
             if f then
               local c = f:read("*all")
               c = pruneCode(c)
-              files[#files+1]={name=name,content=c,isMain=false,isOpen=false}
+              files[#files+1]={name=name,content=c,isMain=false,type="lua",isOpen=false}
             else Log(LOG.ERROR,"Can't find FILE:%s - ignoring",file) end
             return ""
           end)
       end)
-    table.insert(files,1,{name="main",content=pruneCode(source),isMain=true,isOpen=false})
+    table.insert(files,1,{name="main",content=pruneCode(source),isMain=true,type='lua',isOpen=false})
     return files
   end
 
@@ -1565,11 +1543,14 @@ function module.QuickApp()
     local dryRun = args.dryrun or false
     d.apiVersion = "1.2"
     d.initialProperties = makeInitialProperties(UI,variables,args.height)
+
     if type(files)=='string' then files = createFilesFromSource(files) end
     d.files  = {}
+
     for _,f in ipairs(files) do f.isOpen=false; d.files[#d.files+1]=f end
+
     if dryRun then return d end
-    --Log(LOG.SYS,"Creating device...")--..json.encode(d)) 
+
     if not d.initialProperties.uiCallbacks[1] then
       d.initialProperties.uiCallbacks = nil
     end
@@ -1580,7 +1561,7 @@ function module.QuickApp()
           properties={
             quickAppVariables = d.initialProperties.quickAppVariables,
             viewLayout= d.initialProperties.viewLayout,
-            uiCallBacks = d.initialProperties.uiCallbacks,
+            uiCallbacks = d.initialProperties.uiCallbacks,
           }
         })
       if res <= 201 then
@@ -4073,25 +4054,49 @@ function module.Files()
     f:close()
   end
 
+--  local function updateFiles(newFiles,id)
+--    local oldFiles = self:getFiles(id)
+--    local newFileMap,oldFileMap = {},{}
+--    for _,f in ipairs(newFiles) do newFileMap[f.name]=f end
+--    for _,f in ipairs(oldFiles) do oldFileMap[f.name]=f end
+--    for _,f in pairs(newFileMap) do
+--      if oldFileMap[f.name] then
+--        local _,res = self:updateFile(id,f.name,f)  -- Update existing files
+--        if res > 201 then return nil,res end
+--      else
+--        local _,res = self:createFile(id,f)         -- Create new files
+--        if res > 201 then return nil,res end
+--      end
+--    end
+--    for _,f in pairs(oldFileMap) do
+--      if not newFileMap[f.name] then
+--        local _,res = self:deleteFile(id,f.name)   -- delete old files
+--        if res > 201 then return nil,res end
+--      end
+--    end
+--    return newFiles,200
+--  end
+
   local function updateFiles(newFiles,id)
-    local oldFiles = api.get("/quickApp/"..id.."/files")
-    local newFileMap,oldFileMap = {},{}
-    for _,f in ipairs(newFiles) do newFileMap[f.name]=f end
-    for _,f in ipairs(oldFiles) do oldFileMap[f.name]=f end
-    for _,f in pairs(newFileMap) do
-      if oldFileMap[f.name] then
-        local _,res = api.put("/quickApp/"..id.."/files/"..f.name,f) -- Update existing
-        if res > 201 then return nil,res end
-      else
-        local _,res = api.post("/quickApp/"..id.."/files",f)         -- Create new
-        if res > 201 then return nil,res end
-      end
+    local oldFiles = self:getFiles(id)
+    local oldFilesMap = {}
+    local updateFiles,createFiles = {},{}
+    for _,f in ipairs(oldFiles) do oldFilesMap[f.name]=f end
+    for _,f in ipairs(newFiles) do
+      if oldFilesMap[f.name] then 
+        updateFiles[#updateFiles+1]=f
+        oldFilesMap[f.name] = nil 
+      else createFiles[#createFiles+1]=f end
     end
-    for _,f in pairs(oldFileMap) do
-      if not newFileMap[f.name] then
-        local _,res = api.delete("/quickApp/"..id.."/files/"..f.name)
-        if res > 201 then return nil,res end
-      end
+    local _,res = self:updateFiles(id,updateFiles)  -- Update existing files
+    if res > 201 then return nil,res end
+    for _,f in ipairs(createFiles) do 
+      local _,res = self:createFile(id,f) 
+      if res > 201 then return nil,res end
+    end
+    for _,f in pairs(oldFilesMap) do
+      local _,res = self:deleteFile(id,f)
+      if res > 201 then return nil,res end
     end
     return newFiles,200
   end
@@ -4183,6 +4188,41 @@ function module.Files()
     local d = api.get("/devices/"..deviceId)
     assert(d and isType(d)=='QA',"device does not exists or is not a QuickApp")
     return api.delete("/devices/"..deviceId)
+  end
+
+  function self:deleteFile(deviceId,file)
+    local name = type(file)=='table' and file.name or file
+    return api.delete("/quickApp/"..deviceId.."/files/"..name)
+  end
+
+  function self:updateFile(deviceId,file,content)
+    if type(file)=='string' then
+      file = {isMain=false,isOpen=false,name=file,content=""}
+    end
+    file.content = type(content)=='string' and content or file.content
+    return api.put("/quickApp/"..deviceId.."/files/"..file.name,file) 
+  end
+
+  function self:updateFiles(deviceId,list)
+    return api.put("/quickApp/"..deviceId.."/files",list) 
+  end
+
+  function self:createFile(deviceId,file,content)
+    if type(file)=='string' then
+      file = {isMain=false,isOpen=false,name=file,content=""}
+    end
+    file.content = type(content)=='string' and content or file.content
+    return api.post("/quickApp/"..deviceId.."/files",file) 
+  end
+
+  function self:getFile(deviceId,file)
+    local name = type(file)=='table' and file.name or file
+    return api.get("/quickApp/"..deviceId.."/files/"..name) 
+  end
+
+  function self:getFiles(deviceId)
+    local res,code = api.get("/quickApp/"..deviceId.."/files")
+    return res or {},code
   end
 
   local function replaceQA(fileName,id)
