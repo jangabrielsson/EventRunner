@@ -152,7 +152,7 @@ function Toolbox_Module.triggers.init(self)
               end
             end
           end  
-          setTimeout(loop,INTERVAL)
+          setTimeout(loop,INTERVAL or 0)
         end,
         error=function(res) 
           self:errorf("refreshStates:%s",res)

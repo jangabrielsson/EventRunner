@@ -5,8 +5,12 @@
 
   function QuickApp:copyFileFromTo(fileName,deviceFrom,deviceTo) -- Copies file from one QA to another
   function QuickApp:addFileTo(fileContent,device)                -- Creates a new file for a QA
-  function QuickApp:listFiles(device)                            -- Get list of all files
-  function QuickApp:getFile(fileName,device)                     -- Get file
+  function QuickApp:getFiles(device)                             -- Get list of all files
+  function QuickApp:getFile(device,file)                         -- Get file
+  function QuickApp:updateFile(device,file,content)              -- Update file
+  function QuickApp:updateFiles(device,list)                     -- Update files
+  function QuickApp:createFile(device,file,content)              -- Create file
+  function QuickApp:deleteFile(device,file)                      -- Delete file
 --]]
 
 Toolbox_Module = Toolbox_Module or {}
@@ -25,7 +29,7 @@ function Toolbox_Module.file.init(self)
 
   function self:updateFile(deviceId,file,content)
     if type(file)=='string' then
-      file = {isMain=false,isOpen=false,name=file,content=""}
+      file = {isMain=false,type='lua',isOpen=false,name=file,content=""}
     end
     file.content = type(content)=='string' and content or file.content
     return api.put("/quickApp/"..deviceId.."/files/"..file.name,file) 
@@ -37,7 +41,7 @@ function Toolbox_Module.file.init(self)
 
   function self:createFile(deviceId,file,content)
     if type(file)=='string' then
-      file = {isMain=false,isOpen=false,name=file,content=""}
+      file = {isMain=false,type='lua',isOpen=false,name=file,content=""}
     end
     file.content = type(content)=='string' and content or file.content
     return api.post("/quickApp/"..deviceId.."/files",file) 
