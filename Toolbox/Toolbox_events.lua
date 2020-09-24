@@ -264,6 +264,24 @@ function Toolbox_Module.events.init(self)
     end
   end
 
+  local function handlerEnable(t,handle)
+    if type(handle) == 'string' then Util.mapF(em[t],em.sections[handle] or {})
+    elseif isRule(handle) then handle[t]()
+    elseif type(handle) == 'table' then Util.mapF(em[t],handle) 
+    else error('Not an event handler') end
+    return true
+  end
+
+  function em.enable(handle,opt)
+    if type(handle)=='string' and opt then 
+      for s,e in pairs(em.sections or {}) do 
+        if s ~= handle then handlerEnable('disable',e) end
+      end
+    end
+    return handlerEnable('enable',handle) 
+  end
+  function em.disable(handle) return handlerEnable('disable',handle) end
+
 --[[
   Event.http{url="foo",tag="55",
     headers={},
@@ -299,7 +317,7 @@ function Toolbox_Module.events.init(self)
   em.midnight,em.hm2sec,em.toTime,em.transform,em.copy,em.equal,em.isEvent,em.isRule,em.coerce,em.comboEvent = 
   midnight,hm2sec,toTime,transform,copy,equal,isEvent,isRule,coerce,comboEvent
   self.EM = em
-  
+
   self._Events.addEventHandler(handleEvent) -- Wants to read events...
 
 end -- events

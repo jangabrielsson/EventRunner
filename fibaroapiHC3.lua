@@ -434,17 +434,21 @@ function module.FibaroAPI()
 
 -- User PIN?
   function fibaro.alarm(partition_id, action)
-    if not action then
+    if action==nil then
+      action = partition_id
+      assert(action=='arm' or action=='disarm',"alarm action is 'arm' or 'disarm'")
       if action=='arm' then
         api.post("/alarms/v1/partitions/actions/arm")
       elseif action=='disarm' then
         api.delete("/alarms/v1/partitions/actions/arm")
       end
     else
+      assert(action=='arm' or action=='disarm',"alarm action is 'arm' or 'disarm'")
+      __assert_type(partition_id,'number')   
       if action=='arm' then
-        return api.post("/alarms/v1/partitions/actions/arm")
+        return api.post(format("/alarms/v1/partitions/%s/actions/arm",partition_id))
       elseif action=='disarm' then
-        return api.delete("/alarms/v1/partitions/actions/arm")
+        return api.delete(format("/alarms/v1/partitions/%s/actions/arm",partition_id))
       end
     end
   end

@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix16"
+E_VERSION,E_FIX = 0.5,"fix17"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -1420,59 +1420,149 @@ function Module.eventScript.init()
       local function on(id,prop) return BN(fibaro.get(id,prop)) > 0 end
       local function off(id,prop) return BN(fibaro.get(id,prop)) == 0 end
       local function last(id,prop) local v,t=fibaro.get(id,prop); return t and os.time()-t or 0 end
-      local function cce(id,prop,e) e=e.event; return e.type=='device' and e.property=='centralSceneEvent' and e.id==id and e.value or {} end
-      local function ace(id,prop,e) e=e.event; return e.type=='device' and e.property=='accessControlEvent' and e.id==id and e.value or {} end
-      local function sae(id,prop,e) e=e.event; return e.type=='device' and e.property=='sceneActivationEvent' and e.id==id and e.value.sceneId end
-      local function armed(id,prop) return fibaro.get(id,prop) == 1 end
+      local function cce(id,prop,e) 
+        e=e.event; return e.type=='device' and e.property=='centralSceneEvent'and e.id==id and e.value or {} 
+      end
+      local function ace(id,prop,e) 
+        e=e.event; return e.type=='device' and e.property=='accessControlEvent' and e.id==id and e.value or {} 
+      end
+      local function sae(id,prop,e) 
+        e=e.event; return e.type=='device' and e.property=='sceneActivationEvent' and e.id==id and e.value.sceneId 
+      end
+      local function alarm(id,prop) 
+        if id == 0 then
+          local ps = api.get("/alarms/v1/partitions")
+          if #ps == 0 then return {} end
+          p = ps[1]
+          local devMap = {}
+          for _,d in ipairs(p.devices) do devMap[d]=true end
+          for i=2,#ps do
+            local d = ps[i]
+            p.breached = p.breached or d.breached
+            p.armed = p.armed and d.armed
+            p.breachDelay = math.min(p.breachDelay,d.breachDelay)
+            p.armDelay = math.min(p.armDelay,d.armDelay)
+            for _,d0 in ipairs(d.devices) do devMap[d0]=true end
+          end
+          p.name="House"
+          p.id = 0
+          local devices = {}
+          for d,_ in pairs(devMap) do devices[#devices+1]=d end
+          p.devices = devices
+          return p
+        else return api.get("/alarms/v1/partitions/"..id) end
+      end
+
+      local alarmFuns = {
+        ['true']=function(id) fibaro.alarm(id,"arm") return true end,
+        ['false']=function(id) fibaro.alarm(id,"disarm") return true end,
+        ['watch']=function(id) 
+        end,
+      }
+
+      local function setAlarm(id,cmd,val)
+        local action = tostring(val)
+        if not alarmFuns[action] then error("Bad argument to :alarm") end
+        if id ~= 0 then return alarmFuns[action](id)
+        else
+          if action=='true' then fibaro.alarm("arm")
+          elseif action == 'false' then fibaro.alarm("disarm")
+          else
+            local ps = {}
+            for _,p in ipairs() do alarmFuns[action](id) end
+          end
+        end
+      end
+
       local function call(id,cmd) fibaro.call(id,cmd); return true end
       local function set(id,cmd,val) fibaro.call(id,cmd,val); return val end
       local function pushMsg(id,cmd,val) fibaro.alert(cmd,{id},val,false); return val end
-      local function setArmed(id,cmd,val) fibaro.call(id,cmd,val and 1 or 0); return val end
       local function set2(id,cmd,val) fibaro.call(id,cmd,table.unpack(val)); return val end
       local mapOr,mapAnd,mapF=Util.mapOr,Util.mapAnd,function(f,l,s) Util.mapF(f,l,s); return true end
-      getFuns={
-        value={get,'value',nil,true},bat={get,'batteryLevel',nil,true},power={get,'power',nil,true},
-        isOn={on,'value',mapOr,true},isOff={off,'value',mapAnd,true},isAllOn={on,'value',mapAnd,true},isAnyOff={off,'value',mapOr,true},
-        last={last,'value',nil,true},scene={sae,'sceneActivationEvent',nil,true},
-        access={ace,'accessControlEvent',nil,true},central={cce,'centralSceneEvent',nil,true},
-        safe={off,'value',mapAnd,true},breached={on,'value',mapOr,true},isOpen={on,'value',mapOr,true},isClosed={off,'value',mapAnd,true},
-        lux={get,'value',nil,true},temp={get,'value',nil,true},on={call,'turnOn',mapF,true},off={call,'turnOff',mapF,true},
-        open={call,'open',mapF,true},close={call,'close',mapF,true},stop={call,'stop',mapF,true},
-        secure={call,'secure',mapF,false},unsecure={call,'unsecure',mapF,false},
-        isSecure={on,'secured',mapOr,true},isUnsecure={off,'secured',mapAnd,true},
-        name={function(id) return fibaro.getName(id) end,nil,nil,false},
-        HTname={function(id) return Util.reverseVar(id) end,nil,nil,false},
-        roomName={function(id) return fibaro.getRoomNameByDeviceID(id) end,nil,nil,false},
-        trigger={function() return true end,'value',nil,true},time={get,'time',nil,true},armed={armed,'armed',mapOr,true},
-        manual={function(id) return QA:lastManual(id) end,'value',nil,true},
-        start={function(id) return fibaro.scene("execute",{id}) end,"",mapF,false},
-        kill={function(id) return fibaro.scene("kill",{id}) end,"",mapF,false},
-        toggle={call,'toggle',mapF,true},wake={call,'wakeUpDeadDevice',mapF,true},
-        removeSchedule={call,'removeSchedule',mapF,true},retryScheduleSynchronization={call,'retryScheduleSynchronization',mapF,true},
-        setAllSchedules={call,'setAllSchedules',mapF,true},
-        dID={function(a,e) 
-            if type(a)=='table' then
-              local id = e.event and e.event.id
-              if id then for _,id2 in ipairs(a) do if id == id2 then return id end end end
-            end
-            return a
-          end,'<nop>',nil,true}
-      }
-      getFuns.lock=getFuns.secure;getFuns.unlock=getFuns.unsecure;getFuns.isLocked=getFuns.isSecure;getFuns.isUnlocked=getFuns.isUnsecure -- Aliases
-      setFuns={
-        R={set,'setR'},G={set,'setG'},B={set,'setB'},W={set,'setW'},value={set,'setValue'},armed={setArmed,'setArmed'},
-        time={set,'setTime'},power={set,'setPower'},targetLevel={set,'setTargetLevel'},interval={set,'setInterval'},
-        mode={set,'setMode'},setpointMode={set,'setSetpointMode'},defaultPartyTime={set,'setDefaultPartyTime'},
-        scheduleState={set,'setScheduleState'},color={set2,'setColor'},
-        thermostatSetpoint={set2,'setThermostatSetpoint'},schedule={set2,'setSchedule'},dim={set2,'dim'},
-        msg={pushMsg,'push'},
-        defemail={set,'sendDefinedEmailNotification'},
-        btn={set,'pressButton'}, -- ToDo: click button on QA?
-        email={function(id,cmd,val) local h,m = val:match("(.-):(.*)"); fibaro.alert('email',{id},val) return val end,""},
-        start={function(id,cmd,val) 
-            if isEvent(val) then QA:postRemote(id,val) else fibaro.scene("execute",{id},val) return true end 
-          end,""},
-      }
+
+      getFuns={}
+      getFuns.value={get,'value',nil,true}
+      getFuns.bat={get,'batteryLevel',nil,true}
+      getFuns.power={get,'power',nil,true}
+      getFuns.isOn={on,'value',mapOr,true}
+      getFuns.isOff={off,'value',mapAnd,true}
+      getFuns.isAllOn={on,'value',mapAnd,true}
+      getFuns.isAnyOff={off,'value',mapOr,true}
+      getFuns.last={last,'value',nil,true}
+      getFuns.alarm={alarm,nil,nil,false}
+      getFuns.scene={sae,'sceneActivationEvent',nil,true}
+      getFuns.access={ace,'accessControlEvent',nil,true}
+      getFuns.central={cce,'centralSceneEvent',nil,true}
+      getFuns.safe={off,'value',mapAnd,true}
+      getFuns.breached={on,'value',mapOr,true}
+      getFuns.isOpen={on,'value',mapOr,true}
+      getFuns.isClosed={off,'value',mapAnd,true}
+      getFuns.lux={get,'value',nil,true}
+      getFuns.temp={get,'value',nil,true}
+      getFuns.on={call,'turnOn',mapF,true}
+      getFuns.off={call,'turnOff',mapF,true}
+      getFuns.open={call,'open',mapF,true}
+      getFuns.close={call,'close',mapF,true}
+      getFuns.stop={call,'stop',mapF,true}
+      getFuns.secure={call,'secure',mapF,false}
+      getFuns.unsecure={call,'unsecure',mapF,false}
+      getFuns.isSecure={on,'secured',mapOr,true}
+      getFuns.isUnsecure={off,'secured',mapAnd,true}
+      getFuns.name={function(id) return fibaro.getName(id) end,nil,nil,false}
+      getFuns.HTname={function(id) return Util.reverseVar(id) end,nil,nil,false}
+      getFuns.roomName={function(id) return fibaro.getRoomNameByDeviceID(id) end,nil,nil,false}
+      getFuns.trigger={function() return true end,'value',nil,true}
+      getFuns.time={get,'time',nil,true}
+      getFuns.armed={armed,'armed',mapOr,true}
+      getFuns.manual={function(id) return QA:lastManual(id) end,'value',nil,true}
+      getFuns.start={function(id) return fibaro.scene("execute",{id}) end,"",mapF,false}
+      getFuns.kill={function(id) return fibaro.scene("kill",{id}) end,"",mapF,false}
+      getFuns.toggle={call,'toggle',mapF,true}
+      getFuns.wake={call,'wakeUpDeadDevice',mapF,true}
+      getFuns.removeSchedule={call,'removeSchedule',mapF,true}
+      getFuns.retryScheduleSynchronization={call,'retryScheduleSynchronization',mapF,true}
+      getFuns.setAllSchedules={call,'setAllSchedules',mapF,true}
+
+      getFuns.dID={function(a,e) 
+          if type(a)=='table' then
+            local id = e.event and e.event.id
+            if id then for _,id2 in ipairs(a) do if id == id2 then return id end end end
+          end
+          return a
+        end,'<nop>',nil,true}
+
+      getFuns.lock=getFuns.secure
+      getFuns.unlock=getFuns.unsecure
+      getFuns.isLocked=getFuns.isSecure
+      getFuns.isUnlocked=getFuns.isUnsecure 
+
+      setFuns={}
+      setFuns.R={set,'setR'}
+      setFuns.G={set,'setG'}
+      setFuns.B={set,'setB'}
+      setFuns.W={set,'setW'}
+      setFuns.value={set,'setValue'}
+      setFuns.alarm={setAlarm,'setAlarm'}
+      setFuns.time={set,'setTime'}
+      setFuns.power={set,'setPower'}
+      setFuns.targetLevel={set,'setTargetLevel'}
+      setFuns.interval={set,'setInterval'}
+      setFuns.mode={set,'setMode'}
+      setFuns.setpointMode={set,'setSetpointMode'}
+      setFuns.defaultPartyTime={set,'setDefaultPartyTime'}
+      setFuns.scheduleState={set,'setScheduleState'}
+      setFuns.color={set2,'setColor'}
+      setFuns.thermostatSetpoint={set2,'setThermostatSetpoint'}
+      setFuns.schedule={set2,'setSchedule'}
+      setFuns.dim={set2,'dim'}
+      setFuns.msg={pushMsg,'push'}
+      setFuns.defemail={set,'sendDefinedEmailNotification'}
+      setFuns.btn={set,'pressButton'} -- ToDo: click button on QA?
+      setFuns.email={function(id,cmd,val) local h,m = val:match("(.-):(.*)"); fibaro.alert('email',{id},val) return val end,""}
+      setFuns.start={function(id,cmd,val) 
+          if isEvent(val) then QA:postRemote(id,val) else fibaro.scene("execute",{id},val) return true end 
+        end,""}
+
       self.getFuns=getFuns
     end
 
@@ -1481,19 +1571,71 @@ function Module.eventScript.init()
         error(format("bad deviceID '%s' for '%s' '%s'",id,i[1],tojson(l or i[4] or "").."?"),3) else return id
       end
     end
+
+--[[
+      ['value'] = 1,
+      bat,
+      power,
+      lux,
+      temp,
+      isOn,
+      isOff,
+      on,
+      off,
+      isAllOn,
+      isAnyOff,
+      last,
+      scene,
+      access,
+      central,
+      safe,
+      breached,
+      isOpen,
+      isClosed,
+      open,
+      close,
+      stop,
+      secure,
+      unsecure,
+    isSecure,
+    isUnsecure,
+    name,
+    HTname,
+    roomName,
+    trigger,
+    armed,
+    time,
+    manual,
+    start,
+    kill,
+    toggle,
+    wake,
+    removeSchedule,
+    retryScheduleSynchronization,
+    setAllSchedules,
+    dID,
+    lock,
+    unlock,
+    isLocked,
+    isUnlocked,
+--]]
+
+
+
     instr['%prop'] = function(s,n,e,i) local id,f=s.pop(),getFuns[i[3]]
       if i[3]=='dID' then s.push(getFuns['dID'][1](id,e)) return end
       if not f then f={_getFun,i[3]} end
       if type(id)=='table' then s.push((f[3] or map)(function(id) return f[1](ID(id,i,e._lastR),f[2],e) end,id))
       else s.push(f[1](ID(id,i,e._lastR),f[2],e)) end
     end
+
     instr['%setprop'] = function(s,n,e,i) local id,val,prop=s.pop(),getArg(s,i[3]),getArg(s,i[4])
       local f = setFuns[prop] _assert(f,"bad property '%s'",prop or "") 
       if type(id)=='table' then Util.mapF(function(id) f[1](ID(id,i,e._lastR),f[2],val,e) end,id); s.push(true)
       else s.push(f[1](ID(id,i,e._lastR),f[2],val,e)) end
     end
+
     instr['%rule'] = function(s,n,e,i) local b,h=s.pop(),s.pop(); s.push(Rule.compRule({'=>',h,b,e.log},e)) end
-    instr['log'] = function(s,n) s.push(ptrace(table.unpack(s.lift(n)))) end
     instr['log'] = function(s,n) s.push(ptrace(table.unpack(s.lift(n)))) end
     instr['%logRule'] = function(s,n,e,i) local src,res = s.pop(),s.pop() 
       Debug(_debugFlags.rule or (_debugFlags.ruleTrue and res),"[%s]>>'%s'",tojson(res),src) s.push(res) 
@@ -1542,9 +1684,10 @@ function Module.eventScript.init()
         if g then QA:cancel(i[5]) i[5]=QA:post(function() i[4]=nil end,e) end
       else local f; i[4],f=os.date("%x"),i[4] or ""; s.push(f ~= i[4]) end
     end
+
     instr['%always'] = function(s,n,e,i) local v = s.pop(n) s.push(v or true) end
-    instr['enable'] = function(s,n,e,i) local t,g = s.pop(),false; if n==2 then g,t=t,s.pop() end s.push(QA.RE:enable(t,g)) end
-    instr['disable'] = function(s,n,e,i) s.push(QA.RE.disable(s.pop())) end
+    instr['enable'] = function(s,n,e,i) local t,g = s.pop(),false; if n==2 then g,t=t,s.pop() end s.push(QA.EM.enable(t,g)) end
+    instr['disable'] = function(s,n,e,i) s.push(QA.EM.disable(s.pop())) end
     instr['post'] = function(s,n,ev) local e,t=s.pop(),nil; if n==2 then t=e; e=s.pop() end s.push(QA:post(e,t,ev.rule)) end
     instr['subscribe'] = function(s,n,ev) QA:subscribe(s.pop()) s.push(true) end
     instr['publish'] = function(s,n,ev) local e,t=s.pop(),nil; if n==2 then t=e; e=s.pop() end QA:publish(e,t) s.push(e) end
