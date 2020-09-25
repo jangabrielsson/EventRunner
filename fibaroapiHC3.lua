@@ -34,7 +34,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.131" 
+local FIBAROAPIHC3_VERSION = "0.132" 
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -438,17 +438,17 @@ function module.FibaroAPI()
       action = partition_id
       assert(action=='arm' or action=='disarm',"alarm action is 'arm' or 'disarm'")
       if action=='arm' then
-        api.post("/alarms/v1/partitions/actions/arm")
+        api.post("/alarms/v1/partitions/actions/arm",{})
       elseif action=='disarm' then
-        api.delete("/alarms/v1/partitions/actions/arm")
+        api.delete("/alarms/v1/partitions/actions/arm",{})
       end
     else
       assert(action=='arm' or action=='disarm',"alarm action is 'arm' or 'disarm'")
       __assert_type(partition_id,'number')   
       if action=='arm' then
-        return api.post(format("/alarms/v1/partitions/%s/actions/arm",partition_id))
+        return api.post(format("/alarms/v1/partitions/%s/actions/arm",partition_id),{})
       elseif action=='disarm' then
-        return api.delete(format("/alarms/v1/partitions/%s/actions/arm",partition_id))
+        return api.delete(format("/alarms/v1/partitions/%s/actions/arm",partition_id),{})
       end
     end
   end
@@ -665,6 +665,7 @@ function module.FibaroAPI()
       password=hc3_emulator.credentials.pwd,
       headers={}
     }
+    if method == "POST" or method=="PUT" and data == nil then data =  "[]" end
     --req.headers["Accept"] = 'application/json'
     req.headers["Accept"] = '*/*'
     req.headers["X-Fibaro-Version"] = 2

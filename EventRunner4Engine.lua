@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix17"
+E_VERSION,E_FIX = 0.5,"fix18"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -1431,7 +1431,7 @@ function Module.eventScript.init()
       end
       local function alarm(id,prop) 
         if id == 0 then
-          local ps = api.get("/alarms/v1/partitions")
+          local ps = api.get("/alarms/v1/partitions" or {})
           if #ps == 0 then return {} end
           p = ps[1]
           local devMap = {}
@@ -1456,8 +1456,7 @@ function Module.eventScript.init()
       local alarmFuns = {
         ['true']=function(id) fibaro.alarm(id,"arm") return true end,
         ['false']=function(id) fibaro.alarm(id,"disarm") return true end,
-        ['watch']=function(id) 
-        end,
+        ['watch']=function(id) return true end, -- TBD
       }
 
       local function setAlarm(id,cmd,val)
@@ -1465,15 +1464,21 @@ function Module.eventScript.init()
         if not alarmFuns[action] then error("Bad argument to :alarm") end
         if id ~= 0 then return alarmFuns[action](id)
         else
-          if action=='true' then fibaro.alarm("arm")
-          elseif action == 'false' then fibaro.alarm("disarm")
+          if action=='true' then fibaro.alarm("arm") return true
+          elseif action == 'false' then fibaro.alarm("disarm") return true
           else
             local ps = {}
             for _,p in ipairs() do alarmFuns[action](id) end
+            return true
           end
         end
       end
+      
+      local function setProfile(id,cmd,val)
+        fibaro.profile(id,val and "activeProfile") return val
+      end
 
+      local function profile(id,cmd) return api.get("/profiles/"..id.."?showHidden=true") end
       local function call(id,cmd) fibaro.call(id,cmd); return true end
       local function set(id,cmd,val) fibaro.call(id,cmd,val); return val end
       local function pushMsg(id,cmd,val) fibaro.alert(cmd,{id},val,false); return val end
@@ -1490,6 +1495,7 @@ function Module.eventScript.init()
       getFuns.isAnyOff={off,'value',mapOr,true}
       getFuns.last={last,'value',nil,true}
       getFuns.alarm={alarm,nil,nil,false}
+      getFuns.profile={profile,nil,nil,false}
       getFuns.scene={sae,'sceneActivationEvent',nil,true}
       getFuns.access={ace,'accessControlEvent',nil,true}
       getFuns.central={cce,'centralSceneEvent',nil,true}
@@ -1513,7 +1519,6 @@ function Module.eventScript.init()
       getFuns.roomName={function(id) return fibaro.getRoomNameByDeviceID(id) end,nil,nil,false}
       getFuns.trigger={function() return true end,'value',nil,true}
       getFuns.time={get,'time',nil,true}
-      getFuns.armed={armed,'armed',mapOr,true}
       getFuns.manual={function(id) return QA:lastManual(id) end,'value',nil,true}
       getFuns.start={function(id) return fibaro.scene("execute",{id}) end,"",mapF,false}
       getFuns.kill={function(id) return fibaro.scene("kill",{id}) end,"",mapF,false}
@@ -1543,6 +1548,7 @@ function Module.eventScript.init()
       setFuns.W={set,'setW'}
       setFuns.value={set,'setValue'}
       setFuns.alarm={setAlarm,'setAlarm'}
+      setFuns.profile={setProfile,'setProfile'}
       setFuns.time={set,'setTime'}
       setFuns.power={set,'setPower'}
       setFuns.targetLevel={set,'setTargetLevel'}
@@ -1619,8 +1625,6 @@ function Module.eventScript.init()
     isLocked,
     isUnlocked,
 --]]
-
-
 
     instr['%prop'] = function(s,n,e,i) local id,f=s.pop(),getFuns[i[3]]
       if i[3]=='dID' then s.push(getFuns['dID'][1](id,e)) return end
