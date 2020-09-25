@@ -1475,7 +1475,7 @@ function Module.eventScript.init()
       end
       
       local function setProfile(id,cmd,val)
-        fibaro.profile(id,val and "activeProfile") return val
+        if val then fibaro.profile(id,"activeProfile") end return val
       end
 
       local function profile(id,cmd) return api.get("/profiles/"..id.."?showHidden=true") end
