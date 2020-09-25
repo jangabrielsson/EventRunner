@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix18"
+E_VERSION,E_FIX = 0.5,"fix19"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -1415,23 +1415,9 @@ function Module.eventScript.init()
     local getFuns,setFuns={},{}
     local _getFun = function(id,prop) return fibaro.get(id,prop) end
     do
-      local function BN(x) if type(x)=='boolean' then return x and 1 or 0 else return x end end
-      local get = _getFun
-      local function on(id,prop) return BN(fibaro.get(id,prop)) > 0 end
-      local function off(id,prop) return BN(fibaro.get(id,prop)) == 0 end
-      local function last(id,prop) local v,t=fibaro.get(id,prop); return t and os.time()-t or 0 end
-      local function cce(id,prop,e) 
-        e=e.event; return e.type=='device' and e.property=='centralSceneEvent'and e.id==id and e.value or {} 
-      end
-      local function ace(id,prop,e) 
-        e=e.event; return e.type=='device' and e.property=='accessControlEvent' and e.id==id and e.value or {} 
-      end
-      local function sae(id,prop,e) 
-        e=e.event; return e.type=='device' and e.property=='sceneActivationEvent' and e.id==id and e.value.sceneId 
-      end
       local function alarm(id,prop) 
         if id == 0 then
-          local ps = api.get("/alarms/v1/partitions" or {})
+          local ps = api.get("/alarms/v1/partitions") or {}
           if #ps == 0 then return {} end
           p = ps[1]
           local devMap = {}
@@ -1453,10 +1439,37 @@ function Module.eventScript.init()
         else return api.get("/alarms/v1/partitions/"..id) end
       end
 
+      local alarmsToWatch = {}
+      local alarmRef = nil
+      local alarmWatchInterval = 2000
+      local armedPs={}
+      local function watchAlarms()
+        for pid,_ in pairs(alarmsToWatch) do
+          local p = api.get("/alarms/v1/partitions/"..pid) or {}
+          if p.secondsToArm and not armedPs[p.id] then
+            quickApp:post({type='alarm',property='willArm',id=p.id,value=p.secondsToArm})
+          end
+          armedPs[p.id] = p.secondsToArm
+        end
+      end
       local alarmFuns = {
         ['true']=function(id) fibaro.alarm(id,"arm") return true end,
         ['false']=function(id) fibaro.alarm(id,"disarm") return true end,
-        ['watch']=function(id) return true end, -- TBD
+        ['watch']=function(id) 
+          if id==0 then
+            local ps = api.get("/alarms/v1/partitions") or {}
+            for _,id in ipairs(ps) do alarmsToWatch[id]=true end
+          else alarmsToWatch[id]=true end
+          if alarmRef==nil then alarmRef = setInterval(watchAlarms,alarmWatchInterval) end
+          return true 
+        end, 
+        ['unwatch']=function(id) 
+          if id == 0 then 
+            alarmsToWatch = {}
+          else alarmsToWatch[id]=nil end
+          if  next(alarmsToWatch)==nil and alarmRef then clearInterval(alarmRef); alarmRef=nil end
+          return true 
+        end, 
       }
 
       local function setAlarm(id,cmd,val)
@@ -1473,11 +1486,22 @@ function Module.eventScript.init()
           end
         end
       end
-      
-      local function setProfile(id,cmd,val)
-        if val then fibaro.profile(id,"activeProfile") end return val
-      end
 
+      local function BN(x) if type(x)=='boolean' then return x and 1 or 0 else return x end end
+      local get = _getFun
+      local function on(id,prop) return BN(fibaro.get(id,prop)) > 0 end
+      local function off(id,prop) return BN(fibaro.get(id,prop)) == 0 end
+      local function last(id,prop) local v,t=fibaro.get(id,prop); return t and os.time()-t or 0 end
+      local function cce(id,prop,e) 
+        e=e.event; return e.type=='device' and e.property=='centralSceneEvent'and e.id==id and e.value or {} 
+      end
+      local function ace(id,prop,e) 
+        e=e.event; return e.type=='device' and e.property=='accessControlEvent' and e.id==id and e.value or {} 
+      end
+      local function sae(id,prop,e) 
+        e=e.event; return e.type=='device' and e.property=='sceneActivationEvent' and e.id==id and e.value.sceneId 
+      end
+      local function setProfile(id,cmd,val) if val then fibaro.profile(id,"activeProfile") end return val end
       local function profile(id,cmd) return api.get("/profiles/"..id.."?showHidden=true") end
       local function call(id,cmd) fibaro.call(id,cmd); return true end
       local function set(id,cmd,val) fibaro.call(id,cmd,val); return val end
@@ -1577,54 +1601,6 @@ function Module.eventScript.init()
         error(format("bad deviceID '%s' for '%s' '%s'",id,i[1],tojson(l or i[4] or "").."?"),3) else return id
       end
     end
-
---[[
-      ['value'] = 1,
-      bat,
-      power,
-      lux,
-      temp,
-      isOn,
-      isOff,
-      on,
-      off,
-      isAllOn,
-      isAnyOff,
-      last,
-      scene,
-      access,
-      central,
-      safe,
-      breached,
-      isOpen,
-      isClosed,
-      open,
-      close,
-      stop,
-      secure,
-      unsecure,
-    isSecure,
-    isUnsecure,
-    name,
-    HTname,
-    roomName,
-    trigger,
-    armed,
-    time,
-    manual,
-    start,
-    kill,
-    toggle,
-    wake,
-    removeSchedule,
-    retryScheduleSynchronization,
-    setAllSchedules,
-    dID,
-    lock,
-    unlock,
-    isLocked,
-    isUnlocked,
---]]
 
     instr['%prop'] = function(s,n,e,i) local id,f=s.pop(),getFuns[i[3]]
       if i[3]=='dID' then s.push(getFuns['dID'][1](id,e)) return end
