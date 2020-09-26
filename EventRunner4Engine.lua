@@ -659,7 +659,8 @@ function Module.autopatch.init(self)
       files = {
         ['EventRunner']="EventRunner4Engine.lua",
         ['Toolbox']="Toolbox/Toolbox_basic.lua",
-        ['Toolbox_events']="Toolbox/Toolbox_events.lua",
+        ['Toolbox_events']="Toolbox/Toolbox_events.lua",        
+        ['Toolbox_childs']="Toolbox/Toolbox_child.lua",
         ['Toolbox_triggers']="Toolbox/Toolbox_triggers.lua",
         ['Toolbox_files']="Toolbox/Toolbox_files.lua",
         ['Toolbox_rpc']="Toolbox/Toolbox_rpc.lua",
