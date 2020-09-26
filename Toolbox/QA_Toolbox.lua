@@ -18,6 +18,9 @@ hc3_emulator.FILE("Toolbox/Toolbox_triggers.lua","Toolbox_triggers")
 hc3_emulator.FILE("Toolbox/Toolbox_files.lua","Toolbox_files")
 hc3_emulator.FILE("Toolbox/Toolbox_rpc.lua","Toolbox_rpc")
 hc3_emulator.FILE("Toolbox/Toolbox_pubsub.lua","Toolbox_pubsub")
+hc3_emulator.FILE("Toolbox/Toolbox_pubsub.lua","Toolbox_ui")
+hc3_emulator.FILE("Toolbox/Toolbox_pubsub.lua","Toolbox_luaparser")
+hc3_emulator.FILE("Toolbox/Toolbox_pubsub.lua","Toolbox_luacompiler")
 ----------- Code -----------------------------------------------------------
 ----------- QA toolbox functions -------------------------------------------
 --[[
@@ -65,15 +68,19 @@ function QuickApp:importRPC(deviceId,timeout,env)   -- Import remote functions f
 -- Module "pubsub"
 function QuickApp:publish(event)                    -- Publish event to subscribing QAs
 function QuickApp:subscribe(event)                  -- Subscribe to events from publishing QAs
+-- Module "ui"
+function QuickApp:updateViewLayout(id,UI,height,forceUpdate)
+function QuickApp:insertLabel(name,text,pos)
+ function QuickApp:removeLabel(name)
 --]]
 
 -- Example
-_version = "1.0"  -- Version of our app, will be logged at startup
-modules = {"childs","events","triggers","rpc", "file","pubsub"} -- Modules we want to load (the files need to be copied to our QA)
+_version = "1.1"  -- Version of our app, will be logged at startup
+modules = {"childs","events","triggers","rpc", "file","pubsub","ui"} -- Modules we want to load (the files need to be copied to our QA)
 
 -- main() if available, will be called after onInit. Everything is setup after we exit onInit() so this is a safer place to start running your main code...
 function QuickApp:main()   
-  
+
   -- These are the types of triggers we are interested in from our trigger module
   self:enableTriggerType({
       "device","global-variable","alarm","weather","profile","custom-event","deviceEvent","sceneEvent","onlineEvent"

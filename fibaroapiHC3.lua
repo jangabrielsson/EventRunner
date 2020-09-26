@@ -34,7 +34,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.132" 
+local FIBAROAPIHC3_VERSION = "0.133" 
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -665,7 +665,7 @@ function module.FibaroAPI()
       password=hc3_emulator.credentials.pwd,
       headers={}
     }
-    if method == "POST" or method=="PUT" and data == nil then data =  "[]" end
+    if (method == "POST" or method=="PUT") and data == nil then data =  "[]" end
     --req.headers["Accept"] = 'application/json'
     req.headers["Accept"] = '*/*'
     req.headers["X-Fibaro-Version"] = 2

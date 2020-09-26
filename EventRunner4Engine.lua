@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix19"
+E_VERSION,E_FIX = 0.5,"fix20"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -129,7 +129,7 @@ function Module.device.init(self)
     if cb[elm] and cb[elm][etyp] and self[cb[elm][etyp]] then return obj:callAction(cb[elm][etyp], event) end
     if obj[elm.."Clicked"] then return obj:callAction(elm.."Clicked", event) end
     if self.EM then
-      self:post({type='UI',name=event.elementName,event=event.eventType,value=event.values})
+      self:post({type='UI',id=event.deviceId,name=event.elementName,event=event.eventType,value=event.values})
     else
       self:warning("UI callback for element:", elm, " not found.")
     end
@@ -794,6 +794,29 @@ function Module.extras.init(self)
         return self._Events.BREAK
       end
     end)
+
+  class 'GenericChild'(QuickAppChild)
+  function GenericChild:__init(device)
+    QuickAppChild.__init(self,device)
+    self.eid = self:getVariable("eid")
+    function self:callAction(cmd,...)
+      local ev = {type='child',eid=self.eid,cmd=cmd,args={...}}
+      quickApp:post(ev)
+    end
+  end
+
+  function self:child(args)
+    assert(args and args.eid,"child missing eid")
+    for _,c in pairs(self.childDevices) do
+      if c.eid == args.eid then return end
+    end
+    local c = self:createChild{
+      type=args.type or "com.fibaro.binarySwitch",
+      name  = args.name or "ER4 child",
+      quickVars = {eid = args.eid},
+      className = "GenericChild"
+    }
+  end
 
   function self:profileName(id) for _,p in ipairs(api.get("/profiles").profiles) do if p.id == id then return p.name end end end
   function self:profileId(name) for _,p in ipairs(api.get("/profiles").profiles) do if p.name == name then return p.id end end end
@@ -1508,6 +1531,7 @@ function Module.eventScript.init()
       local function pushMsg(id,cmd,val) fibaro.alert(cmd,{id},val,false); return val end
       local function set2(id,cmd,val) fibaro.call(id,cmd,table.unpack(val)); return val end
       local mapOr,mapAnd,mapF=Util.mapOr,Util.mapAnd,function(f,l,s) Util.mapF(f,l,s); return true end
+      local function child(id,prop) for _,c in pairs(quickApp.childDevices) do if c.eid==id then return c end end return nil end
 
       getFuns={}
       getFuns.value={get,'value',nil,true}
@@ -1519,6 +1543,7 @@ function Module.eventScript.init()
       getFuns.isAnyOff={off,'value',mapOr,true}
       getFuns.last={last,'value',nil,true}
       getFuns.alarm={alarm,nil,nil,false}
+      getFuns.child={child,nil,nil,false}
       getFuns.profile={profile,nil,nil,false}
       getFuns.scene={sae,'sceneActivationEvent',nil,true}
       getFuns.access={ace,'accessControlEvent',nil,true}
@@ -2089,7 +2114,7 @@ function Module.nodered.init(self)
 end
 
 modules = {
-  "events","triggers","rpc","file","pubsub",
+  "events","childs","triggers","rpc","file","pubsub",
   "utilities","autopatch","objects","device","extras","eventScript","nodered"
 }
 
