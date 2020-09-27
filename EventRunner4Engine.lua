@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix21"
+E_VERSION,E_FIX = 0.5,"fix22"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -712,11 +712,10 @@ function Module.autopatch.init(self)
     local function patcher(nfiles)
       if hc3_emulator then return end  -- not in emulator
       local id,cfiles = self.id,{}
---      id = 1356
       local of = self:getFiles(id)
       for _,f in pairs(of) do
         if not f.isMain then 
-          local d = self:getFile(f.name,id)
+          local d = self:getFile(id,f.name)
           if not(nfiles[f.name] and nfiles[f.name]==d.content) then
             cfiles[f.name]=d.content
           else nfiles[f.name]= nil end
@@ -735,7 +734,7 @@ function Module.autopatch.init(self)
       self:debugf("%d files needs to be updated",updates_n)
       self:debugf("%d files needs to be added",adds_n)
       self:debugf("%d files needs to be deleted",dels_n)
-      for f,d in pairs(dels) do self:debugf("Deleting %s",f) self:deleteFile(f,id) end
+      for f,d in pairs(dels) do self:debugf("Deleting %s",f) self:deleteFile(id,f) end
       for f,d in pairs(adds) do self:debugf("Adding %s",f) self:addFileTo(d,f,id) end
       local ups = {}
       for f,d in pairs(updates) do 
@@ -748,7 +747,7 @@ function Module.autopatch.init(self)
         }
       end
       if #ups > 0 then
-        self:addFileList(ups,id)
+        self:updateFiles(id,ups)
       end
     end
     for file,path in pairs(finfo.files) do fetchFile(file,path,files,n,patcher) end
