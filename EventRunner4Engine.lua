@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix20"
+E_VERSION,E_FIX = 0.5,"fix21"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -713,7 +713,7 @@ function Module.autopatch.init(self)
       if hc3_emulator then return end  -- not in emulator
       local id,cfiles = self.id,{}
 --      id = 1356
-      local of = self:listFiles(id)
+      local of = self:getFiles(id)
       for _,f in pairs(of) do
         if not f.isMain then 
           local d = self:getFile(f.name,id)
