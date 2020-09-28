@@ -106,11 +106,14 @@ function QuickApp:loadToolbox()
       function()
         if #content>0 then
           if not hc3_emulator then
-            self:debugf("Adding modules ..will  restart")
-            api.put("/quickApp/"..self.id.."/files",content)
+            self:debugf("Adding module(s) ..will  restart")
+            for _,f in ipairs(content) do
+               api.post("/quickApp/"..self.id.."/files",f)
+            end
+            plugin.restart(self.id)
           else self:debugf("Can't update offline") end
           cont()
-        end
+        end 
       end)
   else cont() end
 end
@@ -124,8 +127,8 @@ local moduleMap={
   file = {name="Toolbox_files",url=mpath.."Toolbox_files.lua"},
   pubsub={name="Toolbox_pubsub",url=mpath.."Toolbox_pubsub.lua"},
   ui={name="Toolbox_ui",url=mpath.."Toolbox_ui.lua"},
-  luacompiler={name="Toolbox_luacompiler",url=mpath.."Toolbox_luacompiler.lua"},
-  luaparser={name="Toolbox_luaparser",url=mpath.."Toolbox_luaparser.lua"},
+  LuaCompiler={name="Toolbox_luacompiler",url=mpath.."Toolbox_luacompiler.lua"},
+  LuaParser={name="Toolbox_luaparser",url=mpath.."Toolbox_luaparser.lua"},
 }
 
 function fetchFiles(files,content,cont)
