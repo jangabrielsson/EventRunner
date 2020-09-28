@@ -17,7 +17,7 @@ Toolbox_Module = Toolbox_Module or {}
 Toolbox_Module.file ={
   name = "File manager",
   author = "jan@gabrielsson.com",
-  version = "0.1"
+  version = "0.2"
 }
 
 function Toolbox_Module.file.init(self)

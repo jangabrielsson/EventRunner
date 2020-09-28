@@ -34,7 +34,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.133" 
+local FIBAROAPIHC3_VERSION = "0.134" 
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -2209,7 +2209,7 @@ function module.Trigger()
     local resp = {}
     local req={ 
       method="GET",
-      url = "http://"..hc3_emulator.credentials.ip.."/api/refreshStates?last=" .. lastRefresh,
+      url = "http://"..hc3_emulator.credentials.ip.."/api/refreshStates?last=" .. lastRefresh.."&lang=en&rand=0.09580020181569104&logs=false",
       sink = ltn12.sink.table(resp),
       user=hc3_emulator.credentials.user,
       password=hc3_emulator.credentials.pwd,

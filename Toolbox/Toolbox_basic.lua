@@ -35,7 +35,7 @@
 
 --]]
 
-local QA_toolbox_version = "0.19"
+local QA_toolbox_version = "0.20"
 local format = string.format
 Toolbox_Module,modules = Toolbox_Module or {},modules or {}
 local _init = QuickApp.__init
@@ -48,6 +48,7 @@ function QuickApp.__init(self,...) -- We hijack the __init methods so we can con
 end
 
 _debugFlags = _debugFlags or { }
+local fetchFiles
 
 function QuickApp:loadToolbox()
   if self.properties.model ~= "ToolboxUser" then
@@ -72,26 +73,82 @@ function QuickApp:loadToolbox()
   printf("Created...:%s",os.date("%c",d.created or os.time()))
   printf("Modified..:%s",os.date("%c",d.modified or os.time()))
   Toolbox_Module['basic'](self)
-  local ms,Module = {},Toolbox_Module
+  local ms,Module,missingModules = {},Toolbox_Module,{}
   for _,m in ipairs(modules or {}) do 
     if Module[m] then 
       self:debugf("Setup: %s (%s)",Module[m].name,Module[m].version)
       modules[m]=Module[m].init(self) 
-    else self:warning("Module '"..m.."' missing") end
+    else 
+      self:warning("Module '"..m.."' missing")
+      if self._INSTALL_MISSING_MODULES then
+        missingModules[#missingModules+1]=m
+      else self:warning("Set self._INSTALL_MISSING_MODULES=true to load missing modules") end
+    end
   end
   --modules = ms
-  for m,_ in pairs(Module) do Module[m] = nil end
-  self.config = {}
-  for _,v in ipairs(self.properties.quickAppVariables or {}) do
-    self.config[v.name] = v.value
+  local function cont()
+    for m,_ in pairs(Module) do Module[m] = nil end
+    self.config = {}
+    for _,v in ipairs(self.properties.quickAppVariables or {}) do
+      self.config[v.name] = v.value
+    end
+    if self.loadChildren then
+      local nc = self:loadChildren()
+      if nc == 0 then self:debug("No children") else self:debugf("%d children",nc) end
+    end
+    self.loadToolbox = function() end
+    if _onInit then _onInit(self) end
+    if self.main and type(self.main)=='function' then setTimeout(function() self:main() end,0) end -- If we have a main(), call it...
   end
-  if self.loadChildren then
-    local nc = self:loadChildren()
-    if nc == 0 then self:debug("No children") else self:debugf("%d children",nc) end
-  end
-  self.loadToolbox = function() end
-  if _onInit then _onInit(self) end
-  if self.main and type(self.main)=='function' then setTimeout(function() self:main() end,0) end -- If we have a main(), call it...
+  if #missingModules > 0 then
+    local  content = {}
+    fetchFiles(missingModules,content,
+      function()
+        if #content>0 then
+          if not hc3_emulator then
+            self:debugf("Adding modules ..will  restart")
+            api.put("/quickApp/"..self.id.."/files",content)
+          else self:debugf("Can't update offline") end
+          cont()
+        end
+      end)
+  else cont() end
+end
+
+local mpath = "https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/Toolbox/"
+local moduleMap={
+  childs = {name="Toolbox_child",url=mpath.."Toolbox_child.lua"},
+  events = {name="Toolbox_events",url=mpath.."Toolbox_events.lua"},
+  triggers = {name="Toolbox_triggers",url=mpath.."Toolbox_triggers.lua"},
+  rpc = {name="Toolbox_rpc",url=mpath.."Toolbox_rpc.lua"},
+  file = {name="Toolbox_files",url=mpath.."Toolbox_files.lua"},
+  pubsub={name="Toolbox_pubsub",url=mpath.."Toolbox_pubsub.lua"},
+  ui={name="Toolbox_ui",url=mpath.."Toolbox_ui.lua"},
+  luacompiler={name="Toolbox_luacompiler",url=mpath.."Toolbox_luacompiler.lua"},
+  luaparser={name="Toolbox_luaparser",url=mpath.."Toolbox_luaparser.lua"},
+}
+
+function fetchFiles(files,content,cont)
+  local req = net.HTTPClient()
+  if #files == 0 then return cont() end
+  local f0 = files[1]
+  table.remove(files,1)
+  local f = moduleMap[f0]
+  if not f then quickApp:errorf("No module %s",f0) return fetchFiles(files,content,cont) end
+  quickApp:debugf("Fetching module  %s",f0)
+  req:request(f.url,{
+      options = {method = 'GET', checkCertificate = false, timeout=20000},
+      success = function(res) 
+        if res.status == 200 then
+          content[#content+1]={name=f.name,content=res.data,isMain=false,isOpen=false,type="lua"}
+          fetchFiles(files,content,cont)
+        else quickApp:errorf("Error %s fetching file %s",res.status,f.url) end
+      end,
+      error  = function(res) 
+        quickApp:errorf("Error %s fetching file %s",res,f.url)
+        fetchFiles(files,content,cont)
+      end
+    })
 end
 
 function Toolbox_Module.basic(self)
@@ -422,7 +479,7 @@ function Toolbox_Module.basic(self)
     end
     return str	
   end
-  
+
   local function syncGet(url,user,pwd)
     local h,b = url:match("(.-)//(.*)")
     if pwd then

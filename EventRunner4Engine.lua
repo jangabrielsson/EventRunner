@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix22"
+E_VERSION,E_FIX = 0.5,"fix23"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -669,10 +669,10 @@ function Module.autopatch.init(self)
     },
   }
   local versionInfo = nil
-
+  __VERSION = "https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/VERSION4.json"
   function Util.checkForUpdates()
     local req = net.HTTPClient()
-    req:request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/VERSION4.json",{
+    req:request(__VERSION,{
         options = {method = 'GET', checkCertificate = false, timeout=20000},
         success=function(data)
           if data.status == 200 then 

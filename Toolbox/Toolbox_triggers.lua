@@ -137,7 +137,7 @@ function Toolbox_Module.triggers.init(self)
   local lastRefresh,enabled = 0,true
   local http = net.HTTPClient()
   local function loop()
-    local stat,res = http:request("http://127.0.0.1:11111/api/refreshStates?last=" .. lastRefresh,{
+    local stat,res = http:request("http://127.0.0.1:11111/api/refreshStates?last=" .. lastRefresh.."&logs=false",{
         success=function(res)
           local states = res.status == 200 and json.decode(res.data)
           if states then
