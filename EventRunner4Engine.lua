@@ -753,6 +753,28 @@ function Module.autopatch.init(self)
     for file,path in pairs(finfo.files) do fetchFile(file,path,files,n,patcher) end
   end
 
+  function DOWNLOADSOURCE()
+    local function createDir(dir)
+      local r,err = hc3_emulator.file.make_dir(dir)
+      if not r and err~="File exists" then error(format("Can't create backup directory: %s (%s)",dir,err)) end
+    end
+    createDir("Toolbox")
+    local TP = "https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/"
+    for _,f in ipairs(
+      {
+        "Toolbox_basic.lua",
+        "Toolbox_events.lua",
+        "Toolbox_child.lua",
+        "Toolbox_triggers.lua",
+        "Toolbox_files.lua",
+        "Toolbox_rpc.lua",
+        "Toolbox_pubsub.lua",
+      }
+      ) do
+      hc3_emulator.file.downloadFile(TP.."Toolbox/"..f,"Toolbox/"..f)
+    end
+    hc3_emulator.file.downloadFile(TP.."EventRunner4Engine.lua","EventRunner4Engine.lua")
+  end
 end
 
 ----------------- Module Extras -------------------------------
