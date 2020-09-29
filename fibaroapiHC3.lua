@@ -2143,12 +2143,14 @@ function module.Trigger()
       end
     end,
     CentralSceneEvent = function(d) 
-      cache.write('centralSceneEvents',d.deviceId,"",d) 
-      post({type='device', property='centralSceneEvent', id=d.deviceId, value = {keyId=d.keyId, keyAttribute=d.keyAttribute}}) 
+      d.id = d.id or  d.deviceId
+      cache.write('centralSceneEvents',d.id,"",d) 
+      post({type='device', property='centralSceneEvent', id=d.id, value = {keyId=d.keyId, keyAttribute=d.keyAttribute}}) 
     end,
     SceneActivationEvent = function(d) 
-      cache.write('sceneActivationEvents',d.deviceId,"",d) 
-      post({type='device', property='sceneActivationEvent', id=d.deviceId, value = {sceneId=d.sceneId, name=d.name}}) 
+      d.id = d.id or  d.deviceId
+      cache.write('sceneActivationEvents',d.id,"",d) 
+      post({type='device', property='sceneActivationEvent', id=d.id, value = {sceneId=d.sceneId, name=d.name}}) 
     end,
     AccessControlEvent = function(d) 
       cache.write('accessControlEvents',d.id,"",d)

@@ -81,12 +81,14 @@ function Toolbox_Module.triggers.init(self)
       end
     end,
     CentralSceneEvent = function(d) 
-      self.TR.central[d.deviceId]=d;d.icon=nil 
-      post({type='device', property='centralSceneEvent', id=d.deviceId, value={keyId=d.keyId, keyAttribute=d.keyAttribute}}) 
+      d.id = d.id or  d.deviceId
+      self.TR.central[d.id]=d;d.icon=nil 
+      post({type='device', property='centralSceneEvent', id=d.id, value={keyId=d.keyId, keyAttribute=d.keyAttribute}}) 
     end,
     SceneActivationEvent = function(d) 
-      self.TR.activation[d.deviceId]={scene=d.sceneId, name=d.name}; 
-      post({type='device', property='sceneActivationEvent', id=d.deviceId, value={sceneId=d.sceneId}})     
+      d.id = d.id or  d.deviceId
+      self.TR.activation[d.id]={scene=d.sceneId, name=d.name}; 
+      post({type='device', property='sceneActivationEvent', id=d.id, value={sceneId=d.sceneId}})     
     end,
     AccessControlEvent = function(d) 
       self.TR.access[d.id]=d; 
