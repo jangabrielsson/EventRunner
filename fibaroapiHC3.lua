@@ -34,7 +34,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.134" 
+local FIBAROAPIHC3_VERSION = "0.135" 
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -4059,29 +4059,6 @@ function module.Files()
     f:close()
   end
 
---  local function updateFiles(newFiles,id)
---    local oldFiles = self:getFiles(id)
---    local newFileMap,oldFileMap = {},{}
---    for _,f in ipairs(newFiles) do newFileMap[f.name]=f end
---    for _,f in ipairs(oldFiles) do oldFileMap[f.name]=f end
---    for _,f in pairs(newFileMap) do
---      if oldFileMap[f.name] then
---        local _,res = self:updateFile(id,f.name,f)  -- Update existing files
---        if res > 201 then return nil,res end
---      else
---        local _,res = self:createFile(id,f)         -- Create new files
---        if res > 201 then return nil,res end
---      end
---    end
---    for _,f in pairs(oldFileMap) do
---      if not newFileMap[f.name] then
---        local _,res = self:deleteFile(id,f.name)   -- delete old files
---        if res > 201 then return nil,res end
---      end
---    end
---    return newFiles,200
---  end
-
   local function updateFiles(newFiles,id)
     local oldFiles = self:getFiles(id)
     local oldFilesMap = {}
@@ -4105,6 +4082,25 @@ function module.Files()
     end
     return newFiles,200
   end
+
+  local function downloadFile(url,path)
+    net.maxdelay=0; net.mindelay=1
+    net.HTTPClient():request(url,{
+        options={method="GET", checkCertificate = false, timeout=5000},
+        success=function(res) 
+          if res.status == 200 then
+            Log(LOG.LOG,"Writing file %s",path)
+            local f = io.open(path,"w")
+            f:write(res.data)
+            f:close()
+          else
+            Log(LOG.ERROR,"Bad file - %s",url)
+          end
+        end,
+        error=function(res) Log(LOG.ERROR,"Reading file %s: %s",path,res) end,
+      })
+  end
+
 
   local function backup(args)
 
@@ -4303,6 +4299,7 @@ function module.Files()
     parent_dir = parent_dir, --(path)
     make_dir = make_dir, --(dir_name)
     dir = get_directory, --(dir)
+    downloadFile = downloadFile,
     deleteQA = deleteQA,
     uploadQA = uploadQA,
     replaceQA = replaceQA,
