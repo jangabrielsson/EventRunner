@@ -34,7 +34,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.135" 
+local FIBAROAPIHC3_VERSION = "0.136" 
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -413,6 +413,9 @@ function module.FibaroAPI()
   end
 
   function fibaro.profile(profile_id, action)
+    if hc3_emulator.isQA then
+      profile_id,action = action,profile_id
+    end
     __assert_type(profile_id,'number') 
     __assert_type(action,'string') 
     return api.post("/profiles/"..action.."/"..profile_id)

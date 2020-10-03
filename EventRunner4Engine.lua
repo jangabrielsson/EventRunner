@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix27"
+E_VERSION,E_FIX = 0.5,"fix28"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -929,7 +929,7 @@ function Module.extras.init(self)
   self:event({type='%dimLight'},function(env)
       local e = env.event
       local ev,currV = e.v or -1,tonumber(fibaro.getValue(e.id,"value"))
-      if e.v and and math.abs(currV - e.v) > 2 then return end -- Someone changed the lightning, stop dimming
+      if e.v and math.abs(currV - e.v) > 2 then return end -- Someone changed the lightning, stop dimming
       e.v = math.floor(e.fun(e.t,e.start,e.stop,e.sec)+0.5)
       if ev ~= e.v then fibaro.call(e.id,"setValue",e.v) end
       e.t=e.t+e.dir*e.step
