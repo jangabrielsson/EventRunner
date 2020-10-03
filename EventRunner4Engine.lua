@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix25"
+E_VERSION,E_FIX = 0.5,"fix27"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -929,7 +929,7 @@ function Module.extras.init(self)
   self:event({type='%dimLight'},function(env)
       local e = env.event
       local ev,currV = e.v or -1,tonumber(fibaro.getValue(e.id,"value"))
-      if e.v and currV ~= e.v then return end -- Someone changed the lightning, stop dimming
+      if e.v and and math.abs(currV - e.v) > 2 then return end -- Someone changed the lightning, stop dimming
       e.v = math.floor(e.fun(e.t,e.start,e.stop,e.sec)+0.5)
       if ev ~= e.v then fibaro.call(e.id,"setValue",e.v) end
       e.t=e.t+e.dir*e.step
@@ -1546,7 +1546,7 @@ function Module.eventScript.init()
       local function sae(id,prop,e) 
         e=e.event; return e.type=='device' and e.property=='sceneActivationEvent' and e.id==id and e.value.sceneId 
       end
-      local function setProfile(id,cmd,val) if val then fibaro.profile(id,"activeProfile") end return val end
+      local function setProfile(id,cmd,val) if val then fibaro.profile("activateProfile",id) end return val end
       local function profile(id,cmd) return api.get("/profiles/"..id.."?showHidden=true") end
       local function call(id,cmd) fibaro.call(id,cmd); return true end
       local function set(id,cmd,val) fibaro.call(id,cmd,val); return val end
@@ -1583,8 +1583,8 @@ function Module.eventScript.init()
       getFuns.stop={call,'stop',mapF,true}
       getFuns.secure={call,'secure',mapF,false}
       getFuns.unsecure={call,'unsecure',mapF,false}
-      getFuns.isSecure={on,'secured',mapOr,true}
-      getFuns.isUnsecure={off,'secured',mapAnd,true}
+      getFuns.isSecure={on,'secured',mapAnd,true}
+      getFuns.isUnsecure={off,'secured',mapOr,true}
       getFuns.name={function(id) return fibaro.getName(id) end,nil,nil,false}
       getFuns.HTname={function(id) return Util.reverseVar(id) end,nil,nil,false}
       getFuns.roomName={function(id) return fibaro.getRoomNameByDeviceID(id) end,nil,nil,false}

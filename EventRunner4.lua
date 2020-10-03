@@ -22,6 +22,7 @@ end
 if hc3_emulator then hc3_emulator.FILE("EventRunner4Engine.lua","EventRunner") end
 if hc3_emulator then hc3_emulator.FILE("Toolbox/Toolbox_basic.lua","Toolbox") end
 if hc3_emulator then hc3_emulator.FILE("Toolbox/Toolbox_events.lua","Toolbox_events") end
+if hc3_emulator then hc3_emulator.FILE("Toolbox/Toolbox_child.lua","Toolbox_child") end
 if hc3_emulator then hc3_emulator.FILE("Toolbox/Toolbox_triggers.lua","Toolbox_triggers") end
 if hc3_emulator then hc3_emulator.FILE("Toolbox/Toolbox_files.lua","Toolbox_files") end
 if hc3_emulator then hc3_emulator.FILE("Toolbox/Toolbox_rpc.lua","Toolbox_rpc") end
@@ -38,8 +39,8 @@ _debugFlags.pubsub=true    -- log only rules that are true
 
 function QuickApp:main()    -- EventScript version
   local rule = function(...) return self:evalScript(...) end          -- old rule function
-  self:enableTriggerType({"device","global-variable","custom-event"}) -- types of events we want
-
+  self:enableTriggerType({"device","global-variable","custom-event","profile","alarm"}) -- types of events we want
+  
   HT = { 
     keyfob = 26, 
     motion= 21,
