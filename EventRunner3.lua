@@ -15,7 +15,7 @@ HumidityBadStart
 
 if dofile and not _EMULATED then _EMULATED={name="EventRunner",id=99,maxtime=200} dofile("HC2.lua") end -- For HC2 emulator
 
-local _version,_fix = "3.0","B89"  -- Mar 25, 2020  
+local _version,_fix = "3.0","B90"  -- Oct 3, 2020  
 
 local _sceneName   = "Demo"                                 -- Set to scene/script name
 local _homeTable   = "devicemap"                            -- Name of your HomeTable variable (fibaro global)
@@ -642,8 +642,6 @@ local function makeUtils()
     local t = type(...)
     y = t
   end
-
-  test(7,"test",function() end)
 
   local function _Msg(color,message,...)
     local args = type(... or 42) == 'function' and {(...)()} or {...}
@@ -1652,7 +1650,8 @@ function makeEventScriptRuntime()
       lux={get,'value',nil,true},temp={get,'value',nil,true},on={call,'turnOn',mapF,true},off={call,'turnOff',mapF,true},
       open={call,'open',mapF,true},close={call,'close',mapF,true},stop={call,'stop',mapF,true},
       secure={call,'secure',mapF,false},unsecure={call,'unsecure',mapF,false},
-      isSecure={on,'secured',mapOr,true},isUnsecure={off,'secured',mapAnd,true},
+      isSecure={off,'secured',mapAnd,true},isUnsecure={on,'secured',mapOr,true},
+      isSecure2={on,'secured',mapAnd,true},isUnsecure2={off,'secured',mapOr,true},
       name={function(id) return fibaro:getName(id) end,nil,nil,false},
       HTname={function(id) return Util.reverseVar(id) end,nil,nil,false},
       roomName={function(id) return fibaro:getRoomNameByDeviceID(id) end,nil,nil,false},
