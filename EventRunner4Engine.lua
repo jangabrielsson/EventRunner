@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix28"
+E_VERSION,E_FIX = 0.5,"fix29"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -1641,6 +1641,7 @@ function Module.eventScript.init()
         end,""}
 
       self.getFuns=getFuns
+      self.setFuns=setFuns
     end
 
     local function ID(id,i,l) 
