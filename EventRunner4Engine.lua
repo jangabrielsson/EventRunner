@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix29"
+E_VERSION,E_FIX = 0.5,"fix30"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -1552,6 +1552,7 @@ function Module.eventScript.init()
       local function set(id,cmd,val) fibaro.call(id,cmd,val); return val end
       local function pushMsg(id,cmd,val) fibaro.alert(cmd,{id},val,false); return val end
       local function set2(id,cmd,val) fibaro.call(id,cmd,table.unpack(val)); return val end
+      local function dim2(id,cmd,val) Util.dimLight(id,table.unpack(val)) end --sec,dir,step,curve,start,stop)
       local mapOr,mapAnd,mapF=Util.mapOr,Util.mapAnd,function(f,l,s) Util.mapF(f,l,s); return true end
       local function child(id,prop) for _,c in pairs(quickApp.childDevices) do if c.eid==id then return c end end return nil end
 
@@ -1631,7 +1632,7 @@ function Module.eventScript.init()
       setFuns.color={set2,'setColor'}
       setFuns.thermostatSetpoint={set2,'setThermostatSetpoint'}
       setFuns.schedule={set2,'setSchedule'}
-      setFuns.dim={set2,'dim'}
+      setFuns.dim={dim2,'dim'}
       setFuns.msg={pushMsg,'push'}
       setFuns.defemail={set,'sendDefinedEmailNotification'}
       setFuns.btn={set,'pressButton'} -- ToDo: click button on QA?
