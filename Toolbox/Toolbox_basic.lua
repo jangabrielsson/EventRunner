@@ -571,7 +571,7 @@ function Toolbox_Module.basic(self)
       setTimeout,oldSetTimout=function(f,ms)
         local ref,maxt={'%EXT%'},2147483648-1
         local fun = function() -- wrap function to get error messages
-          local stat,res = pcall(fun)
+          local stat,res = pcall(f)
           if not stat then 
             error(res,2)
           end

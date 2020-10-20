@@ -7,7 +7,7 @@ if dofile and not hc3_emulator then
     --speed=36,
     colorDebug=false,
     quickVars={['Jan']='$CREDS.googleCal'},
-    --deploy=true,
+    deploy=true,
     poll=1000,
     UI = {
       {label='name',text=""},
