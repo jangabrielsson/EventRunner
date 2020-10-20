@@ -54,12 +54,12 @@ Toolbox_Module = Toolbox_Module or {}
 Toolbox_Module.LuaParser ={
   name = "Lua parser",
   author = "jan@gabrielsson.com",
-  version = "0.2"
+  version = "0.3"
 }
 
-function Toolbox_Module.LuaParser.init(self)
+function Toolbox_Module.LuaParser.init(self,args)
+  local EVENTSCRIPT = args.EventScript
   local mTokens
-
   local format = string.format
   local function assert(t,str) if not t then error({err=str,token=mTokens.last()}) end end
   local function mkError(...) error({err=format(...),token=mTokens.last()},3) end
@@ -126,6 +126,11 @@ function Toolbox_Module.LuaParser.init(self)
     ['do']=true,['until']=true,['end']=true,['return']=true,['true']=true,['false']=true,['function']=true,['nil']=true,['break']=true,
   }
 
+  if EVENTSCRIPT then
+    reservedT['STARTRULE']=true
+    reservedT['ENDRULE']=true
+  end
+
   local function TABEsc(str) return str:gsub("\\x(%x%x)",function(s) return string.char(tonumber(s,16)) end) end
   token(" \t\r","([ \t\r]+)")
   token("\n","(\n[\r\t ]*)",nil,function(str) cursor = -1; lineNr=lineNr+1 end)
@@ -135,7 +140,7 @@ function Toolbox_Module.LuaParser.init(self)
       else return {type='Name', value=w} end
     end)
   token(".","(%.%.%.?)",function(op) return {type=op=='..' and 'operator' or op, value=op} end)
-  if ERSCRIPT then
+  if EVENTSCRIPT then
     token("0123456789","(%d%d):(%d%d):?(%d*)", function (h,m,s) 
         return {type="number", value = 3600*tonumber(h)+60*tonumber(m)+(tonumber(s) or 0)} 
       end)
@@ -150,8 +155,10 @@ function Toolbox_Module.LuaParser.init(self)
   token("[","%[%[(.-)%]%]", function (s) return {type="string", value=s} end)
   token("-","(%-%-.-\n)")
   token("-","(%-%-.*)")
-  if ERSCRIPT then
-    token("#@$=<>!+.-*&|/%^~;:","([#@%$=<>!+%.%-*&|/%^~;:][#@=<>&|:]?)", function (op) return {type= specT[op] and op or "operator", value=op} end)
+  if EVENTSCRIPT then
+    token("#@$=<>!+.-*&|/%^~;:","([#@%$=<>!+%.%-*&|/%^~;:][#@=<>&|:]?)", 
+      function (op) return op=='=>' and {type=op,value=op} or {type= specT[op] and op or "operator", value=op} 
+    end)
   else
     token("#@$=<>!+.-*&|/%^~;:","([#@%$=<>!+%.%-*&|/%^~;:][=<>&|:]?)", function (op) return {type= specT[op] and op or "operator", value=op} end)
   end
@@ -196,7 +203,7 @@ function Toolbox_Module.LuaParser.init(self)
     ['and']={1,2}, ['or']={0,2}
   }
 
-  local function addESsupport()
+  if EVENTSCRIPT then
     opers['@']={7,1}
     opers['@@']={7,1}
     opers['$']={13,1}
@@ -548,25 +555,7 @@ parlist ::= namelist [‘,’ ‘...’] | ‘...’
     end
   end
 
-  return function(str,locals,es)
-    if es then
-      locals = locals or {}
-      addESsupport()
-      stat,res = pcall(function()
-          mTokens = mkStream(tokenize(str))
-          local expr = gram.expr(mTokens,{l=locals})
-          if mTokens.peek() ~= mTokens.eof then
-            error({err="Unexpected token at eof",token=mTokens.next()})
-          end
-          return expr
-        end)
-      if stat then return res
-      else
-        if type(res)=='table' then
-          error(res.err.." - "..tokenToError(res.token,str),1)
-        else error(res,1) end
-      end
-    end
+  return function(str,locals)
     locals = locals or {}
     stat,res = pcall(function()
         mTokens = mkStream(tokenize(str))

@@ -12,11 +12,11 @@ Toolbox_Module = Toolbox_Module or {}
 Toolbox_Module.LuaCompiler ={
   name = "Lua compiler",
   author = "jan@gabrielsson.com",
-  version = "0.2"
+  version = "0.3"
 }
 
-function Toolbox_Module.LuaCompiler.init(self)
-
+function Toolbox_Module.LuaCompiler.init(self,args)
+  local EVENTSCRIPT = args.EventScript
   local luc = {}
   local compile,evaluate,coroutine
   local lastFunCalled,lastEnv
@@ -132,7 +132,7 @@ function Toolbox_Module.LuaCompiler.init(self)
 
   local blockFuns = { ['local']='true', foridx=true, forlist=true }
   local compExpr = {
-    block = function(expr,code)
+    ['block'] = function(expr,code)
       local locals = false
       for _,e in ipairs(expr[2]) do
         if blockFuns[e[1]] then locals = true break; end -- These need enterblock/exitblock
@@ -349,6 +349,12 @@ function Toolbox_Module.LuaCompiler.init(self)
       code:add("function",params,varg,typ,obj,name,fcode.code)
     end,
   }
+
+  if EVENTSCRIPT then
+    compExpr['$'] = function(expr,code)
+      code:add("fibglobal")
+    end
+  end
 
   function compile(expr,code)
     if type(expr) == 'table' and #expr>0 then
@@ -650,7 +656,7 @@ __le
   local parser = modules['LuaParser']
   luc.parser = parser
   luc.optimizer = optTree
-  
+
   function luc.load(str, locals, global_env, shadow_env, debug)
     debug,locals = debug or {},locals or {}
     local p = parser(str,locals)
@@ -726,7 +732,7 @@ __le
   end
 
   function coroutine.yield(...)
- --   print("Y",LL,LC)
+    --   print("Y",LL,LC)
     assert(coroutine.running(),"Yield called outside coroutine")
     error({type='yield',args={...}})
   end

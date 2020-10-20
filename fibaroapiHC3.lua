@@ -34,7 +34,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.136" 
+local FIBAROAPIHC3_VERSION = "0.137" 
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -617,12 +617,12 @@ function module.FibaroAPI()
       elseif data==nil and opts.error then opts.error(err) end
     end
     function self:readUntil(delimiter, callbacks) end
-    function self:send(data, opts) 
+    function self:write(data, opts) 
       local res,err = sock:send(data)
       if res and opts.success then opts.success(res)
       elseif res==nil and opts.error then opts.error(err) end
     end
-    function self:close() self.sock:close() end
+    function self:close() sock:close() end
     return self
   end
 
@@ -1734,7 +1734,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
         local child = self.childDevices[id] 
         if child then child:callAction(event.actionName, table.unpack(event.args))
         else
-          self:debug("Child with id:", id, " not found")
+          Log(LOG.WARNING,"Child with id:%s not found.", id)
         end
       end
     end
@@ -1755,7 +1755,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
         end
         return self:callAction(cb[elm][etyp], event)
       end
-      self:warning("UI callback for element:", elm, " not found.")
+      Log(LOG.WARNING,"UI callback for element:%s not found.", elm)
     end
   end
 
@@ -2232,6 +2232,9 @@ function module.Trigger()
       if states then
         lastRefresh=states.last
         if states.events and #states.events>0 then checkEvents(states.events) end
+        if  states.alarmChanges then
+          print(json.encode(states.alarmChanges))
+        end
       end
     end
     return nil,c, h
@@ -4119,8 +4122,10 @@ function module.Files()
       return name
     end
 
-    local function devices(dir,namer)
-      local qas = api.get("/devices/?interface=quickApp")
+    local resources = {}
+    function resources.devices(dir,namer,id)
+      local qas = api.get("/devices/"..id.."?interface=quickApp")
+      if qas and next(qas) and not qas[1] then qas = {qas} end
       namer = namer or fixName
       for _,q in ipairs(qas or {}) do
         local p = {namer(q,q.name)}
@@ -4138,8 +4143,8 @@ function module.Files()
       end
     end
 
-    local function scenes(dir,namer)
-      local scenes = api.get("/scenes")
+    function resources.scenes(dir,namer)
+      local scenes = api.get("/scenes/"..spec)
       namer = namer or fixName
       for _,s in ipairs(scenes or {}) do
         local p = {namer(s,s.name)}
@@ -4158,14 +4163,15 @@ function module.Files()
     local rsrc = args.type
     local dir = args.dir
     local namer = args.namer
-
+    local spec = args.name or ""
+    
     if dir == nil then
       dir = hc3_emulator.backupDir or "/tmp"
     end
-    if self[rsrc] then self[rsrc](dir,namer)
+    if resources[rsrc] then resources[rsrc](dir,namer,spec)
     elseif rsrc=="*" then 
-      devices(dir,namer)
-      scenes(dir,namer)
+      devices(dir,namer,"")
+      scenes(dir,namer,"")
     else error("Resource unsupported") end
     print("Done")
   end

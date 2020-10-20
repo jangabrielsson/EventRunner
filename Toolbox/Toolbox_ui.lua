@@ -192,7 +192,6 @@ function Toolbox_Module.ui.init(self)
         if j.type=='label' and j.name==name then
           table.remove(v,i)
           return api.put("/devices/"..id,{properties={viewLayout=vl}})
-          return
         end
       end
     end

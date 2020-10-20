@@ -35,11 +35,11 @@
 
 --]]
 
-local QA_toolbox_version = "0.20"
+local QA_toolbox_version = "0.21"
 local format = string.format
-Toolbox_Module,modules = Toolbox_Module or {},modules or {}
 local _init = QuickApp.__init
 local _onInit = nil
+Toolbox_Module,modules = Toolbox_Module or {},modules or {} -- needs to be globals
 
 function QuickApp.__init(self,...) -- We hijack the __init methods so we can control users :onInit() method
   _onInit = self.onInit
@@ -73,11 +73,15 @@ function QuickApp:loadToolbox()
   printf("Created...:%s",os.date("%c",d.created or os.time()))
   printf("Modified..:%s",os.date("%c",d.modified or os.time()))
   Toolbox_Module['basic'](self)
+
+  -- Load modules
   local ms,Module,missingModules = {},Toolbox_Module,{}
   for _,m in ipairs(modules or {}) do 
+    local args = {}
+    if type(m)=='table' then args = m.args or {}; m = m.name end
     if Module[m] then 
       self:debugf("Setup: %s (%s)",Module[m].name,Module[m].version)
-      modules[m]=Module[m].init(self) 
+      modules[m]=Module[m].init(self,args) 
     else 
       self:warning("Module '"..m.."' missing")
       if self._INSTALL_MISSING_MODULES then
@@ -85,8 +89,8 @@ function QuickApp:loadToolbox()
       else self:warning("Set self._INSTALL_MISSING_MODULES=true to load missing modules") end
     end
   end
-  --modules = ms
-  local function cont()
+
+  local function cont() -- stuff to do when we loaded missing modules...
     for m,_ in pairs(Module) do Module[m] = nil end
     self.config = {}
     for _,v in ipairs(self.properties.quickAppVariables or {}) do
@@ -100,6 +104,8 @@ function QuickApp:loadToolbox()
     if _onInit then _onInit(self) end
     if self.main and type(self.main)=='function' then setTimeout(function() self:main() end,0) end -- If we have a main(), call it...
   end
+
+  -- Try to load missing modules
   if #missingModules > 0 then
     local  content = {}
     fetchFiles(missingModules,content,
@@ -108,7 +114,7 @@ function QuickApp:loadToolbox()
           if not hc3_emulator then
             self:debugf("Adding module(s) ..will  restart")
             for _,f in ipairs(content) do
-               api.post("/quickApp/"..self.id.."/files",f)
+              api.post("/quickApp/"..self.id.."/files",f)
             end
             plugin.restart(self.id)
           else self:debugf("Can't update offline") end
@@ -120,15 +126,15 @@ end
 
 local mpath = "https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/Toolbox/"
 local moduleMap={
-  childs = {name="Toolbox_child",url=mpath.."Toolbox_child.lua"},
-  events = {name="Toolbox_events",url=mpath.."Toolbox_events.lua"},
-  triggers = {name="Toolbox_triggers",url=mpath.."Toolbox_triggers.lua"},
-  rpc = {name="Toolbox_rpc",url=mpath.."Toolbox_rpc.lua"},
-  file = {name="Toolbox_files",url=mpath.."Toolbox_files.lua"},
-  pubsub={name="Toolbox_pubsub",url=mpath.."Toolbox_pubsub.lua"},
-  ui={name="Toolbox_ui",url=mpath.."Toolbox_ui.lua"},
-  LuaCompiler={name="Toolbox_luacompiler",url=mpath.."Toolbox_luacompiler.lua"},
-  LuaParser={name="Toolbox_luaparser",url=mpath.."Toolbox_luaparser.lua"},
+  childs      = {name="Toolbox_child",      url=mpath.."Toolbox_child.lua"},
+  events      = {name="Toolbox_events",     url=mpath.."Toolbox_events.lua"},
+  triggers    = {name="Toolbox_triggers",   url=mpath.."Toolbox_triggers.lua"},
+  rpc         = {name="Toolbox_rpc",        url=mpath.."Toolbox_rpc.lua"},
+  file        = {name="Toolbox_files",      url=mpath.."Toolbox_files.lua"},
+  pubsub      = {name="Toolbox_pubsub",     url=mpath.."Toolbox_pubsub.lua"},
+  ui          = {name="Toolbox_ui",         url=mpath.."Toolbox_ui.lua"},
+  LuaCompiler = {name="Toolbox_luacompiler",url=mpath.."Toolbox_luacompiler.lua"},
+  LuaParser   = {name="Toolbox_luaparser",  url=mpath.."Toolbox_luaparser.lua"},
 }
 
 function fetchFiles(files,content,cont)
@@ -309,6 +315,13 @@ function Toolbox_Module.basic(self)
     end
   end
 
+  local _updateProperty = self.updateProperty
+  local _props = (api.get("/devices/"..self.id) or {}).properties
+  function self:updateProperty(prop,value)
+    if _props==nil or _props[prop] ~= nil then
+      return _updateProperty(self,prop,value)
+    else self:warningf("Trying to update non-existing property - %s",prop) end
+  end
 -- Change type of QA. Note, if types is changed the QA will restart
 --function QuickApp:setType(typ)
 --  if self.typ ~= typ then api.put("/devices/"..self.id,{type=typ}) end
@@ -367,7 +380,7 @@ function Toolbox_Module.basic(self)
 --  )
 
   function self:pushYesNo(mobileId,title,message,callback,timeout)
-    local ref = tostring({}):match("(0x.*)")
+    local ref = self._orgToString({}):match("(0x.*)")
     api.post("/mobile/push", 
       {
         category = "YES_NO", 
@@ -492,6 +505,7 @@ function Toolbox_Module.basic(self)
     return api.get("/proxy?url="..urlencode(url))
   end
 
+
   local function copy(expr)
     if type(expr)=='table' then
       local r = {}
@@ -499,6 +513,8 @@ function Toolbox_Module.basic(self)
       return r
     else return expr end
   end
+
+  self.util = { copy = copy }
 
   netSync = { HTTPClient = function (log)   
       local self,queue,HTTP,key = {},{},net.HTTPClient(),0
@@ -545,29 +561,49 @@ function Toolbox_Module.basic(self)
   do
     local settimeout,setinterval,encode,decode =  -- gives us a better error messages
     setTimeout, setInterval, json.encode, json.decode
-    function setTimeout(fun,ms)
-      return settimeout(function()
+
+    if not hc3_emulator then -- Patch short-sighthed setTimeout...
+      clearTimeout,oldClearTimout=function(ref)
+        if type(ref)=='table' and ref[1]=='%EXT%' then ref=ref[2] end
+        oldClearTimout(ref)
+      end,clearTimeout
+
+      setTimeout,oldSetTimout=function(f,ms)
+        local ref,maxt={'%EXT%'},2147483648-1
+        local fun = function() -- wrap function to get error messages
           local stat,res = pcall(fun)
           if not stat then 
-            self:errorf(res,2)
+            error(res,2)
           end
-        end,ms)
-    end
-    function setInterval(fun,ms)
-      return setinterval(function()
-          local stat,res = pcall(fun)
-          if not stat then 
-            self:errorf(res,2)
-          end
-        end,ms)
-    end
-    function json.decode(...)
-      local stat,res = pcall(decode,...)
-      if not stat then error(res,2) else return res end
-    end
-    function json.encode(...)
-      local stat,res = pcall(encode,...)
-      if not stat then error(res,2) else return res end
+        end
+        if ms > maxt then
+          ref[2]=oldSetTimout(function() ref[2 ]=setTimeout(fun,ms-maxt)[2] end,maxt)
+        else ref[2 ]=oldSetTimout(fun,ms) end
+        return ref
+      end,setTimeout
+
+      function setInterval(fun,ms) -- can't manage looong intervals
+        return setinterval(function()
+            local stat,res = pcall(fun)
+            if not stat then 
+              error(res,2)
+            end
+          end,ms)
+      end
+      function json.decode(...)
+        local stat,res = pcall(decode,...)
+        if not stat then error(res,2) else return res end
+      end
+      function json.encode(...)
+        local stat,res = pcall(encode,...)
+        if not stat then error(res,2) else return res end
+      end
     end
   end
+  
+  local traceFuns = {
+    'call','get','getValue'
+  }
+  
+  
 end

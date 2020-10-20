@@ -18,9 +18,9 @@ hc3_emulator.FILE("Toolbox/Toolbox_triggers.lua","Toolbox_triggers")
 hc3_emulator.FILE("Toolbox/Toolbox_files.lua","Toolbox_files")
 hc3_emulator.FILE("Toolbox/Toolbox_rpc.lua","Toolbox_rpc")
 hc3_emulator.FILE("Toolbox/Toolbox_pubsub.lua","Toolbox_pubsub")
-hc3_emulator.FILE("Toolbox/Toolbox_pubsub.lua","Toolbox_ui")
-hc3_emulator.FILE("Toolbox/Toolbox_pubsub.lua","Toolbox_luaparser")
-hc3_emulator.FILE("Toolbox/Toolbox_pubsub.lua","Toolbox_luacompiler")
+hc3_emulator.FILE("Toolbox/Toolbox_ui.lua","Toolbox_ui")
+hc3_emulator.FILE("Toolbox/Toolbox_luaparser.lua","Toolbox_luaparser")
+hc3_emulator.FILE("Toolbox/Toolbox_luacompiler.lua","Toolbox_luacompiler")
 ----------- Code -----------------------------------------------------------
 ----------- QA toolbox functions -------------------------------------------
 --[[
