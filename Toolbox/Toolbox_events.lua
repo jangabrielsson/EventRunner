@@ -127,6 +127,7 @@ function Toolbox_Module.events.init(self)
   local function coerce(x,y) local x1 = tonumber(x) if x1 then return x1,tonumber(y) else return x,y end end
   local constraints = {}
   constraints['=='] = function(val) return function(x) x,val=coerce(x,val) return x == val end end
+  constraints['<>'] = function(val) return function(x) return tostring(x):match(val) end end
   constraints['>='] = function(val) return function(x) x,val=coerce(x,val) return x >= val end end
   constraints['<='] = function(val) return function(x) x,val=coerce(x,val) return x <= val end end
   constraints['>'] = function(val) return function(x) x,val=coerce(x,val) return x > val end end
@@ -139,9 +140,9 @@ function Toolbox_Module.events.init(self)
       if pattern._var_ then return end
       for k,v in pairs(pattern) do
         if type(v) == 'string' and v:sub(1,1) == '$' then
-          local var,op,val = v:match("$([%w_]*)([<>=~]*)([+-]?%d*%.?%d*)")
+          local var,op,val = v:match("$([%w_]*)([<>=~]*)(.*)")
           var = var =="" and "_" or var
-          local c = constraints[op](tonumber(val))
+          local c = constraints[op](tonumber(val) or val)
           pattern[k] = {_var_=var, _constr=c, _str=v}
         else compilePattern2(v) end
       end
