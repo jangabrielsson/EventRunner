@@ -34,7 +34,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.137" 
+local FIBAROAPIHC3_VERSION = "0.138" 
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -197,6 +197,7 @@ hc3_emulator.webPort           = hc3_emulator.webPort or 6872
 hc3_emulator.quickVars         = hc3_emulator.quickVars or {}
 hc3_emulator.colorDebug        = DEF(hc3_emulator.colorDebug,true)
 hc3_emulator.supressTrigger = {["PluginChangedViewEvent"] = true} -- Ignore noisy triggers...
+hc3_emulator.negativeTimeout = true
 
 local cr = loadfile(hc3_emulator.credentialsFile);
 if cr then hc3_emulator.credentials = merge(hc3_emulator.credentials or {},cr() or {}) end
@@ -273,7 +274,14 @@ function module.FibaroAPI()
     if hc3_emulator.colorDebug then
       local color = DEBUGCOLORS[t] or "black"
       color = ZBCOLORMAP[color]
-      t = format('%s%s\027[0m', color, t) 
+      t = format('%s%s\027[0m', color, t)
+      str = str:gsub("<font color=(.-)>(.*)</font>",
+        function(color,cnt) 
+          color=ZBCOLORMAP[color]
+          color = color or ZBCOLORMAP['black']
+          return format('%s%s\027[0m', color, cnt)
+        end)
+      str=str:gsub("&nbsp;"," ")
     end
     print(format("%s [%s]: %s",os.date("[%d.%m.%Y] [%X]"),t,str)) 
   end
@@ -970,7 +978,7 @@ function module.Timer()
 
   function self.setTimeout(fun,ms,tag)
     assert(type(fun)=='function' and type(ms)=='number',"Bad argument to setTimeout")
-    if ms >= 0 then
+    if ms >= 0 or hc3_emulator.negativeTimeout then
       local t = makeTimer(ms/1000+milliTime(),fun,{tag=tag})
       insertTimer(t)
       return t
@@ -1032,7 +1040,7 @@ function module.Timer()
     function setTimeout(fun,t,tag) -- globally redefine global setTimeout
       assert(type(fun)=='function' and type(t)=='number',"Bad argument to setTimeout")
       --Log(LOG.LOG,"S %s:%d",tag or "",t/1000)
-      if t >= 0 then return addTimer(makeTimer(t/1000,fun,{tag=tag})) end
+      if t >= 0 or hc3_emulator.negativeTimeout then return addTimer(makeTimer(t/1000,fun,{tag=tag})) end
     end
 
     function clearTimeout(ref)  -- globally redefine global clearTimeout
@@ -1102,7 +1110,7 @@ end
 function module.QuickApp()
   local self = {}
   plugin = {}
-  plugin.mainDeviceId = nil
+  plugin.mainDeviceId = 999
   function plugin.deleteDevice(deviceId) return api.delete("/devices/"..deviceId) end
   function plugin.restart(deviceId) return api.post("/plugins/restart",{deviceId=deviceId or plugin.mainDeviceId}) end
   function plugin.getProperty(id,prop) return api.get("/devices/"..id.."/property/"..prop) end
