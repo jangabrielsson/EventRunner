@@ -6,14 +6,13 @@ if dofile and not hc3_emulator then
     poll = 1000,
     --speed=36,
     colorDebug=false,
-    quickVars={['Jan']='$CREDS.googleCal',['Offset']='0'},
+    quickVars={['Jan']='$CREDS.googleCal'},
     deploy=true,
     poll=1000,
     UI = {
       {label='name',text=""},
       {button='refresh', text='Refresh calendar',onReleased='refreshCalendar'},
-      {slider='offset',onChanged='offset',min="-2",max="2",value="0"},
-      {label='offsetText',text="Time offset: 0"},
+      {{slider='offset',onChanged='offset',min="-2",max="2",value="0"},{label='offsetText',text=""}},
       {label='row1',text=""},
       {label='row2',text=""},
       {label='row3',text=""},
@@ -52,7 +51,6 @@ calendars = {}
 calendarAlarms = {}
 dateFormat = "%m/%d/%H:%M"
 DEBUG,EMU = true,false
-timeOffset = 0
 days = 2
 local format = string.format 
 local function Debug(...) if DEBUG then quickApp:debugf(...) end end
@@ -70,13 +68,6 @@ function QuickApp:addCalendar(name,url)
   if name and url then
     self:post({type='createCalendar', name=name, url=url})
   end
-end
-function QuickApp:offset(ev)
-  local v = ev.values[1]
-  self:setVariable("Offset",tostring(val))
-  self:updateView("offsetText","text","Time offset: "..v)
-  timeOffset = v
-  self:refreshCalendar()
 end
 function QuickApp:removeCalendar(name) self:post({type='removeCalendar', name=name}) end
 function QuickApp:refreshCalendar(name)
@@ -101,25 +92,10 @@ end
 
 function QuickApp:main()
 
-  self:event({type='currentEvents'},function(e)
-      local  from = e.event.id
-      if not from then self:warning("currentEvents - no reply id") return end
-      local now = os.time()
-      local entries = {}
-      for _,e in ipairs(calendarAlarms) do
-        if e.entry.startDate <= now and e.entry.endDate >= now then
-          entries[#entries+1]=e.entry
-        end
-      end
-      self:postRemote(from,{type='currentEvents',events=entries})
-    end)
-
---  self:post({type='currentEvents'},10)
-
   self:event({type='start'},function(e)  
       local vars = api.get("/devices/"..self.id).properties.quickAppVariables or {}
       for _,v in ipairs(vars) do
-        if not ({PROXYIP=true,TPUBSUB=true,pollTime=true,Offset=true})[v.name] then
+        if not ({PROXYIP=true,TPUBSUB=true,pollTime=true})[v.name] then
           self:post({type='createCalendar', name=v.name, url=v.value})
         end
       end
@@ -198,7 +174,7 @@ function QuickApp:main()
       pub.status = e.status
       pub.type='iCAL'
       self:publish(pub) 
-
+      
       if e.status=='start' then  -- Always emit "iCalendar_"..<name> events
         local ename
         if CUSTOMEVENT == 'name' then
@@ -314,7 +290,7 @@ function makeICal(name,url,days,tz)
       hour=tonumber(hour),min=tonumber(min),sec=tonumber(sec)}+(Z=='Z' and utc*60*60 or 0)
     local t = os.date("*t")
     if t.isdst then epoc = epoc+60*60 end
-    return epoc+timeOffset*60*60
+    return epoc
   end
 
   local function AppendRecuringEntry(recurance, e)
@@ -467,7 +443,7 @@ function makeICal(name,url,days,tz)
       })
   end
 
-  -- TESTING=true
+ -- TESTING=true
   function self.fetchData()
     myCal = {}
     if TESTING then
@@ -498,10 +474,7 @@ end
 
 function QuickApp:onInit()  -- onInit() sets up stuff...
   -- Fibaro quickvariables editor don't allow long strings like an URL... :-(
-  self:updateView("name","text","iCalendar v".._version)
   if CALURL then self:setVariable(CALNAME,CALURL) end
-  timeOffset = tonumber(self:getVariable("Offset"))
-  self:updateView("offset","value",timeOffset)
   self:turnOff()
   self:post({type='start'},1)                     
 end

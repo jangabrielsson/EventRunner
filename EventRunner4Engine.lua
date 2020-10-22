@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix30"
+E_VERSION,E_FIX = 0.5,"fix31"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -272,7 +272,12 @@ function Module.utilities.init()
     end
   end
 
-  local NOFTRACE={[""]=true,["ER_remoteEvent"]=true}
+  local NOFTRACE={
+    [""]=true,["ER_remoteEvent"]=true,
+    ['SUBSCRIBEDEVENT']=true,
+    ['SYNCPUBSUB']=true,
+    ['SUBSCRIBEDEVENT']=true
+  }
 
   local function patchF(name)
     local oldF,flag = fibaro[name],"f"..name
