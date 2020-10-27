@@ -71,11 +71,11 @@ function QuickApp:subscribe(event)                  -- Subscribe to events from 
 -- Module "ui"
 function QuickApp:updateViewLayout(id,UI,height,forceUpdate)
 function QuickApp:insertLabel(name,text,pos)
- function QuickApp:removeLabel(name)
+function QuickApp:removeLabel(name)
 --]]
 
 -- Example
-_version = "1.1"  -- Version of our app, will be logged at startup
+_version = "1.2"  -- Version of our app, will be logged at startup
 modules = {"childs","events","triggers","rpc", "file","pubsub","ui"} -- Modules we want to load (the files need to be copied to our QA)
 
 -- main() if available, will be called after onInit. Everything is setup after we exit onInit() so this is a safer place to start running your main code...
@@ -86,7 +86,6 @@ function QuickApp:main()
       "device","global-variable","alarm","weather","profile","custom-event","deviceEvent","sceneEvent","onlineEvent"
     })
 
-  self:subscribe({type='test'})
   -- We want to log all triggers arriving
   self.debugFlags.triggers = true -- Log all incoming (enabled) triggers
 
@@ -104,12 +103,21 @@ function QuickApp:main()
     basicAuthorization={user="admin",password="admin"}
   }
 
-  -- Create an infoCenter post every 5s with the current time
-  --setInterval(function()
-  --    self:notify("info","Test",os.date("%c"),true)
-  --  end,5000)
-end
+--[[
+-- Create an infoCenter post every 5s with the current time
+  setInterval(function()
+      self:notify("info","Test",os.date("%c"),true)
+    end,5000)
 
+-- Subscribe to test events from other QAs
+  self:subscribe({type='test'})
+-- Trigger on text event
+  self:event({type='test'},function(env)
+      self:debug("Incoming test event")
+    end)
+--]]
+
+end
 
 -- To copy Toolbox files to your own QA. 
 function QuickApp:copyToolbox(a,b)local c=api.get(("/quickApp/%s/files/%s"):format(a,b))assert(c,"File doesn't exists")local d=api.get(("/quickApp/%s/files/%s"):format(self.id,b))if not d then local e,f=api.post(("/quickApp/%s/files"):format(self.id),c)if f==200 then self:debug("File '",b,"' added")else self:error("Error:",f)end elseif d.content~=c.content then local e,f=api.put(("/quickApp/%s/files/%s"):format(self.id,b),c)if f==200 then self:debug("File '",b,"' updated")else self:error("Error:",f)end else self:debug("File '",b,"' up to date")end end
@@ -121,12 +129,13 @@ function QuickApp:onInit()
   self.debugFlags.trigger=true
 --  Here is a good place to copy over the Toolbox files to your QA. 'Toolbox' is needed by all modules.
 --  Assume QA_Toolbox has deviceId 1333
---  self:copyToolbox(1333,"Toolbox")
---  self:copyToolbox(1333,"Toolbox_child")
---  self:copyToolbox(1333,"Toolbox_events")
---  self:copyToolbox(1333,"Toolbox_trigger")
---  self:copyToolbox(1333,"Toolbox_files")
---  self:copyToolbox(1333,"Toolbox_rpc")
---  self:copyToolbox(1333,"Toolbox_pubsub")
+--  local toolbox = 1333
+--  self:copyToolbox(toolbox,"Toolbox")
+--  self:copyToolbox(toolbox,"Toolbox_child")
+--  self:copyToolbox(toolbox,"Toolbox_events")
+--  self:copyToolbox(toolbox,"Toolbox_trigger")
+--  self:copyToolbox(toolbox,"Toolbox_files")
+--  self:copyToolbox(toolbox,"Toolbox_rpc")
+--  self:copyToolbox(toolbox,"Toolbox_pubsub")
 end
 

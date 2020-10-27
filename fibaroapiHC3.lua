@@ -34,7 +34,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.138" 
+local FIBAROAPIHC3_VERSION = "0.140"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -196,8 +196,9 @@ hc3_emulator.runSceneAtStart   = false
 hc3_emulator.webPort           = hc3_emulator.webPort or 6872
 hc3_emulator.quickVars         = hc3_emulator.quickVars or {}
 hc3_emulator.colorDebug        = DEF(hc3_emulator.colorDebug,true)
-hc3_emulator.supressTrigger = {["PluginChangedViewEvent"] = true} -- Ignore noisy triggers...
-hc3_emulator.negativeTimeout = true
+hc3_emulator.htmlDebug         = DEF(hc3_emulator.htmlDebug,true)
+hc3_emulator.supressTrigger    = {["PluginChangedViewEvent"] = true} -- Ignore noisy triggers...
+hc3_emulator.negativeTimeout   = DEF(hc3_emulator.negativeTimeout,true)
 
 local cr = loadfile(hc3_emulator.credentialsFile);
 if cr then hc3_emulator.credentials = merge(hc3_emulator.credentials or {},cr() or {}) end
@@ -275,13 +276,15 @@ function module.FibaroAPI()
       local color = DEBUGCOLORS[t] or "black"
       color = ZBCOLORMAP[color]
       t = format('%s%s\027[0m', color, t)
-      str = str:gsub("<font color=(.-)>(.*)</font>",
-        function(color,cnt) 
-          color=ZBCOLORMAP[color]
-          color = color or ZBCOLORMAP['black']
-          return format('%s%s\027[0m', color, cnt)
-        end)
-      str=str:gsub("&nbsp;"," ")
+      if hc3_emulator.htmlDebug then
+        str = str:gsub("<font color=(.-)>(.*)</font>",
+          function(color,cnt) 
+            color=ZBCOLORMAP[color]
+            color = color or ZBCOLORMAP['black']
+            return format('%s%s\027[0m', color, cnt)
+          end)
+        str=str:gsub("&nbsp;"," ")
+      end
     end
     print(format("%s [%s]: %s",os.date("[%d.%m.%Y] [%X]"),t,str)) 
   end
@@ -1006,7 +1009,7 @@ function module.Timer()
     local function loop()
       if ref[1] then
         fun()
-        ref[1]=setTimeout(loop,ms,tag)
+        ref[1]=ref[1] and  setTimeout(loop,ms,tag)
       end
     end
     ref[1] = setTimeout(loop,ms,tag)
@@ -2123,7 +2126,7 @@ function module.Trigger()
 
   local function post(event) 
     if hc3_emulator.supressTrigger[event.type] then return end
-    if _debugFlags.trigger then Log(LOG.DEBUG,"Incoming trigger:%s",json.encode(event)) end
+    if _debugFlags.trigger then Log(LOG.DEBUG,"Incoming trigger:%s",Util.prettyJson(event)) end
     if HC3_handleEvent then HC3_handleEvent(event) end 
   end
 
@@ -4172,7 +4175,7 @@ function module.Files()
     local dir = args.dir
     local namer = args.namer
     local spec = args.name or ""
-    
+
     if dir == nil then
       dir = hc3_emulator.backupDir or "/tmp"
     end

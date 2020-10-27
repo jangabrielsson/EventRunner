@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix31"
+E_VERSION,E_FIX = 0.5,"fix32"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -1604,6 +1604,9 @@ function Module.eventScript.init()
       getFuns.removeSchedule={call,'removeSchedule',mapF,true}
       getFuns.retryScheduleSynchronization={call,'retryScheduleSynchronization',mapF,true}
       getFuns.setAllSchedules={call,'setAllSchedules',mapF,true}
+      getFuns.levelIncrease={call,'startLevelIncrease',mapF,nil}
+      getFuns.levelDecrease={call,'startLevelDecrease',mapF,nil}
+      getFuns.levelStop={call,'stopLevelChange',mapF,nil}
 
       getFuns.dID={function(a,e) 
           if type(a)=='table' then

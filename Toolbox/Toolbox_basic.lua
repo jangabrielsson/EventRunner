@@ -65,13 +65,15 @@ function QuickApp:loadToolbox()
   local d = __fibaro_get_device(self.id)
   local function printf(...) self:debug(format(...)) end
   printf("QA %s - version:%s (QA toolbox %s)",self.name,_version or "1.0",QA_toolbox_version)
-  printf("DeviceId..:%d",d.id)
-  printf("Type......:%s",d.type)
-  printf("Interfaces:%s",json.encode(d.interfaces or {}))
-  printf("Room......:%s",d.roomID or 0)
-  printf("Visible...:%s",tostring(d.visible))
-  printf("Created...:%s",os.date("%c",d.created or os.time()))
-  printf("Modified..:%s",os.date("%c",d.modified or os.time()))
+  if not self.SILENT then
+    printf("DeviceId..:%d",d.id)
+    printf("Type......:%s",d.type)
+    printf("Interfaces:%s",json.encode(d.interfaces or {}))
+    printf("Room......:%s",d.roomID or 0)
+    printf("Visible...:%s",tostring(d.visible))
+    printf("Created...:%s",os.date("%c",d.created or os.time()))
+    printf("Modified..:%s",os.date("%c",d.modified or os.time()))
+  end
   Toolbox_Module['basic'](self)
 
   -- Load modules
@@ -80,7 +82,7 @@ function QuickApp:loadToolbox()
     local args = {}
     if type(m)=='table' then args = m.args or {}; m = m.name end
     if Module[m] then 
-      self:debugf("Setup: %s (%s)",Module[m].name,Module[m].version)
+      if not self.SILENT then self:debugf("Setup: %s (%s)",Module[m].name,Module[m].version) end
       modules[m]=Module[m].init(self,args) 
     else 
       self:warning("Module '"..m.."' missing")
@@ -600,10 +602,10 @@ function Toolbox_Module.basic(self)
       end
     end
   end
-  
+
   local traceFuns = {
     'call','get','getValue'
   }
-  
-  
+
+
 end
