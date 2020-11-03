@@ -34,7 +34,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.140"
+local FIBAROAPIHC3_VERSION = "0.141"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -104,6 +104,7 @@ fibaro.sleep(ms) -- simple busy wait...
 
 net.HTTPClient()
 net.TCPSocket()
+mqtt.Client() -- needs extra download
 api.get(call) 
 api.put(call <, data>) 
 api.post(call <, data>)
@@ -115,7 +116,12 @@ setInterval(func, ms)
 clearInterval(ref)
 
 plugin.mainDeviceId
-
+plugin.deleteDevice(deviceId) 
+plugin.restart(deviceId)
+plugin.getProperty(id,prop)
+plugin.getChildDevices(id)
+plugin.createChildDevice(prop) 
+  
 class QuickAppBase
 class QuickApp
 class QuickAppChild
@@ -203,7 +209,14 @@ hc3_emulator.negativeTimeout   = DEF(hc3_emulator.negativeTimeout,true)
 local cr = loadfile(hc3_emulator.credentialsFile);
 if cr then hc3_emulator.credentials = merge(hc3_emulator.credentials or {},cr() or {}) end
 pcall(function() require('mobdebug').coro() end) -- Load mobdebug if available to debug coroutines...
-local function osExit() os.exit(0,true) end
+local profiler = nil
+local function osExit() 
+  if hc3_emulator.profile and profiler then
+    profiler.stop()
+    profiler.report("profiler.log")
+  end
+  os.exit(0,true) 
+end
 
 local ostime,osclock,osdate,tostring = os.time,os.clock,os.date,tostring
 local _timeAdjust = 0
@@ -503,7 +516,7 @@ function module.FibaroAPI()
 
 ------------  HTTP support ---------------------
 
-  local function intercepLocal(url,options,success,error)
+  local function interceptLocal(url,options,success,error)
     if url:match("://(127%.0%.0%.1)[:/]") then
       url = url:gsub("(://127%.0%.0%.1)","://"..hc3_emulator.credentials.ip)
       if url:match("://.-:11111/") then
@@ -529,7 +542,7 @@ function module.FibaroAPI()
     function self:request(url,args)
       local req = {}; for k,v in pairs(i_options or {}) do req[k]=v end
       for k,v in pairs(args.options or {}) do req[k]=v end
-      local s,u = intercepLocal(url,req,args.success,args.error)
+      local s,u = interceptLocal(url,req,args.success,args.error)
       if s then return else url=u end
       local resp = {}
       req.url = url
@@ -575,7 +588,7 @@ function module.FibaroAPI()
     function self:request(url,args)
       local req = {}; for k,v in pairs(i_options or {}) do req[k]=v end
       for k,v in pairs(args.options or {}) do req[k]=v end
-      local s,u = intercepLocal(url,req,args.success,args.error)
+      local s,u = interceptLocal(url,req,args.success,args.error)
       if s then return else url=u end
       local resp = {}
       req.url = url
@@ -1684,8 +1697,8 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
     local qv = {}
     for k,v in pairs(quickVars) do qv[#qv+1]={name=k,value=v} end
     local deviceStruct= {
-      id=hc3_emulator.id or 999,name=name,type=ptype, roomID = 219,
-      properties={quickAppVariables=qv}
+      id=hc3_emulator.id or 999,name=name,interfaces={"quickApp"},enabled=true,type=ptype, roomID = 219,
+      visible=true,properties={quickAppVariables=qv}
     }
 
     if hc3_emulator.offline then              -- Offline
@@ -5327,7 +5340,13 @@ if not hc3_emulator.sourceFile then
   end
 end
 --print("SOURCE:"..hc3_emulator.sourceFile)
-if hc3_emulator.sourceFile then  startUp(hc3_emulator.sourceFile) 
+if hc3_emulator.sourceFile then  
+  if hc3_emulator.profile then 
+    -- https://raw.githubusercontent.com/charlesmallah/lua-profiler/master/src/profiler.lua
+    profiler = require("profiler")
+    profiler.start() 
+  end
+  startUp(hc3_emulator.sourceFile) 
 else
   Log(LOG.SYS,"fibaroapiHC3 version:%s",FIBAROAPIHC3_VERSION)
 end
