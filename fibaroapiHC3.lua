@@ -34,7 +34,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.141"
+local FIBAROAPIHC3_VERSION = "0.142"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -632,7 +632,7 @@ function module.FibaroAPI()
     function self:connect(ip, port, opts) 
       for k,v in pairs(self.opts) do opts[k]=v end
       local sock, err = sock:connect(ip,port)
-      if sock and opts.success then self.sock = sock; opts.success()
+      if err==nil and opts.success then opts.success()
       elseif sock==nil and opts.error then opts.error(err) end
     end
     function self:read(opts) 
