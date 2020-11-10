@@ -934,6 +934,9 @@ function Module.extras.init(self)
   self:event({type='%dimLight'},function(env)
       local e = env.event
       local ev,currV = e.v or -1,tonumber(fibaro.getValue(e.id,"value"))
+      if not currV then
+        self:warningf("Device %d can't be dimmed. Type of value is %s",e.id,type(fibaro.getValue(e.id,"value")))
+      end
       if e.v and math.abs(currV - e.v) > 2 then return end -- Someone changed the lightning, stop dimming
       e.v = math.floor(e.fun(e.t,e.start,e.stop,e.sec)+0.5)
       if ev ~= e.v then fibaro.call(e.id,"setValue",e.v) end

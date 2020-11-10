@@ -34,7 +34,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.142"
+local FIBAROAPIHC3_VERSION = "0.143"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -104,6 +104,7 @@ fibaro.sleep(ms) -- simple busy wait...
 
 net.HTTPClient()
 net.TCPSocket()
+net.UDPSocket()
 mqtt.Client() -- needs extra download
 api.get(call) 
 api.put(call <, data>) 
@@ -633,7 +634,7 @@ function module.FibaroAPI()
       for k,v in pairs(self.opts) do opts[k]=v end
       local sock, err = sock:connect(ip,port)
       if err==nil and opts.success then opts.success()
-      elseif sock==nil and opts.error then opts.error(err) end
+      elseif opts.error then opts.error(err) end
     end
     function self:read(opts) 
       local data,err = sock:receive() 
@@ -2202,6 +2203,7 @@ function module.Trigger()
     SceneFinishedEvent = function() end,
     SceneCreatedEvent = function() end,
     SceneRemovedEvent = function() end,
+    SceneModifiedEvent = function() end,
     PluginProcessCrashedEvent = function()  end,
     onUIEvent = function() end,
     OnlineStatusUpdatedEvent = function() end,

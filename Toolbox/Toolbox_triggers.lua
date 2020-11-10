@@ -40,7 +40,7 @@ Toolbox_Module = Toolbox_Module or {}
 Toolbox_Module.triggers ={
   name = "Trigger manager",
   author = "jan@gabrielsson.com",
-  version = "0.3"
+  version = "0.4"
 }
 
 function Toolbox_Module.triggers.init(self)
@@ -138,14 +138,17 @@ function Toolbox_Module.triggers.init(self)
 
   local lastRefresh,enabled = 0,true
   local http = net.HTTPClient()
+  math.randomseed(os.time())
+  local urlTail = "&lang=en&rand="..math.random(2000,4000).."&logs=true"
   local function loop()
-    local stat,res = http:request("http://127.0.0.1:11111/api/refreshStates?last=" .. lastRefresh.."&logs=false",{
+    local stat,res = http:request("http://127.0.0.1:11111/api/refreshStates?last=" .. lastRefresh..urlTail,{
         success=function(res)
           local states = res.status == 200 and json.decode(res.data)
           if states then
             lastRefresh=states.last
             if states.events and #states.events>0 then 
               for _,e in ipairs(states.events) do
+                --print(os.date("%c",e.created).." "..json.encode(e))
                 local handler = EventTypes[e.type]
                 if handler then handler(e.data)
                 elseif handler==nil and self._UNHANDLED_EVENTS then 

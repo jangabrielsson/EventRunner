@@ -15,7 +15,7 @@ Toolbox_Module = Toolbox_Module or {}
 Toolbox_Module.childs = {
   name = "Child device manager",
   author = "jan@gabrielsson.com",
-  version = "0.3"
+  version = "0.4"
 }
 
 function Toolbox_Module.childs.init(self)

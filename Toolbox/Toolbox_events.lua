@@ -15,7 +15,7 @@ Toolbox_Module = Toolbox_Module or {}
 Toolbox_Module.events ={
   name = "Event manager",
   author = "jan@gabrielsson.com",
-  version = "0.2"
+  version = "0.3"
 }
 
 local format = string.format

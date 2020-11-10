@@ -5,11 +5,13 @@
   This is not strictly a "module" as it is neccessary for the other modules
 
   Debug flags:
+  self._SILENT == true will supress startup log messages from the toolbox initialization phase
   self._2JSON == true will convert tables to json strings before printing (debug etc)
   self._DEBUG == false will inhibit all self:debug messages
   self._TRACE == false will inhibit all self:trace messages
   self._NOTIFY == true will create NotificationCenter messages for self:error and self:warning
   self._NOTIFYREUSE == true will reuse notifications with same title
+  self._INSTALL_MISSING_MODULES == true will try to install missing modules from githib reppository
   self._HTML == true will format space/nl with html codes for log with self:*f functions
   
   Children will be loaded if there are any children (and module 'child' is loaded)
@@ -35,7 +37,7 @@
 
 --]]
 
-local QA_toolbox_version = "0.21"
+local QA_toolbox_version = "0.22"
 local format = string.format
 local _init = QuickApp.__init
 local _onInit = nil
@@ -51,6 +53,10 @@ _debugFlags = _debugFlags or { }
 local fetchFiles
 
 function QuickApp:loadToolbox()
+  if not __fibaro_get_device(self.id).enabled then  
+    self:debug("QA ",self.name," disabled")
+    return 
+  end
   if self.properties.model ~= "ToolboxUser" then
     self:updateProperty("model","ToolboxUser")
   end
@@ -134,6 +140,7 @@ local moduleMap={
   rpc         = {name="Toolbox_rpc",        url=mpath.."Toolbox_rpc.lua"},
   file        = {name="Toolbox_files",      url=mpath.."Toolbox_files.lua"},
   pubsub      = {name="Toolbox_pubsub",     url=mpath.."Toolbox_pubsub.lua"},
+  profiler    = {name="Toolbox_profiler",   url=mpath.."Toolbox_profiler.lua"},
   ui          = {name="Toolbox_ui",         url=mpath.."Toolbox_ui.lua"},
   LuaCompiler = {name="Toolbox_luacompiler",url=mpath.."Toolbox_luacompiler.lua"},
   LuaParser   = {name="Toolbox_luaparser",  url=mpath.."Toolbox_luaparser.lua"},
@@ -536,7 +543,7 @@ function Toolbox_Module.basic(self)
         params.error = function(status)
           if _debugFlags.netSync then self:debugf("netSync:Error %s %s",key,status) end
           dequeue()
-          if params._logErr then perror(" %s:%s",log or "netSync:",tojson(status)) end
+          if params._logErr then self:errorf(" %s:%s",log or "netSync:",tojson(status)) end
           if uerr then uerr(status) end
         end
         params.success = function(status)
@@ -563,6 +570,7 @@ function Toolbox_Module.basic(self)
   do
     local settimeout,setinterval,encode,decode =  -- gives us a better error messages
     setTimeout, setInterval, json.encode, json.decode
+    local oldClearTimout,oldSetTimout
 
     if not hc3_emulator then -- Patch short-sighthed setTimeout...
       clearTimeout,oldClearTimout=function(ref)

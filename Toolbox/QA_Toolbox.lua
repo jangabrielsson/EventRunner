@@ -6,7 +6,7 @@ if dofile and not hc3_emulator then
     poll=1000,
     --offline=true,
     proxy=true,
-    deploy=true,
+    --deploy=true,
   }
   dofile("fibaroapiHC3.lua")
 end
@@ -75,7 +75,7 @@ function QuickApp:removeLabel(name)
 --]]
 
 -- Example
-_version = "1.2"  -- Version of our app, will be logged at startup
+_version = "1.3"  -- Version of our app, will be logged at startup
 modules = {"childs","events","triggers","rpc", "file","pubsub","ui"} -- Modules we want to load (the files need to be copied to our QA)
 
 -- main() if available, will be called after onInit. Everything is setup after we exit onInit() so this is a safer place to start running your main code...
