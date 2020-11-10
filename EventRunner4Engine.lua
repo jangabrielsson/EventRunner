@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix32"
+E_VERSION,E_FIX = 0.5,"fix33"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -472,8 +472,7 @@ function Module.utilities.init()
       return self
     end}
 
---  if hc3_emulator.emulated then self.getWeekNumber = _System.getWeekNumber
---  else self.getWeekNumber = function(tm) return tonumber(os.date("%V",tm)) end end
+  self.getWeekNumber = function(tm) return tonumber(os.date("%V",tm)) end
 
   function self.dateTest(dateStr)
     local days = {sun=1,mon=2,tue=3,wed=4,thu=5,fri=6,sat=7}

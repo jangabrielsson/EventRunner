@@ -37,7 +37,7 @@
 
 --]]
 
-local QA_toolbox_version = "0.22"
+local QA_toolbox_version = "0.23"
 local format = string.format
 local _init = QuickApp.__init
 local _onInit = nil
