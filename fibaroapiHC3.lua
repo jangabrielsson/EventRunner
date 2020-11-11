@@ -229,7 +229,7 @@ local typeHierarchy = nil
 local format = string.format
 local onAction,onUIEvent,_quickApp
 
-local function d2str(...) local r={...} for i=1,#r do r[i]=tostring(r[i]) end return table.concat(r," ") end 
+local function d2str(...) local r,s={...},{} for i=1,#r do if r[i]~=nil then s[#s+1]=tostring(r[i]) end end return table.concat(s," ") end 
 
 -------------- Fibaro API functions ------------------
 function module.FibaroAPI()
