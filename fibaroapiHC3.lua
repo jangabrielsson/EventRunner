@@ -582,6 +582,8 @@ function module.FibaroAPI()
         end
       end
     end
+    local pstr = "HTTPClient object: "..tostring(self):match("(0x.*)")
+    setmetatable(self,{__tostring = function(s) return pstr end})
     return self
   end
   local HTTPSyncClient = net.HTTPClient
@@ -626,6 +628,8 @@ function module.FibaroAPI()
       getHTTP()
       return
     end
+    local pstr = "HTTPClient object: "..tostring(self):match("(0x.*)")
+    setmetatable(self,{__tostring = function(s) return pstr end})
     return self
   end
 
@@ -650,6 +654,8 @@ function module.FibaroAPI()
       elseif res==nil and opts.error then opts.error(err) end
     end
     function self:close() sock:close() end
+    local pstr = "TCPSocket object: "..tostring(self):match("(0x.*)")
+    setmetatable(self,{__tostring = function(s) return pstr end})
     return self
   end
 
@@ -680,6 +686,8 @@ function module.FibaroAPI()
       end
     end
     function self:close() sock:close() end
+    local pstr = "UDPSocket object: "..tostring(self):match("(0x.*)")
+    setmetatable(self,{__tostring = function(s) return pstr end})
     return self
   end
 
