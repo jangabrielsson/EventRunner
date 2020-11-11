@@ -34,7 +34,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.143"
+local FIBAROAPIHC3_VERSION = "0.145"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -206,6 +206,7 @@ hc3_emulator.colorDebug        = DEF(hc3_emulator.colorDebug,true)
 hc3_emulator.htmlDebug         = DEF(hc3_emulator.htmlDebug,true)
 hc3_emulator.supressTrigger    = {["PluginChangedViewEvent"] = true} -- Ignore noisy triggers...
 hc3_emulator.negativeTimeout   = DEF(hc3_emulator.negativeTimeout,true)
+hc3_emulator.strictClass       = true
 
 local cr = loadfile(hc3_emulator.credentialsFile);
 if cr then hc3_emulator.credentials = merge(hc3_emulator.credentials or {},cr() or {}) end
@@ -227,6 +228,8 @@ local HC3_handleEvent = nil        -- Event hook...
 local typeHierarchy = nil
 local format = string.format
 local onAction,onUIEvent,_quickApp
+
+local function d2str(...) local r={...} for i=1,#r do r[i]=tostring(r[i]) end return table.concat(r," ") end 
 
 -------------- Fibaro API functions ------------------
 function module.FibaroAPI()
@@ -303,7 +306,6 @@ function module.FibaroAPI()
     print(format("%s [%s]: %s",os.date("[%d.%m.%Y] [%X]"),t,str)) 
   end
   function __fibaro_add_debug_message(type,str) fibaro_debug("DEBUG",type,str) end
-  local function d2str(...) local r={...} for i=1,#r do r[i]=tostring(r[i]) end return table.concat(r," ") end 
   function fibaro.debug(type,...)  fibaro_debug("DEBUG",type,d2str(...)) end
   function fibaro.warning(type,...)  fibaro_debug("WARNING",type,d2str(...)) end
   function fibaro.trace(type,...) fibaro_debug("TRACE",type,d2str(...)) end
@@ -1167,10 +1169,10 @@ function module.QuickApp()
     end
   end
 
-  function QuickAppBase:debug(...) fibaro.debug("",table.concat({...})) end -- Should we add _TAG ?
-  function QuickAppBase:trace(...) fibaro.trace("",table.concat({...})) end
-  function QuickAppBase:warning(...) fibaro.warning("",table.concat({...})) end
-  function QuickAppBase:error(...) fibaro.error("",table.concat({...})) end
+  function QuickAppBase:debug(...) fibaro.debug("",d2str(...)) end -- Should we add _TAG ?
+  function QuickAppBase:trace(...) fibaro.trace("",d2str(...)) end
+  function QuickAppBase:warning(...) fibaro.warning("",d2str(...)) end
+  function QuickAppBase:error(...) fibaro.error("",d2str(...)) end
 
   function QuickAppBase:getVariable(name)
     __assert_type(name,'string')
@@ -2388,11 +2390,16 @@ function module.Utilities()
         end
       end
 
-      if c.__init then
+      if hc3_emulator.strictClass then
+        if not rawget(c,'__init') then error("Class "..name.." missing constructor") end
         c.__init(obj,...)
-      else 
-        if c.__base and c.__base.__init then
-          c.__base.__init(obj, ...)
+      else
+        if c.__init then
+          c.__init(obj,...)
+        else 
+          if c.__base and c.__base.__init then
+            c.__base.__init(obj, ...)
+          end
         end
       end
       return obj
@@ -2428,7 +2435,7 @@ function module.Utilities()
       local mb = getmetatable(base)
       setmetatable(base,nil)
       for i,v in pairs(base) do 
-        if not ({__index=true,__newindex=true,__base=true})[i] then 
+        if not ({__index=true,__newindex=true,__base=true,__init=true})[i] then 
           rawset(c,i,v) 
         end
       end
@@ -2445,16 +2452,21 @@ function module.Utilities()
       local obj = {}
       setmetatable(obj,c)
       for i,v in pairs(c) do 
-        if not ({__index=true,__newindex=true,__base=true})[i] then 
+        if not ({__index=true,__newindex=true,__base=true,__init=true})[i] then 
           rawset(obj,i,v) 
         end
       end
 
-      if c.__init then
+      if hc3_emulator.strictClass then
+        if not rawget(c,'__init') then error("Class "..name.." missing constructor") end
         c.__init(obj,...)
-      else 
-        if c.__base and c.__base.__init then
-          c.__base.__init(obj, ...)
+      else
+        if c.__init then
+          c.__init(obj,...)
+        else 
+          if c.__base and c.__base.__init then
+            c.__base.__init(obj, ...)
+          end
         end
       end
       return obj
@@ -2467,7 +2479,7 @@ function module.Utilities()
       local mb = getmetatable(base)
       setmetatable(base,nil)
       for i,v in pairs(base) do 
-        if not ({__index=true,__newindex=true,__base=true})[i] then 
+        if not ({__index=true,__newindex=true,__base=true,__init=true})[i] then 
           rawset(c,i,v) 
         end
       end
