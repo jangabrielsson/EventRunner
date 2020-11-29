@@ -91,6 +91,16 @@ local function downloadHC3SDK()
   callFibaroAPIHC3("-downloadsdk","Download done! - fibarapiHC3.lua")
 end 
 
+local function downloadHC3Toolbox() 
+  ide:Print("Downloading lastest Toolbox files") 
+  callFibaroAPIHC3("-downloadtoolbox","Download done! - Toolbox/..")
+end
+
+local function downloadHC3EREngine() 
+  ide:Print("Downloading lastest EventRunner4Engine.lua") 
+  callFibaroAPIHC3("-downloadER4","Download done! - EventRunner4Engine.lua")
+end
+
 local function uploadResource()
   ide:Print("Uploading to HC3...") 
   local ed = ide:GetEditor()
@@ -763,17 +773,27 @@ local interpreter = {
       ide:GetMainFrame():Connect(idech3, wx.wxEVT_COMMAND_MENU_SELECTED, launchHC3Copy)
 
       menu = ide:FindTopMenu("&File")
-      menu:Append(idech31, "Download fibaroapiHC3.lua"..KSC(idech31))
-      ide:GetMainFrame():Connect(idech31, wx.wxEVT_COMMAND_MENU_SELECTED, downloadHC3SDK)
+      templSubMenu2 = ide:MakeMenu()
+      templ2 = menu:AppendSubMenu(templSubMenu2, TR("Download files..."))
+
+      local idAPIlua = ID("HC3.temp_API")
+      local idToolbox = ID("HC3.temp_TOOLBOX")
+      local idEREngine = ID("HC3.temp_ENGINE")
+      templSubMenu2:Append(idAPIlua, "fibaroapiHC3.lua"..KSC(idAPIlua))
+      ide:GetMainFrame():Connect(idAPIlua, wx.wxEVT_COMMAND_MENU_SELECTED, downloadHC3SDK)
+      templSubMenu2:Append(idToolbox, "Toolbox"..KSC(idToolbox))
+      ide:GetMainFrame():Connect(idToolbox, wx.wxEVT_COMMAND_MENU_SELECTED, downloadHC3Toolbox)
+      templSubMenu2:Append(idEREngine, "EventRunnerEngine.lua"..KSC(idEREngine))
+      ide:GetMainFrame():Connect(idEREngine, wx.wxEVT_COMMAND_MENU_SELECTED, downloadHC3EREngine)
 
       menu = ide:FindTopMenu("&Project")
       menu:Append(ide_deploy, "Deploy QuickApp"..KSC(ide_deploy))
       ide:GetMainFrame():Connect(ide_deploy, wx.wxEVT_COMMAND_MENU_SELECTED, deployQA)
-      
+
       menu = ide:FindTopMenu("&Edit")
       templSubMenu = ide:MakeMenu()
       templ = menu:AppendSubMenu(templSubMenu, TR("HC3 SDK templates..."))
-      
+
       local idTSC = ID("HC3.temp_SC")
       local idTER = ID("HC3.temp_ER")
       local idTERT = ID("HC3.temp_ERT")
