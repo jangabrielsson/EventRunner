@@ -4933,24 +4933,31 @@ function module.Offline(self)
   local persistence = nil
   local cr = not hc3_emulator.credentials and loadfile(hc3_emulator.credentialsFile); cr = cr and cr()
 
-  function offline.downloadFibaroAPI()
-    net.maxdelay=0; net.mindelay=0
-    net.HTTPClient():request("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/fibaroapiHC3.lua",{
-        options={method="GET", checkCertificate = false, timeout=5000},
-        success=function(res) 
-          local version = res.data:match("FIBAROAPIHC3_VERSION%s*=%s*\"(.-)\"")
-          if version then
-            Log(LOG.LOG,"Writing file fibaroapiHC3.lua v%s",version)
-            local f = io.open("fibaroapiHC3.lua","w")
-            f:write(res.data)
-            f:close()
-          else
-            Log(LOG.ERROR,"Bad file - fibaroapiHC3.lua")
-          end
-        end,
-        error=function(res) Log(LOG.ERROR,"Unable to read file fibaroapiHC3.lua:"..res) end,
-      })
+  local TP = "https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/"
+
+  function offline.downloadFibaroAPI() hc3_emulator.file.downloadFile(TP.."fibaroapiHC3.lua") end
+  function offline.downloadToolbox() 
+    local function createDir(dir)
+      local r,err = hc3_emulator.file.make_dir(dir)
+      if not r and err~="File exists" then error(format("Can't create backup directory: %s (%s)",dir,err)) end
+    end
+    createDir("Toolbox")
+
+    for _,f in ipairs(
+      {
+        "Toolbox_basic.lua",
+        "Toolbox_events.lua",
+        "Toolbox_child.lua",
+        "Toolbox_triggers.lua",
+        "Toolbox_files.lua",
+        "Toolbox_rpc.lua",
+        "Toolbox_pubsub.lua",
+      }
+      ) do
+      hc3_emulator.file.downloadFile(TP.."Toolbox/"..f,"Toolbox/"..f)
+    end
   end
+  function offline.downloadER4Engine() hc3_emulator.file.downloadFile(TP.."EventRunner4Engine.lua","EventRunner4Engine.lua") end
 
   function offline.downloadDB(fname)
     fname = fname or type(hc3_emulator.db)=='string' and hc3_emulator.db or "HC3sdk.db"
@@ -5220,6 +5227,8 @@ function module.Offline(self)
 
   commandLines['downloaddb']=offline.downloadDB
   commandLines['downloadsdk']=offline.downloadFibaroAPI
+  commandLines['downloadtoolbox']=offline.downloadToolbox
+  commandLines['downloadER4']=offline.downloadER4Engine
   offline.persistence = persistence
 
   return offline
