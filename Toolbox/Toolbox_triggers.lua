@@ -44,12 +44,14 @@ Toolbox_Module.triggers ={
 }
 
 function Toolbox_Module.triggers.init(self)
-  self.TR = { central={}, access={}, activation={} }
+  local TR = { central={}, access={}, activation={}, stats={triggers=0} }
+  self.TR = TR
   local ENABLEDTRIGGERS={}
   local INTERVAL = 1000 -- every second, could do more often...
 
   local function post(ev)
     if ENABLEDTRIGGERS[ev.type] then
+      TR.stats.triggers = TR.stats.triggers+1
       if self.debugFlags.trigger then self:debugf("Incoming trigger:%s",ev) end
       ev._trigger=true
       --ev.__tostring = _eventPrint
@@ -82,16 +84,16 @@ function Toolbox_Module.triggers.init(self)
     end,
     CentralSceneEvent = function(d) 
       d.id = d.id or  d.deviceId
-      self.TR.central[d.id]=d;d.icon=nil 
+      TR.central[d.id]=d;d.icon=nil 
       post({type='device', property='centralSceneEvent', id=d.id, value={keyId=d.keyId, keyAttribute=d.keyAttribute}}) 
     end,
     SceneActivationEvent = function(d) 
       d.id = d.id or  d.deviceId
-      self.TR.activation[d.id]={scene=d.sceneId, name=d.name}; 
+      TR.activation[d.id]={scene=d.sceneId, name=d.name}; 
       post({type='device', property='sceneActivationEvent', id=d.id, value={sceneId=d.sceneId}})     
     end,
     AccessControlEvent = function(d) 
-      self.TR.access[d.id]=d; 
+      TR.access[d.id]=d; 
       post({type='device', property='accessControlEvent', id=d.id, value=d}) 
     end,
     CustomEvent = function(d) 
@@ -116,6 +118,8 @@ function Toolbox_Module.triggers.init(self)
     ActiveProfileChangedEvent = function(d) 
       post({type='profile',property='activeProfile',value=d.newActiveProfile, old=d.oldActiveProfile}) 
     end,
+    ClimateZoneChangedEvent = function(d) d.type = 'ClimateZoneChangedEvent' post(d) end,
+    ClimateZoneSetpointChangedEvent = function(d) d.type = 'ClimateZoneSetpointChangedEvent' post(d) end,
     DeviceActionRanEvent = function(_) end,
     NotificationCreatedEvent = function(_) end,
     NotificationRemovedEvent = function(_) end,
