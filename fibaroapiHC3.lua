@@ -4935,15 +4935,15 @@ function module.Offline(self)
 
   local TP = "https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/"
 
-  function offline.downloadFibaroAPI() hc3_emulator.file.downloadFile(TP.."fibaroapiHC3.lua") end
+  function offline.downloadFibaroAPI() Files.file.downloadFile(TP.."fibaroapiHC3.lua","fibaroapiHC3.lua") end
   function offline.downloadToolbox() 
     local function createDir(dir)
-      local r,err = hc3_emulator.file.make_dir(dir)
+      local r,err = Files.file.make_dir(dir)
       if not r and err~="File exists" then error(format("Can't create backup directory: %s (%s)",dir,err)) end
     end
     createDir("Toolbox")
 
-    for _,f in ipairs(
+    for _,f in ipairs( 
       {
         "Toolbox_basic.lua",
         "Toolbox_events.lua",
@@ -4954,10 +4954,10 @@ function module.Offline(self)
         "Toolbox_pubsub.lua",
       }
       ) do
-      hc3_emulator.file.downloadFile(TP.."Toolbox/"..f,"Toolbox/"..f)
+      Files.file.downloadFile(TP.."Toolbox/"..f,"Toolbox/"..f)
     end
   end
-  function offline.downloadER4Engine() hc3_emulator.file.downloadFile(TP.."EventRunner4Engine.lua","EventRunner4Engine.lua") end
+  function offline.downloadER4Engine() Files.file.downloadFile(TP.."EventRunner4Engine.lua","EventRunner4Engine.lua") end
 
   function offline.downloadDB(fname)
     fname = fname or type(hc3_emulator.db)=='string' and hc3_emulator.db or "HC3sdk.db"
