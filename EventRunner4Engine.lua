@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix33"
+E_VERSION,E_FIX = 0.5,"fix34"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -534,8 +534,8 @@ function Module.utilities.init()
       dateStr=dateStr:gsub("sun%a+ [%+%-]?%d+","0 0")
       sunPatch=function(dateSeq)
         local h,m = (fibaro:getValue(1,sun)):match("(%d%d):(%d%d)")
-        dateSeq[1]={[(h*60+m+offs)%60]=true}
-        dateSeq[2]={[math.floor((h*60+m+offs)/60)]=true}
+        dateSeq[1]={[(tonumber(h)*60+tonumber(m)+tonumber(offs))%60]=true}
+        dateSeq[2]={[math.floor((tonumber(h)*60+tonumber(m)+tonumber(offs))/60)]=true}
       end
     end
     local dateSeq = parseDateStr(dateStr)
@@ -1471,7 +1471,7 @@ function Module.eventScript.init()
         if id == 0 then
           local ps = api.get("/alarms/v1/partitions") or {}
           if #ps == 0 then return {} end
-          p = ps[1]
+          local p = ps[1]
           local devMap = {}
           for _,d in ipairs(p.devices) do devMap[d]=true end
           for i=2,#ps do

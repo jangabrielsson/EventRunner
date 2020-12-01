@@ -20,7 +20,7 @@ Toolbox_Module.events ={
 
 local format = string.format
 function Toolbox_Module.events.init(self)
-  local em,handlers = { sections = {}},{}
+  local em,handlers = { sections = {}, stats={tried=0,matched=0}},{}
   em.BREAK, em.TIMER, em.RULE = '%%BREAK%%', '%%TIMER%%', '%%RULE%%'
   local function isEvent(e) return type(e)=='table' and e.type end
   local function isRule(e) return type(e)=='table' and e[em.RULE] end
@@ -39,7 +39,7 @@ function Toolbox_Module.events.init(self)
     end
     local sg,h,m,s = hmstr:match("^(%-?)(%d+):(%d+):?(%d*)")
     assertf(h and m,"Bad hm2sec string %s",hmstr)
-    return (sg == '-' and -1 or 1)*(h*3600+m*60+(tonumber(s) or 0)+(offs or 0)*60)
+    return (sg == '-' and -1 or 1)*(tonumber(h)*3600+tonumber(m)*60+(tonumber(s) or 0)+(tonumber(offs or 0))*60)
   end
 
 -- toTime("10:00")     -> 10*3600+0*60 secs   
@@ -253,10 +253,19 @@ function Toolbox_Module.events.init(self)
     local hasKeys = fromHash[ev.type] and fromHash[ev.type](ev) or {ev.type}
     for _,hashKey in ipairs(hasKeys) do
       for _,rules in ipairs(handlers[hashKey] or {}) do -- Check all rules of 'type'
-        local m = match(rules[1][em.RULE],ev)
-        if m then
-          for _,rule in ipairs(rules) do 
+        local i,m=1,nil
+        em.stats.tried=em.stats.tried+1
+        for i=1,#rules do
+          if not rules[i]._disabled then    -- find first enabled rule, among rules with same head
+            m = match(rules[i][em.RULE],ev) -- and match against that rule
+            break
+          end
+        end
+        if m then                           -- we have a match
+          for i=i,#rules do                 -- executes all rules with same head
+            local rule=rules[i]
             if not rule._disabled then 
+              em.stats.matched=em.stats.matched+1
               if invokeHandler({event = ev, p=m, rule=rule}) == em.BREAK then return end
             end
           end
