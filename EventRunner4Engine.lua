@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix34"
+E_VERSION,E_FIX = 0.5,"fix36"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -831,10 +831,14 @@ function Module.extras.init(self)
     end
   end
 
+  local childMap = {}
+  function self:getChild(eid) return childMap[eid] end
+  function self:getChildren() return childMap end
+
   function self:child(args)
     assert(args and args.eid,"child missing eid")
     for _,c in pairs(self.childDevices) do
-      if c.eid == args.eid then return end
+      if c.eid == args.eid then childMap[c.eid]=c return c end
     end
     local c = self:createChild{
       type=args.type or "com.fibaro.binarySwitch",
@@ -842,6 +846,21 @@ function Module.extras.init(self)
       quickVars = {eid = args.eid},
       className = "GenericChild"
     }
+    if c then childMap[args.eid]=c end
+    return c
+  end
+
+  function self:defineChildren(children)
+    local childs = {}
+    for id,dev in pairs(self.childDevices or {}) do childs[id]=dev end
+    for _,args in ipairs(children) do
+      local stat,res = pcall(function() 
+          local c = self:child(args)
+          if c then childs[id]=nil end
+        end)
+      if not stat then self:error(res) end
+    end
+    for id,c in pairs(childs) do self:removeChildDevice(id) end -- Remove children not in list
   end
 
   function self:profileName(id) for _,p in ipairs(api.get("/profiles").profiles) do if p.id == id then return p.name end end end
@@ -1670,7 +1689,9 @@ function Module.eventScript.init()
 
     instr['%setprop'] = function(s,n,e,i) local id,val,prop=s.pop(),getArg(s,i[3]),getArg(s,i[4])
       local f = setFuns[prop] _assert(f,"bad property '%s'",prop or "") 
-      if type(id)=='table' then Util.mapF(function(id) f[1](ID(id,i,e._lastR),f[2],val,e) end,id); s.push(true)
+      local vp = 0
+      local vf = type(val) == 'table' and type(id)=='table' and val[1] and function() vp=vp+1 return val[vp] end or function() return val end 
+      if type(id)=='table' then Util.mapF(function(id) f[1](ID(id,i,e._lastR),f[2],vf(),e) end,id); s.push(true)
       else s.push(f[1](ID(id,i,e._lastR),f[2],val,e)) end
     end
 
