@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix36"
+E_VERSION,E_FIX = 0.5,"fix37"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -1690,7 +1690,7 @@ function Module.eventScript.init()
     instr['%setprop'] = function(s,n,e,i) local id,val,prop=s.pop(),getArg(s,i[3]),getArg(s,i[4])
       local f = setFuns[prop] _assert(f,"bad property '%s'",prop or "") 
       local vp = 0
-      local vf = type(val) == 'table' and type(id)=='table' and val[1] and function() vp=vp+1 return val[vp] end or function() return val end 
+      local vf = prop=="value" and type(val) == 'table' and type(id)=='table' and val[1] and function() vp=vp+1 return val[vp] end or function() return val end 
       if type(id)=='table' then Util.mapF(function(id) f[1](ID(id,i,e._lastR),f[2],vf(),e) end,id); s.push(true)
       else s.push(f[1](ID(id,i,e._lastR),f[2],val,e)) end
     end
