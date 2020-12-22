@@ -34,7 +34,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.147"
+local FIBAROAPIHC3_VERSION = "0.148"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -737,7 +737,7 @@ function module.FibaroAPI()
     if type(e)=='table' then
       for k,v in pairs(e) do e[k]=safeJson(v) end
       return e
-    elseif type(e)=='function' or type(e)=='userdata' then return tostring(e)
+    elseif type(e)=='function' or type(e)=='thread' or type(e)=='userdata' then return tostring(e)
     else return e end
   end
 
