@@ -466,14 +466,14 @@ function Toolbox_Module.basic(self)
   end
 
   local IPaddress = nil
-  function self:getHC3IPaddress()
+  function self:getHC3IPaddress(name)
     if IPaddress then return IPaddress end
     if hc3_emulator then return hc3_emulator.IPaddress
     else
+      name = name or ".*"
       local networkdata = api.get("/proxy?url=http://localhost:11112/api/settings/network")
-      networkdata = networkdata.networkConfig
-      for n,d in pairs(networkdata) do
-        if d.enabled then IPaddress = d.ipConfig.ip; return IPaddress end
+      for n,d in pairs(networkdata.networkConfig or {}) do
+        if n:match(name) and d.enabled then IPaddress = d.ipConfig.ip; return IPaddress end
       end
     end
   end

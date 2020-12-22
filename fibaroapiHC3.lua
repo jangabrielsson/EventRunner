@@ -34,7 +34,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.145"
+local FIBAROAPIHC3_VERSION = "0.147"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -456,7 +456,7 @@ function module.FibaroAPI()
   end
 
   function fibaro.alert(alertType, users, msg) 
-    alertType = ({push='sendGlobalPushNotifications',email='sendGlobalEmailNotifications',sms='sendSms'})[alertType]
+    alertType = ({simplePush='simplePush',push='sendGlobalPushNotifications',email='sendGlobalEmailNotifications',sms='sendSms'})[alertType]
     assert(alertType,"Missing alert type: 'push', 'email', 'sms'")
     __assert_type(users,'table') 
     for _,u in ipairs(users) do fibaro.call(u,alertType,msg,"false") end
@@ -733,6 +733,14 @@ function module.FibaroAPI()
   end
   hc3_emulator.rawCall = rawCall
 -------------- MQTT support ---------------------
+  local function safeJson(e)
+    if type(e)=='table' then
+      for k,v in pairs(e) do e[k]=safeJson(v) end
+      return e
+    elseif type(e)=='function' or type(e)=='userdata' then return tostring(e)
+    else return e end
+  end
+
   local stat,_mqtt=pcall(function() return require("mqtt") end)
   if stat then
     mqtt={ 
@@ -826,27 +834,27 @@ function module.FibaroAPI()
       _client:on{
         --{"type":2,"sp":false,"rc":0}
         connect = function(connack)
-          Debug(_debugFlags.mqtt,"MQTT connect:"..json.encode(connack))
+          Debug(_debugFlags.mqtt,"MQTT connect:"..Util.prettyJson(connack))
           if client._handlers['connected'] then 
             client._handlers['connected']({sessionPresent=connack.sp,returnCode=connack.rc}) 
           end
         end,
         subscribe = function(event)
-          Debug(_debugFlags.mqtt,"MQTT subscribe:"..json.encode(event))
-          if client._handlers['subscribed'] then client._handlers['subscribed'](event) end
+          Debug(_debugFlags.mqtt,"MQTT subscribe:"..Util.prettyJson(event))
+          if client._handlers['subscribed'] then client._handlers['subscribed'](safeJson(event)) end
         end,
         unsubscribe = function(event)
-          Debug(_debugFlags.mqtt,"MQTT unsubscribe:"..json.encode(event))
-          if client._handlers['unsubscribed'] then client._handlers['unsubscribed'](event) end
+          Debug(_debugFlags.mqtt,"MQTT unsubscribe:"..Util.prettyJson(event))
+          if client._handlers['unsubscribed'] then client._handlers['unsubscribed'](safeJson(event)) end
         end,
         message = function(msg)
-          Debug(_debugFlags.mqtt,"MQTT message:"..json.encode(msg))
+          Debug(_debugFlags.mqtt,"MQTT message:"..Util.prettyJson(msg))
           local msgt = mqtt.MSGMAP[msg.type]
           if msgt and client._handlers[msgt] then client._handlers[msgt](msg)
           elseif client._handlers['message'] then client._handlers['message'](msg) end
         end,
         acknowledge = function(event)
-          Debug(_debugFlags.mqtt,"MQTT acknowledge:"..json.encode(event))
+          Debug(_debugFlags.mqtt,"MQTT acknowledge:"..Util.prettyJson(event))
           if client._handlers['acknowledge'] then client._handlers['acknowledge']() end
         end,
         error = function(err)
@@ -855,11 +863,12 @@ function module.FibaroAPI()
         end,
         close = function(event)
           Debug(_debugFlags.mqtt,"MQTT close:"..Util.prettyJson(event))
-          if client._handlers['closed'] then client._handlers['closed'](event) end
+          event = safeJson(event)
+          if client._handlers['closed'] then client._handlers['closed'](safeJson(event)) end
         end,
         auth = function(event)
-          Debug(_debugFlags.mqtt,"MQTT auth:"..json.encode(event))
-          if client._handlers['auth'] then client._handlers['auth'](event) end
+          Debug(_debugFlags.mqtt,"MQTT auth:"..Util.prettyJson(event))
+          if client._handlers['auth'] then client._handlers['auth'](safeJson(event)) end
         end,
       }
 
@@ -2227,6 +2236,7 @@ function module.Trigger()
     SectionRemovedEvent = function() end,
     SectionModifiedEvent = function() end,
     DeviceActionRanEvent = function() end,
+    DeviceFirmwareUpdateEvent = function(_) end,
     QuickAppFilesChangedEvent = function() end,
     ZwaveDeviceParametersChangedEvent = function() end,
     ZwaveNodeAddedEvent = function() end,
@@ -4888,12 +4898,12 @@ function module.Offline(self)
   end
   function hc3_emulator.create.motionSensor(id,name) return userDev(createBestDevice("com.fibaro.motionSensor",{id=id,name=name},true)) end
   function hc3_emulator.create.tempSensor(id,name) 
-    return userDev(createBestDevice(id,"com.fibaro.temperatureSensor",{id=id,name=name},true)) 
+    return userDev(createBestDevice("com.fibaro.temperatureSensor",{id=id,name=name},true)) 
   end
-  function hc3_emulator.create.doorSensor(id,name) return userDev(createBestDevice(id,"com.fibaro.doorSensor",{id=id,name=name},true)) end
-  function hc3_emulator.create.luxSensor(id,name) return userDev(createBestDevice(id,"com.fibaro.lightSensor",{id=id,name=name},true)) end
-  function hc3_emulator.create.dimmer(id,name) return userDev(createBestDevice(id,"com.fibaro.multilevelSwitch",{id=id,name=name},true)) end
-  function hc3_emulator.create.light(id,name) return userDev(createBestDevice(id,"com.fibaro.binarySwitch",{id=id,name=name},true)) end
+  function hc3_emulator.create.doorSensor(id,name) return userDev(createBestDevice("com.fibaro.doorSensor",{id=id,name=name},true)) end
+  function hc3_emulator.create.luxSensor(id,name) return userDev(createBestDevice("com.fibaro.lightSensor",{id=id,name=name},true)) end
+  function hc3_emulator.create.dimmer(id,name) return userDev(createBestDevice("com.fibaro.multilevelSwitch",{id=id,name=name},true)) end
+  function hc3_emulator.create.light(id,name) return userDev(createBestDevice("com.fibaro.binarySwitch",{id=id,name=name},true)) end
 
   function offline.start()
     if next(resources.settings.location)==nil then

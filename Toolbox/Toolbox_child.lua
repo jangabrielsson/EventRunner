@@ -60,7 +60,7 @@ function Toolbox_Module.childs.init(self)
     if stat and res then return end
     --self:debug("Annotating class")
     for _,m in ipairs({
-        "notify","setType","setVisible","setEnabled","setIconMessage","setName","getView",
+        "notify","setType","setVisible","setEnabled","setIconMessage","setName","getView","updateProperty",
         "setView","debug","trace","error","warning","debugf","tracef","errorf","warningf","basicAuthorization"}) 
     do classObj[m] = self[m] end
     classObj._annotated = true

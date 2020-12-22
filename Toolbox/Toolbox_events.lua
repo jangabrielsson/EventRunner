@@ -15,7 +15,7 @@ Toolbox_Module = Toolbox_Module or {}
 Toolbox_Module.events ={
   name = "Event manager",
   author = "jan@gabrielsson.com",
-  version = "0.3"
+  version = "0.4"
 }
 
 local format = string.format
@@ -248,6 +248,25 @@ function Toolbox_Module.events.init(self)
     end
     return rule
   end
+
+  function self:trueFor(time,events,test,action)
+    local value,t,rule=false,nil,nil
+    local function handler(env)
+      local v = test(env.event) and true or false
+      if v == value then return end
+      if v == true then
+        local nenv = {p={},rule={action=action}}
+        t = setTimeout(function() t=nil; invokeHandler(nenv) end, time)
+        value = true
+      else
+        value = false
+        if t then clearTimeout(t) t=nil end
+      end
+    end
+    rule = self:event(events,handler)
+    return rule
+  end
+
 
   local function handleEvent(ev)
     local hasKeys = fromHash[ev.type] and fromHash[ev.type](ev) or {ev.type}
