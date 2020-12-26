@@ -34,16 +34,16 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.148"
+local FIBAROAPIHC3_VERSION = "0.149"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
-  if dofile and not hc3_emulator then
-    hc3_emulator = {
-     quickVars = {["Hue_User"]="$CREDS.Hue_user",["Hue_IP"]=$CREDS.Hue_IP}
-    }
-    dofile("fibaroapiHC3.lua")
-  end
+    if dofile and not hc3_emulator then
+      hc3_emulator = {
+       quickVars = {["Hue_User"]="$CREDS.Hue_user",["Hue_IP"]=$CREDS.Hue_IP}
+      }
+      dofile("fibaroapiHC3.lua")
+    end
   We load another file, credentials.lua, where we define lua globals like hc3_emulator.credentials etc.
   --hc3_emulator.credentials = { ip = <IP>, user = <username>, pwd = <password>}
   This way the credentials are not visible in your code and you will not accidently upload them :-)
@@ -582,7 +582,7 @@ function module.FibaroAPI()
         end
       end
     end
-    local pstr = "HTTPClient object: "..tostring(self):match("(0x.*)")
+    local pstr = "HTTPClient object: "..(tostring(self):match("(0x.*)") or math.random(9999))
     setmetatable(self,{__tostring = function(s) return pstr end})
     return self
   end
@@ -628,7 +628,7 @@ function module.FibaroAPI()
       getHTTP()
       return
     end
-    local pstr = "HTTPClient object: "..tostring(self):match("(0x.*)")
+    local pstr = "HTTPClient object: "..(tostring(self):match("(0x.*)") or math.random(9999))
     setmetatable(self,{__tostring = function(s) return pstr end})
     return self
   end
@@ -4148,6 +4148,7 @@ function module.Files()
   end
 
   local function downloadFile(url,path)
+    if hc3_emulator.debugPlugin then Log(LOG.DEBUG,"Downloading %s %s",tostring(url),tostring(path)) end
     net.maxdelay=0; net.mindelay=1
     net.HTTPClient():request(url,{
         options={method="GET", checkCertificate = false, timeout=5000},

@@ -1,3 +1,5 @@
+VERSION = "0.3"
+
 local ideh3 = ID("HC3.helpHC3")
 local ideh3QA = ID("HC3.helpHC3QA")
 local ideh3Sc = ID("HC3.helpHC3Sc")
@@ -24,6 +26,8 @@ local function launchEmulator() wx.wxLaunchDefaultBrowser(urlEmu, 0) end
 local function launchHC3Help() wx.wxLaunchDefaultBrowser(urlHC3Help, 0) end
 local function launchHC3QAHelp() wx.wxLaunchDefaultBrowser(urlHC3QAHelp, 0) end
 local function launchHC3ScHelp() wx.wxLaunchDefaultBrowser(urlHC3ScHelp, 0) end
+
+ide:Print("fibaroapiHC3plug.lua v."..VERSION)
 
 local function exePath(self, version)
   local version = tostring(version or ""):gsub('%.','')
