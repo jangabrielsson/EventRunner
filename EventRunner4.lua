@@ -4,10 +4,11 @@ if dofile and not hc3_emulator then
     type="com.fibaro.genericDevice",
     poll=1000, 
     --startTime="10:00:00 5/12/2020",
-    speed = 48,
+    --speed = 2,
     --deploy=true,
     --proxy=true,
-    --offline=true,
+    -- doffline=true,
+    --profile=true,
     debug = {trigger=false},
     UI = {
       {label='ERname',text="..."},
@@ -27,12 +28,13 @@ if hc3_emulator then hc3_emulator.FILE("Toolbox/Toolbox_triggers.lua","Toolbox_t
 if hc3_emulator then hc3_emulator.FILE("Toolbox/Toolbox_files.lua","Toolbox_files") end
 if hc3_emulator then hc3_emulator.FILE("Toolbox/Toolbox_rpc.lua","Toolbox_rpc") end
 if hc3_emulator then hc3_emulator.FILE("Toolbox/Toolbox_pubsub.lua","Toolbox_pubsub") end
+--if hc3_emulator then hc3_emulator.FILE("Toolbox/Toolbox_profiler.lua","Toolbox_profiler") end
 ----------- Code -----------------------------------------------------------
 
 _debugFlags.trigger = true -- log incoming triggers
 _debugFlags.fcall=true     -- log fibaro.call
 _debugFlags.post = true    -- log internal posts
-_debugFlags.rule=false      -- log rules being invoked (true or false)
+_debugFlags.rule=true      -- log rules being invoked (true or false)
 _debugFlags.ruleTrue=true  -- log only rules that are true
 _debugFlags.pubsub=true    -- log only rules that are true
 ------------- Put your rules inside QuickApp:main() -------------------
@@ -40,7 +42,7 @@ _debugFlags.pubsub=true    -- log only rules that are true
 function QuickApp:main()    -- EventScript version
   local rule = function(...) return self:evalScript(...) end          -- old rule function
   self:enableTriggerType({"device","global-variable","custom-event","profile","alarm"}) -- types of events we want
-  
+
   HT = { 
     keyfob = 26, 
     motion= 21,
@@ -50,7 +52,7 @@ function QuickApp:main()    -- EventScript version
   
   Util.defvars(HT)
   Util.reverseMapDef(HT)
-
+ 
   -- rule("@@00:01 & date('0/5 12-15 *') => log('ping')")
   -- rule("@@00:00:05 => log(now % 2 == 1 & 'Tick' | 'Tock')")
   -- rule("remote(1356,#foo)")

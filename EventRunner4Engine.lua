@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix37"
+E_VERSION,E_FIX = 0.5,"fix39"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -1746,8 +1746,14 @@ function Module.eventScript.init()
     end
 
     instr['%always'] = function(s,n,e,i) local v = s.pop(n) s.push(v or true) end
-    instr['enable'] = function(s,n,e,i) local t,g = s.pop(),false; if n==2 then g,t=t,s.pop() end s.push(QA.EM.enable(t,g)) end
-    instr['disable'] = function(s,n,e,i) s.push(QA.EM.disable(s.pop())) end
+    instr['enable'] = function(s,n,e,i) 
+      if n == 0 then QA.EM.enable(e.rule) s.push(true) return end
+      local t,g = s.pop(),false; if n==2 then g,t=t,s.pop() end s.push(QA.EM.enable(t,g)) 
+    end
+    instr['disable'] = function(s,n,e,i) 
+      if n == 0 then QA.EM.disable(e.rule) s.push(true) return end
+      s.push(QA.EM.disable(s.pop())) 
+    end
     instr['post'] = function(s,n,ev) local e,t=s.pop(),nil; if n==2 then t=e; e=s.pop() end s.push(QA:post(e,t,ev.rule)) end
     instr['subscribe'] = function(s,n,ev) QA:subscribe(s.pop()) s.push(true) end
     instr['publish'] = function(s,n,ev) local e,t=s.pop(),nil; if n==2 then t=e; e=s.pop() end QA:publish(e,t) s.push(e) end
@@ -2193,5 +2199,7 @@ function QuickApp:onInit()
     Util.printBanner("Running")
     self:setView("ERname","text","EventRunner4 %s",_version)
     quickApp:post({type='%startup%'})
+    local uptime = api.get("/settings/info").serverStatus or 0
+    if os.time()-uptime < 30 then quickApp:post({type='se-start'}) end
   end
 end
