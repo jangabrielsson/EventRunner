@@ -74,7 +74,7 @@ function Toolbox_Module.triggers.init(self)
         local old={}; for _,v in ipairs(d.oldValue) do old[v.name] = v.value end -- Todo: optimize
         for _,v in ipairs(d.newValue) do
           if v.value ~= old[v.name] then
-            post({type='quickvar', name=v.name, value=v.value, old=old[v.name]})
+            post({type='quickvar', id=d.id, name=v.name, value=v.value, old=old[v.name]})
           end
         end
       else

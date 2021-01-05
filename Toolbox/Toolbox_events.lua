@@ -76,7 +76,7 @@ function Toolbox_Module.events.init(self)
   function self:postRemote(id,ev) 
     assert(tonumber(id) and isEvent(ev),"Bad argument to postRemote")
     ev._from,ev._time = self.id,os.time()
-    fibaro.call(id,'RECIEVE_EVENT',{type='EVENT',ev=ev}) -- We need this as the system converts "99" to 99 and other "helpful" conversions
+    fibaro.call(id,'RECIEVE_EVENT',ev) -- We need this as the system converts "99" to 99 and other "helpful" conversions
   end
 
 --[[

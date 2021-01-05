@@ -117,6 +117,15 @@ function Toolbox_Module.childs.init(self)
     return n
   end
 
+  local orgRemoveChildDevice = self.removeChildDevice
+  function self:removeChildDevice(id)
+    if self.childRemovedHook then
+      pcall(function() self.childRemovedHook(id) end)
+    end
+    return orgRemoveChildDevice(self,id)
+  end
+  function self:setChildRemovedHook(fun) self.childRemovedHook=fun end
+    
 -- UI handler to pass button clicks to children
   function self:UIHandler(event)
     local obj = self
