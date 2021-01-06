@@ -34,7 +34,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.149"
+local FIBAROAPIHC3_VERSION = "0.150"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -105,7 +105,9 @@ fibaro.sleep(ms) -- simple busy wait...
 net.HTTPClient()
 net.TCPSocket()
 net.UDPSocket()
-mqtt.Client() -- needs extra download
+net.WebSocketClient()       -- needs extra download
+net.WebSocketClientTLS()    -- needs extra download
+mqtt.Client()               -- needs extra download
 api.get(call) 
 api.put(call <, data>) 
 api.post(call <, data>)
@@ -732,6 +734,7 @@ function module.FibaroAPI()
     --error(format("HC3 returned error '%d %s' - URL: '%s'.",c,resp[1] or "",req.url))
   end
   hc3_emulator.rawCall = rawCall
+
 -------------- MQTT support ---------------------
   local function safeJson(e)
     if type(e)=='table' then
@@ -879,6 +882,78 @@ function module.FibaroAPI()
       end
       return client
     end
+  else
+    mqtt={ Client = {} }
+    function mqtt.Client.connect()
+      Log(LOG.ERROR,
+[[You need to have installed https://github.com/xHasKx/luamqtt so that require("mqtt") works from fibaroapiHC3.lua]]
+      )
+    end
+  end
+
+-------------- WebSocket support ---------------------
+  local stat2,websocket = pcall(function() return require("wsLua_ER") end)
+  if stat then
+
+    function net.WebSocketClientTLS()
+      local POLLINTERVAL = 1000
+      local conn,err = nil
+      local self = { }
+      local handlers = {}
+      local function dispatch(h,...)
+        if handlers[h] then
+          h = handlers[h] 
+          local args = {...}
+          setTimeout(function() h(table.unpack(args)) end,0)
+        end
+      end
+      local function listen()
+        if not conn then return end
+        local function loop()
+          if lt == nil then return end
+          websocket.wsreceive(conn)
+          if lt then lt = setTimeout(loop,POLLINTERVAL) end
+        end
+        lt = setTimeout(loop,0)
+      end
+      local function stopListen() if lt then clearTimeout(lt) lt = nil end end
+      local function disconnected() websocket.wsclose(conn) conn=nil; stopListen(); dispatch("disconnected") end
+      local function connected() self.co = true; listen();  dispatch("connected") end
+      local function dataReceived(data) dispatch("dataReceived",data) end
+      local function error(err) dispatch("error",err) end
+      local function message_handler( conn, opcode, data, ... )
+        if not opcode then 
+          error(data)
+          disconnected()
+        else
+          dataReceived(data)
+        end
+      end
+      function self:addEventListener(h,f) handlers[h]=f end
+      function self:connect(url) 
+        if conn then return false end
+        conn, err = websocket.wsopen( url, message_handler, options )
+        if not err then connected(); return true
+        else return false,err end
+      end
+      function self:send(data) 
+        if not conn then return false end
+        if not websocket.wssend(conn,1,data) then return disconnected() end
+        return true
+      end
+      function self:isOpen() return conn and true end
+      function self:close() if conn then disconnected() return true end end
+      return self
+    end
+
+    net.WebSocketClient = net.WebSocketClientTLS
+  else
+    function net.WebSocketClientTLS() 
+      Log(LOG.ERROR,
+[[You need to have installed https://github.com/jangabrielsson/wsLua_ER so that require("wsLua_ER") works from fibaroapiHC3.lua]]
+      )
+    end
+    net.WebSocketClient = net.WebSocketClientTLS
   end
 
 ------------ HomeCenter ------------------------------
@@ -2247,6 +2322,7 @@ function module.Trigger()
     if not events[1] then events={events} end
     for _,e in ipairs(events) do
       local eh = EventTypes[e.type]
+      --Log(LOG.WARNING,"EV:%s",json.encode(e)) 
       if eh then eh(e.data)
       elseif eh==nil then Log(LOG.WARNING,"Unhandled event:%s -- please report",json.encode(e)) end
     end
