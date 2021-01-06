@@ -34,7 +34,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.150"
+local FIBAROAPIHC3_VERSION = "0.151"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -946,14 +946,14 @@ function module.FibaroAPI()
       return self
     end
 
-    net.WebSocketClient = net.WebSocketClientTLS
+    net.WebSocketClient = net.WebSocketClientTls
   else
-    function net.WebSocketClientTLS() 
+    function net.WebSocketClientTls() 
       Log(LOG.ERROR,
 [[You need to have installed https://github.com/jangabrielsson/wsLua_ER so that require("wsLua_ER") works from fibaroapiHC3.lua]]
       )
     end
-    net.WebSocketClient = net.WebSocketClientTLS
+    net.WebSocketClient = net.WebSocketClientTls
   end
 
 ------------ HomeCenter ------------------------------
