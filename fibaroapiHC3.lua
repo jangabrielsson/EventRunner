@@ -106,7 +106,7 @@ net.HTTPClient()
 net.TCPSocket()
 net.UDPSocket()
 net.WebSocketClient()       -- needs extra download
-net.WebSocketClientTLS()    -- needs extra download
+net.WebSocketClientTls()    -- needs extra download
 mqtt.Client()               -- needs extra download
 api.get(call) 
 api.put(call <, data>) 
@@ -895,7 +895,7 @@ function module.FibaroAPI()
   local stat2,websocket = pcall(function() return require("wsLua_ER") end)
   if stat then
 
-    function net.WebSocketClientTLS()
+    function net.WebSocketClientTls()
       local POLLINTERVAL = 1000
       local conn,err = nil
       local self = { }
