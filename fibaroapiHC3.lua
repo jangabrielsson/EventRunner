@@ -5045,6 +5045,7 @@ function module.Offline(self)
     end
   end
   function offline.downloadER4Engine() Files.file.downloadFile(TP.."EventRunner4Engine.lua","EventRunner4Engine.lua") end
+  function offline.downloadWSLua() Files.file.downloadFile(TP.."wsLua_ER.lua","wsLua_ER.lua") end
 
   function offline.downloadDB(fname)
     fname = fname or type(hc3_emulator.db)=='string' and hc3_emulator.db or "HC3sdk.db"
