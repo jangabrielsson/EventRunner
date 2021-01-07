@@ -1,8 +1,5 @@
-VERSION = "0.3"
+VERSION = "0.4"
 
-local ideh3 = ID("HC3.helpHC3")
-local ideh3QA = ID("HC3.helpHC3QA")
-local ideh3Sc = ID("HC3.helpHC3Sc")
 local idech3 = ID("HC3.copyHC3")
 local idech31 = ID("HC3.sdkHC3")
 local idech33 = ID("HC3.uploadHC3")
@@ -21,11 +18,12 @@ local urlEmu = "http://127.0.0.1:6872/web/main"
 local urlHC3Help = "https://forum.fibaro.com/topic/49488-sdk-for-remote-and-offline-hc3-development/"
 local urlHC3QAHelp = "https://manuals.fibaro.com/home-center-3-quick-apps/"
 local urlHC3ScHelp = "https://manuals.fibaro.com/home-center-3-lua-scenes/"
+local urlHC3MQTTHelp = "https://manuals.fibaro.com/knowledge-base-browse/hc3-quick-apps-mqtt-client/"
+local urlHC3WSHelp = "https://manuals.fibaro.com/knowledge-base-browse/hc3-quick-apps-websocket-client/"
+local urlHC3ChildHelp = "https://manuals.fibaro.com/knowledge-base-browse/hc3-quick-apps-managing-child-devices/"
 
 local function launchEmulator() wx.wxLaunchDefaultBrowser(urlEmu, 0) end
-local function launchHC3Help() wx.wxLaunchDefaultBrowser(urlHC3Help, 0) end
-local function launchHC3QAHelp() wx.wxLaunchDefaultBrowser(urlHC3QAHelp, 0) end
-local function launchHC3ScHelp() wx.wxLaunchDefaultBrowser(urlHC3ScHelp, 0) end
+local function openURL(url) wx.wxLaunchDefaultBrowser(url, 0) end
 
 ide:Print("fibaroapiHC3plug.lua v."..VERSION)
 
@@ -90,19 +88,9 @@ local function launchHC3Copy()
   callFibaroAPIHC3("-downloaddb","Copying done! - HC3sdk.db")
 end 
 
-local function downloadHC3SDK()
-  ide:Print("Downloading lastest fibarapiHC3.lua") 
-  callFibaroAPIHC3("-downloadsdk","Download done! - fibarapiHC3.lua")
-end 
-
-local function downloadHC3Toolbox() 
-  ide:Print("Downloading lastest Toolbox files") 
-  callFibaroAPIHC3("-downloadtoolbox","Download done! - Toolbox/..")
-end
-
-local function downloadHC3EREngine() 
-  ide:Print("Downloading lastest EventRunner4Engine.lua") 
-  callFibaroAPIHC3("-downloadER4","Download done! - EventRunner4Engine.lua")
+local function downloadFile(file)
+  ide:Print("Downloading latest "..file) 
+  callFibaroAPIHC3("-downloadfile "..file,"Download done! - "..file)
 end
 
 local function uploadResource()
@@ -140,9 +128,14 @@ end
 ------------- Scene and QuickApp templates -------------
 
 local SCENE_TEMPL = 
-[[if dofile then
+[[if dofile and not hc3_emulator then
+  hc3_emulator = {
+    name = "My Scene",    -- Name of Scene
+    poll = 2000,       -- Poll HC3 for triggers every 2000ms
+    traceFibaro=true,        -- Log fibaro.call and fibaro.get
+    --offline = true,
+  }
   dofile("fibaroapiHC3.lua")
-  local cr = loadfile("credentials.lua"); if cr then cr() end
 end
 
 function hc3_emulator.preamble() -- This runs before the scene starts up - place to do initializations for offline execution.
@@ -173,13 +166,6 @@ function hc3_emulator.actions()
   -- Your code
 end
 
-hc3_emulator.start{
-  poll=1000,               -- Poll HC3 every 1000ms for new triggers
-  traceFibaro=true,        -- Log fibaro.call and fibaro.get
-  -- speed=true,           -- Run faster than realtime
-  --runSceneAtStart=true,  -- execute at startup (without trigger)
-  --startTime = "07:00 3/2"-- Start at given date
-}
 ]]
 
 local QA_TEMPL =
@@ -214,7 +200,7 @@ end
 hc3_emulator.FILE("Toolbox/Toolbox_basic.lua","Toolbox")
 --hc3_emulator.FILE("Toolbox/Toolbox_child.lua","Toolbox_child")
 --hc3_emulator.FILE("Toolbox/Toolbox_events.lua","Toolbox_events")
---hc3_emulator.FILE("Toolbox/Toolbox_trigger.lua","Toolbox_trigger")
+--hc3_emulator.FILE("Toolbox/Toolbox_triggers.lua","Toolbox_triggers")
 --hc3_emulator.FILE("Toolbox/Toolbox_files.lua","Toolbox_files")
 --hc3_emulator.FILE("Toolbox/Toolbox_rpc.lua","Toolbox_rpc")
 --hc3_emulator.FILE("Toolbox/Toolbox_pubsub.lua","Toolbox_pubsub")
@@ -750,29 +736,24 @@ local interpreter = {
       ide:GetMainFrame():Connect(idem, wx.wxEVT_COMMAND_MENU_SELECTED, launchEmulator)
 
       menu = ide:FindTopMenu("&Help")
-      menu:Append(ideh3, "HC3 SDK (fibaroapiHC3.lua) help"..KSC(ideh3))
-      ide:GetMainFrame():Connect(ideh3, wx.wxEVT_COMMAND_MENU_SELECTED, launchHC3Help)
-      menu = ide:FindTopMenu("&Help")
-      menu:Append(ideh3QA, "Fibaro QuickApp manual"..KSC(ideh3QA))
-      ide:GetMainFrame():Connect(ideh3QA, wx.wxEVT_COMMAND_MENU_SELECTED, launchHC3QAHelp)
-      menu = ide:FindTopMenu("&Help")
-      menu:Append(ideh3Sc, "Fibaro Lua Scene manual"..KSC(ideh3Sc))
-      ide:GetMainFrame():Connect(ideh3Sc, wx.wxEVT_COMMAND_MENU_SELECTED, launchHC3ScHelp)
+      menu:AppendSeparator()
 
---      menu = ide:FindTopMenu("&File")
---      menu:AppendSeparator()
---      menu:Append(idech33b, "Create HC3 backup"..KSC(idech33b))
---      ide:GetMainFrame():Connect(idech33b, wx.wxEVT_COMMAND_MENU_SELECTED, backupResources)
-
---      menu = ide:FindTopMenu("&File")
---      menu:Append(idech33d, "Download select resource"..KSC(idech33d))
---      ide:GetMainFrame():Connect(idech33d, wx.wxEVT_COMMAND_MENU_SELECTED, downloadResource)
-
---      menu = ide:FindTopMenu("&File")
---      menu:Append(idech33, "Upload HC3 resource"..KSC(idech33))
---      ide:GetMainFrame():Connect(idech33, wx.wxEVT_COMMAND_MENU_SELECTED, uploadResource)
+      local function addLinkHelp(name,url)
+        local id = ID("HC3."..name)
+        menu = ide:FindTopMenu("&Help")
+        menu:Append(id, name..KSC(id))
+        ide:GetMainFrame():Connect(id, wx.wxEVT_COMMAND_MENU_SELECTED, function() openURL(url) end)
+      end
+      
+      addLinkHelp("HC3 SDK (fibaroapiHC3.lua) help",urlHC3Help)
+      addLinkHelp("Fibaro QuickApp manual",urlHC3QAHelp)
+      addLinkHelp("Fibaro QUickAppChild manual",urlHC3ChildHelp)
+      addLinkHelp("Fibaro Lua Scene manual",urlHC3ScHelp)
+      addLinkHelp("Fibaro MQTT Client manual",urlHC3MQTTHelp)
+      addLinkHelp("Fibaro WebSocket Client manual",urlHC3WSHelp)
 
       menu = ide:FindTopMenu("&File")
+      menu:AppendSeparator()
       menu:Append(idech3, "Download and create HC3sdk database"..KSC(idech3))
       ide:GetMainFrame():Connect(idech3, wx.wxEVT_COMMAND_MENU_SELECTED, launchHC3Copy)
 
@@ -780,17 +761,22 @@ local interpreter = {
       templSubMenu2 = ide:MakeMenu()
       templ2 = menu:AppendSubMenu(templSubMenu2, TR("Download files..."))
 
-      local idAPIlua = ID("HC3.temp_API")
-      local idToolbox = ID("HC3.temp_TOOLBOX")
-      local idEREngine = ID("HC3.temp_ENGINE")
-      templSubMenu2:Append(idAPIlua, "fibaroapiHC3.lua"..KSC(idAPIlua))
-      ide:GetMainFrame():Connect(idAPIlua, wx.wxEVT_COMMAND_MENU_SELECTED, downloadHC3SDK)
-      templSubMenu2:Append(idToolbox, "Toolbox"..KSC(idToolbox))
-      ide:GetMainFrame():Connect(idToolbox, wx.wxEVT_COMMAND_MENU_SELECTED, downloadHC3Toolbox)
-      templSubMenu2:Append(idEREngine, "EventRunnerEngine.lua"..KSC(idEREngine))
-      ide:GetMainFrame():Connect(idEREngine, wx.wxEVT_COMMAND_MENU_SELECTED, downloadHC3EREngine)
+      local function downloadFileItem(name)
+        local id = ID("HC3."..name)
+        templSubMenu2:Append(id, name..KSC(id))
+        ide:GetMainFrame():Connect(id, wx.wxEVT_COMMAND_MENU_SELECTED, function() downloadFile(name) end)        
+      end
+
+      downloadFileItem("fibaroapiHC3.lua")
+      downloadFileItem("fibaroapiHC3plug.lua")
+      downloadFileItem("Toolbox/*")
+      downloadFileItem("EventRunner4.lua")
+      downloadFileItem("EventRunnerEngine.lua")
+      downloadFileItem("MQTT/*")
+      downloadFileItem("wsLua_ER.lua")
 
       menu = ide:FindTopMenu("&Project")
+      menu:AppendSeparator()
       menu:Append(ide_deploy, "Deploy QuickApp"..KSC(ide_deploy))
       ide:GetMainFrame():Connect(ide_deploy, wx.wxEVT_COMMAND_MENU_SELECTED, deployQA)
 

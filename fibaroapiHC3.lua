@@ -34,7 +34,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.151"
+local FIBAROAPIHC3_VERSION = "0.152"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -5022,7 +5022,8 @@ function module.Offline(self)
 
   local TP = "https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/"
 
-  function offline.downloadFibaroAPI() Files.file.downloadFile(TP.."fibaroapiHC3.lua","fibaroapiHC3.lua") end
+  function offline.downloadGitHubFile(f) Files.file.downloadFile(TP..f,f) end
+
   function offline.downloadToolbox() 
     local function createDir(dir)
       local r,err = Files.file.make_dir(dir)
@@ -5044,8 +5045,6 @@ function module.Offline(self)
       Files.file.downloadFile(TP.."Toolbox/"..f,"Toolbox/"..f)
     end
   end
-  function offline.downloadER4Engine() Files.file.downloadFile(TP.."EventRunner4Engine.lua","EventRunner4Engine.lua") end
-  function offline.downloadWSLua() Files.file.downloadFile(TP.."wsLua_ER.lua","wsLua_ER.lua") end
 
   function offline.downloadDB(fname)
     fname = fname or type(hc3_emulator.db)=='string' and hc3_emulator.db or "HC3sdk.db"
@@ -5313,10 +5312,19 @@ function module.Offline(self)
     end;
   }
 
-  commandLines['downloaddb']=offline.downloadDB
-  commandLines['downloadsdk']=offline.downloadFibaroAPI
-  commandLines['downloadtoolbox']=offline.downloadToolbox
-  commandLines['downloadER4']=offline.downloadER4Engine
+  local filesDW = {
+    ["fibaroapiHC3.lua"] = function() offline.downloadGitHubFile("fibaroapiHC3.lua") end,
+    ["fibaroapiHC3plug.lua"] = function() offline.downloadGitHubFile("fibaroapiHC3plug.lua") end,
+    ["Toolbox/*"] = offline.downloadToolbox,
+    ["EventRunner4.lua"] = function() offline.downloadGitHubFile("EventRunner4.lua") end,
+    ["EventRunnerEngine.lua"] = function() offline.downloadGitHubFile("EventRunner4Engine.lua") end,
+    ["MQTT/*"] = function() end,
+    ["wsLua_ER.lua"] = function() offline.downloadGitHubFile("wsLua_ER.lua") end,
+  }
+  commandLines['downloadfile']=function(s)
+    local f = filesDW[s]
+    f()
+  end
   offline.persistence = persistence
 
   return offline
