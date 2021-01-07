@@ -774,6 +774,7 @@ local interpreter = {
       downloadFileItem("EventRunnerEngine.lua")
       downloadFileItem("MQTT/*")
       downloadFileItem("wsLua_ER.lua")
+      downloadFileItem("credentials_ex.lua")
 
       menu = ide:FindTopMenu("&Project")
       menu:AppendSeparator()

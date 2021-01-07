@@ -5347,6 +5347,7 @@ function module.Offline(self)
     ["EventRunnerEngine.lua"] = function() offline.downloadGitHubFile("EventRunner4Engine.lua") end,
     ["MQTT/*"] = offline.downloadMQTT,
     ["wsLua_ER.lua"] = function() offline.downloadGitHubFile("wsLua_ER.lua") end,
+    ["credentials_ex.lua"] = function() offline.downloadGitHubFile("credentials_ex.lua") end,
   }
   commandLines['downloadfile']=function(s)
     local f = filesDW[s]
