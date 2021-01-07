@@ -141,15 +141,15 @@ function Toolbox_Module.triggers.init(self)
     end,
   }
 
-  local lastRefresh,enabled = 0,true
+  local lastRefresh,enabled,firstRun = 0,true,true
   local http = net.HTTPClient()
   math.randomseed(os.time())
-  local urlTail = "&lang=en&rand="..math.random(2000,4000).."&logs=true"
+  local urlTail = "&lang=en&rand="..math.random(2000,4000).."&logs=false"
   local function loop()
     local stat,res = http:request("http://127.0.0.1:11111/api/refreshStates?last=" .. lastRefresh..urlTail,{
         success=function(res)
           local states = res.status == 200 and json.decode(res.data)
-          if states then
+          if states and not firstRun then
             lastRefresh=states.last
             if states.events and #states.events>0 then 
               for _,e in ipairs(states.events) do
@@ -161,7 +161,8 @@ function Toolbox_Module.triggers.init(self)
                 end
               end
             end
-          end  
+          end 
+          firstRun = false
           setTimeout(loop,INTERVAL or 0)
         end,
         error=function(res) 

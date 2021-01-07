@@ -82,6 +82,18 @@ function QuickApp:loadToolbox()
   end
   Toolbox_Module['basic'](self)
 
+--  function QuickApp:loadModule(name,args)
+--    args = args or {}
+--    if Toolbox_Module[name] then
+--      if not self.SILENT then self:debugf("Setup: %s (%s)",Toolbox_Module[name].name,Toolbox_Module[name].version) end
+--      return Toolbox_Module[m].init(self,args)
+--    else 
+--      self:warning("Module '"..name.."' missing")
+--      if self._INSTALL_MISSING_MODULES then
+--        self.missingModules[#missingModules+1]=name
+--      else self:warning("Set self._INSTALL_MISSING_MODULES=true to load missing modules") end
+--    end 
+--  end
   -- Load modules
   local ms,Module,missingModules = {},Toolbox_Module,{}
   for _,m in ipairs(modules or {}) do 
@@ -110,7 +122,12 @@ function QuickApp:loadToolbox()
     end
     self.loadToolbox = function() end
     if _onInit then _onInit(self) end
-    if self.main and type(self.main)=='function' then setTimeout(function() self:main() end,0) end -- If we have a main(), call it...
+    if self.main and type(self.main)=='function' then 
+      setTimeout(function() 
+          local stat,res = pcall(function() self:main() end)
+          if not stat then self:error("main() error:",res) end
+        end,0) 
+    end -- If we have a main(), call it...  
   end
 
   -- Try to load missing modules
@@ -130,47 +147,48 @@ function QuickApp:loadToolbox()
         end 
       end)
   else cont() end
-end
 
-local mpath = "https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/Toolbox/"
-local moduleMap={
-  childs      = {name="Toolbox_child",      url=mpath.."Toolbox_child.lua"},
-  events      = {name="Toolbox_events",     url=mpath.."Toolbox_events.lua"},
-  triggers    = {name="Toolbox_triggers",   url=mpath.."Toolbox_triggers.lua"},
-  rpc         = {name="Toolbox_rpc",        url=mpath.."Toolbox_rpc.lua"},
-  file        = {name="Toolbox_files",      url=mpath.."Toolbox_files.lua"},
-  pubsub      = {name="Toolbox_pubsub",     url=mpath.."Toolbox_pubsub.lua"},
-  profiler    = {name="Toolbox_profiler",   url=mpath.."Toolbox_profiler.lua"},
-  ui          = {name="Toolbox_ui",         url=mpath.."Toolbox_ui.lua"},
-  LuaCompiler = {name="Toolbox_luacompiler",url=mpath.."Toolbox_luacompiler.lua"},
-  LuaParser   = {name="Toolbox_luaparser",  url=mpath.."Toolbox_luaparser.lua"},
-}
+  local mpath = "https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/Toolbox/"
+  local moduleMap={
+    childs      = {name="Toolbox_child",      url=mpath.."Toolbox_child.lua"},
+    events      = {name="Toolbox_events",     url=mpath.."Toolbox_events.lua"},
+    triggers    = {name="Toolbox_triggers",   url=mpath.."Toolbox_triggers.lua"},
+    rpc         = {name="Toolbox_rpc",        url=mpath.."Toolbox_rpc.lua"},
+    file        = {name="Toolbox_files",      url=mpath.."Toolbox_files.lua"},
+    pubsub      = {name="Toolbox_pubsub",     url=mpath.."Toolbox_pubsub.lua"},
+    profiler    = {name="Toolbox_profiler",   url=mpath.."Toolbox_profiler.lua"},
+    ui          = {name="Toolbox_ui",         url=mpath.."Toolbox_ui.lua"},
+    LuaCompiler = {name="Toolbox_luacompiler",url=mpath.."Toolbox_luacompiler.lua"},
+    LuaParser   = {name="Toolbox_luaparser",  url=mpath.."Toolbox_luaparser.lua"},
+  }
 
-function fetchFiles(files,content,cont)
-  local req = net.HTTPClient()
-  if #files == 0 then return cont() end
-  local f0 = files[1]
-  table.remove(files,1)
-  local f = moduleMap[f0]
-  if not f then quickApp:errorf("No module %s",f0) return fetchFiles(files,content,cont) end
-  quickApp:debugf("Fetching module  %s",f0)
-  req:request(f.url,{
-      options = {method = 'GET', checkCertificate = false, timeout=20000},
-      success = function(res) 
-        if res.status == 200 then
-          content[#content+1]={name=f.name,content=res.data,isMain=false,isOpen=false,type="lua"}
+  function fetchFiles(files,content,cont)
+    local req = net.HTTPClient()
+    if #files == 0 then return cont() end
+    local f0 = files[1]
+    table.remove(files,1)
+    local f = moduleMap[f0]
+    if not f then quickApp:errorf("No module %s",f0) return fetchFiles(files,content,cont) end
+    quickApp:debugf("Fetching module  %s",f0)
+    req:request(f.url,{
+        options = {method = 'GET', checkCertificate = false, timeout=20000},
+        success = function(res) 
+          if res.status == 200 then
+            content[#content+1]={name=f.name,content=res.data,isMain=false,isOpen=false,type="lua"}
+            fetchFiles(files,content,cont)
+          else quickApp:errorf("Error %s fetching file %s",res.status,f.url) end
+        end,
+        error  = function(res) 
+          quickApp:errorf("Error %s fetching file %s",res,f.url)
           fetchFiles(files,content,cont)
-        else quickApp:errorf("Error %s fetching file %s",res.status,f.url) end
-      end,
-      error  = function(res) 
-        quickApp:errorf("Error %s fetching file %s",res,f.url)
-        fetchFiles(files,content,cont)
-      end
-    })
+        end
+      })
+  end
 end
 
 function Toolbox_Module.basic(self)
 -- tostring optionally converting tables to json or custom conversion
+-- If a table has a __tostring key bound to a function that function will be used to convert the table to a string
   local _tostring = tostring
   self._orgToString= tostring -- good to have sometimes....
   function tostring(obj) 
@@ -325,8 +343,8 @@ function Toolbox_Module.basic(self)
   end
 
   local _updateProperty = self.updateProperty
-  local _props = (api.get("/devices/"..self.id) or {}).properties
   function self:updateProperty(prop,value)
+    local _props = self.properties
     if _props==nil or _props[prop] ~= nil then
       return _updateProperty(self,prop,value)
     else self:warningf("Trying to update non-existing property - %s",prop) end
@@ -588,7 +606,7 @@ function Toolbox_Module.basic(self)
         end
         if ms > maxt then
           ref[2]=oldSetTimout(function() ref[2 ]=setTimeout(fun,ms-maxt)[2] end,maxt)
-        else ref[2 ]=oldSetTimout(fun,ms) end
+        else ref[2 ]=oldSetTimout(fun,math.floor(ms+0.5)) end
         return ref
       end,setTimeout
 
@@ -598,7 +616,7 @@ function Toolbox_Module.basic(self)
             if not stat then 
               error(res,2)
             end
-          end,ms)
+          end,math.floor(ms+0.5))
       end
       function json.decode(...)
         local stat,res = pcall(decode,...)
@@ -614,6 +632,5 @@ function Toolbox_Module.basic(self)
   local traceFuns = {
     'call','get','getValue'
   }
-
 
 end
