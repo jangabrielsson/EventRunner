@@ -5046,6 +5046,33 @@ function module.Offline(self)
     end
   end
 
+  function offline.downloadMQTT() 
+    local function createDir(dir)
+      local r,err = Files.file.make_dir(dir)
+      if not r and err~="File exists" then error(format("Can't create backup directory: %s (%s)",dir,err)) end
+    end
+    createDir("mqtt")
+
+    for _,f in ipairs( 
+      {
+        "bit53.lua",
+        "bitwrap.lua",
+        "client.lua",
+        "init.lua",
+        "ioloop.lua",
+        "luasocket_ssl.lua",
+        "luasocket.lua",
+        "ngxsocket.lua",
+        "protocol.lua",
+        "protocol4.lua",
+        "protocol5.lua",
+        "tools.lua",
+      }
+      ) do
+      Files.file.downloadFile(TP.."mqtt/"..f,"mqtt/"..f)
+    end
+  end
+  
   function offline.downloadDB(fname)
     fname = fname or type(hc3_emulator.db)=='string' and hc3_emulator.db or "HC3sdk.db"
     local function mapIDS(r)
@@ -5318,7 +5345,7 @@ function module.Offline(self)
     ["Toolbox/*"] = offline.downloadToolbox,
     ["EventRunner4.lua"] = function() offline.downloadGitHubFile("EventRunner4.lua") end,
     ["EventRunnerEngine.lua"] = function() offline.downloadGitHubFile("EventRunner4Engine.lua") end,
-    ["MQTT/*"] = function() end,
+    ["MQTT/*"] = offline.downloadMQTT,
     ["wsLua_ER.lua"] = function() offline.downloadGitHubFile("wsLua_ER.lua") end,
   }
   commandLines['downloadfile']=function(s)
