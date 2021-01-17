@@ -13,6 +13,7 @@
   self._NOTIFYREUSE == true will reuse notifications with same title
   self._INSTALL_MISSING_MODULES == true will try to install missing modules from githib reppository
   self._HTML == true will format space/nl with html codes for log with self:*f functions
+  self._PROPWARN == true will warn if property don't exist when doung self:updateProperty. Default true
   
   Children will be loaded if there are any children (and module 'child' is loaded)
   quickAppVariables will be loaded into self.config
@@ -38,6 +39,7 @@
 --]]
 
 local QA_toolbox_version = "0.23"
+QuickApp = QuickApp or {}
 local format = string.format
 local _init = QuickApp.__init
 local _onInit = nil
@@ -66,6 +68,7 @@ function QuickApp:loadToolbox()
   self._DEBUG = true             -- False, silence self:debug statements
   self._TRACE = true             -- Same for self:trace
   self._HTML = not hc3_emulator  -- Output HTML debug statements (line beaks, spaces)
+  self._PROPWARN = true
   self._NOTIFY = true            -- Automatically call notifyCenter for self:error and self:warning
   self._UNHANDLED_EVENTS = false -- Log unknow events
   local d = __fibaro_get_device(self.id)
@@ -347,7 +350,7 @@ function Toolbox_Module.basic(self)
     local _props = self.properties
     if _props==nil or _props[prop] ~= nil then
       return _updateProperty(self,prop,value)
-    else self:warningf("Trying to update non-existing property - %s",prop) end
+    elseif self._PROPWARN then self:warningf("Trying to update non-existing property - %s",prop) end
   end
 -- Change type of QA. Note, if types is changed the QA will restart
 --function QuickApp:setType(typ)
@@ -407,7 +410,7 @@ function Toolbox_Module.basic(self)
 --  )
 
   function self:pushYesNo(mobileId,title,message,callback,timeout)
-    local ref = self._orgToString({}):match("(0x.*)")
+    local ref = self._orgToString({}):match("%s(.*)")
     api.post("/mobile/push", 
       {
         category = "YES_NO", 

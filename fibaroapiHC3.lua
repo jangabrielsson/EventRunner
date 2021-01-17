@@ -34,7 +34,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.152"
+local FIBAROAPIHC3_VERSION = "0.153"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -171,11 +171,6 @@ hc3_emulator.createProxy(<name>,<type>,<UI>,<quickVars>)       -- create QuickAp
 hc3_emulator.post(ev,t)                                        -- post event/sourceTrigger 
 --]]
 
-local https  = require ("ssl.https") 
-local http   = require("socket.http")
-local socket = require("socket")
-local ltn12  = require("ltn12")
-
 local _debugFlags = {fcall=true, fget=true, post=true, trigger=true, timers=nil, refreshLoop=false, creation=true, mqtt=true} 
 local function merge(t1,t2)
   if type(t1)=='table' and type(t2)=='table' then for k,v in pairs(t2) do if t1[k]==nil then t1[k]=v else merge(t1[k],v) end end end
@@ -212,6 +207,12 @@ hc3_emulator.strictClass       = true
 
 local cr = loadfile(hc3_emulator.credentialsFile);
 if cr then hc3_emulator.credentials = merge(hc3_emulator.credentials or {},cr() or {}) end
+
+local https  = require("ssl.https") 
+local http   = require("socket.http")
+local socket = require("socket")
+local ltn12  = require("ltn12")
+
 pcall(function() require('mobdebug').coro() end) -- Load mobdebug if available to debug coroutines...
 local profiler = nil
 local function osExit() 
@@ -584,7 +585,7 @@ function module.FibaroAPI()
         end
       end
     end
-    local pstr = "HTTPClient object: "..(tostring(self):match("(0x.*)") or math.random(9999))
+    local pstr = "HTTPClient object: "..tostring(self):match("%s(.*)")
     setmetatable(self,{__tostring = function(s) return pstr end})
     return self
   end
@@ -630,7 +631,7 @@ function module.FibaroAPI()
       getHTTP()
       return
     end
-    local pstr = "HTTPClient object: "..(tostring(self):match("(0x.*)") or math.random(9999))
+    local pstr = "HTTPClient object: "..tostring(self):match("%s(.*)")
     setmetatable(self,{__tostring = function(s) return pstr end})
     return self
   end
@@ -656,7 +657,7 @@ function module.FibaroAPI()
       elseif res==nil and opts.error then opts.error(err) end
     end
     function self:close() sock:close() end
-    local pstr = "TCPSocket object: "..tostring(self):match("(0x.*)")
+    local pstr = "TCPSocket object: "..tostring(self):match("%s(.*)")
     setmetatable(self,{__tostring = function(s) return pstr end})
     return self
   end
@@ -688,7 +689,7 @@ function module.FibaroAPI()
       end
     end
     function self:close() sock:close() end
-    local pstr = "UDPSocket object: "..tostring(self):match("(0x.*)")
+    local pstr = "UDPSocket object: "..tostring(self):match("%s(.*)")
     setmetatable(self,{__tostring = function(s) return pstr end})
     return self
   end
@@ -3066,7 +3067,9 @@ function module.Json()
     error("unexpected type '" .. t .. "'")
   end
 
-  function json.encode(val)
+  function json.encode(val,...)
+    local extras = {...}
+    assert(#extras==0,"Too many arguments to json.encode?")
     return ( encode(val) )
   end
 
@@ -3504,7 +3507,7 @@ function module.WebAPI()
       ["/fibaroapiHC3/ui/(.+)$"] = function(client,ref,body,id) onUIEvent(json.decode(body)) end,
       ["/devices/(%d+)/action/(.+)$"] = function(client,ref,body,id,action) 
         local data = json.decode(body)
-        local stat,err=pcall(function() QuickApp[action](QuickApp,table.unpack(data.args)) end)
+        local stat,err=pcall(function() quickApp[action](quickApp,table.unpack(data.args)) end)
         if not stat then error(format("Bad fibaro.call(%s,'%s',%s)",id,action,json.encode(data.args):sub(2,-2),err),4) end
         client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n\n")
         return true
@@ -4616,7 +4619,7 @@ function module.Offline(self)
     Log(LOG.LOG,"Push user:%s - %s",self.data.id,msg)
   end
 
-  function HC_user:sendEmmail(subject,body)
+  function HC_user:sendEmail(subject,body)
     Log(LOG.LOG,"Email user:%s - %s,%s",self.data.id,subject,body)
   end
 
@@ -4963,6 +4966,7 @@ function module.Offline(self)
       end 
       return res
     end
+    --return d0
     return u
   end
 
@@ -5072,7 +5076,7 @@ function module.Offline(self)
       Files.file.downloadFile(TP.."mqtt/"..f,"mqtt/"..f)
     end
   end
-  
+
   function offline.downloadDB(fname)
     fname = fname or type(hc3_emulator.db)=='string' and hc3_emulator.db or "HC3sdk.db"
     local function mapIDS(r)
@@ -5347,7 +5351,7 @@ function module.Offline(self)
     ["EventRunnerEngine.lua"] = function() offline.downloadGitHubFile("EventRunner4Engine.lua") end,
     ["MQTT/*"] = offline.downloadMQTT,
     ["wsLua_ER.lua"] = function() offline.downloadGitHubFile("wsLua_ER.lua") end,
-    ["credentials_ex.lua"] = function() offline.downloadGitHubFile("credentials_ex.lua") end,
+    ["credentials_ex.lua"] = function() offline.downloadGitHubFile("credentials_ex§ .lua") end,
   }
   commandLines['downloadfile']=function(s)
     local f = filesDW[s]
@@ -5457,17 +5461,22 @@ local function startUp(file)
   ::RESTART::
   Timer.setTimeout(function() 
       if hc3_emulator.speeding then Timer.speedTime(hc3_emulator.speeding) end
-      if type(hc3_emulator.preamble) == 'function' then -- Stuff to run before starting up QA/Scene
-        hc3_emulator.inhibitTriggers = true -- preamble stuff don't generate triggers
-        hc3_emulator.preamble() 
-        hc3_emulator.inhibitTriggers = false
-      end
+--      if type(hc3_emulator.preamble) == 'function' then -- Stuff to run before starting up QA/Scene
+--        hc3_emulator.inhibitTriggers = true -- preamble stuff don't generate triggers
+--        hc3_emulator.preamble() 
+--        hc3_emulator.inhibitTriggers = false
+--      end
       if hc3_emulator.asyncHTTP then net.HTTPClient = net.HTTPAsyncClient end
       if hc3_emulator.credentials then 
         hc3_emulator.BasicAuthorization = "Basic "..Util.base64(hc3_emulator.credentials.user..":"..hc3_emulator.credentials.pwd)
       end
       hc3_emulator.inited = true
       dofile(file)
+      if type(hc3_emulator.preamble) == 'function' then -- Stuff to run before starting up QA/Scene
+        hc3_emulator.inhibitTriggers = true -- preamble stuff don't generate triggers
+        hc3_emulator.preamble() 
+        hc3_emulator.inhibitTriggers = false
+      end
       if hc3_emulator.conditions and hc3_emulator.actions then
         codeType="Scene"
         Scene.start()  -- Run a scene

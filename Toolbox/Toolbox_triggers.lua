@@ -48,6 +48,27 @@ function Toolbox_Module.triggers.init(self)
   self.TR = TR
   local ENABLEDTRIGGERS={}
   local INTERVAL = 1000 -- every second, could do more often...
+  local propFilters = {}
+
+  function self:propDelta(id,prop,value)
+    local d = propFilters[id] or {}
+    d[prop] =  {delta = value}
+  end
+
+  local function filter(id,prop,new)
+    local d = (propFilters[id] or {})[prop]
+    if d then
+      if d.last == nil then 
+        d.last = new
+        return false
+      else
+        if math.abs(d.last-new) >= d.delta then
+          d.last = new
+          return false
+        else return true end
+      end
+    else return false end
+  end
 
   local function post(ev)
     if ENABLEDTRIGGERS[ev.type] then
@@ -78,7 +99,7 @@ function Toolbox_Module.triggers.init(self)
           end
         end
       else
-        if d.property == "icon" then return end
+        if d.property == "icon" or filter(d.id,d.property,d.newValue) then return end
         post({type='device', id=d.id, property=d.property, value=d.newValue, old=d.oldValue})
       end
     end,
@@ -141,7 +162,7 @@ function Toolbox_Module.triggers.init(self)
     end,
   }
 
-  local lastRefresh,enabled,firstRun = 0,true,true
+  local lastRefresh,enabled,firstRun = 0,true,false
   local http = net.HTTPClient()
   math.randomseed(os.time())
   local urlTail = "&lang=en&rand="..math.random(2000,4000).."&logs=false"

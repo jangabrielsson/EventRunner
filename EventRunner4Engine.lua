@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix42"
+E_VERSION,E_FIX = 0.5,"fix43"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -53,7 +53,7 @@ Missing
 --  local rule = function(...) return self:evalScript(...) end          -- old rule function
 --  self:enableTriggerType({"device","global-variable","custom-event"}) -- types of events we want
 
---  HT = { 
+--  HT = {
 --    keyfob = 26, 
 --    motion= 21,
 --    temp = 22, 
@@ -305,7 +305,7 @@ function Module.utilities.init()
     return fields
   end
 
-  function self.gensym(s) return (s or "G")..QA._orgToString({}):match("0x(.*)") end
+  function self.gensym(s) return (s or "G")..QA._orgToString({}):match("%s(.*)") end
 
   function self.makeBanner(str)
     if #str % 2 == 1 then str=str.." " end
@@ -2031,6 +2031,7 @@ function Module.eventScript.init()
 
 -- context = {log=<bool>, level=<int>, line=<int>, doc=<str>, trigg=<bool>, enable=<bool>}
     function self.eval(escript,log)
+      assert(type(escript)=='string',"rule must be of type ästring' to eval(rule)")
       if log == nil then log = {} elseif log==true then log={print=true} end
       if log.print==nil then log.print=true end
       local status,res,ctx
@@ -2184,6 +2185,11 @@ _version = "v"..E_VERSION..E_FIX
 
 function QuickApp:onInit()
   fibaro.ID = self.id
+  local s = self._orgToString({})
+  if not s:match("%s(.*)") then
+    self:errorf("Bad table tostring: %s",s)
+    os.exit()
+  end
   --psys("IP address:%s",Util.getIPaddress())  
   local main = self.main
   _IPADDRESS = self.getHC3IPaddress()
