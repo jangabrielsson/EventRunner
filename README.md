@@ -1,7 +1,8 @@
 # EventRunner
-Scene event framework for Fibaro HC2 (visit [Wiki](../../wiki/Home) or [Fibaro Forum thread](https://forum.fibaro.com/topic/31180-tutorial-single-scene-instance-event-model/) for more details)
+Scene event framework for Fibaro HC2/HC3 (visit [Wiki](../../wiki/Home) or [Fibaro Forum thread](https://forum.fibaro.com/topic/31180-tutorial-single-scene-instance-event-model/) for more details)
 
 There is also an [HC2 emulator](https://forum.fibaro.com/topic/42835-hc2-scene-emulator/) that can run all types of scenes (and multiple instances) and communicate (2-ways) with live devices on the HC2. The emulator is optimized to run the EventRunner framework and is the best approach to develop and debug rules. 
+...and a new [HC3 emulator](https://forum.fibaro.com/topic/49488-sdk-for-remote-and-offline-hc3-development/).
 
 A slimmed down version of the framework [EventRunnerLite](../../wiki/Lite) also exists that may be a gentler introduction to the single-instance/event model for coding scenes.
 
