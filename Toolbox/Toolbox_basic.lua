@@ -14,6 +14,7 @@
   self._INSTALL_MISSING_MODULES == true will try to install missing modules from githib reppository
   self._HTML == true will format space/nl with html codes for log with self:*f functions
   self._PROPWARN == true will warn if property don't exist when doung self:updateProperty. Default true
+  self._ONACTIONLOG == false will inhibit the 'onAction' log message. Default false
   
   Children will be loaded if there are any children (and module 'child' is loaded)
   quickAppVariables will be loaded into self.config
@@ -37,7 +38,6 @@
   function QuickApp:version(<string>)                 -- Return/optional check HC3 version
 
 --]]
-
 local QA_toolbox_version = "0.23"
 QuickApp = QuickApp or {}
 local format = string.format
@@ -69,6 +69,7 @@ function QuickApp:loadToolbox()
   self._TRACE = true             -- Same for self:trace
   self._HTML = not hc3_emulator  -- Output HTML debug statements (line beaks, spaces)
   self._PROPWARN = true
+  self._ONACTIONLOG = false
   self._NOTIFY = true            -- Automatically call notifyCenter for self:error and self:warning
   self._UNHANDLED_EVENTS = false -- Log unknow events
   local d = __fibaro_get_device(self.id)
@@ -220,14 +221,17 @@ function Toolbox_Module.basic(self)
     return res
   end
 
+  local htmlCodes={['\n']='<br>', [' ']='&nbsp;'}
   local function _printf(self,fun,fmt,...)
-    local str,str2 = _format(fmt,...)
+    local str,str2,t1,t0,c1 = _format(fmt,...),nil,__TAG,__TAG
     str2=str
     if self._HTML and not hc3_emulator then 
-      str2 = str:gsub("(\n)","<br>")
-      str2 = str:gsub("(%s)",'&nbsp;')
+     str2 = str2:gsub("([\n%s])",function(c) return htmlCodes[c] or c end)
+     str2 = str2:gsub("(#T:)(.-)(#)",function(_,t) t1=t return "" end)
+     str2 = str2:gsub("(#C:)(.-)(#)",function(_,c) c1=c return "" end)
     end
-    fun(self,str2)
+    if c1 then str2=string.format("<font color=%s>%s</font>",c1,str2) end
+    __TAG = t1; fun(self,str2); __TAG = t0
     return str
   end
 
@@ -236,7 +240,7 @@ function Toolbox_Module.basic(self)
     fmt = _format(fmt,...)
     local t = __TAG
     __TAG = tag or __TAG
-    if hc3_emulator or not color then self:trace(fmt) 
+    if hc3_emulator or not color then self:tracef(fmt,...) 
     else
       self:trace("<font color="..color..">"..fmt.."</font>") 
     end
@@ -636,4 +640,12 @@ function Toolbox_Module.basic(self)
     'call','get','getValue'
   }
 
+  do 
+    local p = print
+    function print(a,...) 
+      if a~='onAction: ' or self._ONACTIONLOG then
+        p(a,...) 
+      end
+    end
+  end
 end

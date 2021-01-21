@@ -16,13 +16,13 @@
 --]]
 
 Toolbox_Module = Toolbox_Module or {}
-Toolbox_Module.file ={
+Toolbox_Module.files ={
   name = "File manager",
   author = "jan@gabrielsson.com",
-  version = "0.2"
+  version = "0.3"
 }
 
-function Toolbox_Module.file.init(self)
+function Toolbox_Module.files.init(self)
 
   function self:deleteFile(deviceId,file)
     local name = type(file)=='table' and file.name or file
@@ -81,11 +81,11 @@ function Toolbox_Module.file.init(self)
         self:debug("File '",fileName,"' added")
       else self:error("Error:",res) end
     elseif file.content ~= fileContent then
-      local stat,res = self:updateFile(deviceId,fileName,{   -- Update existing file
-          name=fileName,
+      local stat,res = self:updateFile(deviceId,{   -- Update existing file
+          name=file.name,
           type="lua",
-          isMain=false,
-          isOpen=false,
+          isMain=file.isMain,
+          isOpen=file.isOpen,
           content=fileContent
         })
       if res == 200 then
@@ -96,6 +96,31 @@ function Toolbox_Module.file.init(self)
     end
   end
 
+  function QuickApp:replicateTo(id)
+    local dest = self:getFiles(id)
+    local src = self:getFiles(self.id)
+    for _,f in ipairs(dest) do
+      if not f.isMain then self:deleteFile(id,f.name) end
+    end
+    for _,f in ipairs(src) do self:copyFileFromTo(f.name,self.id,id) end    
+  end
+
+  function QuickApp:patchTwins(name,value)
+    local n = 0
+    for _,d in ipairs(api.get("/devices?interface=quickApp") or {})  do
+      if d.id ~= self.id then
+        for _,qv in ipairs(d.properties.quickAppVariables or {}) do
+          if qv.name==name and qv.value==value then
+            self:tracef("Updating QAid:%s, '%s'",d.id,d.name)
+            self:replicateTo(d.id)
+            n = n+1
+          end
+        end
+      end
+    end
+    return n
+  end
+
   function self:getFQA(deviceId) return api.get("/quickApp/export/"..deviceId) end
 
   function self:putFQA(content) -- Should be .fqa json
@@ -104,8 +129,8 @@ function Toolbox_Module.file.init(self)
   end
 
 
-  -- Functions for autoupdating QA from web location (ex. GitHub)
-  -- still experimental...
+-- Functions for autoupdating QA from web location (ex. GitHub)
+-- still experimental...
 
   local function httpGet(url,callback,err)
     net.HTTPClient():request(url,{

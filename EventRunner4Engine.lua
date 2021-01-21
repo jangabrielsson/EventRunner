@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix43"
+E_VERSION,E_FIX = 0.5,"fix44"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -975,7 +975,9 @@ function Module.eventScript.init()
     local patterns,self = {},{}
     local opers = {['%neg']={14,1},['t/']={14,1,'%today'},['n/']={14,1,'%nexttime'},['+/']={14,1,'%plustime'},['$']={14,1,'%vglob'},
       ['.']={12.9,2},[':']= {13,2,'%prop'},['..']={9,2,'%betw'},['...']={9,2,'%betwo'},['@']={9,1,'%daily'},['jmp']={9,1},['::']={9,1},--['return']={-0.5,1},
-      ['@@']={9,1,'%interv'},['+']={11,2},['-']={11,2},['*']={12,2},['/']={12,2},['%']={12,2},['==']={6,2},['<=']={6,2},['>=']={6,2},['~=']={6,2},
+      ['@@']={9,1,'%interv'},['+']={11,2},['++']={10,2},['===']={9,2},
+      ['-']={11,2},['*']={12,2},['/']={12,2},['%']={12,2},['==']={6,2},['<=']={6,2},
+      ['>=']={6,2},['~=']={6,2},
       ['>']={6,2},['<']={6,2},['&']={5,2,'%and'},['|']={4,2,'%or'},['!']={5.1,1,'%not'},['=']={0,2},['+=']={0,2},['-=']={0,2},
       ['*=']={0,2},[';']={-1,2,'%progn'},
     }
@@ -1099,8 +1101,9 @@ function Module.eventScript.init()
     token("'([^']*)'", function (s) return {type="string", sw='str', value=s} end)
     token("%-%-.-\n")
     token("%-%-.*")  
+    token("===",function (op) return {type="operator", sw=SW[op] or 'op', value=op} end)    
     token("%.%.%.",function (op) return {type="operator", sw=SW[op] or 'op', value=op} end)
-    token("[@%$=<>!+%.%-*&|/%^~;:][@=<>&|;:%.]?", function (op) return {type="operator", sw=SW[op] or 'op', value=op} end)
+    token("[@%$=<>!+%.%-*&|/%^~;:][+@=<>&|;:%.]?", function (op) return {type="operator", sw=SW[op] or 'op', value=op} end)
     token("[{}%(%),%[%]#%%]", function (op) return {type="operator", sw=SW[op] or 'op', value=op} end)
 
 
@@ -1135,6 +1138,8 @@ function Module.eventScript.init()
     postP['::'] = function(e) return {'%addr',e[2][2]} end
     postP['%jmp'] = function(e) return {'%jmp',e[2][2]} end
 -- preC['return'] = function(e) return {'return',e[2]} end
+    postP['++'] = function(e) return tostring(e[2]) .. tostring(e[3]) end
+    postP['==='] = function(e) return tostring(e[2]):match(tostring(e[3])) end
     postP['%neg'] = function(e) return tonumber(e[2]) and -e[2] or e end
     postP['+='] = function(e) return {'%inc',e[2],e[3],'+'} end
     postP['-='] = function(e) return {'%inc',e[2],e[3],'-'} end

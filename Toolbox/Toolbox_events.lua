@@ -64,7 +64,7 @@ function Toolbox_Module.events.init(self)
     else return hm2sec(time) end
   end
 
--- This can be used to "post" an event intio this QA... Ex. fibaro.call(ID,'RECIEVE_EVENT',{type='myEvent'})
+-- This can be used to "post" an event into this QA... Ex. fibaro.call(ID,'RECIEVE_EVENT',{type='myEvent'})
   function self:RECIEVE_EVENT(ev)
     assert(isEvent(ev),"Bad argument to remote event")
     local time = ev.ev._time
