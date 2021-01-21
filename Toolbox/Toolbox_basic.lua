@@ -38,7 +38,7 @@
   function QuickApp:version(<string>)                 -- Return/optional check HC3 version
 
 --]]
-local QA_toolbox_version = "0.23"
+local QA_toolbox_version = "0.24"
 QuickApp = QuickApp or {}
 local format = string.format
 local _init = QuickApp.__init

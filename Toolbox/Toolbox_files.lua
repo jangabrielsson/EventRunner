@@ -235,3 +235,6 @@ function Toolbox_Module.files.init(self)
   function self:updateFilesFromRepo(args) getFiles(args) end
 
 end
+
+Toolbox_Module.file = Toolbox_Module.files
+function Toolbox_Module.file.init = function Toolbox_Module.files.init
