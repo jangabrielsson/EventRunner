@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix44"
+E_VERSION,E_FIX = 0.5,"fix45"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
