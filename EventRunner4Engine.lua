@@ -2181,7 +2181,7 @@ function Module.nodered.init(self)
 end
 
 modules = {
-  "events","childs","triggers","rpc","file","pubsub",
+  "events","childs","triggers","rpc","files","pubsub",
   "utilities","autopatch","objects","device","extras","eventScript","nodered"
 }
 
