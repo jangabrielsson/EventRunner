@@ -237,4 +237,4 @@ function Toolbox_Module.files.init(self)
 end
 
 Toolbox_Module.file = Toolbox_Module.files
-function Toolbox_Module.file.init = function Toolbox_Module.files.init
+Toolbox_Module.file.init = Toolbox_Module.files.init
