@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix45"
+E_VERSION,E_FIX = 0.5,"fix46"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -2181,7 +2181,7 @@ function Module.nodered.init(self)
 end
 
 modules = {
-  "events","childs","triggers","rpc","files","pubsub",
+  "events","childs","triggers","rpc","files","file","pubsub",
   "utilities","autopatch","objects","device","extras","eventScript","nodered"
 }
 
