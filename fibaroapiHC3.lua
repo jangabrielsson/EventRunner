@@ -34,7 +34,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.153"
+local FIBAROAPIHC3_VERSION = "0.155"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -288,14 +288,24 @@ function module.FibaroAPI()
     return c
   end
 
+  local function addDebugMessage(tag,type,message)
+    local a,b = api.post("/debugMessages", {
+        tag = tag,
+        messageType = type,
+        message = message
+      })
+     return a,b
+  end
+
   local ZBCOLORMAP = Util.ZBCOLORMAP
   local DEBUGCOLORS = {['DEBUG']='green', ['TRACE']='orange', ['WARNING']='purple', ['ERROR']='red'}
-  local function fibaro_debug(t,type,str)
+  local function fibaro_debug(tag,type,str)
     assert(str,"Missing tag for debug") 
+    if hc3_emulator.HC3_debugmessages then addDebugMessage(__TAG,type:lower(),str) end
     if hc3_emulator.colorDebug then
-      local color = DEBUGCOLORS[t] or "black"
+      local color = DEBUGCOLORS[type] or "black"
       color = ZBCOLORMAP[color]
-      t = format('%s%s\027[0m', color, t)
+      type = format('%s%s\027[0m', color, type)
       if hc3_emulator.htmlDebug then
         str = str:gsub("<font color=(.-)>(.*)</font>",
           function(color,cnt) 
@@ -306,13 +316,13 @@ function module.FibaroAPI()
         str=str:gsub("&nbsp;"," ")
       end
     end
-    print(format("%s [%s]: %s",os.date("[%d.%m.%Y] [%X]"),t,str)) 
+    print(format("%s [%s]: %s",os.date("[%d.%m.%Y] [%X]"),type,str)) 
   end
   function __fibaro_add_debug_message(type,str) fibaro_debug("DEBUG",type,str) end
-  function fibaro.debug(type,...)  fibaro_debug("DEBUG",type,d2str(...)) end
-  function fibaro.warning(type,...)  fibaro_debug("WARNING",type,d2str(...)) end
-  function fibaro.trace(type,...) fibaro_debug("TRACE",type,d2str(...)) end
-  function fibaro.error(type,...) fibaro_debug("ERROR",type,d2str(...)) end
+  function fibaro.debug(tag,...)  fibaro_debug(tag,"DEBUG",d2str(...)) end
+  function fibaro.warning(tag,...)  fibaro_debug(tag,"WARNING",d2str(...)) end
+  function fibaro.trace(tag,...) fibaro_debug(tag,"TRACE",d2str(...)) end
+  function fibaro.error(tag,...) fibaro_debug(tag,"ERROR",d2str(...)) end
 
   function fibaro.getName(deviceID) 
     __assert_type(deviceID,'number') 
@@ -694,10 +704,43 @@ function module.FibaroAPI()
     return self
   end
 
+  local function  readQuickAppFile(name)
+    if not hc3_emulator.FILES[name] then return end
+    if not hc3_emulator.FILES[name].content then 
+      f = io.open(hc3_emulator.FILES[name].file)
+      if f then
+        hc3_emulator.FILES[name].content = f:read("*all")
+        f:close()
+      else
+        Log(LOG.WARNING,"QuickApp file '%s' not found",hc3_emulator.FILES[name].file)
+      end
+    end
+  end
+
+  local function quickAppApi(call)
+    if not hc3_emulator.FILES['main'] then hc3_emulator.FILES['main'] = {file=hc3_emulator.sourceFile} end
+    if call:match("/quickApp/%d+/files") then
+      local res = {}
+      for name,s in pairs(hc3_emulator.FILES) do 
+        readQuickAppFile(name) 
+        res[#res+1]={name=name,isMain=name=="main",isOpen=false,content=hc3_emulator.FILES[name].content}
+      end
+      return res
+    else
+      local name = call:match("/quickApp/%d/files/(.*)")
+      if name then
+        readQuickAppFile(name)
+        return {name=name,isMain=name=="main",isOpen=false,content=hc3_emulator.FILES[name].content}
+      end
+    end
+    Log(LOG.WARNING,"api call '%s' not supported",call)
+  end
+
   function rawCall(method,call,data,cType,hs,to)
     if hc3_emulator.offline then return Offline.api(method,call,data,cType,hs) end
     if call:match("/refreshStates") then return Offline.api(method,call,data,cType,hs) end
     if call:match("/devices/%?.+") then call=urlencode(call) end
+    if quickApp and call:match("/quickApp/"..quickApp.id) then return quickAppApi(call,data) end
     local resp = {}
     local req={ method=method, timeout=to or 5000,
       url = "http://"..hc3_emulator.credentials.ip.."/api"..call, --urlencode(call),
@@ -898,7 +941,7 @@ function module.FibaroAPI()
 
     function net.WebSocketClientTls()
       local POLLINTERVAL = 1000
-      local conn,err = nil
+      local conn,err,lt = nil
       local self = { }
       local handlers = {}
       local function dispatch(h,...)
@@ -933,7 +976,7 @@ function module.FibaroAPI()
       function self:addEventListener(h,f) handlers[h]=f end
       function self:connect(url) 
         if conn then return false end
-        conn, err = websocket.wsopen( url, message_handler, options )
+        conn, err = websocket.wsopen( url, message_handler, nil ) --options )
         if not err then connected(); return true
         else return false,err end
       end
@@ -1482,10 +1525,10 @@ function module.QuickApp()
     option = function(d,w)
       return {name=d.name, type="option", value=d.value or "Hupp"}
     end,
-    slider = function(d)
+    slider = function(d,w)
       return {name=d.name,step=tostring(d.step),value=tostring(d.value),max=tostring(d.max),min=tostring(d.min),style={weight=d.weight or w or "1.2"},text=d.text,type="slider"}
     end,
-    label = function(d)
+    label = function(d,w)
       return {name=d.name,style={weight=d.weight or w or "1.2"},text=d.text,type="label"}
     end,
     space = function(d,w)
@@ -1627,7 +1670,11 @@ function module.QuickApp()
     return code
   end
 
-  function hc3_emulator.FILE(file,name) dofile(file) end
+  function hc3_emulator.FILE(file,name)
+    hc3_emulator.FILES = hc3_emulator.FILES or {}
+    hc3_emulator.FILES[name]={file=file,content=nil}
+    dofile(file) 
+  end
 
   local function createFilesFromSource(source)
     local files = {}
@@ -1693,7 +1740,7 @@ function module.QuickApp()
           }
         })
       if res <= 201 then
-        _,res = Files.file.updateFiles(files,args.id)
+        local a,b = Files.file.updateFiles(files,args.id)
       end
     else
       d1,res = api.post("/quickApp/",d)
@@ -1820,6 +1867,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
     end
 
     plugin.mainDeviceId = deviceStruct.id
+    __TAG = "QUICKAPP"..plugin.mainDeviceId
     hc3_emulator.id = plugin.mainDeviceId
     plugin.type = deviceStruct.type
 
@@ -2169,6 +2217,7 @@ climate
   local function runScene()
     local condition,triggers,dates = compileCondition(hc3_emulator.conditions)
     Log(LOG.HEADER,"Scene started at %s",os.date("%c"))
+    __TAG="SCENE"..999
     if hc3_emulator.runSceneAtStart or next(hc3_emulator.conditions)==nil then
       Timer.setTimeout(function() HC3_handleEvent({type = "manual", property = "execute"}) end,0)
     end
@@ -2681,10 +2730,9 @@ function module.Utilities()
   function self.copy(obj) return transform(obj, function(o) return o end) end
   local function equal(e1,e2)
     local t1,t2 = type(e1),type(e2)
-    if t1 ~= t2 then return false end
-    if t1 ~= 'table' and t2 ~= 'table' then return e1 == e2 end
+    if t1 ~= 'table' or t2 ~= 'table' then return e1 == e2 end
     for k1,v1 in pairs(e1) do if e2[k1] == nil or not equal(v1,e2[k1]) then return false end end
-    for k2,v2 in pairs(e2) do if e1[k2] == nil or not equal(e1[k2],v2) then return false end end
+    for k2,_  in pairs(e2) do if e1[k2] == nil then return false end end
     return true
   end
   function self.member(k,tab) for _,v in ipairs(tab) do if v==k then return true end end return false end
@@ -3029,7 +3077,7 @@ function module.Json()
           error("invalid table: mixed or invalid key types")
         end
         table.insert(res, encode(k, stack) .. ":" .. encode(v, stack))
-      end
+      end      
       stack[val] = nil
       return "{" .. table.concat(res, ",") .. "}"
     end
@@ -4279,8 +4327,8 @@ function module.Files()
       end
     end
 
-    function resources.scenes(dir,namer)
-      local scenes = api.get("/scenes/"..spec)
+    function resources.scenes(dir,namer,specs)
+      local scenes = api.get("/scenes"..specs)
       namer = namer or fixName
       for _,s in ipairs(scenes or {}) do
         local p = {namer(s,s.name)}
@@ -4306,8 +4354,8 @@ function module.Files()
     end
     if resources[rsrc] then resources[rsrc](dir,namer,spec)
     elseif rsrc=="*" then 
-      devices(dir,namer,"")
-      scenes(dir,namer,"")
+      resources.devices(dir,namer,"")
+      resources.scenes(dir,namer,"")
     else error("Resource unsupported") end
     print("Done")
   end
@@ -4748,7 +4796,7 @@ function module.Offline(self)
     ["GET"] = {
       ["/callAction%?deviceID=(%d+)&name=(%w+)(.*)"] = function(call,data,cType,id,action,args)
         local res = {}
-        args,id = split(args,"&"),tonumber(id)
+        args,id = string.split(args,"&"),tonumber(id)
         for _,a in ipairs(args) do
           local i,v = a:match("^arg(%d+)=(.*)")
           res[tonumber(i)]=urldecode(v)
@@ -4814,38 +4862,56 @@ function module.Offline(self)
       ["/globalVariables/?$"] = function(call,data,_) -- Create variable.
         data = json.decode(data)
         local a = rawget(resources.globalVariables,data.name) 
-        if rawget(resources.globalVariables,data.name) then return nil,409 end
+        if rawget(resources.globalVariables,data.name) then 
+          Log(LOG.WARNING,"variable '%s' already exists",tostring(data.name))
+          return nil,409 
+        end
         resources.globalVariables[data.name]=data
         return resources.globalVariables[data.name],200
       end,
       ["/customEvents/?$"] = function(call,data,_) -- Create customEvent.
         data = json.decode(data)
-        if rawget(resources.customEvents,data.name) then return nil,409 end
+        if rawget(resources.customEvents,data.name) then 
+          Log(LOG.WARNING,"custom event '%s' already exists",tostring(data.name))
+          return nil,409 
+        end
         resources.customEvents[data.name]=data
         return resources.customEvents[data.name],200
       end,
       ["/scenes/?$"] = function(call,data,_) -- Create scene.
         data = json.decode(data)
-        if rawget(resources.scenes,data.id) then return nil,409 end
+        if rawget(resources.scenes,data.id) then 
+          Log(LOG.WARNING,"scene '%s' already exists",tostring(data.id))
+          return nil,409 
+        end
         resources.scenes[data.id]=data
         return resources.scenes[data.id],200
       end,
       ["/rooms/?$"] = function(call,data,_) -- Create room.
         data = json.decode(data)
-        if rawget(resources.rooms,data.id) then return nil,409 end
+        if rawget(resources.rooms,data.id) then 
+          Log(LOG.WARNING,"room '%s' already exists",tostring(data.id))
+          return nil,409 
+        end
         resources.rooms[data.id]=data
         return resources.rooms[data.id],200
       end,
       ["/sections/?$"] = function(call,data,_) -- Create section.
         data = json.decode(data)
-        if rawget(resources.sections,data.id) then return nil,409 end
+        if rawget(resources.sections,data.id) then 
+          Log(LOG.WARNING,"section '%s' already exists",tostring(data.id))
+          return nil,409 
+        end
         resources.sections[data.id]=data
         return resources.sections[data.id],200
       end,   
       ["/devices/(%d+)/action/(.+)$"] = function(call,data,cType,id,action) -- call device action
         data = json.decode(data)
         local dev,err,stat = resources.devices[tonumber(id)]
-        if not dev then return dev,404 end
+        if not dev then 
+          Log(LOG.WARNING,"Device '%s' don't exists",tostring(id))
+          return dev,404 
+        end
         stat,err = pcall(dev[action],dev,table.unpack(data.args))
         if not stat then 
           Log(LOG.ERROR,"Bad fibaro.call(%s,'%s',%s)",id,action,json.encode(data.args):sub(2,-2),err)
@@ -4862,27 +4928,39 @@ function module.Offline(self)
         return data,200
       end,
       ["/customEvents/(.+)$"] = function(call,data,cType,name)
-        if not rawget(resources.customEvents,name) then return nil,409 end
+        if not rawget(resources.customEvents,name) then 
+          Log(LOG.WARNING,"custom event '%s' don't exist",tostring(name))
+          return nil,409 
+        end
         Trigger.checkEvents({type='CustomEvent', data={name=name,}})
       end
     },
     ["PUT"] = {
       ["/globalVariables/(.+)"] = function(call,data,cType,name) -- modify value
         data = json.decode(data)
-        if rawget(resources.globalVariables,name) == nil then return nil,404 end
+        if rawget(resources.globalVariables,name) == nil then 
+          Log(LOG.WARNING,"variable '%s' don't exist",tostring(name))
+          return nil,404 
+        end
         resources.globalVariables[name]:modify(data)
         return resources.globalVariables[name],200
       end,
       ["/customEvents/(.+)"] = function(call,data,cType,name) -- modify value
         data = json.decode(data)
-        if rawget(resources.customEvents,name)==nil then return nil,404 end
+        if rawget(resources.customEvents,name)==nil then 
+          Log(LOG.WARNING,"custom event '%s' don't exist",tostring(name))
+          return nil,404 
+        end
         resources.customEvents[name]:modify(data)
         return resources.customEvents[name],200
       end,
       ["/devices/(%d+)"] = function(call,data,cType,id) -- modify value
         data = json.decode(data)
         id = tonumber(id)
-        if rawget(resources.devices,id) == nil then return nil,404 end
+        if rawget(resources.devices,id) == nil then 
+          Log(LOG.WARNING,"device '%s' don't exist",tostring(id))
+          return nil,404 
+        end
         resources.devices[id]:modify(data)
         return resources.devices[id],200
       end,
@@ -5375,7 +5453,7 @@ Files   = module.Files()
 Offline = module.Offline()
 
 commandLines['help'] = function()
-  for c,f in pairs(commandLines) do
+  for c,_ in pairs(commandLines) do
     Log(LOG.LOG,"Command: -%s",c)
   end
 end
@@ -5486,7 +5564,7 @@ local function startUp(file)
         QA.start()
       end
     end,0,"Main")
-  local stat,res = xpcall(Timer.start,
+  xpcall(Timer.start,
     function(err)
       Log(LOG.ERROR,"%s crashed: %s",codeType,err)
       print(debug.traceback(err,1))
