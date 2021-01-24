@@ -34,7 +34,7 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.155"
+local FIBAROAPIHC3_VERSION = "0.156"
 
 --[[
   Best way is to conditionally include this file at the top of your lua file
@@ -294,7 +294,7 @@ function module.FibaroAPI()
         messageType = type,
         message = message
       })
-     return a,b
+    return a,b
   end
 
   local ZBCOLORMAP = Util.ZBCOLORMAP
@@ -307,7 +307,7 @@ function module.FibaroAPI()
       color = ZBCOLORMAP[color]
       type = format('%s%s\027[0m', color, type)
       if hc3_emulator.htmlDebug then
-        str = str:gsub("<font color=(.-)>(.*)</font>",
+        str = str:gsub("<font color=(.-)>(.-)</font>",
           function(color,cnt) 
             color=ZBCOLORMAP[color]
             color = color or ZBCOLORMAP['black']
@@ -2729,11 +2729,15 @@ function module.Utilities()
   end
   function self.copy(obj) return transform(obj, function(o) return o end) end
   local function equal(e1,e2)
-    local t1,t2 = type(e1),type(e2)
-    if t1 ~= 'table' or t2 ~= 'table' then return e1 == e2 end
-    for k1,v1 in pairs(e1) do if e2[k1] == nil or not equal(v1,e2[k1]) then return false end end
-    for k2,_  in pairs(e2) do if e1[k2] == nil then return false end end
-    return true
+    if e1==e2 then return true
+    else
+      if type(e1) ~= 'table' or type(e2) ~= 'table' then return false
+      else 
+        for k1,v1 in pairs(e1) do if e2[k1] == nil or not equal(v1,e2[k1]) then return false end end
+        for k2,_  in pairs(e2) do if e1[k2] == nil then return false end end
+        return true
+      end
+    end
   end
   function self.member(k,tab) for _,v in ipairs(tab) do if v==k then return true end end return false end
 
