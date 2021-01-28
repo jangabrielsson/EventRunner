@@ -34,20 +34,28 @@ persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.156"
+local FIBAROAPIHC3_VERSION = "0.158"
 
 --[[
-  Best way is to conditionally include this file at the top of your lua file
+  Best way is to conditionally include this code at the top of your lua file
     if dofile and not hc3_emulator then
       hc3_emulator = {
        quickVars = {["Hue_User"]="$CREDS.Hue_user",["Hue_IP"]=$CREDS.Hue_IP}
       }
       dofile("fibaroapiHC3.lua")
     end
-  We load another file, credentials.lua, where we define lua globals like hc3_emulator.credentials etc.
-  --hc3_emulator.credentials = { ip = <IP>, user = <username>, pwd = <password>}
+  Then define another file, credentials.lua, where we define credentials to access the HC3 etc:
+  return {
+    ip = <IP>, 
+    user = <username>, 
+    pwd = <password>
+  }
+  This file will be read by the emulator when it starts up and the table returned
+  will be assigned to hc3_emulator.credentials. 
+  hc3_emulator.credentials.ip,hc3_emulator.credentials.user,hc3_emulator.credentials.pwd will 
+  be used by the emulator to authorize calls to the HC3.
   This way the credentials are not visible in your code and you will not accidently upload them :-)
-  You can also predefine quickvars that are accessible with self:getVariable() when your code starts up
+  You can also predefine quickvars that are accessible with self:getVariable() when your code starts up.
   quickVar names starting with '$CREDS.' will be replaced with values from hc3_emulator.credentials.
 --]]
 
@@ -63,12 +71,13 @@ hc3_emulator.speed=<speedtime>,      -- If not false, time in hours the emulator
 hc3_emulator.proxy=<boolean>         -- If true create HC3 procy. default false
 hc3_emulator.UI=<UI table>,          -- Table defining buttons/sliders/labels. default {}
 hc3_emulator.quickVars=<table>,      -- Table with values to assign quickAppVariables. default {}, should be a key-value table
-hc3_emulator.offline=<boolean>,      -- If true run offline with simulated devices. default false
-hc3_emulator.apiHTTPS=<boolean>,     -- If true use https to call HC3 REST apis. default false
-hc3_emulator.deploy=<boolean>,       -- If true deploy code to HC3 instead of running it. default false
-hc3_emulator.db=<boolean/string>,    -- If true load data from "HC3sdk.db" or string file
-hc3_emulator.colorDebug=<bbolean>    -- If use color console logs in ZBS - not so good if you cut&paste to other apps...
-hc3_emulator.backupDir=<dir>         -- Default directory to store backup files
+hc3_emulator.offline=<boolean>,        -- If true run offline with simulated devices. default false
+hc3_emulator.apiHTTPS=<boolean>,       -- If true use https to call HC3 REST apis. default false
+hc3_emulator.deploy=<boolean>,         -- If true deploy code to HC3 instead of running it. default false
+hc3_emulator.db=<boolean/string>,      -- If true load data from "HC3sdk.db" or string file
+hc3_emulator.colorDebug=<bbolean>      -- If use color console logs in ZBS - not so good if you cut&paste to other apps...
+hc3_emulator.backupDir=<dir>           -- Default directory to store backup files
+hc3_emulator.HC3_logmessages=<boolean> -- Defult false. If true will push log messages to the HC3 also.
 
 Implemented APIs:
 ---------------------------------
@@ -204,6 +213,7 @@ hc3_emulator.htmlDebug         = DEF(hc3_emulator.htmlDebug,true)
 hc3_emulator.supressTrigger    = {["PluginChangedViewEvent"] = true} -- Ignore noisy triggers...
 hc3_emulator.negativeTimeout   = DEF(hc3_emulator.negativeTimeout,true)
 hc3_emulator.strictClass       = true
+hc3_emulator.HC3_logmessages   = DEF(hc3_emulator.HC3_logmessages,false)
 
 local cr = loadfile(hc3_emulator.credentialsFile);
 if cr then hc3_emulator.credentials = merge(hc3_emulator.credentials or {},cr() or {}) end
@@ -238,6 +248,7 @@ local function d2str(...) local r,s={...},{} for i=1,#r do if r[i]~=nil then s[#
 function module.FibaroAPI()
   --luacheck: globals __assert_type __fibaro_get_device __assert_type __fibaro_get_devices __fibaro_get_room
   --luacheck: globals __fibaro_get_scene __fibaro_get_global_variable __fibaro_get_device_property __fibaro_add_debug_message
+  --luacheck: globals plugin
   fibaro.version = "1.0.0"
   local cache,safeDecode = Trigger.cache,Util.safeDecode
 
@@ -299,6 +310,22 @@ function module.FibaroAPI()
 
   local ZBCOLORMAP = Util.ZBCOLORMAP
   local DEBUGCOLORS = {['DEBUG']='green', ['TRACE']='orange', ['WARNING']='purple', ['ERROR']='red'}
+
+  local function html2color(str,startColor)
+    local st,p = {startColor},1
+    return str:gsub("(</?font.->)",function(s)
+        if s=="</font>" then
+          p=p-1; return st[p]
+        else
+          local color = s:match("color=(%w+)")
+          color=ZBCOLORMAP[color]
+          color = color or ZBCOLORMAP['black']
+          p=p+1; st[p]=color; 
+          return color
+        end
+      end)
+  end
+
   local function fibaro_debug(tag,type,str)
     assert(str,"Missing tag for debug") 
     if hc3_emulator.HC3_debugmessages then addDebugMessage(__TAG,type:lower(),str) end
@@ -306,13 +333,14 @@ function module.FibaroAPI()
       local color = DEBUGCOLORS[type] or "black"
       color = ZBCOLORMAP[color]
       type = format('%s%s\027[0m', color, type)
-      if hc3_emulator.htmlDebug then
-        str = str:gsub("<font color=(.-)>(.-)</font>",
-          function(color,cnt) 
-            color=ZBCOLORMAP[color]
-            color = color or ZBCOLORMAP['black']
-            return format('%s%s\027[0m', color, cnt)
-          end)
+      if hc3_emulator.htmlDebug then -- A bit messy, but try to convert html tags to ZBSconsole equivalents
+        str = html2color(str,'\027[0m')
+--        str = str:gsub("<font color=(.-)>(.-)</font>",
+--          function(color,cnt) 
+--            color=ZBCOLORMAP[color]
+--            color = color or ZBCOLORMAP['black']
+--            return format('%s%s\027[0m', color, cnt)
+--          end)
         str=str:gsub("&nbsp;"," ")
       end
     end
@@ -2656,6 +2684,7 @@ function module.Utilities()
     navy="\027[34m",purple="\027[35m",teal="\027[36m",grey="\027[37m",
     red="\027[31;1m",tomato="\027[31;1m",neon="\027[32;1m",yellow="\027[33;1m",
     blue="\027[34;1m",magenta="\027[35;1m",cyan="\027[36;1m",white="\027[37;1m",
+    darkgrey="\027[30;1m",
   }
 
   self.ZBCOLORMAP = ZBCOLORMAP
@@ -4859,6 +4888,7 @@ function module.Offline(self)
       ["/sections/(%d+)"] = function(call,data,cType,id) return get(resources.sections,tonumber(id)) end,
       ["/sections/?$"] = function(call,data,cType,name) return arr(resources.sections) end,
       ["/refreshStates%?last=(%d+)"] = function(call,data,cType,last) return refreshStates.getEvents(tonumber(last)),200 end,
+      ["/settings/info"] = function(_) return resources.settings.info end,
       ["/settings/location/?$"] = function(_) return resources.settings.location end,
       ["/notificationCenter"] = function(call,data,cType,name) return {},200 end,
     },
