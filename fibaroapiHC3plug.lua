@@ -1,4 +1,4 @@
-VERSION = "0.4"
+VERSION = "0.5"
 
 local idech3 = ID("HC3.copyHC3")
 local idech31 = ID("HC3.sdkHC3")
@@ -211,7 +211,8 @@ modules = {
 --  "childs",
 --  "events",
 --  "triggers",
---  "files","rpc",
+--  "files",
+--  "rpc",
 --  "pubsub",
 --  "ui"
 }
@@ -729,7 +730,7 @@ local interpreter = {
     dependencies = "1.0",
 
     onRegister = function()
-      ide:AddInterpreter("HC3", interpreter)
+      --ide:AddInterpreter("HC3", interpreter)
 
       local menu = ide:FindTopMenu("&View")
       menu:Append(idem, "HC3 Emulator\tCtrl-Alt-E"..KSC(idem))
