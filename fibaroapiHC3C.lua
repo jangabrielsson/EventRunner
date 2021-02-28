@@ -38,7 +38,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.160"
+local FIBAROAPIHC3_VERSION = "0.161"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -184,7 +184,11 @@ hc3_emulator.createProxy(<name>,<type>,<UI>,<quickVars>)       -- create QuickAp
 hc3_emulator.post(ev,t)                                        -- post event/sourceTrigger 
 --]]
 
-local _debugFlags = {fcall=true, fget=true, post=true, trigger=true, timers=nil, refreshLoop=false, creation=true, mqtt=true} 
+local _debugFlags = {
+  fcall=true, fget=true, post=true, trigger=true, timers=nil, refreshLoop=false, 
+  mqtt=true, onAction=false, UIEvent=false,
+  webServer=false, webServerReq=false, ctx=false, timers=false,
+} 
 local function merge(t1,t2)
   if type(t1)=='table' and type(t2)=='table' then for k,v in pairs(t2) do if t1[k]==nil then t1[k]=v else merge(t1[k],v) end end end
   return t1
@@ -212,6 +216,7 @@ hc3_emulator.debug             = merge(hc3_emulator.debug  or {},_debugFlags)
 _debugFlags  = hc3_emulator.debug 
 hc3_emulator.runSceneAtStart   = false
 hc3_emulator.webPort           = hc3_emulator.webPort or 6872
+hc3_emulator.terminalPort      = hc3_emulator.terminalPort or 6972
 hc3_emulator.quickVars         = hc3_emulator.quickVars or {}
 hc3_emulator.colorDebug        = DEF(hc3_emulator.colorDebug,true)
 hc3_emulator.htmlDebug         = DEF(hc3_emulator.htmlDebug,true)
@@ -223,7 +228,7 @@ hc3_emulator.HC3_logmessages   = DEF(hc3_emulator.HC3_logmessages,false)
 local cr = loadfile(hc3_emulator.credentialsFile)
 if cr then hc3_emulator.credentials = merge(hc3_emulator.credentials or {},cr() or {}) end
 
-local socket  = require("socket")         -- LuaSocket
+local socket  = require("socket")         -- LuaSocket, these are the dependencies we have
 local url     = require("socket.url")     -- LuaSocket
 local headers = require("socket.headers") -- LuaSocket
 local ltn12   = require("ltn12")          -- LuaSocket
@@ -242,17 +247,12 @@ end
 
 local tostring,format = tostring,string.format
 local LOG,Log,Debug,assertf
-local module,commandLines = {},{}
+local module,commandLines,terminals = {},{},{}
 local typeHierarchy = nil
 local onAction,onUIEvent
 
 local function d2str(...) local r,s={...},{} for i=1,#r do if r[i]~=nil then s[#s+1]=tostring(r[i]) end end return table.concat(s," ") end 
-
-_debugFlags.webServerReq = true
-
 ------------------- Contexts, QuickApps and Scenes -------------------------
-_debugFlags.ctx = false
---_debugFlags.timers = true
 local contexts = {}
 setmetatable(contexts,{__mode='k'})
 local function setContext(env) 
@@ -268,7 +268,7 @@ local function getContext()
 end
 setContext(_G)
 
-local function PLUGIN() return getContext().plugin end
+local function PLUGIN() return getContext().plugin end -- try to remove...
 
 -------------- Fibaro API functions ------------------
 function module.FibaroAPI()
@@ -276,6 +276,7 @@ function module.FibaroAPI()
   --luacheck: globals __fibaro_get_scene __fibaro_get_global_variable __fibaro_get_device_property __fibaro_add_debug_message
   --luacheck: globals plugin
   fibaro.version = "1.0.0"
+  local copas = hc3_emulator.copas
   local cache,safeDecode = Trigger.cache,Util.safeDecode
 
   local function __convertToString(value) 
@@ -362,7 +363,13 @@ function module.FibaroAPI()
         str=str:gsub("&nbsp;"," ")
       end
     end
-    print(format("%s [%s] [%s]: %s",os.date("[%d.%m.%Y] [%X]"),type,tag,str)) 
+    local str = format("%s [%s] [%s]: %s",os.date("[%d.%m.%Y] [%X]"),type,tag:upper(),str)
+    print(str)
+    for pat,skts in pairs(terminals) do
+      if tag:match(pat) then 
+        for skt,_ in pairs(skts) do copas.send(skt, str.."\n") end
+      end
+    end
   end
   function __fibaro_add_debug_message(tag,type,str) fibaro_debug(tag,type,str) end
   function fibaro.debug(tag,...)  fibaro_debug(tag,"DEBUG",d2str(...)) end
@@ -3182,7 +3189,7 @@ function module.Timer()
   os._date  = os.date
   os.rt = _milliTime
   os.speed = function(b) SPEED = b print("Setting speed to ",tostring(b)) end
-  os.time = function() return math.floor(os.rt() + timeAdjust) end
+  os.time = function(t) return t and os._time(t) or math.floor(os.rt() + timeAdjust) end
   os.milliTime = function() return os.rt() + timeAdjust end
   os.clock = function() return os._clock() end
   os.date = function(s,t) return os._date(s,t or os.time()) end
@@ -3940,12 +3947,12 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
     assert(type(arg)=='number' or type(arg)=='string',"Bad argument  to loadQA")
 
     local self = {}
-    if tonumber(arg) then                                        -- Download QA from HC3
+    if tonumber(arg) then                                        -- Download QA from HC3 (fqa)
       self._fqa = api.get("/quickApp/export/"..arg)
       assert(self._fqa,"QA "..arg.." does not exists on HC3")
       self.id = arg
     end
-    if type(arg)=='string' and arg:match("%.[Ff][Qq][Aa]$") then -- Read in .fqa  file
+    if type(arg)=='string' and arg:match("%.[Ff][Qq][Aa]$") then  -- Read in .fqa  file
       local c = ff.read(arg)
       self.fname = arg
       self._fqa = json.decode(c)
@@ -4096,7 +4103,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
 
           codeEnv.print = function(...) codeEnv.fibaro.debug(codeEnv.__TAG:upper(),...) end
 
-          codeEnv.__TAG = "QUICKAPP"..self.id
+          codeEnv.__TAG = "QuickApp"..self.id
 
           local main = nil
           for _,f in ipairs(self._fqa and self._fqa.files or self.files) do 
@@ -4139,7 +4146,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
           self.name = self.name or "QuickApp"..self.id
 
           codeEnv.plugin.mainDeviceId = self.id
-          codeEnv.__TAG = "QUICKAPP"..self.id
+          codeEnv.__TAG = "QuickApp"..self.id
 
           -- Connected to something at the HC3...
           local remoteDevice
@@ -4149,7 +4156,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
               assert(remoteDevice,"hc3_emulator.start: Failed creating proxy")
               self.id = remoteDevice.id
               codeEnv.plugin.mainDeviceId = self.id
-              codeEnv.__TAG = "QUICKAPP"..self.id
+              codeEnv.__TAG = "QuickApp"..self.id
               Log(LOG.SYS,"Connected to HC3 device %s",self.id)
             end
           end
@@ -5355,6 +5362,7 @@ function module.Utilities()
           return b:sub(c+1,c+1)
         end)..({ '', '==', '=' })[#data%3+1])
   end
+
   local IPADDRESS = nil
 --  local socket = require('socket')
   function self.getIPaddress()
@@ -6037,16 +6045,57 @@ function module.WebAPI()
   end
 
 --  local socket = require'socket'
-  function self.start(ipAddress) 
-    self.ipAddress = ipAddress
-    local server = socket.bind("*", hc3_emulator.webPort)
+  function self.eventServer(port) 
+    local server = socket.bind("*", port)
     local i, p = server:getsockname()
     assert(i, p)
     copas.addserver(server, 
       function(sock)
         clientHandler(copas.wrap(sock),GUIhandler)
       end)
-    Log(LOG.SYS,"Created %s at %s:%s","Event server",self.ipAddress,hc3_emulator.webPort)
+    Log(LOG.SYS,"Created Event server at %s:%s",hc3_emulator.IPaddress ,port)
+  end
+
+  local terminalCommands = {
+    log = function(skt,str)
+      local p = str:match("^log (.*)")
+      if not p or p=="" then p = ".*" end
+      local s = terminals[p] or {}
+      s[skt]=true
+      terminals[p] = s
+    end,
+    quit = function(skt,str)
+      for p,s in pairs(terminals) do 
+        s[skt] = nil 
+        if next(s)==nil then terminals[p]=nil end
+      end
+      return 'break'
+    end,
+  }
+
+  function self.terminalServer(port)
+    local server = socket.bind("*", port)
+    local i, p = server:getsockname()
+    assert(i, p)
+    local function echoHandler(skt)
+      while true do
+        local data = copas.receive(skt)
+        local cr = 'lua'
+        for c,f in pairs(terminalCommands) do
+          if data:match("^"..c) then cr = f(skt,data) end
+        end
+        if cr == 'break' then break end
+        if cr == 'lua' then
+          local stat,res = pcall(function()
+              return load("return "..data,"terminal","bt")()
+            end)
+          if stat then copas.send(skt, Util.prettyJson(res).."\n")
+          else copas.send(skt, tostring(res).."\n") end
+        end
+      end
+    end
+    copas.addserver(server,echoHandler)
+    Log(LOG.SYS,"Created Terminal server at %s:%s",hc3_emulator.IPaddress, port)
   end
 
   Pages = { pages={} }
@@ -7121,6 +7170,7 @@ function module.Offline(self)
         end
         dev = quickApps[id] or resources.devices[id]
         if not dev then return nil,404 end
+        --onAction({deviceId=id,actionName=action,args=res})
         local stat,err = pcall(dev[action],dev,table.unpack(res))
         if not stat then 
           Log(LOG.ERROR,"Bad fibaro.call(%s,'%s',%s)",id,action,json.encode(res):sub(2,-2),err)
@@ -7953,7 +8003,8 @@ local function startEmulator(file)
 
   if hc3_emulator.speeding then Log(LOG.SYS,"Speeding %s hours",hc3_emulator.speeding) end
   hc3_emulator.IPaddress = Util.getIPaddress()
-  if not (hc3_emulator.startWeb==false) then Web.start(hc3_emulator.IPaddress) end
+  if hc3_emulator.startWeb ~= false then Web.eventServer(hc3_emulator.webPort) end
+  if hc3_emulator.startTerminal ~= false then Web.terminalServer(hc3_emulator.terminalPort) end
 
   if type(hc3_emulator.startTime) == 'string' then 
     Timer.setEmulatorTime(Util.parseDate(hc3_emulator.startTime)) 
@@ -7984,6 +8035,7 @@ local function startEmulator(file)
   elseif code:match("QuickApp:") then
     hc3_emulator.loadQA(file):install()
   else
+    hc3_emulator._code = nil
     load(code,file,"bt",Util.createEnvironment("QA",true))()
   end
 end -- startEmulator
@@ -8007,5 +8059,4 @@ if hc3_emulator.sourceFile then
 else
   Log(LOG.SYS,"fibaroapiHC3 version:%s",FIBAROAPIHC3_VERSION)
 end
-
---osExit()
+osExit()
