@@ -3999,6 +3999,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
       local header,env1 = code:match("(if%s+dofile.-[\n\r]end)"),{
         dofile=function() end
       }
+      assert(header and header~="","Malformed emulator header")
       local e1,msg = load(header,nil,nil,env1)
       if msg then error(msg) end
       local stat,res = pcall(e1)
