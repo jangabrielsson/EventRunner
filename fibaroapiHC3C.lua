@@ -38,7 +38,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.162"
+local FIBAROAPIHC3_VERSION = "0.163"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -3996,10 +3996,10 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
       self.file_emu = arg
       local code = hc3_emulator._code or ff.read(arg)
       hc3_emulator._code = nil
-      local header,env1 = code:match("^if(.-)[\n\r]end"),{
+      local header,env1 = code:match("(if%s+dofile.-[\n\r]end)"),{
         dofile=function() end
       }
-      local e1,msg = load("if "..header.." \nend",nil,nil,env1)
+      local e1,msg = load(header,nil,nil,env1)
       if msg then error(msg) end
       local stat,res = pcall(e1)
       if not stat then error(res) end
@@ -4043,7 +4043,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
         end
       else                      -- Save in unpacked format (files separatly)
         if path:sub(-1) == ff.path_separator() then
-          path = path.."QA_"..self.id.."_"..self.name:gsub("(%/)","_")
+          path = path.."QA_"..(self.id or "999").."_"..self.name:gsub("(%/)","_")
         elseif path:match("%.[Jj][Ss][Oo][Nn]$") then
           path = path:match("(.*)%.")
         end
@@ -4190,12 +4190,14 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
           end
 
           quickApps[device.id] = device
+          codeEnv._getLock()
           local status, err, ret = xpcall(
             function() codeEnv.quickApp = codeEnv.QuickApp(device) end,
             function(err)
               Log(LOG.ERROR,"QuickApp '%s', sceneId:%s, crashed (%s) at %s",self.name,self.id,err,os.date("%c"))
               print(debug.traceback(err,1))
             end)
+          codeEnv._releaseLock()
           if status then 
             Log(LOG.HEADER,"QuickApp '%s', deviceID:%s started at %s",device.name,device.id,os.date("%c"))
             quickApps[device.id] = codeEnv.quickApp 
@@ -5312,7 +5314,7 @@ function module.Utilities()
         elseif type(t)=='boolean' then
           printf(key and tab or 0,"%s",t and 'true' or 'false') 
         elseif type(t)=='string' then
-          printf(key and tab or 0,'"%s"',t)
+          printf(key and tab or 0,'"%s"',t:gsub('(%")','\\"'))
         end
       end
       pretty(0,t,true)
@@ -6078,6 +6080,14 @@ function module.WebAPI()
       end
       return 'break'
     end,
+    help = function(skt,str)
+      copas.send(skt, 
+[[quit - close socket
+log <pattern> - captures log output where tag matches pattern
+help - this text
+<any other string> - interpreted as lua code and is loaded and executed
+]]) 
+    end
   }
 
   function self.terminalServer(port)
