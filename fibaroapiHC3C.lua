@@ -38,7 +38,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.161"
+local FIBAROAPIHC3_VERSION = "0.162"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -3757,15 +3757,20 @@ function module.QuickApp()
 
   local function createFilesFromSource(source,mainFileName)
     local files,paths = {},{}
-    pcall(function() 
-        source = source:gsub([[[^%-]hc3_emulator%s*.%s*FILE%s*%(%s*[%"%'](.-)[%"%']%s*,%s*[%"%'](.-)[%"%']%s*%)]],
-          function(file,name) 
-            local c = ff.read(file)
-            files[#files+1]={name=name,content=c,isMain=false,type="lua",isOpen=false}
+    local function gf(pattern) 
+      source = source:gsub(pattern,
+        function(file,name) 
+          local stat,res = pcall(function() return ff.read(file) end)
+          if not stat then Log(LOG.ERROR,"%s",res)
+          else
+            files[#files+1]={name=name,content=res,isMain=false,type="lua",isOpen=false}
             paths[name]=file
-            return ""
-          end)
-      end)
+          end
+          return ""
+        end)
+    end
+    pcall(gf,[[[^%-]hc3_emulator%s*.%s*FILE%s*%(%s*[%"%'](.-)[%"%']%s*,%s*[%"%'](.-)[%"%']%s*%)]])
+    pcall(gf,[[%-%-FILE:%s*(.-)%s*,%s*(.-);]])
     table.insert(files,1,{name="main",content=source,isMain=true,type='lua',isOpen=false})
     paths['main']=mainFileName
     return files,paths
@@ -3991,8 +3996,10 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
       self.file_emu = arg
       local code = hc3_emulator._code or ff.read(arg)
       hc3_emulator._code = nil
-      local header,env1 = code:match("^if(.-)[\n\r]end"),{dofile=function() end}
-      local e1,msg = load("if "..header.." end",nil,nil,env1)
+      local header,env1 = code:match("^if(.-)[\n\r]end"),{
+        dofile=function() end
+      }
+      local e1,msg = load("if "..header.." \nend",nil,nil,env1)
       if msg then error(msg) end
       local stat,res = pcall(e1)
       if not stat then error(res) end
