@@ -38,7 +38,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.163"
+local FIBAROAPIHC3_VERSION = "0.164"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -267,8 +267,6 @@ local function getContext()
   return env
 end
 setContext(_G)
-
-local function PLUGIN() return getContext().plugin end -- try to remove...
 
 -------------- Fibaro API functions ------------------
 function module.FibaroAPI()
@@ -3356,11 +3354,11 @@ function module.QuickApp()
   local self = {}
   plugin = {}
   plugin.mainDeviceId = 999
+  local function ID() return getContext().plugin.mainDeviceId end
   function plugin.deleteDevice(deviceId) return api.delete("/devices/"..deviceId) end
-  function plugin.restart(deviceId) return api.post("/plugins/restart",{deviceId=deviceId or PLUGIN().mainDeviceId}) end
+  function plugin.restart(deviceId) return api.post("/plugins/restart",{deviceId=deviceId or ID()}) end
   function plugin.getProperty(id,prop) return api.get("/devices/"..id.."/property/"..prop) end
-  function plugin.getChildDevices(id) return api.get("/devices?parentId="..(id or PLUGIN().mainDeviceId)) end
-  function plugin._getID(id) return PLUGIN().mainDeviceId end
+  function plugin.getChildDevices(id) return api.get("/devices?parentId="..(id or ID())) end
   function plugin.createChildDevice(prop) 
     return api.post("/plugins/createChildDevice",prop) 
   end
@@ -4101,7 +4099,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
             local function f(...)
               codeEnv._getLock()
               local status, err, ret = xpcall(fun,function(err)
-                  Log(LOG.ERROR,"QuickApp timer for '%s', sceneId:%s, crashed (%s) at %s",self.name,self.id,err,os.date("%c"))
+                  Log(LOG.ERROR,"QuickApp timer for '%s', deviceId:%s, crashed (%s) at %s",self.name,self.id,err,os.date("%c"))
                   print(debug.traceback(err,1))
                 end,...)
               codeEnv._releaseLock() 
@@ -4109,7 +4107,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
             return st(f,ms,...)
           end
 
-          codeEnv.print = function(...) codeEnv.fibaro.debug(codeEnv.__TAG:upper(),...) end
+          codeEnv.print = function(...) codeEnv.fibaro.debug(codeEnv.__TAG,...) end
 
           codeEnv.__TAG = "QuickApp"..self.id
 
@@ -4180,14 +4178,11 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
             properties={quickAppVariables=qv}
           }
 
-          for _,f in ipairs(hc3_emulator.FILES or {}) do --oops
-            self.files[#self.files+1]=f
-          end
-
           -- Add UI (for webUI) if we run offline or don't have a proxy
           if device._emu.UI then
             QA.transformUI(device._emu.UI)
             device.properties.uiCallbacks  = QA.uiStruct2uiCallbacks(device._emu.UI)
+            device.properties.viewLayout = QA.mkViewLayout(device._emu.UI)
           end
 
           quickApps[device.id] = device
