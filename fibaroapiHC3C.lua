@@ -3540,11 +3540,11 @@ function module.QuickApp()
           elseif u.type=='button'  then
             local cb = map["button"..u.name]
             if cb == u.name.."Clicked" then cb = nil end
-            row[#row+1]={button=u.name, text=u.text, callback=cb}
+            row[#row+1]={button=u.name, text=u.text, onReleased=cb}
           elseif u.type=='slider' then
             local cb = map["slider"..u.name]
             if cb == u.name.."Clicked" then cb = nil end
-            row[#row+1]={slider=u.name, text=u.text, callback=cb}
+            row[#row+1]={slider=u.name, text=u.text, onChanged=cb}
           end
         else 
           for k,v in pairs(u) do conv(v) end 
