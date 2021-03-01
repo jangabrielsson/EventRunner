@@ -38,7 +38,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.165"
+local FIBAROAPIHC3_VERSION = "0.166"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -67,20 +67,21 @@ local FIBAROAPIHC3_VERSION = "0.165"
 
 Common hc3_emulator parameters:
 ---------------------------------
-hc3_emulator.name=<string>,          -- Name of QuickApp, default "QuickApp"
-hc3_emulator.id=<QuickApp ID>,       -- ID of QuickApp. Normally let emulator asign ID. (usually 999 for non-proxy QA)
-hc3_emulator.poll=<poll interval>,   -- Time in ms to poll the HC3 for triggers. default false
-hc3_emulator.type=<type>,            -- default "com.fibaro.binarySwitch"
-hc3_emulator.speed=<speedtime>,      -- If not false, time in hours the emulator should speed. default false
-hc3_emulator.proxy=<boolean>         -- If true create HC3 procy. default false
-hc3_emulator.UI=<UI table>,          -- Table defining buttons/sliders/labels. default {}
-hc3_emulator.quickVars=<table>,      -- Table with values to assign quickAppVariables. default {}, should be a key-value table
-hc3_emulator.offline=<boolean>,        -- If true run offline with simulated devices. default false
-hc3_emulator.apiHTTPS=<boolean>,       -- If true use https to call HC3 REST apis. default false
+hc3_emulator.name=<string>             -- Name of QuickApp, default "QuickApp"
+hc3_emulator.id=<QuickApp ID>          -- ID of QuickApp. Normally let emulator asign ID. (usually 999 for non-proxy QA)
+hc3_emulator.poll=<poll interval>      -- Time in ms to poll the HC3 for triggers. default false
+hc3_emulator.type=<type>               -- default "com.fibaro.binarySwitch"
+hc3_emulator.speed=<speedtime>         -- If not false, time in hours the emulator should speed. default false
+hc3_emulator.proxy=<boolean>           -- If true create HC3 procy. default false
+hc3_emulator.UI=<UI table>             -- Table defining buttons/sliders/labels. default {}
+hc3_emulator.quickVars=<table>         -- Table with values to assign quickAppVariables. default {}, should be a key-value table
+hc3_emulator.offline=<boolean>         -- If true run offline with simulated devices. default false
+hc3_emulator.apiHTTPS=<boolean>        -- If true use https to call HC3 REST apis. default false
 hc3_emulator.deploy=<boolean>,         -- If true deploy code to HC3 instead of running it. default false
 hc3_emulator.db=<boolean/string>,      -- If true load data from "HC3sdk.db" or string file
 hc3_emulator.colorDebug=<bbolean>      -- If use color console logs in ZBS - not so good if you cut&paste to other apps...
-hc3_emulator.backupDir=<dir>           -- Default directory to store backup files
+hc3_emulator.terminalPort              -- Port used for socket/telnet interface
+hc3_emulator.webPort                   -- Port used for web UI and events from HC3
 hc3_emulator.HC3_logmessages=<boolean> -- Defult false. If true will push log messages to the HC3 also.
 
 Implemented APIs:
@@ -205,9 +206,9 @@ local function DEF(x,y) if x==nil then return y else return x end end
 hc3_emulator = hc3_emulator or {}
 hc3_emulator.version           = FIBAROAPIHC3_VERSION
 hc3_emulator.credentialsFile   = hc3_emulator.credentialsFile or "credentials.lua" 
-hc3_emulator.HC3dir            = hc3_emulator.HC3dir or "HC3files" 
-hc3_emulator.backupDir         = hc3_emulator.backupDir or "/tmp" 
-hc3_emulator.backDirFmt        = "%m-%d-%Y %H.%M.%S"
+hc3_emulator.HC3dir            = hc3_emulator.HC3dir or "HC3files" -- not used
+hc3_emulator.backupDir         = hc3_emulator.backupDir or "/tmp"  -- not used
+hc3_emulator.backDirFmt        = "%m-%d-%Y %H.%M.%S"               -- not used
 hc3_emulator.conditions        = false
 hc3_emulator.actions           = false
 hc3_emulator.offline           = DEF(hc3_emulator.offline,false)
@@ -235,7 +236,10 @@ local ltn12   = require("ltn12")          -- LuaSocket
 local mime    = require("mime")           -- LuaSocket
 local lfs     = require("lfs")            -- LuaFileSystem
 
-pcall(function() require('mobdebug').coro() end) -- Load mobdebug if available to debug coroutines...
+local stat,mobdebug = pcall(function() return require('mobdebug') end) -- Load mobdebug if available to debug coroutines..
+mobdebug = mobdebug or {coro=function() end, pause=function() end}
+mobdebug.coro()
+
 local profiler = nil
 local function osExit() 
   if hc3_emulator.profile and profiler then
@@ -3465,11 +3469,11 @@ function module.QuickApp()
     end
   end
 
-  Util.class2 'QuickApp'(QuickAppBase)
+  Util.class2 'QuickApp'(QuickAppBase) -- Special form of class easier to step through...
   function QuickApp:__init(device) 
     QuickAppBase.__init(self,device)
     self.childDevices = {}
-    if self.onInit then self:onInit() end
+    if self.onInit then if getContext().BREAKONINIT then mobdebug.pause() end self:onInit() end --breakOnInit
     if not self._childsInited then self:initChildDevices() end
   end
 
@@ -4093,6 +4097,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
           local QAlock = hc3_emulator.copas.lock.new(60*60*30)
           function codeEnv._getLock() QAlock:get(60*60*30) end
           function codeEnv._releaseLock() QAlock:release() end
+          codeEnv.BREAKONINIT = hc3_emulator.breakOnInit
 
           local st = codeEnv.setTimeout
           codeEnv.setTimeout = function(fun,ms,...)
@@ -4190,7 +4195,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
           local status, err, ret = xpcall(
             function() codeEnv.quickApp = codeEnv.QuickApp(device) end,
             function(err)
-              Log(LOG.ERROR,"QuickApp '%s', sceneId:%s, crashed (%s) at %s",self.name,self.id,err,os.date("%c"))
+              Log(LOG.ERROR,"QuickApp '%s', deviceId:%s, crashed (%s) at %s",self.name,self.id,err,os.date("%c"))
               print(debug.traceback(err,1))
             end)
           codeEnv._releaseLock()
@@ -4201,7 +4206,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
 
         end,0) -- os.setTimer
       return self
-    end
+    end -- install
 
     return self
   end
