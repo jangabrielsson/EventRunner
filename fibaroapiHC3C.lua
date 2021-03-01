@@ -38,7 +38,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.164"
+local FIBAROAPIHC3_VERSION = "0.165"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -186,7 +186,7 @@ hc3_emulator.post(ev,t)                                        -- post event/sou
 
 local _debugFlags = {
   fcall=true, fget=true, post=true, trigger=true, timers=nil, refreshLoop=false, 
-  mqtt=true, onAction=false, UIEvent=false,
+  mqtt=true, onAction=false, UIEvent=false, debugPlugin=true,
   webServer=false, webServerReq=false, ctx=false, timers=false,
 } 
 local function merge(t1,t2)
@@ -4208,10 +4208,13 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
 
   commandLines['pullqatobuffer']=self.copyQA
   commandLines['deploy']=function(file) 
-    _G["DEPLOY"]=true
-    arg={}
-    hc3_emulator=nil
-    loadfile(file,nil,_G)()
+    local code = Files.file.read(file)
+    hc3_emulator._code = code
+    if code:match("hc3_emulator%.actions") then
+      Scene.loadScene(file):install()
+    elseif code:match("QuickApp:") then
+      QA.loadQA(file):upload()
+    end
     osExit()
   end
 
@@ -6839,7 +6842,7 @@ function module.Files()
       })
   end
 
-  function self.deployQA(sourceFile) hc3_emulator.loadQA(sourceFile):install() end
+  function self.deployQA(sourceFile) hc3_emulator.loadQA(sourceFile):upload() end
 
   self.file = {
     arch = arch,
@@ -7520,7 +7523,7 @@ function module.Offline(self)
   function offline.downloadToolbox() 
     local function createDir(dir)
       local r,err = Files.file.make_dir(dir)
-      if not r and err~="File exists" then error(format("Can't create backup directory: %s (%s)",dir,err)) end
+      if not r and err~="File exists" then error(format("Can't create Toolbox directory: %s (%s)",dir,err)) end
     end
     createDir("Toolbox")
 
@@ -7542,7 +7545,7 @@ function module.Offline(self)
   function offline.downloadMQTT() 
     local function createDir(dir)
       local r,err = Files.file.make_dir(dir)
-      if not r and err~="File exists" then error(format("Can't create backup directory: %s (%s)",dir,err)) end
+      if not r and err~="File exists" then error(format("Can't create mqtt directory: %s (%s)",dir,err)) end
     end
     createDir("mqtt")
 
@@ -7870,20 +7873,6 @@ commandLines['help'] = function()
   end
 end
 
-if arg[1] then
-  local cmd,res = arg[1],false
-  if cmd:sub(1,1)=='-' then
-    cmd = cmd:sub(2)
-    if commandLines[cmd] then --- When fibaroapiHC3.lua is used as a command from ZBS
-      res = commandLines[cmd](select(2,table.unpack(arg)))
-      if not res then osExit() end
-    end
-  end
-  if not res then 
-    Log(LOG.ERROR,"Unrecognized command line argument: %s",table.concat(arg," "))
-    osExit()
-  end
-end
 local function DEFAULT(v,d) if v~=nil then return v else return d end end
 hc3_emulator.offline = DEFAULT(hc3_emulator.offline,false)
 hc3_emulator.defaultDevice     = DEFAULT(hc3_emulator.defaultDevice,"com.fibaro.multilevelSwitch")
@@ -7998,6 +7987,21 @@ hc3_emulator.preamble
 hc3_emulator.asyncHTTP
 args.restartQA
 --]]
+
+if arg[1] then
+  Timer.start(function() 
+      os.setTimer(function()
+          local cmd,res = arg[1],false
+          if cmd:sub(1,1)=='-' then
+            cmd = cmd:sub(2)
+            if commandLines[cmd] then --- When fibaroapiHC3.lua is used as a command from ZBS
+              res = commandLines[cmd](select(2,table.unpack(arg)))
+            end
+          end
+        end,0)
+    end,0)
+  print(99)
+end
 
 local function startEmulator(file)
 
