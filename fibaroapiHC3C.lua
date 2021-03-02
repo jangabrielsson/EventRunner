@@ -27,6 +27,7 @@ Contributions & bugfixes:
 -  @tinman, forum.fibaro.com
 -  @10der, forum.fibaro.com
 -  @rangee, forum.fibaro.com
+-  @petrkl12, forum.fibaro.com
 
 Sources:
 json           -- Copyright (c) 2019 rxi
@@ -38,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.166"
+local FIBAROAPIHC3_VERSION = "0.167"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -80,9 +81,13 @@ hc3_emulator.apiHTTPS=<boolean>        -- If true use https to call HC3 REST api
 hc3_emulator.deploy=<boolean>,         -- If true deploy code to HC3 instead of running it. default false
 hc3_emulator.db=<boolean/string>,      -- If true load data from "HC3sdk.db" or string file
 hc3_emulator.colorDebug=<bbolean>      -- If use color console logs in ZBS - not so good if you cut&paste to other apps...
-hc3_emulator.terminalPort              -- Port used for socket/telnet interface
-hc3_emulator.webPort                   -- Port used for web UI and events from HC3
+hc3_emulator.htmlDebug=<boolean>       -- Try to convert html tags to ZBS console cmds (i.e. colors)
+hc3_emulator.terminalPort=<boolean>    -- Port used for socket/telnet interface
+hc3_emulator.webPort=<number>          -- Port used for web UI and events from HC3
 hc3_emulator.HC3_logmessages=<boolean> -- Defult false. If true will push log messages to the HC3 also.
+hc3_emulator.supressTrigger            -- Make the emulator certain events from the HC3, like = PluginChangedViewEvent
+hc3_emulator.negativeTimeout=<boolean> -- Allow specification of negative timeout for setTimeout (will fire immediatly)
+hc3_emulator.strictClass=<boolean>     -- Strict class semantics, requiring initializers
 
 Implemented APIs:
 ---------------------------------
@@ -234,10 +239,11 @@ local url     = require("socket.url")     -- LuaSocket
 local headers = require("socket.headers") -- LuaSocket
 local ltn12   = require("ltn12")          -- LuaSocket
 local mime    = require("mime")           -- LuaSocket
-local lfs     = require("lfs")            -- LuaFileSystem
+local lfs     = require("lfs")            -- LuaFileSystem,
+-- optional require('mobdebug')           -- Lua remote debugger
 
 local stat,mobdebug = pcall(function() return require('mobdebug') end) -- Load mobdebug if available to debug coroutines..
-mobdebug = mobdebug or {coro=function() end, pause=function() end}
+mobdebug = mobdebug or {coro=function() end, pause=function() end, setbreakpoint=function() end}
 mobdebug.coro()
 
 local profiler = nil
@@ -576,7 +582,7 @@ function module.FibaroAPI()
     if hc3_emulator.offline or call:match("/refreshStates") then return Offline.api(method,call,data,cType,hs) end
     -- api calls for  scenes/quickApps that are emulated, re-direct to offline APIs
     local a,id = call:match("^/(.-)/(%d+)")
-    if a and (a=='devices' or a=='quickApps') and id and quickApps[tonumber(id)] then
+    if a and (a=='devices' or a=='quickApp') and id and quickApps[tonumber(id)] then
       return Offline.api(method,call,data,cType,hs) 
     elseif a=='scenes' and id and scenes[tonumber(id)] then
       return Offline.api(method,call,data,cType,hs) 
@@ -703,7 +709,7 @@ function module.HTTP()
         req.source = ltn12.source.string(req.data)
       end
       local setTimeout = getContext().setTimeout or setTimeout
-      local call = i_options.sync and setTimeout or (function() end)
+      local call = i_options and i_options.sync and setTimeout or (function() end)
       call(function()
           local res,status,headers = http.request(req)
           if tonumber(status) and status >= 200 and status < 400 then
@@ -3811,7 +3817,7 @@ function module.QuickApp()
       d.initialProperties = args.initialProperties
     end
 
-    if type(files)=='string' then files = {name='main',type='lua',isMain=true,isOpen=false,content=files} end
+    if type(files)=='string' then files = {{name='main',type='lua',isMain=true,isOpen=false,content=files}} end
     d.files  = {}
 
     for _,f in ipairs(files) do f.isOpen=false; d.files[#d.files+1]=f end
@@ -3999,7 +4005,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
       local code = hc3_emulator._code or ff.read(arg)
       hc3_emulator._code = nil
       local header,env1 = code:match("(if%s+dofile.-[\n\r]end)"),{
-        dofile=function() end
+        dofile=function() end,
       }
       assert(header and header~="","Malformed emulator header")
       local e1,msg = load(header,nil,nil,env1)
@@ -4012,6 +4018,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
       self.proxy = env1.hc3_emulator.proxy or false
       self.quickVars = env1.hc3_emulator.quickVars or {}
       self.UI = env1.hc3_emulator.UI or {}
+      if type(self.UI) == 'string' then self.UI = json.decode(self.UI) end
       self.files,self.paths = QA.createFilesFromSource(code,self.fname)
     else error("Bad argument to loadQA") end
 
@@ -4051,7 +4058,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
           path = path:match("(.*)%.")
         end
         local paths = {}
-        for _,f in ipairs(self.files or self._fqa.files or {}) do
+        for i,f in ipairs(self.files or self._fqa.files or {}) do
           local name = path.."_"..f.name:gsub("(%/)","_")..".lua"
           ff.write(name,f.content,overwrite)
           paths[f.name]=name
@@ -4121,13 +4128,19 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
             if  f.isMain then main = f
             else
               local path = self.paths and self.paths[f.name] or f.name
-              local _,msg=load(f.content,path,"bt",codeEnv)()
+              if hc3_emulator.breakOnLoad then mobdebug.setbreakpoint(path,1) end
+              if _debugFlags.loader then Log(LOG.LOG,"Loading file '%s'",f.name) end
+              local code,msg=load(f.content,path,"bt",codeEnv)
+              assert(code,msg)
+              _,msg=code()
               assert(msg==nil,string.format("Loading %s - %s",path,msg))
             end
           end
           assert(main,"main missing")
           local path = self.paths and self.paths.main or 'main'
+          if _debugFlags.loader then Log(LOG.LOG,"Loading file 'main'") end
           local _,msg=load(main.content,path,"bt",codeEnv)()
+          if hc3_emulator.breakOnLoad then mobdebug.setbreakpoint(path,1) end
           assert(msg==nil,string.format("Error loading %s - %s",path,msg))
 
           -- Initialize quickAppVariables
@@ -4216,20 +4229,23 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
     local code = Files.file.read(file)
     hc3_emulator._code = code
     if code:match("hc3_emulator%.actions") then
-      Scene.loadScene(file):install()
+      Scene.loadScene(file):upload()
     elseif code:match("QuickApp:") then
       QA.loadQA(file):upload()
+    else
+      Log(LOG.LOG,"Unrecognized file")
     end
+    hc3_emulator._code = nil
     osExit()
   end
 
 -- Export functions
   self.transformUI = transformUI
   self.uiStruct2uiCallbacks = uiStruct2uiCallbacks
-  self.updateViewLayout = updateViewLayout
-  self.createQuickApp   = createQuickApp
-  self.createProxy      = createProxy
-  self.loadQA           = loadQA
+  self.updateViewLayout     = updateViewLayout
+  self.createQuickApp       = createQuickApp
+  self.createProxy          = createProxy
+  self.loadQA               = loadQA
   return self
 end
 
@@ -4609,6 +4625,7 @@ climate
       os.setTimer(function()
 
           if self.code then -- emu
+            if hc3_emulator.breakOnLoad then mobdebug.setbreakpoint(path,1) end
             local _,msg=load(self.code,self.fname,"bt",codeEnv)()
             assert(msg==nil,string.format("Loading %s - %s",self.fname,msg))
             self.conditions = codeEnv.hc3_emulator.conditions
@@ -6059,9 +6076,10 @@ function module.WebAPI()
 
 --  local socket = require'socket'
   function self.eventServer(port) 
-    local server = socket.bind("*", port)
-    local i, p = server:getsockname()
-    assert(i, p)
+    local server,msg,i = socket.bind("*", port)
+    assert(server,(msg or "").." ,port "..port)
+    i, msg = server:getsockname()
+    assert(i, msg)
     copas.addserver(server, 
       function(sock)
         clientHandler(copas.wrap(sock),GUIhandler)
@@ -6095,9 +6113,10 @@ help - this text
   }
 
   function self.terminalServer(port)
-    local server = socket.bind("*", port)
-    local i, p = server:getsockname()
-    assert(i, p)
+    local server,msg,i = socket.bind("*", port)
+    assert(server,(msg or "").." ,port "..port)
+    i, msg = server:getsockname()
+    assert(i, msg)
     local function echoHandler(skt)
       while true do
         local data = copas.receive(skt)
@@ -7369,6 +7388,21 @@ function module.Offline(self)
       ["/devices/(%d+)"] = function(call,data,cType,id) -- modify value
         data = json.decode(data)
         id = tonumber(id)
+        if quickApps[id] then
+          local d = quickApps[id]
+          local function put(source,dest)
+            if type(source)=='table' then 
+              if type(dest)~='table' then dest={} end
+              for k,v in pairs(source) do
+                if dest[k]~=nil then dest[k]=put(v,dest[k])
+                else dest[k]=v end
+                return dest
+              end
+            else return source end
+          end
+          d=put(data,d) -- ToDo, reflect back to proxy
+          return data,200
+        end
         if rawget(resources.devices,id) == nil then 
           Log(LOG.WARNING,"device '%s' don't exist",tostring(id))
           return nil,404 
