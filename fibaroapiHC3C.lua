@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.167"
+local FIBAROAPIHC3_VERSION = "0.168"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -192,7 +192,7 @@ hc3_emulator.post(ev,t)                                        -- post event/sou
 
 local _debugFlags = {
   fcall=true, fget=true, post=true, trigger=true, timers=nil, refreshLoop=false, 
-  mqtt=true, onAction=false, UIEvent=false, debugPlugin=true,
+  mqtt=true, onAction=true, UIEvent=true, debugPlugin=true,
   webServer=false, webServerReq=false, ctx=false, timers=false,
 } 
 local function merge(t1,t2)
@@ -276,7 +276,7 @@ local function getContext()
   if _debugFlags.ctx then print("GC:",(env.plugin or {}).mainDeviceId,tostring(co)) end
   return env
 end
-setContext(_G)
+setContext(_G) -- Start, main thread
 
 -------------- Fibaro API functions ------------------
 function module.FibaroAPI()
@@ -330,7 +330,10 @@ function module.FibaroAPI()
   end
   function __fibaroSleep(ms) 
     __assert_type(ms,'number')
+    local aquire,release = getContext()._getLoc,getContext()._releaseLoc
+    if aquire then aquire() end
     hc3_emulator.copas.sleep(ms/1000.0) 
+    if release then release() end
   end
 
   local function addDebugMessage(tag,type,message)
@@ -361,6 +364,9 @@ function module.FibaroAPI()
 
   local function fibaro_debug(tag,type,str)
     assert(str,"Missing tag for debug") 
+    if tag == nil then
+      jj=99
+    end
     if hc3_emulator.HC3_debugmessages then addDebugMessage(tag,type:lower(),str) end
     if hc3_emulator.colorDebug then
       local color = DEBUGCOLORS[type] or "black"
@@ -372,7 +378,7 @@ function module.FibaroAPI()
       end
     end
     local str = format("%s [%s] [%s]: %s",os.date("[%d.%m.%Y] [%X]"),type,tag:upper(),str)
-    print(str)
+    print(str) -- To IDE console
     for pat,skts in pairs(terminals) do
       if tag:match(pat) then 
         for skt,_ in pairs(skts) do copas.send(skt, str.."\n") end
@@ -453,7 +459,7 @@ function module.FibaroAPI()
 
   function fibaro.getRoomID(deviceID) 
     local dev = __fibaro_get_device(deviceID) 
-    return dev and dev.roomID
+    return dev and (dev.roomID or 0)
   end
 
   function fibaro.getRoomNameByDeviceID(deviceID) 
@@ -517,7 +523,7 @@ function module.FibaroAPI()
     end
     __assert_type(profile_id,'number') 
     __assert_type(action,'string') 
-    return api.post("/profiles/"..action.."/"..profile_id)
+    return api.post("/profiles/"..action.."/"..profile_id,{})
   end
 
   function fibaro.callGroupAction(action,args)
@@ -570,27 +576,29 @@ function module.FibaroAPI()
     end
     return rawCall("GET",call) 
   end
-  function api.put(call, data) return rawCall("PUT",call,json.encode(data),"application/json") end
-  function api.post(call, data, hs, to) return rawCall("POST",call,data and json.encode(data),"application/json",hs,to) end
-  function api.delete(call, data) return rawCall("DELETE",call,data and json.encode(data),"application/json") end
+  function api.put(call, data, hc3) return rawCall("PUT",call,json.encode(data),"application/json", hc3) end
+  function api.post(call, data, hc3) return rawCall("POST",call,data and json.encode(data),"application/json", hc3) end
+  function api.delete(call, data, hc3) return rawCall("DELETE",call,data and json.encode(data),"application/json", hc3) end
 
   -- Used by api.* call
-  function rawCall(method,call,data,cType,hs,to) -- RawCall don't use copas - yet.
+  function rawCall(method,call,data,cType,hc3) 
     local copas = hc3_emulator.copas
     local http = copas.http
     -- Running offline or calling /refreshStates, re-direct to offline APIs
     if hc3_emulator.offline or call:match("/refreshStates") then return Offline.api(method,call,data,cType,hs) end
     -- api calls for  scenes/quickApps that are emulated, re-direct to offline APIs
-    local a,id = call:match("^/(.-)/(%d+)")
-    if a and (a=='devices' or a=='quickApp') and id and quickApps[tonumber(id)] then
-      return Offline.api(method,call,data,cType,hs) 
-    elseif a=='scenes' and id and scenes[tonumber(id)] then
-      return Offline.api(method,call,data,cType,hs) 
+    if not hc3 then
+      local a,id = call:match("^/(.-)/(%d+)")
+      if a and (a=='devices' or a=='quickApp') and id and quickApps[tonumber(id)] then
+        return Offline.api(method,call,data,cType,hs) 
+      elseif a=='scenes' and id and scenes[tonumber(id)] then
+        return Offline.api(method,call,data,cType,hs) 
+      end
     end
     -- Special case, url encode arguments
     if call:match("/devices/%?.+") then call=urlencode(call) end
     local resp = {}
-    local req={ method=method, timeout=to or 5000,
+    local req={ method=method, timeout = 5000, -- ToDo: Replace with configurable constant
       url = "http://"..hc3_emulator.credentials.ip.."/api"..call, --urlencode(call),
       sink = ltn12.sink.table(resp),
       user=hc3_emulator.credentials.user,
@@ -608,7 +616,6 @@ function module.FibaroAPI()
       req.headers["content-length"] = #data
       req.source = ltn12.source.string(data)
     end
-    if hs then for k,v in pairs(hs) do req.headers[k]=v end end
     local r, c, h
     if hc3_emulator.apiHTTPS then
       req.url = "https"..req.url:sub(5)
@@ -689,11 +696,10 @@ function module.HTTP()
     end
     return false,url
   end
-
+  XXX=0
   net = net or {} 
   local copas = hc3_emulator.copas
   local http = copas.http
-
   function net.HTTPClient(i_options)   -- It is synchronous, but synchronous is a speciell case of asynchronous.. :-)
     local self = {}                    -- Not sure I got all the options right..
     function self:request(url,args)
@@ -708,10 +714,21 @@ function module.HTTP()
         req.headers["Content-Length"] = #req.data
         req.source = ltn12.source.string(req.data)
       end
-      local setTimeout = getContext().setTimeout or setTimeout
-      local call = i_options and i_options.sync and setTimeout or (function() end)
-      call(function()
+      local ctx = getContext()
+      if not ctx.quickApp then
+        a = 9
+      end
+      local sync = i_options and i_options.sync==true
+      local setTimeout = ctx.setTimeout or setTimeout
+      setTimeout(function()
+          local t1 = os.time()
+          if sync and ctx._getLoc then ctx._getLoc() end
+          local z = XXX; XXX=XXX+1
+          --print(">T:"..z)
           local res,status,headers = http.request(req)
+          --print("<T:"..z)
+          if sync and _releaseLoc then ctx._releaseLoc() end
+          --print("TIME1:"..(os.time()-t1).." "..url)
           if tonumber(status) and status >= 200 and status < 400 then
             if args.success then args.success({status=status, headers=headers, data=table.concat(resp)}) end
           elseif args.error then args.error(status) end
@@ -1024,7 +1041,7 @@ function module.Timer()
   ------- Timer wheel --------------
   do
     local default_now  -- return time in seconds
-    if _G['ngx'] then
+    if _G['ngx'] then -- no problem, main thread
       default_now = _G['ngx'].now
     else
       local ok, socket = true,socket ---pcall(require, "socket")
@@ -3244,13 +3261,11 @@ function module.Timer()
     if timers == t then
       if not RUNNING then 
         if _debugFlags.timers then Log(LOG.LOG,"Starting runTimers") end
-        os.setTimer2(function()
-            if _debugFlags.timers then 
-              Log(LOG.LOG,"Will run next timer at %s - %s",os.milliStr(timers.time),timers.time-os.milliTime()) 
-            end
-            if runT then runT:cancel() end
-            runT = os.setTimer2(runTimers,max(timers.time-os.milliTime(),0))
-          end,0) 
+        if _debugFlags.timers then 
+          Log(LOG.LOG,"Will run next timer at %s - %s",os.milliStr(timers.time),timers.time-os.milliTime()) 
+        end
+        if runT then runT:cancel() end
+        runT = os.setTimer2(runTimers,max(timers.time-os.milliTime(),0))
       end
     end
     --dumpTimers()
@@ -3270,11 +3285,6 @@ function module.Timer()
     end
   end
 
-  local function callWithContext(f,ctx)
-    os.setTimer(function() f() end,
-      0,false,ctx)---getContext())
-  end
-
   function runTimers()
     runT = nil
     local t = timers
@@ -3287,12 +3297,12 @@ function module.Timer()
         timers = timers.next
         timeAdjust = t.time-os.rt()
         t.expired = true
-        RUNNING = true; callWithContext(t.fun,t.env); RUNNING = false;
+        RUNNING = true; pcall(t.fun); RUNNING = false;
         if timers ~= nil and timers.time == t.time then goto REDO end
       else
         timers = timers.next
         t.expired = true
-        RUNNING = true; callWithContext(t.fun,t.env); RUNNING = false;
+        RUNNING = true; pcall(t.fun); RUNNING = false;
       end
       if timers then
         if SPEED then 
@@ -3310,7 +3320,7 @@ function module.Timer()
   function setTimeout(fun,time,tag)
     assert(type(fun)=='function' and type(time)=='number',"Bad arguments to setTimeout")
     time = time > 0 and time or 0
-    return insertTimer(MAKETIMER({fun=fun,time=os.milliTime()+time/1000.0,tag=tag,env=getContext()}))
+    return insertTimer(MAKETIMER({fun=fun,time=os.milliTime()+time/1000.0,tag=tag}))
   end
 
   function clearTimeout(timer)
@@ -3369,17 +3379,20 @@ function module.QuickApp()
   function plugin.restart(deviceId) return api.post("/plugins/restart",{deviceId=deviceId or ID()}) end
   function plugin.getProperty(id,prop) return api.get("/devices/"..id.."/property/"..prop) end
   function plugin.getChildDevices(id) return api.get("/devices?parentId="..(id or ID())) end
-  function plugin.createChildDevice(prop) 
-    return api.post("/plugins/createChildDevice",prop) 
-  end
+  function plugin.createChildDevice(props) return api.post("/plugins/createChildDevice",props) end
 
   function self.getWebUIValue(id,elm,t) 
-    return quickApps[id]._emu.uiValues[elm][t] 
+    local qa = quickApps[id]
+    if qa and qa._emu.UI then
+      return qa._emu.uiValues[elm][t] 
+    end
   end
   function self.setWebUIValue(id,elm,t,v) 
     local qa = quickApps[id]
-    qa._emu.uiValues[elm] = qa._emu.uiValues[elm] or {}
-    qa._emu.uiValues[elm][t]=tostring(v) 
+    if qa and qa._emu.UI then
+      qa._emu.uiValues[elm] = qa._emu.uiValues[elm] or {}
+      qa._emu.uiValues[elm][t]=tostring(v) 
+    end
   end
 
   class 'QuickAppBase'
@@ -3454,8 +3467,11 @@ function module.QuickApp()
 
   function QuickAppBase:updateProperty(prop,value)
     __assert_type(prop,'string')
+    if self.properties[prop] == value then return end
     if self._emu.proxy then
-      local stat,res=api.put("/devices/"..self.id,{properties = {[prop]=value}}) -- Let HC3 generate trigger
+      local a,b = api.post("/plugins/updateProperty",{deviceId = self.id, propertyName = prop, value = value})
+      a=b
+      -- local stat,res=api.put("/devices/"..self.id,{properties = {[prop]=value}},true) -- Let HC3 generate trigger
     else
       --- ToDo. generate offline trigger if we are not connected - move from OffLineDevice etc.
     end
@@ -3496,7 +3512,6 @@ function module.QuickApp()
     local cd = device(d)
     cd.parent = self
     self.childDevices[d.id]=cd
-    quickApps[d.id]=cd
     return cd
   end
 
@@ -3518,7 +3533,7 @@ function module.QuickApp()
       elseif not childs[d.id] then
         Log(LOG.ERROR,"Class for the child device: %s, with type: %s not found. Using base class: QuickAppChild",d.id,d.type)
         childs[d.id]=QuickAppChild(d)
-        quickApps[d.id]=childs[d.id]
+        --quickApps[d.id]=childs[d.id]
       end
       childs[d.id].parent = self
     end
@@ -3528,9 +3543,12 @@ function module.QuickApp()
   class 'QuickAppChild'(QuickAppBase)
   function QuickAppChild:__init(device) 
     assert(type(device)=='number' or type(device)=='table',"QuickAppChild:__init needs number/table")
-    device._emu = device._emu or {}
+    local function copy(d) local res={} for k,v in pairs(d) do res[k]=v end return res end
+    device._emu = copy(device._emu or getContext().quickApp._emu or {})
+    device._emu.UI,device._emu.slideCache = {},{}
     QuickAppBase.__init(self,device) 
     self._emu.proxy=true
+    quickApps[device.id]=self
   end
 
   local function traverse(o,f)
@@ -3910,7 +3928,11 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
 
     Log(LOG.SYS,ID and "Proxy: Reusing QuickApp proxy" or "Proxy: Creating new proxy")
 
-    for k,v in pairs(vars) do newVars[k]=v end -- add user specified vars
+    if vars[1] then
+      for _,v in ipairs(vars) do newVars[v.name]=v.value end -- add user specified vars
+    else
+      for k,v in pairs(vars) do newVars[k]=v end -- add user specified vars
+    end
     newVars["PROXYIP"] = Util.getIPaddress()..":"..hc3_emulator.webPort
     return createQuickApp{id=ID,name=name,type=tp,code=code,UI=UI,quickVars=newVars}
   end
@@ -3918,19 +3940,23 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
   function onAction(event)
     Debug(_debugFlags.onAction,"onAction: %s",json.encode(event))
     local self = quickApps[event.deviceId]
-    if self.actionHandler then self:actionHandler(event)
-    else
-      local id = event.deviceId 
-      if id == self.id then
-        self:callAction(event.actionName, table.unpack(event.args))
-      else
-        local child = self.childDevices[id] 
-        if child then child:callAction(event.actionName, table.unpack(event.args))
+    if self.parentId then self = quickApps[self.parentId] end
+    assert(self,"Unknown deviceID for onAction:"..event.deviceId)
+    self._emu.env.setTimeout(function()
+        if self.actionHandler then self:actionHandler(event)
         else
-          Log(LOG.WARNING,"Child with id:%s not found.", id)
+          local id = event.deviceId 
+          if id == self.id then
+            self:callAction(event.actionName, table.unpack(event.args))
+          else
+            local child = self.childDevices[id] 
+            if child then child:callAction(event.actionName, table.unpack(event.args))
+            else
+              Log(LOG.WARNING,"Child with id:%s not found.", id)
+            end
+          end
         end
-      end
-    end
+      end,0)
   end
 
 --"{\"eventType\":\"onReleased\",\"values\":[null],\"elementName\":\"bt\",\"deviceId\":726}"
@@ -3938,6 +3964,8 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
   function onUIEvent(event)
     Debug(_debugFlags.UIEvent,"UIEvent: %s",json.encode(event))
     local self = quickApps[event.deviceId]
+    if self.parentId then self = quickApps[self.parentId] end
+    assert(self,"Unknown deviceID for UIEvent:"..event.deviceId)
     if self.UIHandler then self:UIHandler(event)
     else
       local elm,etyp = event.elementName, event.eventType
@@ -3947,6 +3975,8 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
           QA.setWebUIValue(event.deviceId,elm,'value',event.values[1]) 
         end
         return self:callAction(cb[elm][etyp], event)
+      elseif self[elm] then
+        return self:callAction(elm, event)
       end
       Log(LOG.WARNING,"UI callback for element:%s not found.", elm)
     end
@@ -4109,16 +4139,17 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
           local st = codeEnv.setTimeout
           codeEnv.setTimeout = function(fun,ms,...)
             local function f(...)
-              codeEnv._getLock()
+              setContext(codeEnv)
               local status, err, ret = xpcall(fun,function(err)
                   Log(LOG.ERROR,"QuickApp timer for '%s', deviceId:%s, crashed (%s) at %s",self.name,self.id,err,os.date("%c"))
                   print(debug.traceback(err,1))
+                  if hc3_emulator.breakOnError then mobdebug.pause() end
                 end,...)
-              codeEnv._releaseLock() 
             end
             return st(f,ms,...)
           end
-
+          local st2 = codeEnv.setTimeout
+          codeEnv.fibaro.setTimeout = function(a,b,...) return st2(b,a,...) end
           codeEnv.print = function(...) codeEnv.fibaro.debug(codeEnv.__TAG,...) end
 
           codeEnv.__TAG = "QuickApp"..self.id
@@ -4139,7 +4170,8 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
           assert(main,"main missing")
           local path = self.paths and self.paths.main or 'main'
           if _debugFlags.loader then Log(LOG.LOG,"Loading file 'main'") end
-          local _,msg=load(main.content,path,"bt",codeEnv)()
+          local c9,m9 = load(main.content,path,"bt",codeEnv)
+          local _,msg=c9()
           if hc3_emulator.breakOnLoad then mobdebug.setbreakpoint(path,1) end
           assert(msg==nil,string.format("Error loading %s - %s",path,msg))
 
@@ -4210,6 +4242,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
             function(err)
               Log(LOG.ERROR,"QuickApp '%s', deviceId:%s, crashed (%s) at %s",self.name,self.id,err,os.date("%c"))
               print(debug.traceback(err,1))
+              if hc3_emulator.breakOnError then mobdebug.pause() end
             end)
           codeEnv._releaseLock()
           if status then 
@@ -4655,6 +4688,10 @@ climate
               actions = "..."
             })
 
+          local SceneLock = hc3_emulator.copas.lock.new(60*60*30)
+          function codeEnv._getLock() SceneLock:get(60*60*30) end
+          function codeEnv._releaseLock() SceneLock:release() end
+          codeEnv.BREAKONINIT = hc3_emulator.breakOnInit
           codeEnv.print = function(...) codeEnv.fibaro.debug(codeEnv.tag:upper(),...) end
 
           local st = codeEnv.fibaro.setTimeout
@@ -4662,6 +4699,7 @@ climate
           function codeEnv.fibaro.setTimeout(ms,fun,...)  -- Add blocking sleep (like QAs)
             self.timers = self.timers+1 
             local function f(...)
+              setContext()
               local status, err, ret = xpcall(fun,function(err)
                   local what = fun == self.actions and "Scene" or "Scene timer"
                   Log(LOG.ERROR,"%s for '%s', sceneId:%s, crashed (%s) at %s",what,self.name,self.id,err,os.date("%c"))
@@ -4678,6 +4716,8 @@ climate
             return ref
           end
 
+          local st1 = codeEnv.fibaro.setTimeout
+          codeEnv.fibaro.setTimeout = function(a,b,...) return st1(b,a,...) end
           local ct = codeEnv.fibaro.clearTimeout
           function codeEnv.fibaro.clearTimeout(ref)
             if not ref.expired then timers[ref]=nil; self.timers = self.timers-1 end
@@ -5982,7 +6022,7 @@ function module.WebAPI()
             end
           end
           res = json.encode(res)
-          print(res)
+          --print(res)
           client:send("HTTP/1.1 200 OK\n")
           client:send("Access-Control-Allow-Headers: Origin\n")
           client:send("Access-Control-Allow-Origin: *\n")
@@ -8039,7 +8079,6 @@ if arg[1] then
           end
         end,0)
     end,0)
-  print(99)
 end
 
 local function startEmulator(file)
@@ -8111,8 +8150,11 @@ if hc3_emulator.sourceFile then
     profiler = require("profiler")
     profiler.start() 
   end
-  Timer.start(function() startEmulator(hc3_emulator.sourceFile) end,0)
-else
-  Log(LOG.SYS,"fibaroapiHC3 version:%s",FIBAROAPIHC3_VERSION)
-end
-osExit()
+  Timer.start(function() 
+      --setTimeout(function() profiler.report("profiler.log") end,60*1000) 
+      startEmulator(hc3_emulator.sourceFile) end,
+      0)
+  else
+    Log(LOG.SYS,"fibaroapiHC3 version:%s",FIBAROAPIHC3_VERSION)
+  end
+  osExit()
