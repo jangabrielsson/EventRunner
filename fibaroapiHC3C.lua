@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.168"
+local FIBAROAPIHC3_VERSION = "0.170"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -192,8 +192,9 @@ hc3_emulator.post(ev,t)                                        -- post event/sou
 
 local _debugFlags = {
   fcall=true, fget=true, post=true, trigger=true, timers=nil, refreshLoop=false, 
-  mqtt=true, onAction=true, UIEvent=true, debugPlugin=true,
-  webServer=false, webServerReq=false, ctx=false, timers=false,
+  mqtt=true, http=false, onAction=true, UIEvent=true, debugPlugin=true,
+  webServer=false, webServerReq=false, 
+  ctx=false, timersSched=false, timersWarn=true
 } 
 local function merge(t1,t2)
   if type(t1)=='table' and type(t2)=='table' then for k,v in pairs(t2) do if t1[k]==nil then t1[k]=v else merge(t1[k],v) end end end
@@ -278,6 +279,19 @@ local function getContext()
 end
 setContext(_G) -- Start, main thread
 
+if not setfenv then -- Lua 5.2+
+  local function findenv(f)
+    local level = 1
+    repeat
+      local name, value = debug.getupvalue(f, level)
+      if name == '_ENV' then return level, value end
+      level = level + 1
+    until name == nil
+    return nil 
+  end
+  getfenv = function (f) return(select(2, findenv(f)) or _G) end
+  setfenv = function (f, t) local level = findenv(f) if level then debug.setupvalue(f, level, t) end return f end
+end
 -------------- Fibaro API functions ------------------
 function module.FibaroAPI()
   --luacheck: globals __assert_type __fibaro_get_device __assert_type __fibaro_get_devices __fibaro_get_room
@@ -330,10 +344,10 @@ function module.FibaroAPI()
   end
   function __fibaroSleep(ms) 
     __assert_type(ms,'number')
-    local aquire,release = getContext()._getLoc,getContext()._releaseLoc
-    if aquire then aquire() end
+    --local ctx = getContext()
+    --if ctx.getLock then ctx.getLock() end
     hc3_emulator.copas.sleep(ms/1000.0) 
-    if release then release() end
+    --if ctx.releaseeLock then ctx.releaseLock() end
   end
 
   local function addDebugMessage(tag,type,message)
@@ -364,9 +378,6 @@ function module.FibaroAPI()
 
   local function fibaro_debug(tag,type,str)
     assert(str,"Missing tag for debug") 
-    if tag == nil then
-      jj=99
-    end
     if hc3_emulator.HC3_debugmessages then addDebugMessage(tag,type:lower(),str) end
     if hc3_emulator.colorDebug then
       local color = DEBUGCOLORS[type] or "black"
@@ -585,7 +596,7 @@ function module.FibaroAPI()
     local copas = hc3_emulator.copas
     local http = copas.http
     -- Running offline or calling /refreshStates, re-direct to offline APIs
-    if hc3_emulator.offline or call:match("/refreshStates") then return Offline.api(method,call,data,cType,hs) end
+    if hc3_emulator.offline or call:match("/refreshStates") then return Offline.api(method,call,data,cType,hc3) end
     -- api calls for  scenes/quickApps that are emulated, re-direct to offline APIs
     if not hc3 then
       local a,id = call:match("^/(.-)/(%d+)")
@@ -696,10 +707,10 @@ function module.HTTP()
     end
     return false,url
   end
-  XXX=0
+
   net = net or {} 
   local copas = hc3_emulator.copas
-  local http = copas.http
+
   function net.HTTPClient(i_options)   -- It is synchronous, but synchronous is a speciell case of asynchronous.. :-)
     local self = {}                    -- Not sure I got all the options right..
     function self:request(url,args)
@@ -713,26 +724,21 @@ function module.HTTP()
       if req.data then
         req.headers["Content-Length"] = #req.data
         req.source = ltn12.source.string(req.data)
-      end
-      local ctx = getContext()
-      if not ctx.quickApp then
-        a = 9
-      end
+      else req.headers["Content-Length"]=0 end
+      local ctx,call = getContext()
+      assert(ctx._getLock,"net.HTTPClient() not called from QuickApp/Scene")
       local sync = i_options and i_options.sync==true
-      local setTimeout = ctx.setTimeout or setTimeout
-      setTimeout(function()
+      call = sync and (function(f) f() end) or ctx.setTimeout
+      call(function()
           local t1 = os.time()
-          if sync and ctx._getLoc then ctx._getLoc() end
-          local z = XXX; XXX=XXX+1
-          --print(">T:"..z)
-          local res,status,headers = http.request(req)
-          --print("<T:"..z)
-          if sync and _releaseLoc then ctx._releaseLoc() end
-          --print("TIME1:"..(os.time()-t1).." "..url)
+          if not sync then ctx._releaseLock() end -- release lock so other timers in the QA can run during the request
+          local res,status,headers = copas.http.request(req)
+          if not sync then ctx._getLock() end
+          if _debugFlags.http then Log(LOG.LOG,"httpRequest(%ss): %s %s %s",os.time()-t1,req.method,url,req.data or "") end
           if tonumber(status) and status >= 200 and status < 400 then
-            if args.success then args.success({status=status, headers=headers, data=table.concat(resp)}) end
-          elseif args.error then args.error(status) end
-        end, 0)
+            if args.success then call(function() args.success({status=status, headers=headers, data=table.concat(resp)}) end,0) end
+          elseif args.error then call(function() args.error(status) end,0) end
+        end, 0, false, ctx)
       return nil
     end
     local pstr = "HTTPClient object: "..tostring(self):match("%s(.*)")
@@ -768,7 +774,7 @@ function module.HTTP()
     end
     function self:close() sock:close() end
     local pstr = "TCPSocket object: "..tostring(self):match("%s(.*)")
-    setmetatable(self,{__tostring = function(s) return pstr end})
+    setmetatable(self,{__tostring = function() return pstr end})
     return self
   end
 
@@ -801,7 +807,7 @@ function module.HTTP()
     end
     function self:close() sock:close() end
     local pstr = "UDPSocket object: "..tostring(self):match("%s(.*)")
-    setmetatable(self,{__tostring = function(s) return pstr end})
+    setmetatable(self,{__tostring = function() return pstr end})
     return self
   end
 
@@ -967,7 +973,7 @@ function module.HTTP()
       _WSVERSION,_VERSION = _VERSION,v
       return res
     end)
-  if stat then
+  if stat2 then
 
     function net.WebSocketClientTls()
       local POLLINTERVAL = 1000
@@ -2608,12 +2614,12 @@ function module.Timer()
 -----------------------------------------------------------------------------
 -- Declare module and import dependencies
 -------------------------------------------------------------------------------
-    --local socket = require("socket")
---    local url = require("socket.url")
---    local ltn12 = require("ltn12")
---    local mime = require("mime")
-    --local string = require("string")
---    local headers = require("socket.headers")
+    local socket = require("socket")
+    local url = require("socket.url")
+    local ltn12 = require("ltn12")
+    local mime = require("mime")
+    local string = require("string")
+    local headers = require("socket.headers")
     local base = _G
     --local table = require("table")
     local try = socket.try
@@ -2751,7 +2757,6 @@ function module.Timer()
       if headers["content-length"] then mode = "keep-open" end
       return self.try(ltn12.pump.all(source, socket.sink(mode, self.c), step))
     end
-
     function metat.__index:receivestatusline()
       local status = self.try(self.c:receive(5))
       -- identify HTTP/0.9 responses, which do not contain a status line
@@ -2988,7 +2993,6 @@ function module.Timer()
       end
       return reqt
     end
-
     _M.request = socket.protect(function(reqt, body)
         if base.type(reqt) == "string" then
           reqt = _M.parseRequest(reqt, body)
@@ -3181,7 +3185,10 @@ function module.Timer()
 
   local TimerMetatable = {
     __tostring = function(self)
-      return self.tostr..os.milliStr(self.time)..(self.tag and (" "..self.tag) or "")..">"
+      local diff = os.milliTime()-self.time
+      local col = diff > 0.1 and  Util.ZBCOLORMAP.red or Util.ZBCOLORMAP.green
+      return format("%s%s%s%s>\027[0m",col,self.tostr,os.milliStr(self.time),self.tag and (" "..self.tag) or "")
+      --return self.tostr..os.milliStr(self.time)..(self.tag and (" "..self.tag) or "")..">"
     end
   }
   -- <Timer:999, fun=0x8888, exp:...>
@@ -3213,7 +3220,7 @@ function module.Timer()
   os._clock = os.clock
   os._date  = os.date
   os.rt = _milliTime
-  os.speed = function(b) SPEED = b print("Setting speed to ",tostring(b)) end
+  os.speed = function(b) SPEED = b Log(LOG.SYS,"Setting speed to %s",tostring(b)) end
   os.time = function(t) return t and os._time(t) or math.floor(os.rt() + timeAdjust) end
   os.milliTime = function() return os.rt() + timeAdjust end
   os.clock = function() return os._clock() end
@@ -3223,7 +3230,7 @@ function module.Timer()
     timer.new({
         delay = sec,
         recurring = recurring or false,      
-        callback = function(timer_obj, params) fun() end
+        callback = function(_, _) fun() end
       })
     contexts[t.co]=env or _ENV
     return t
@@ -3247,8 +3254,10 @@ function module.Timer()
     while t do print(os.date("%c",math.floor(t.time)),t.time,t); t = t.next end
   end
 
+  local function countTimers() local t,n = timers,0; while t do n=n+1; t=t.next end return  n end
+
   local function insertTimer(t) -- {fun,time,next}
-    if _debugFlags.timers then Log(LOG.LOG,"Inserting timer %s",t) end
+    if _debugFlags.timersSched then Log(LOG.LOG,"Inserting timer %s",t) end
     if timers == nil then 
       timers=t
     elseif t.time < timers.time then
@@ -3259,14 +3268,11 @@ function module.Timer()
       t.next,tp.next=tp.next,t
     end
     if timers == t then
-      if not RUNNING then 
-        if _debugFlags.timers then Log(LOG.LOG,"Starting runTimers") end
-        if _debugFlags.timers then 
-          Log(LOG.LOG,"Will run next timer at %s - %s",os.milliStr(timers.time),timers.time-os.milliTime()) 
-        end
-        if runT then runT:cancel() end
-        runT = os.setTimer2(runTimers,max(timers.time-os.milliTime(),0))
+      if _debugFlags.timersSched then 
+        Log(LOG.LOG,"Will run next timer at %s - %s",os.milliStr(timers.time),timers.time-os.milliTime()) 
       end
+      if runT then runT:cancel() end
+      runT = os.setTimer2(runTimers,max(timers.time-os.milliTime(),0))
     end
     --dumpTimers()
     return t
@@ -3276,6 +3282,8 @@ function module.Timer()
     if timer==nil then return 
     elseif timers == timer then
       timers = timers.next
+      if runT then runT:cancel() end
+      runT = os.setTimer2(runTimers,max(timers.time-os.milliTime(),0))
     else
       local tp = timers
       while tp and tp.next do
@@ -3287,44 +3295,49 @@ function module.Timer()
 
   function runTimers()
     runT = nil
-    local t = timers
     ::REDO::
+    local t,now = timers,os.milliTime()
     if timers then
-      if _debugFlags.timers then Log(LOG.LOG,"Running:%s, RT:%s, SPEED:%s",t,os.milliStr(os.milliTime()),SPEED) end
+      if _debugFlags.timersSched then Log(LOG.LOG,"Running:%s, RT:%s, SPEED:%s",t,os.milliStr(now),SPEED) end
       if maxTime and timer.time >= maxTime then Log(LOG.SYS,"Max time - exit") osExit() end
       if SPEED then
-        local t = timers
         timers = timers.next
         timeAdjust = t.time-os.rt()
         t.expired = true
-        RUNNING = true; pcall(t.fun); RUNNING = false;
+        os.setTimer2(t.fun,0,false,t.env)
         if timers ~= nil and timers.time == t.time then goto REDO end
       else
         timers = timers.next
         t.expired = true
-        RUNNING = true; pcall(t.fun); RUNNING = false;
+        if _debugFlags.timersWarn and now-t.time > 0.1 then Log(LOG.WARNING,"Late timer:%0.3f %s",now-t.time,t) end
+        os.setTimer2(t.fun,0,false,t.env)
       end
       if timers then
         if SPEED then 
           runT = os.setTimer2(runTimers,0.01) 
-          --Log(LOG.LOG,"Sched:0.1")
         elseif not SPEED then 
           local s = max(timers.time-os.milliTime(),0)
-          --Log(LOG.LOG,"Sched:"..s)
           runT = os.setTimer2(runTimers,s) 
         end
       end
     end
   end
 
+  local nn = false
+
   function setTimeout(fun,time,tag)
     assert(type(fun)=='function' and type(time)=='number',"Bad arguments to setTimeout")
+    local warn = _debugFlags.timersWarn and time<0
     time = time > 0 and time or 0
-    return insertTimer(MAKETIMER({fun=fun,time=os.milliTime()+time/1000.0,tag=tag}))
+    local t = insertTimer(MAKETIMER({fun=fun,time=os.milliTime()+time/1000.0,tag=tag,env=getContext()}))
+    if warn then Log(LOG.WARNING,"Negative timer:%s",t) end
+    return t
   end
 
   function clearTimeout(timer)
-    if ISTIMER(timer) and not timer.expired then deleteTimer(timer) end
+    if ISTIMER(timer) and not timer.expired then 
+      deleteTimer(timer) 
+    end
   end
 
   function setInterval(fun,ms,tag)
@@ -3357,7 +3370,7 @@ function module.Timer()
             delay = 0, -- delay in seconds
             recurring = false,  
             params = "",
-            callback = function(timer_obj, params) f() end
+            callback = function(_, _) f() end
           })
       end)
   end
@@ -3420,7 +3433,7 @@ function module.QuickApp()
 
   function QuickAppBase:debug(...) fibaro.debug(self._emu.env.__TAG,d2str(...)) end
   function QuickAppBase:trace(...) fibaro.trace(self._emu.env.__TAG,d2str(...)) end
-  function QuickAppBase:warning(...) fibaro.warning(self.env._emu.__TAG,d2str(...)) end
+  function QuickAppBase:warning(...) fibaro.warning(self._emu.env.__TAG,d2str(...)) end
   function QuickAppBase:error(...) fibaro.error(self._emu.env.__TAG,d2str(...)) end
 
   function QuickAppBase:getVariable(name)
@@ -3575,7 +3588,7 @@ function module.QuickApp()
             row[#row+1]={slider=u.name, text=u.text, onChanged=cb}
           end
         else 
-          for k,v in pairs(u) do conv(v) end 
+          for _,_ in pairs(u) do conv(v) end 
         end
       end
     end
@@ -3779,7 +3792,7 @@ function module.QuickApp()
     return loadfile(file,"bt",ctx)()
   end
 
-  function hc3_emulator.FILE(file,name) end -- Nop. For backward compatibility
+  function hc3_emulator.FILE(_,_) end -- Nop. For backward compatibility
 
   local function createFilesFromSource(source,mainFileName)
     local files,paths = {},{}
@@ -3957,6 +3970,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
           end
         end
       end,0)
+    return true
   end
 
 --"{\"eventType\":\"onReleased\",\"values\":[null],\"elementName\":\"bt\",\"deviceId\":726}"
@@ -3966,20 +3980,23 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
     local self = quickApps[event.deviceId]
     if self.parentId then self = quickApps[self.parentId] end
     assert(self,"Unknown deviceID for UIEvent:"..event.deviceId)
-    if self.UIHandler then self:UIHandler(event)
-    else
-      local elm,etyp = event.elementName, event.eventType
-      local cb = self.uiCallbacks
-      if cb[elm] and cb[elm][etyp] then 
-        if etyp=='onChanged' then
-          QA.setWebUIValue(event.deviceId,elm,'value',event.values[1]) 
+    self._emu.env.setTimeout(function()
+        if self.UIHandler then self:UIHandler(event)
+        else
+          local elm,etyp = event.elementName, event.eventType
+          local cb = self.uiCallbacks
+          if cb[elm] and cb[elm][etyp] then 
+            if etyp=='onChanged' then
+              QA.setWebUIValue(event.deviceId,elm,'value',event.values[1]) 
+            end
+            return self:callAction(cb[elm][etyp], event)
+          elseif self[elm] then
+            return self:callAction(elm, event)
+          end
+          Log(LOG.WARNING,"UI callback for element:%s not found.", elm)
         end
-        return self:callAction(cb[elm][etyp], event)
-      elseif self[elm] then
-        return self:callAction(elm, event)
-      end
-      Log(LOG.WARNING,"UI callback for element:%s not found.", elm)
-    end
+      end,0)
+    return true
   end
 
   local QA_ID = 998
@@ -4137,16 +4154,18 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
           codeEnv.BREAKONINIT = hc3_emulator.breakOnInit
 
           local st = codeEnv.setTimeout
-          codeEnv.setTimeout = function(fun,ms,...)
+          codeEnv.setTimeout = function(fun,ms,tag)
             local function f(...)
               setContext(codeEnv)
+              codeEnv._getLock()
               local status, err, ret = xpcall(fun,function(err)
                   Log(LOG.ERROR,"QuickApp timer for '%s', deviceId:%s, crashed (%s) at %s",self.name,self.id,err,os.date("%c"))
                   print(debug.traceback(err,1))
                   if hc3_emulator.breakOnError then mobdebug.pause() end
                 end,...)
+              codeEnv._releaseLock()
             end
-            return st(f,ms,...)
+            return st(f,ms,tag,fun)
           end
           local st2 = codeEnv.setTimeout
           codeEnv.fibaro.setTimeout = function(a,b,...) return st2(b,a,...) end
@@ -4658,7 +4677,7 @@ climate
       os.setTimer(function()
 
           if self.code then -- emu
-            if hc3_emulator.breakOnLoad then mobdebug.setbreakpoint(path,1) end
+            if hc3_emulator.breakOnLoad then mobdebug.setbreakpoint(self.fname,1) end
             local _,msg=load(self.code,self.fname,"bt",codeEnv)()
             assert(msg==nil,string.format("Loading %s - %s",self.fname,msg))
             self.conditions = codeEnv.hc3_emulator.conditions
@@ -4700,11 +4719,13 @@ climate
             self.timers = self.timers+1 
             local function f(...)
               setContext()
+              codeEnv._getLock()
               local status, err, ret = xpcall(fun,function(err)
                   local what = fun == self.actions and "Scene" or "Scene timer"
                   Log(LOG.ERROR,"%s for '%s', sceneId:%s, crashed (%s) at %s",what,self.name,self.id,err,os.date("%c"))
                   print(debug.traceback(err,1))
                 end,...)
+              codeEnv._releaseLock()
               self.timers = self.timers-1 
               if self.timers <= 0 then
                 self.struct.isRunning = false
@@ -4735,7 +4756,16 @@ climate
           function self.run() -- A scene runs as long as it has timers
             Log(LOG.HEADER,"Scene '%s', sceneId:%s, started at %s",self.name,self.id,os.date("%c"))
             self.struct.isRunning = true
-            codeEnv.fibaro.setTimeout(0,self.actions)
+            codeEnv.fibaro.setTimeout(0,
+              function() 
+                codeEnv._getLock()
+                local status, err, ret = xpcall(self.actions,function(err)
+                    Log(LOG.ERROR,"Scene '%s', sceneId:%s, crashed (%s) at %s",self.name,self.id,err,os.date("%c"))
+                    print(debug.traceback(err,1))
+                    if hc3_emulator.breakOnError then mobdebug.pause() end
+                  end)
+                codeEnv._releaseLock()
+              end)
           end
 
           function self.kill()
@@ -4911,7 +4941,6 @@ function module.Trigger()
   end
 
   local copas = hc3_emulator.copas
-  local http = copas.http
   local lastRefresh = 0
 
   local function pollOnce() -- Doesn't work, we need predictable returns
@@ -4929,7 +4958,8 @@ function module.Trigger()
     req.headers["X-Fibaro-Version"] = 2
 --    local to = http.TIMEOUT
 --    http.TIMEOUT = 1 -- TIMEOUT == 0 doesn't work...
-    local r, c, h = http.request(req)       -- ToDo https
+    --   os.setTimer2(function()
+    local r, c, h = copas.http.request(req)       -- ToDo https
 --    http.TIMEOUT = to
     if not r then return nil,c, h end
     if c>=200 and c<300 then
@@ -4942,6 +4972,7 @@ function module.Trigger()
         end
       end
     end
+    --   end,0)
     return nil,c, h
   end
 
@@ -6022,7 +6053,6 @@ function module.WebAPI()
             end
           end
           res = json.encode(res)
-          --print(res)
           client:send("HTTP/1.1 200 OK\n")
           client:send("Access-Control-Allow-Headers: Origin\n")
           client:send("Access-Control-Allow-Origin: *\n")
@@ -7251,7 +7281,15 @@ function module.Offline(self)
         dev = quickApps[id] or resources.devices[id]
         if not dev then return nil,404 end
         --onAction({deviceId=id,actionName=action,args=res})
-        local stat,err = pcall(dev[action],dev,table.unpack(res))
+        local stat,err
+        if quickApps[id] then
+          stat = true
+          dev._emu.env.setTimeout(function()
+              dev[action](dev,table.unpack(res))
+            end,0)
+        else
+          stat,err = pcall(dev[action],dev,table.unpack(res))
+        end
         if not stat then 
           Log(LOG.ERROR,"Bad fibaro.call(%s,'%s',%s)",id,action,json.encode(res):sub(2,-2),err)
           return nil,501
@@ -7383,7 +7421,15 @@ function module.Offline(self)
           Log(LOG.WARNING,"Device '%s' don't exists",tostring(id))
           return dev,404 
         end
-        stat,err = pcall(dev[action],dev,table.unpack(data.args))
+        local stat,err
+        if quickApps[id] then
+          stat = true
+          dev._emu.env.setTiemout(function()
+              dev[action](dev,table.unpack(data.args))
+            end,0)
+        else
+          stat,err = pcall(dev[action],dev,table.unpack(data.args))
+        end
         if not stat then 
           Log(LOG.ERROR,"Bad fibaro.call(%s,'%s',%s)",id,action,json.encode(data.args):sub(2,-2),err)
           return nil,501
