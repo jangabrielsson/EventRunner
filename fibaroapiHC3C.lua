@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.173"
+local FIBAROAPIHC3_VERSION = "0.174"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -3161,12 +3161,14 @@ function module.Timer()
 
   local TimerMetatable = {
     __tostring = function(self)
+      local extra = self.tag and (" "..self.tag) or ""
+      if self.line then extra = format("%s %s,line:%s",extra,self.source,self.line) end
       if _debugFlags.timersWarn then
         local diff = os.milliTime()-self.time
         local col = diff > 0.1 and  Util.ZBCOLORMAP.red or Util.ZBCOLORMAP.green
-        return format("%s%s%s%s>\027[0m",col,self.tostr,os.milliStr(self.time),self.tag and (" "..self.tag) or "")
+        return format("%s%s%s%s>\027[0m",col,self.tostr,os.milliStr(self.time),extra)
       else
-        return self.tostr..os.milliStr(self.time)..(self.tag and (" "..self.tag) or "")..">"
+        return self.tostr..os.milliStr(self.time)..extra..">"
       end
     end
   }
@@ -3288,9 +3290,6 @@ function module.Timer()
       else
         timers = timers.next
         t.expired = true
-        if _debugFlags.timersWarn and now-t.time > 0.1 then
-          Log(LOG.WARNING,"Late timer:%0.3fs %s%s",now-t.time,(t.source and (t.source.." line:"..t.line.." ") or ""),t)
-        end
         os.setTimer2(t.fun,0,false,t.env)
       end
       if timers then
@@ -3311,7 +3310,7 @@ function module.Timer()
     local t = insertTimer(MAKETIMER({fun=fun,time=os.milliTime()+time/1000.0,tag=tag,env=getContext()}))
     if warn then Log(LOG.WARNING,"Negative timer:%s",t) end
     if  _debugFlags.timersExtra then
-      local l = debug.getinfo(2)
+      local l = debug.getinfo(3)
       t.source = l.source
       t.line = l.currentline
     end
@@ -4187,17 +4186,25 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
 
           local st = codeEnv.setTimeout
           codeEnv.setTimeout = function(fun,ms,tag)
+            local t = nil
             local function f(...)
               setContext(codeEnv)
               codeEnv._getLock()
+              local now = os.milliTime()
+              if _debugFlags.timersWarn and now-t.time > 0.1 then
+                Log(LOG.WARNING,"Late timer:%0.3fs %s",now-t.time,t)
+              end
               local status, err, ret = xpcall(fun,function(err)
-                  Log(LOG.ERROR,"QuickApp timer for '%s', deviceId:%s, crashed (%s) at %s",self.name,self.id,err,os.date("%c"))
+                  Log(LOG.ERROR,"QuickApp timer %s for '%s', deviceId:%s, crashed (%s) at %s",
+                    t,self.name,self.id,err,os.date("%c")
+                  )
                   print(debug.traceback(err,1))
                   if _debugFlags.breakOnError then mobdebug.pause() end
                 end,...)
               codeEnv._releaseLock()
             end
-            return st(f,ms,tag,fun)
+            t = st(f,ms,tag,fun)
+            return t
           end
           local st2 = codeEnv.setTimeout
           codeEnv.fibaro.setTimeout = function(a,b,...) return st2(b,a,...) end
@@ -4230,7 +4237,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
           if _debugFlags.breakOnLoad then mobdebug.setbreakpoint(path,1) end
           assert(msg==nil,string.format("Error loading %s - %s",path,msg))
           codeEnv.setTimeout,codeEnv.fibaro.setTimeout,codeEnv.json.encode,codeEnv.json.decode =  ost,ostf,jsenc,jsdec
-          
+
           -- Initialize quickAppVariables and load resources
           -- Logic:
           -- First variables from fqa if they exists
@@ -5156,13 +5163,13 @@ function module.Utilities()
 
       if hc3_emulator.strictClass then
         if not rawget(class_tbl,'__init') then error("Class "..name.." missing constructor") end
-        class_tbl.__init(obj,...)
+        mobdebug.on() class_tbl.__init(obj,...) mobdebug.off()
       else
         if class_tbl.__init then
-          class_tbl.__init(obj,...)
+          mobdebug.on() class_tbl.__init(obj,...) mobdebug.off()
         else
           if class_tbl.__base and class_tbl.__base.__init then
-            class_tbl.__base.__init(obj, ...)
+            mobdebug.on() class_tbl.__base.__init(obj, ...) mobdebug.off()
           end
         end
       end
@@ -5223,13 +5230,13 @@ function module.Utilities()
 
       if hc3_emulator.strictClass then
         if not rawget(class_tbl,'__init') then error("Class "..name.." missing constructor") end
-        class_tbl.__init(obj,...)
+        mobdebug.on() class_tbl.__init(obj,...) mobdebug.off()
       else
         if class_tbl.__init then
-          class_tbl.__init(obj,...)
+          mobdebug.on() class_tbl.__init(obj,...) mobdebug.off()
         else
           if class_tbl.__base and class_tbl.__base.__init then
-            class_tbl.__base.__init(obj, ...)
+            mobdebug.on() class_tbl.__base.__init(obj, ...) mobdebug.off()
           end
         end
       end
