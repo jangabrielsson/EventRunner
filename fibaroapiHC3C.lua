@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.172"
+local FIBAROAPIHC3_VERSION = "0.173"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -712,11 +712,11 @@ function module.HTTP()
       local sync = i_options and i_options.sync==true
       call = sync and (function(f) f() end) or ctx.setTimeout
       call(function()
-          local t1 = os.time()
+          local t1 = os.milliTime()
           if not sync then ctx._releaseLock() end -- release lock so other timers in the QA can run during the request
           local res,status,headers = copas.http.request(req)
           if not sync then ctx._getLock() end
-          if _debugFlags.http then Log(LOG.LOG,"httpRequest(%ss): %s %s %s",os.time()-t1,req.method,url,req.data or "") end
+          if _debugFlags.http then Log(LOG.LOG,"httpRequest(%.03fs): %s %s %s",os.milliTime()-t1,req.method,url,req.data or "") end
           if tonumber(status) and status >= 200 and status < 400 then
             if args.success then call(function() args.success({status=status, headers=headers, data=table.concat(resp)}) end,0) end
           elseif args.error then call(function() args.error(status) end,0) end
@@ -4193,7 +4193,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
               local status, err, ret = xpcall(fun,function(err)
                   Log(LOG.ERROR,"QuickApp timer for '%s', deviceId:%s, crashed (%s) at %s",self.name,self.id,err,os.date("%c"))
                   print(debug.traceback(err,1))
-                  if hc3_emulator.breakOnError then mobdebug.pause() end
+                  if _debugFlags.breakOnError then mobdebug.pause() end
                 end,...)
               codeEnv._releaseLock()
             end
@@ -4211,8 +4211,8 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
             if  f.isMain then main = f
             else
               local path = self.paths and self.paths[f.name] or f.name
-              if hc3_emulator.breakOnLoad then mobdebug.setbreakpoint(path,1) end
-              if _debugFlags.loader then Log(LOG.LOG,"Loading file '%s'",f.name) end
+              if _debugFlags.breakOnLoad then mobdebug.setbreakpoint(path,1) end
+              if _debugFlags.files then Log(LOG.LOG,"Loading file '%s'",f.name) end
               local strm = codeEnv.string.match
               function codeEnv.string.match(s,p) p = p == "lua:(%d+)" and ":(%d+)" or p return strm(s,p)
               end
@@ -4227,7 +4227,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
           if _debugFlags.loader then Log(LOG.LOG,"Loading file 'main'") end
           local c9,m9 = load(main.content,path,"bt",codeEnv)
           local _,msg=c9()
-          if hc3_emulator.breakOnLoad then mobdebug.setbreakpoint(path,1) end
+          if _debugFlags.breakOnLoad then mobdebug.setbreakpoint(path,1) end
           assert(msg==nil,string.format("Error loading %s - %s",path,msg))
           codeEnv.setTimeout,codeEnv.fibaro.setTimeout,codeEnv.json.encode,codeEnv.json.decode =  ost,ostf,jsenc,jsdec
           
@@ -4312,7 +4312,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
             function(err)
               Log(LOG.ERROR,"QuickApp '%s', deviceId:%s, crashed (%s) at %s",self.name,self.id,err,os.date("%c"))
               print(debug.traceback(err,1))
-              if hc3_emulator.breakOnError then mobdebug.pause() end
+              if _debugFlags.breakOnError then mobdebug.pause() end
             end)
           codeEnv._releaseLock()
           if status then
@@ -4728,7 +4728,7 @@ climate
       os.setTimer(function()
 
           if self.code then -- emu
-            if hc3_emulator.breakOnLoad then mobdebug.setbreakpoint(self.fname,1) end
+            if _debugFlags.breakOnLoad then mobdebug.setbreakpoint(self.fname,1) end
             local _,msg=load(self.code,self.fname,"bt",codeEnv)()
             assert(msg==nil,string.format("Loading %s - %s",self.fname,msg))
             self.conditions = codeEnv.hc3_emulator.conditions
@@ -4811,7 +4811,7 @@ climate
                 local status, err, ret = xpcall(self.actions,function(err)
                     Log(LOG.ERROR,"Scene '%s', sceneId:%s, crashed (%s) at %s",self.name,self.id,err,os.date("%c"))
                     print(debug.traceback(err,1))
-                    if hc3_emulator.breakOnError then mobdebug.pause() end
+                    if _debugFlags.breakOnError then mobdebug.pause() end
                   end)
                 codeEnv._releaseLock()
               end)
