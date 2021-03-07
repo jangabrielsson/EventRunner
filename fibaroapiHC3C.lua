@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.174"
+local FIBAROAPIHC3_VERSION = "0.175"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -3303,7 +3303,7 @@ function module.Timer()
     end
   end
 
-  function setTimeout(fun,time,tag)
+  function setTimeout(fun,time,tag,org)
     assert(type(fun)=='function' and type(time)=='number',"Bad arguments to setTimeout")
     local warn = _debugFlags.timersWarn and time<0
     time = time > 0 and time or 0
@@ -3311,6 +3311,7 @@ function module.Timer()
     if warn then Log(LOG.WARNING,"Negative timer:%s",t) end
     if  _debugFlags.timersExtra then
       local l = debug.getinfo(3)
+      local f = debug.getinfo(org)
       t.source = l.source
       t.line = l.currentline
     end
@@ -3986,7 +3987,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
 
   local resources = {}
   local function loadResourceFromQA(id)
-    if resources[id] then return resources[id] end
+    if resources[id] then return resources[id].properties end
     resources[id] = api.get("/devices/"..id)
     assert(resources[id],"No such  QA, deviceId:"..id)
     return resources[id].properties   
@@ -3995,14 +3996,17 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
   local function loadResources(self) -- quickVars, UI
     if not self.resources then return end
     assert(type(self.resources)=='table',"resources need to be a table")
-    for p,v in pairs(self.resources) do
-      if tonumber(v) then v = loadResourceFromQA(tonumber(v)) end
+    for p,v0 in pairs(self.resources) do
+      local v = tonumber(v0) and loadResourceFromQA(tonumber(v0)) or v0
       if p=='quickVars' then
         self.quickVars = self.quickVars or {}
         for n,v in pairs(vars2keymap(v.quickAppVariables or {})) do self.quickVars[n]=v end
       elseif p == 'UI' then
         self.viewLayout = v.viewLayout
         self.uiCallbacks = v.uiCallbacks
+        if self.uiCallbacks == nil then
+          mobdebug.pause()
+        end
       end
     end
   end
