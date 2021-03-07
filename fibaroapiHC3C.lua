@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.171"
+local FIBAROAPIHC3_VERSION = "0.172"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -193,7 +193,7 @@ hc3_emulator.post(ev,t)                                        -- post event/sou
 local _debugFlags = {
   fcall=true, fget=true, post=true, trigger=true, timers=nil, refreshLoop=false,
   mqtt=true, http=false, onAction=true, UIEvent=true, debugPlugin=true,
-  webServer=true, webServerReq=false,
+  webServer=false, webServerReq=false,
   ctx=false, timersSched=false, timersWarn=true, timersExtra=true,
 }
 local function merge(t1,t2)
@@ -3214,7 +3214,7 @@ function module.Timer()
     contexts[t.co]=env or _ENV
     return t
   end
-  os.setTimer = function(fun,ms,recurring,env) os.setTimer2(fun,ms/1000,recurring,env) end
+  os.setTimer = function(fun,ms,recurring,env) os.setTimer2(fun,ms/1000.0,recurring,env) end
   os.clearTimer = function(t) t:cancel() end
   os.milliStr = function(t) return os.date("%H:%M:%S",math.floor(t))..format(":%03d",math.floor((t%1)*1000+0.5)) end
 
@@ -3701,6 +3701,7 @@ function module.QuickApp()
         elseif e.label then e.name,e.type=e.label,'label'
         elseif e.space then e.weight,e.type=e.space,'space' end
       end)
+    return UI
   end
 
   local function uiStruct2uiCallbacks(UI)
@@ -3971,31 +3972,70 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
     return true
   end
 
+
+  local function vars2keymap(vars)
+    local vs = {}
+    for _,v in ipairs(vars) do vs[v.name]=v.value end
+    return vs
+  end
+
+  local function vars2list(vars)
+    local vs = {}
+    for n,v in pairs(vars) do vs[#vs+1]={name=n,value=v} end
+    return vs
+  end
+
+  local resources = {}
+  local function loadResourceFromQA(id)
+    if resources[id] then return resources[id] end
+    resources[id] = api.get("/devices/"..id)
+    assert(resources[id],"No such  QA, deviceId:"..id)
+    return resources[id].properties   
+  end
+
+  local function loadResources(self) -- quickVars, UI
+    if not self.resources then return end
+    assert(type(self.resources)=='table',"resources need to be a table")
+    for p,v in pairs(self.resources) do
+      if tonumber(v) then v = loadResourceFromQA(tonumber(v)) end
+      if p=='quickVars' then
+        self.quickVars = self.quickVars or {}
+        for n,v in pairs(vars2keymap(v.quickAppVariables or {})) do self.quickVars[n]=v end
+      elseif p == 'UI' then
+        self.viewLayout = v.viewLayout
+        self.uiCallbacks = v.uiCallbacks
+      end
+    end
+  end
+
   local QA_ID = 998
 -- 2 types of QuickApps, fqa based and emu based
-
   local function loadQA(arg)
     local ff = hc3_emulator.file
     assert(type(arg)=='number' or type(arg)=='string',"Bad argument  to loadQA")
 
     local self = {}
     if tonumber(arg) then                                        -- Download QA from HC3 (fqa)
-      self._fqa = api.get("/quickApp/export/"..arg)
-      assert(self._fqa,"QA "..arg.." does not exists on HC3")
+      self.fqa = api.get("/quickApp/export/"..arg)
+      assert(self.fqa,"QA "..arg.." does not exists on HC3")
       self.id = arg
     end
     if type(arg)=='string' and arg:match("%.[Ff][Qq][Aa]$") then  -- Read in .fqa  file
       local c = ff.read(arg)
       self.fname = arg
-      self._fqa = json.decode(c)
+      self.fqa = json.decode(c)
       self.file_fqa = arg
     end
-    if self._fqa then
-      local fqa = self._fqa
+    if self.fqa then
+      local fqa = self.fqa
       assert(fqa.apiVersion == "1.2","Bad FQA api version")
       self.type = fqa.type
       self.name = fqa.name
-      self.initialProperties  = fqa.initialProperties
+      self.viewLayout = fqa.initialProperties.viewLayout
+      self.uiCallbacks = fqa.initialProperties.uiCallbacks
+      self.quickVars = vars2keymap(fqa.initialProperties.quickAppVariables or {})
+      self.interfaces = fqa.initialInterfaces
+      loadResources(self)
     elseif arg:match("%.[Jj][Ss][Oo][Nn]$") then                 -- Read in unpacked file(s)
       self.fname = arg
       self.file_unpacked = arg
@@ -4012,18 +4052,22 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
           paths[name]=dir..d
         end
       end
-      local j = ff.read(arg) -- read main json files
-      j = json.decode(j)
-      self.name = j.name
-      self.type = j.type
-      self.initialProperties = j.initialProperties
-      self._fqa = j
-      self._fqa.files = files
+      local fqa = ff.read(arg) -- read main json files
+      fqa = json.decode(fqa)
+      self.name = fqa.name
+      self.type = fqa.type
+      self.viewLayout = fqa.initialProperties.viewLayout
+      self.uiCallbacks = fqa.initialProperties.uiCallbacks
+      self.quickVars = vars2keymap(fqa.initialProperties.quickAppVariables or {})
+      self.interfaces = fqa.initialInterfaces
+      self.fqa = fqa
+      self.fqa.files = files
       self.paths = paths
+      loadResources(self)
     elseif arg:match("%.[Ll][Uu][Aa]$") then                     -- Read in "emulator" file
       self.fname = arg
       self.file_emu = arg
-      local code = hc3_emulator._code or ff.read(arg)
+      local code = hc3_emulator._code or ff.read(arg) -- hack, code is already loaded by caller, should be arg?
       hc3_emulator._code = nil
       local header,env1 = code:match("(if%s+dofile.-[\n\r]end)"),{
         dofile=function() end,
@@ -4036,33 +4080,37 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
       self.name = env1.hc3_emulator.name or arg:match("(.-)%.[Ll][Uu][Aa]$")
       self.type = env1.hc3_emulator.type or "com.fibaro.binarySwitch"
       self.id = env1.hc3_emulator.id
-      self.QAresources = env1.hc3_emulator.resources
+      self.resources = env1.hc3_emulator.resources
       self.proxy = env1.hc3_emulator.proxy or false
+      loadResources(self)
       self.quickVars = env1.hc3_emulator.quickVars or {}
       self.UI = env1.hc3_emulator.UI
       if type(self.UI) == 'string' then self.UI = json.decode(self.UI) end
       self.files,self.paths = QA.createFilesFromSource(code,self.fname)
     else error("Bad argument to loadQA") end
 
-    --  Inject args
+    --  Inject args -- overwriting existing args
     function self:args(args) for k,v in pairs(args) do self[k]=v end return self end
 
     -- Saving file in filesystem. We can save in .fqa or "unpacked" format
     function self:save(fm,path,overwrite)
       assert(({fqa=true,unpacked=true})[fm or ""],"Bad format for save")
       path = path or ""
-      local fqa = self._fqa
+      local fqa = self.fqa
       if fm == "fqa" then        -- Save as .fqa
-        if not fqa then
+        if not(fqa or (self.viewLayout and self.uiCallbacks)) then
           fqa = QA.createQuickApp{
             name=self.name,type=self.type,UI=self.UI,
-            quickVars=self.quickAppVariables,code=self.files,dryrun=true
+            quickVars=self.quickVars,code=self.files,dryrun=true
           }
         end
         if fqa then
-          if self.initialProperties then
-            fqa.initialProperties.viewLayout = self.initialProperties.viewLayout or fqa.initialProperties.viewLayout
-            fqa.initialProperties.uiCallbacks = self.initialProperties.uiCallbacks or fqa.initialProperties.uiCallbacks
+          fqa.name = self.name
+          fqa.type = self.type
+          fqa.initialProperties.viewLayout = self.viewLayout or fqa.initialProperties.viewLayout
+          fqa.initialProperties.uiCallbacks = self.uiCallbacks or fqa.initialProperties.uiCallbacks
+          if self.quickVars then
+            fqa.initialProperties.quickAppVariables = vars2list(self.quickVars or {})
           end
           local fn = self.fname
           if fn then fn = fn:match("(.+)%.")..".fqa" end
@@ -4084,13 +4132,13 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
           path = path:match("(.*)%.")
         end
         local paths = {}
-        for i,f in ipairs(self.files or self._fqa.files or {}) do
+        for i,f in ipairs(self.files or self.fqa.files or {}) do
           local name = path.."_"..f.name:gsub("(%/)","_")..".lua"
           ff.write(name,f.content,overwrite)
           paths[f.name]=name
         end
         self.paths = paths
-        local fqa = Util.copy(self._fqa)
+        local fqa = Util.copy(self.fqa)
         fqa.files = nil
         self.file_unpacked = ff.extract_name(path..".json")
         ff.write(path..".json",Util.prettyJsonStruct(fqa),overwrite)
@@ -4100,23 +4148,28 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
 
     --  Upload QuickApp to HC3
     function self:upload(name,id)
-      if self._fqa then
+      if self.fqa or (self.viewLayout and self.uiCallbacks) then
         QA.createQuickApp{
-          name=name or self.name,type=self.type, id = id,
-          initialProperties = self._fqa.initialProperties,
-          code=self._fqa.files or self.files
+          name=name or self.name,type=self.type, id = id or self.id,
+          initialProperties = {
+            viewLayout=self.viewLayout, 
+            uiCallbacks = self.uiCallbacks, 
+            quickAppVariables = vars2list(self.quickVars or {}),
+          },
+          interfaces = self.interfaces,
+          code=self.files or self.fqa.files
         }
       else
         QA.createQuickApp{
-          name=name or self.name,type=self.type,UI=self.UI, id = id,
-          quickVars=self.quickAppVariables,code=self.files
+          name=name or self.name,type=self.type,UI=self.UI, id = id or self.id,
+          quickVars=self.quickVars,code=self.files, interfaces = self.interfaces,
         }
       end
       return self
     end
 
     -- Install QuickApp in the emulator
-    function self.install(args)
+    function self:install(args)
       local codeEnv = Util.createEnvironment("QA",false)
 
       os.setTimer(function()
@@ -4153,12 +4206,16 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
           codeEnv.__TAG = "QuickApp"..self.id
 
           local main = nil
-          for _,f in ipairs(self._fqa and self._fqa.files or self.files) do 
+          local ost,ostf,jsenc,jsdec = codeEnv.setTimeout, codeEnv.fibaro.setTimeout,codeEnv.json.encode,codeEnv.json.decode
+          for _,f in ipairs(self.files or self.fqa and self.fqa.files) do 
             if  f.isMain then main = f
             else
               local path = self.paths and self.paths[f.name] or f.name
               if hc3_emulator.breakOnLoad then mobdebug.setbreakpoint(path,1) end
               if _debugFlags.loader then Log(LOG.LOG,"Loading file '%s'",f.name) end
+              local strm = codeEnv.string.match
+              function codeEnv.string.match(s,p) p = p == "lua:(%d+)" and ":(%d+)" or p return strm(s,p)
+              end
               local code,msg=load(f.content,path,"bt",codeEnv)
               assert(code,msg)
               _,msg=code()
@@ -4172,56 +4229,24 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
           local _,msg=c9()
           if hc3_emulator.breakOnLoad then mobdebug.setbreakpoint(path,1) end
           assert(msg==nil,string.format("Error loading %s - %s",path,msg))
+          codeEnv.setTimeout,codeEnv.fibaro.setTimeout,codeEnv.json.encode,codeEnv.json.decode =  ost,ostf,jsenc,jsdec
+          
+          -- Initialize quickAppVariables and load resources
+          -- Logic:
+          -- First variables from fqa if they exists
+          -- Then variables from loaded hc3_emulator.resources = {quickVars = ...
+          -- Then variables from hc3_emulator.quickVars
+          local quickVars = self.quickVars
 
-          -- Initialize quickAppVariables
-          local resources = {}
-          local function loadResource(id)
-            if resources[id] then return resources[id] end
-            resources[id] = api.get("/devices/"..id)
-            assert(resources[id],"No such  QA, deviceId:"..id)
-            return resources[id]
-          end
-
-          local quickVars= {}
-
-          -- Check for explicit quickAppVariables from an existing QA
-          if self.QAresources and self.QAresources.quickVars then
-            assert(tonumber(self.QAresources.quickVars),"resources.quickVars needto be a QA deviceId")
-            local qa = loadResource(self.QAresources.quickVars)
-            for _,v in ipairs(qa.properties.quickAppVariables or {}) do quickVars[v.name]=v.value end
-          end
-
-          -- If we have _fqa quickAppVariables , add them
-          if self._fqa  and self._fqa.initialProperties then
-            for _,v in ipairs(self._fqa.initialProperties.quickAppVariables or  {}) do quickVars[v.name]=v.value end
-          end
-
-          do -- add explicitly defined quickAppVariables in hc3_emulator
-            local qvs = {}
-            for k,v in pairs(self.quickVars or {}) do
-              assertf(type(k)=='string',"Corrupt quickVars table, key=%s, value=%s",k,json.encode(v))
-              if type(v)=='string' and v:match("^%$CREDS") then
-                local p = "return hc3_emulator.credentials"..v:match("^%$CREDS(.*)")
-                v=load(p)()
-              end
-              quickVars[k]=v
+          -- Resolve $CREDS
+          for k,v in pairs(quickVars) do
+            assertf(type(k)=='string',"Corrupt quickVars table, key=%s, value=%s",k,json.encode(v))
+            if type(v)=='string' and v:match("^%$CREDS") then
+              local p = "return hc3_emulator.credentials"..v:match("^%$CREDS(.*)")
+              v=load(p)()
             end
+            quickVars[k]=v
           end
-
-          self.quickVars = quickVars
-
-          if self._fqa then
-            self.viewLayout = self._fqa.initialProperties.viewLayout
-            self.uiCallbacks = self._fqa.initialProperties.uiCallbacks
-          end
-
-          -- Check for explicit UI from an existing QA
-          if self.QAresources and self.QAresources.UI then
-            assert(tonumber(self.QAresources.UI),"resources.UI needto be a QA deviceId")
-            local qa = loadResource(self.QAresources.UI)
-            self.viewLayout = qa.properties.viewLayout
-            self.uiCallbacks = qa.properties.uiCallbacks
-          end 
 
           if self.UI then
             local ip = makeInitialProperties(self.UI)
@@ -4236,6 +4261,12 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
           codeEnv.plugin.mainDeviceId = self.id
           codeEnv.__TAG = "QuickApp"..self.id
 
+          -- Add 'quickApp' to interfaces if not existing
+          local fl = false
+          self.interfaces = self.interfaces or {'quickApp'}
+          for _,i in ipairs(self.interfaces) do if i=='quickApp' then fl=true; break end end
+          if not fl then self.interfaces[#self.interfaces+1]='quickApp' end
+
           -- Connected to something at the HC3...
           local remoteDevice,qvs=nil,{}
           for n,v in pairs(quickVars) do qvs[#qvs+1]={name=n, value=v} end
@@ -4244,7 +4275,12 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
             if self.proxy then
               remoteDevice = hc3_emulator.createProxy{
                 name=self.name, type=self.type,
-                initialProperties={viewLayout=self.viewLayout,uiCallbacks = self.uiCallbacks, quickAppVariables = qvs}, 
+                initialProperties={
+                  viewLayout=self.viewLayout,
+                  uiCallbacks = self.uiCallbacks, 
+                  quickAppVariables = vars2list(quickVars)
+                },
+                interfaces = self.interfaces
               }
               assert(remoteDevice,"hc3_emulator.start: Failed creating proxy")
               self.id = remoteDevice.id
@@ -4254,18 +4290,18 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
             end
           end
 
-          --  build device struct
+          --  build device struct          
           local device = {
-            id=self.id, name=self.name, interfaces={"quickApp"}, enabled=true,
+            id=self.id, name=self.name, interfaces=self.interfaces, enabled=true,
             type=self.type,  roomID = 219, visible=true,
             _emu = {
               proxy = self.proxy or false, UI = QA.transformUI(self.UI), env = codeEnv, uiValues={}, slideCache={},
-              files = self.files
+              files = self.files or self.fqa and self.fqa.files
             },
             properties={
               uiCallbacks = self.uiCallbacks,
               viewLayout = self.viewLayout,
-              quickAppVariables=qvs,
+              quickAppVariables = vars2list(quickVars),
             }
           }
 
@@ -5106,7 +5142,7 @@ function module.Utilities()
     local mt = {}
 --  mt.__index = function(tab,key) return rawget(c,key) end
 --  mt.__newindex = function(tab,key,value) rawset(c,key,value) end
-    mt.__call = function(class_tbl, ...)
+    mt.__call = function(class_tbl, ...) mobdebug.off()
       local obj = {}
       setmetatable(obj,class_tbl)
 
@@ -5130,7 +5166,7 @@ function module.Utilities()
           end
         end
       end
-      return obj
+      mobdebug.on() return obj
     end
 
     if not hc3_emulator.noClassProps then
@@ -5176,7 +5212,7 @@ function module.Utilities()
   function self.class2(name)
     local c = {}    -- a new class instance
     local mt = {}
-    mt.__call = function(class_tbl, ...)
+    mt.__call = function(class_tbl, ...) mobdebug.off()
       local obj = {}
       setmetatable(obj,class_tbl)
       for i,v in pairs(class_tbl) do
@@ -5197,7 +5233,7 @@ function module.Utilities()
           end
         end
       end
-      return obj
+      mobdebug.on() return obj
     end
 
     setmetatable(c, mt)
@@ -7248,15 +7284,15 @@ function module.Offline(self)
     if name=="" then
       local res = {}
       for _,f in pairs(files) do
-        local c = readQuickAppFile(f.fname) 
+        --local c = readQuickAppFile(f.fname) 
         res[#res+1]={name=f.name,isMain=f.name=="main",isOpen=false,content=c}
       end
       return res
     elseif name~="" then
       for _,f in pairs(files) do
         if f.name==name  then
-          local c = readQuickAppFile(f.fname)
-          return {name=name,isMain=name=="main",isOpen=false,content=c}
+          --local c = readQuickAppFile(f.fname)
+          return {name=name,isMain=name=="main",isOpen=false,content=f.content}
         end
       end
       Log(LOG.WARNING,"file '%s' doesn't exist",name)
