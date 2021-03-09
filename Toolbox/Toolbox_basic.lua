@@ -38,7 +38,7 @@
   function QuickApp:version(<string>)                 -- Return/optional check HC3 version
 
 --]]
-local QA_toolbox_version = "0.24"
+local QA_toolbox_version = "0.25"
 QuickApp = QuickApp or {}
 local format = string.format
 local _init = QuickApp.__init
@@ -75,7 +75,7 @@ function QuickApp:loadToolbox()
   local d = __fibaro_get_device(self.id)
   local function printf(...) self:debug(format(...)) end
   printf("QA %s - version:%s (QA toolbox %s)",self.name,_version or "1.0",QA_toolbox_version)
-  if not self.SILENT then
+  if not self._SILENT then
     printf("DeviceId..:%d",d.id)
     printf("Type......:%s",d.type)
     printf("Interfaces:%s",json.encode(d.interfaces or {}))
@@ -89,7 +89,7 @@ function QuickApp:loadToolbox()
 --  function QuickApp:loadModule(name,args)
 --    args = args or {}
 --    if Toolbox_Module[name] then
---      if not self.SILENT then self:debugf("Setup: %s (%s)",Toolbox_Module[name].name,Toolbox_Module[name].version) end
+--      if not self._SILENT then self:debugf("Setup: %s (%s)",Toolbox_Module[name].name,Toolbox_Module[name].version) end
 --      return Toolbox_Module[m].init(self,args)
 --    else 
 --      self:warning("Module '"..name.."' missing")
@@ -98,14 +98,24 @@ function QuickApp:loadToolbox()
 --      else self:warning("Set self._INSTALL_MISSING_MODULES=true to load missing modules") end
 --    end 
 --  end
+
   -- Load modules
   local ms,Module,missingModules = {},Toolbox_Module,{}
+  
+  function self:require(name,...)
+    if Module[name] then
+      local inited,res = Module[name].inited,Module[name].init(self,...)
+      if (not inited) and (not self._SILENT) then 
+        self:debugf("Setup: %s (%s)",Module[name].name,Module[name].version)
+      end
+      return res
+    else error("Module '"..name.."' missing") end
+  end
+  
   for _,m in ipairs(modules or {}) do 
     local args = {}
     if type(m)=='table' then args = m.args or {}; m = m.name end
-    if Module[m] then 
-      if not self.SILENT then self:debugf("Setup: %s (%s)",Module[m].name,Module[m].version) end
-      modules[m]=Module[m].init(self,args) 
+    if Module[m] then self:require(m,args)
     else 
       self:warning("Module '"..m.."' missing")
       if self._INSTALL_MISSING_MODULES then
@@ -115,7 +125,7 @@ function QuickApp:loadToolbox()
   end
 
   local function cont() -- stuff to do when we loaded missing modules...
-    for m,_ in pairs(Module) do Module[m] = nil end
+    --for m,_ in pairs(Module) do Module[m] = nil end
     self.config = {}
     for _,v in ipairs(self.properties.quickAppVariables or {}) do
       self.config[v.name] = v.value
@@ -226,9 +236,9 @@ function Toolbox_Module.basic(self)
     local str,str2,t1,t0,c1 = _format(fmt,...),nil,__TAG,__TAG
     str2=str
     if self._HTML and not hc3_emulator then 
-     str2 = str2:gsub("([\n%s])",function(c) return htmlCodes[c] or c end)
-     str2 = str2:gsub("(#T:)(.-)(#)",function(_,t) t1=t return "" end)
-     str2 = str2:gsub("(#C:)(.-)(#)",function(_,c) c1=c return "" end)
+      str2 = str2:gsub("([\n%s])",function(c) return htmlCodes[c] or c end)
+      str2 = str2:gsub("(#T:)(.-)(#)",function(_,t) t1=t return "" end)
+      str2 = str2:gsub("(#C:)(.-)(#)",function(_,c) c1=c return "" end)
     end
     if c1 then str2=string.format("<font color=%s>%s</font>",c1,str2) end
     __TAG = t1; fun(self,str2); __TAG = t0

@@ -20,6 +20,9 @@ Toolbox_Module.luaxp = {
 }
 
 function Toolbox_Module.luaxp.init(self)
+  if Toolbox_Module.luaxp.inited then return Toolbox_Module.luaxp.inited end
+  Toolbox_Module.luaxp.inited = true
+
   local _M = {}
 
   _M._VERSION = "1.0.1"
@@ -1522,5 +1525,6 @@ function Toolbox_Module.luaxp.init(self)
           _M.null = NULLATOM
           _M.evalerror = evalerror
 
+          Toolbox_Module.luaxp.inited = _M
           return _M
         end

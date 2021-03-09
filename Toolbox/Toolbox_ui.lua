@@ -13,7 +13,9 @@ Toolbox_Module.ui = {
 }
 
 function Toolbox_Module.ui.init(self)
-
+  if Toolbox_Module.ui.inited then return Toolbox_Module.ui.inited end
+  Toolbox_Module.ui.inited = true
+  
   local format = string.format
   local function mapf(f,l) for _,e in ipairs(l) do f(e) end; end
   local function map(f,l) local r={}; for _,e in ipairs(l) do r[#r+1]=f(e) end; return r end
@@ -23,6 +25,7 @@ function Toolbox_Module.ui.init(self)
     else f(o) end
   end
 
+ 
   local ELMS = {
     button = function(d,w)
       return {name=d.name,style={weight=d.weight or w or "0.50"},text=d.text,type="button"}
@@ -50,10 +53,10 @@ function Toolbox_Module.ui.init(self)
     option = function(d,w)
       return {name=d.name, type="option", value=d.value or "Hupp"}
     end,
-    slider = function(d)
-      return {name=d.name,max=tostring(d.max),min=tostring(d.min),style={weight=d.weight or w or "1.2"},text=d.text,type="slider"}
+    slider = function(d,w)
+      return {name=d.name,step=tostring(d.step),value=tostring(d.value),max=tostring(d.max),min=tostring(d.min),style={weight=d.weight or w or "1.2"},text=d.text,type="slider"}
     end,
-    label = function(d)
+    label = function(d,w)
       return {name=d.name,style={weight=d.weight or w or "1.2"},text=d.text,type="label"}
     end,
     space = function(d,w)
@@ -68,7 +71,8 @@ function Toolbox_Module.ui.init(self)
       local width = format("%.2f",1/#elms)
       if width:match("%.00") then width=width:match("^(%d+)") end
       for _,e in ipairs(elms) do c[#c+1]=ELMS[e.type](e,width) end
-      comp[#comp+1]={components=c,style={weight="1.2"},type='horizontal'}
+      if #elms > 1 then comp[#comp+1]={components=c,style={weight="1.2"},type='horizontal'}
+      else comp[#comp+1]=c[1] end
       comp[#comp+1]=ELMS['space']({},"0.5")
     else
       comp[#comp+1]=ELMS[elms.type](elms,"1.2")
@@ -81,7 +85,7 @@ function Toolbox_Module.ui.init(self)
     local items = {}
     for _,i in ipairs(list) do items[#items+1]=mkRow(i) end
 --    if #items == 0 then  return nil end
-    return 
+    return
     { ['$jason'] = {
         body = {
           header = {
@@ -99,6 +103,7 @@ function Toolbox_Module.ui.init(self)
     }
   end
 
+  self.mkViewLayout = mkViewLayout
   local function transformUI(UI) -- { button=<text> } => {type="button", name=<text>}
     traverse(UI,
       function(e)
@@ -112,6 +117,7 @@ function Toolbox_Module.ui.init(self)
         elseif e.label then e.name,e.type=e.label,'label'
         elseif e.space then e.weight,e.type=e.space,'space' end
       end)
+    return UI
   end
 
   local function uiStruct2uiCallbacks(UI)
@@ -119,33 +125,32 @@ function Toolbox_Module.ui.init(self)
     --- "callback": "self:button1Clicked()",
     traverse(UI,
       function(e)
-        if e.name then 
+        if e.name then
           -- {callback="foo",name="foo",eventType="onReleased"}
           local defu = e.button and "Clicked" or e.slider and "Change" or (e.switch or e.select) and "Toggle" or ""
           local deff = e.button and "onReleased" or e.slider and "onChanged" or (e.switch or e.select) and "onToggled" or ""
           local cbt = e.name..defu
-          if e.onReleased then 
+          if e.onReleased then
             cbt = e.onReleased
           elseif e.onChanged then
             cbt = e.onChanged
           elseif e.onToggled then
             cbt = e.onToggled
           end
-          if e.button or e.slider or e.switch or e.select then 
-            cb[#cb+1]={callback=cbt,eventType=deff,name=e.name} 
+          if e.button or e.slider or e.switch or e.select then
+            cb[#cb+1]={callback=cbt,eventType=deff,name=e.name}
           end
         end
       end)
     return cb
   end
 
-  function self:updateViewLayout(id,UI,height,forceUpdate) 
-    if forceUpdate==nil then forceUpdate = true end
+  function self:updateViewLayout(id,UI,forceUpdate) --- This may not work anymore....
     transformUI(UI)
     local cb = api.get("/devices/"..id).properties.uiCallbacks or {}
     local viewLayout = mkViewLayout(UI)
     local newcb = uiStruct2uiCallbacks(UI)
-    if forceUpdate then 
+    if forceUpdate then
       cb = newcb -- just replace uiCallbacks with new elements callbacks
     else
       local mapOrg = {}
@@ -159,6 +164,20 @@ function Toolbox_Module.ui.init(self)
           viewLayout = viewLayout,
           uiCallbacks = cb},
       })
+  end
+
+   function self:makeInitialUIProperties(UI,vars,height)
+    local ip = {}
+    vars = vars or {}
+    transformUI(UI)
+    ip.viewLayout = mkViewLayout(UI,height)
+    ip.uiCallbacks = uiStruct2uiCallbacks(UI)
+    ip.apiVersion = "1.2"
+    local varList = {}
+    for n,v in pairs(vars) do varList[#varList+1]={name=n,value=v} end
+    ip.quickAppVariables = varList
+    ip.typeTemplateInitialized=true
+    return ip
   end
 
   function self:insertLabel(name,text,pos)

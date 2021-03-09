@@ -58,6 +58,9 @@ Toolbox_Module.LuaParser ={
 }
 
 function Toolbox_Module.LuaParser.init(self,args)
+  if Toolbox_Module.LuaParser.inited then return Toolbox_Module.LuaParser.inited end
+  Toolbox_Module.LuaParser.inited = true
+
   local EVENTSCRIPT = args.EventScript
   local mTokens
   local format = string.format
@@ -158,7 +161,7 @@ function Toolbox_Module.LuaParser.init(self,args)
   if EVENTSCRIPT then
     token("#@$=<>!+.-*&|/%^~;:","([#@%$=<>!+%.%-*&|/%^~;:][#@=<>&|:]?)", 
       function (op) return op=='=>' and {type=op,value=op} or {type= specT[op] and op or "operator", value=op} 
-    end)
+      end)
   else
     token("#@$=<>!+.-*&|/%^~;:","([#@%$=<>!+%.%-*&|/%^~;:][=<>&|:]?)", function (op) return {type= specT[op] and op or "operator", value=op} end)
   end
@@ -555,7 +558,7 @@ parlist ::= namelist [‘,’ ‘...’] | ‘...’
     end
   end
 
-  return function(str,locals)
+  local p = function(str,locals)
     locals = locals or {}
     stat,res = pcall(function()
         mTokens = mkStream(tokenize(str))
@@ -573,4 +576,6 @@ parlist ::= namelist [‘,’ ‘...’] | ‘...’
     end
   end
 
+  Toolbox_Module.LuaParser.inited = p
+  return p
 end

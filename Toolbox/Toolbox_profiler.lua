@@ -23,6 +23,8 @@ Toolbox_Module.profiler = {
 }
 
 function Toolbox_Module.profiler.init(self)
+  if Toolbox_Module.profiler.inited then return Toolbox_Module.profiler.inited end
+  Toolbox_Module.profiler.inited = true
 
   function self:profiler(args)
     args = args or {}
@@ -274,6 +276,8 @@ function Toolbox_Module.profiler.init(self)
       end
     end
 
-    return { report = report, addQA = addQA, addFun=addFun, start=start, stop=stop, ignore=ignore }
+    local p = { report = report, addQA = addQA, addFun=addFun, start=start, stop=stop, ignore=ignore }
+    Toolbox_Module.profiler.inited = p
+    return p
   end
 end

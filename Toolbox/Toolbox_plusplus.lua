@@ -13,6 +13,8 @@ Toolbox_Module.plusplus ={
 }
 
 function Toolbox_Module.plusplus.init(self)
+  if Toolbox_Module.plusplus.inited then return Toolbox_Module.plusplus.inited end
+  Toolbox_Module.plusplus.inited = true
 
   class "PP_Global"
   function PP_Global:getValue()
@@ -62,5 +64,5 @@ function Toolbox_Module.plusplus.init(self)
   end
   function PP_Dev:safe(cb)
   end
-  
+
 end

@@ -20,6 +20,9 @@ Toolbox_Module.events ={
 
 local format = string.format
 function Toolbox_Module.events.init(self)
+  if Toolbox_Module.events.inited then return end
+  Toolbox_Module.events.inited = true 
+  
   local em,handlers = { sections = {}, stats={tried=0,matched=0}},{}
   em.BREAK, em.TIMER, em.RULE = '%%BREAK%%', '%%TIMER%%', '%%RULE%%'
   local function isEvent(e) return type(e)=='table' and e.type end

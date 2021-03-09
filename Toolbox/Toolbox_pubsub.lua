@@ -18,6 +18,9 @@ Toolbox_Module.pubsub ={
 
 
 function Toolbox_Module.pubsub.init(self)
+  if Toolbox_Module.pubsub.inited then return Toolbox_Module.pubsub.inited end
+  Toolbox_Module.pubsub.inited = true
+
   local SUB_VAR = "TPUBSUB"
   local function DEBUG(...) if self.debugFlags.pubsub then self:debugf(...) end end
   local mySubscriptions = {}
@@ -159,8 +162,8 @@ function Toolbox_Module.pubsub.init(self)
             end)
           if stat then 
             for _,s in ipairs(subs) do addSubscriber(d.id,s) end 
-            DEBUG("Adding subscriptions fromn %d - %s",d.id,subs)
-            end
+            if #subs>0 then DEBUG("Adding subscriptions from %d - %s",d.id,subs) end
+          end
         end
         break
       end -- for vars

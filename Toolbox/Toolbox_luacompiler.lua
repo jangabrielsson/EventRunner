@@ -16,6 +16,9 @@ Toolbox_Module.LuaCompiler ={
 }
 
 function Toolbox_Module.LuaCompiler.init(self,args)
+  if Toolbox_Module.LuaCompiler.inited then return Toolbox_Module.LuaCompiler.inited end
+  Toolbox_Module.LuaCompiler.inited = true
+  
   local EVENTSCRIPT = args.EventScript
   local luc = {}
   local compile,evaluate,coroutine
@@ -653,7 +656,7 @@ __le
     end
   end
 
-  local parser = modules['LuaParser']
+  local parser = require('LuaParser')
   luc.parser = parser
   luc.optimizer = optTree
 
@@ -748,6 +751,7 @@ __le
     ['setmetatable'] = function(t,m) t.__META = m end,
     ['coroutine'] = coroutine,
   }
-
+  
+  Toolbox_Module.LuaCompiler.inited = luc
   return luc
 end

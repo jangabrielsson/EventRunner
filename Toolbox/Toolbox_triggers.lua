@@ -44,6 +44,9 @@ Toolbox_Module.triggers ={
 }
 
 function Toolbox_Module.triggers.init(self)
+  if Toolbox_Module.triggers.inited then return Toolbox_Module.triggers.inited end
+  Toolbox_Module.triggers.inited = true
+
   local TR = { central={}, access={}, activation={}, stats={triggers=0} }
   self.TR = TR
   local ENABLEDTRIGGERS={}
@@ -171,6 +174,7 @@ function Toolbox_Module.triggers.init(self)
         success=function(res)
           local states = res.status == 200 and json.decode(res.data)
           if states and not firstRun then
+            --print(string.format("Sent:%s, got %s",lastRefresh,states.last))
             lastRefresh=states.last
             if states.events and #states.events>0 then 
               for _,e in ipairs(states.events) do

@@ -19,6 +19,9 @@ Toolbox_Module.childs = {
 }
 
 function Toolbox_Module.childs.init(self)
+  if Toolbox_Module.childs.inited then return Toolbox_Module.childs.inited end
+  Toolbox_Module.childs.inited = true 
+  local _G = _G or _ENV
 
   function self:setChildIconPath(childId,path)
     api.put("/devices/"..childId,{properties={icon={path=path}}})
@@ -71,6 +74,15 @@ function Toolbox_Module.childs.init(self)
     classObj.config,classObj.debugFlags = {},{}
   end
 
+  local function setCallbacks(obj,callbacks)
+    local cbs = {}
+    for _,cb in ipairs(callbacks or {}) do
+      cbs[cb.name]=cbs[cb.name] or {}
+      cbs[cb.name][cb.eventType] = cb.callback
+    end
+    obj.uiCallbacks = cbs
+  end
+  
 --[[
   QuickApp:createChild{
     className = "MyChildDevice",      -- class name of child object
@@ -88,9 +100,16 @@ function Toolbox_Module.childs.init(self)
     local properties = args.properties or {}
     local interfaces = args.interfaces or {}
     properties.quickAppVariables = properties.quickAppVariables or {}
-    for n,v in pairs(args.quickVars or {}) do table.insert(properties.quickAppVariables,1,{name=n,value=v}) end
+    local function addVar(n,v) table.insert(properties.quickAppVariables,1,{name=n,value=v}) end
+    for n,v in pairs(args.quickVars or {}) do addVar(n,v) end
+    local callbacks = properties.uiCallbacks
+    if  callbacks then 
+      local function copy(t) local r={}; for k,v in pairs(t) do r[k]=v end return r end
+      callbacks = copy(callbacks)
+      addVar('_callbacks',callbacks)
+    end
     -- Save class name so we know when we load it next time
-    table.insert(properties.quickAppVariables,1,{name='className', value=className}) -- Add first
+    addVar('className',className) -- Add first
     local child = self:createChildDevice({
         name = name,
         type=tpe,
@@ -99,6 +118,7 @@ function Toolbox_Module.childs.init(self)
       },
       _G[className] -- Fetch class constructor from class name
     )
+    setCallbacks(child,callbacks)
     return child
   end
 
@@ -108,10 +128,12 @@ function Toolbox_Module.childs.init(self)
     function self:initChildDevices() end -- Null function, else Fibaro calls it after onInit()...
     for _,child in ipairs(cdevs or {}) do
       local className = self:getChildVariable(child,"className")
+      local callbacks = self:getChildVariable(child,"_callbacks")
       self:_annotateClass(_G[className])
       local childObject = _G[className] and _G[className](child) or QuickAppChild(child)
       self.childDevices[child.id]=childObject
       childObject.parent = self
+      setCallbacks(childObject,callbacks)
       n=n+1
     end
     return n
@@ -125,7 +147,7 @@ function Toolbox_Module.childs.init(self)
     return orgRemoveChildDevice(self,id)
   end
   function self:setChildRemovedHook(fun) self.childRemovedHook=fun end
-    
+
 -- UI handler to pass button clicks to children
   function self:UIHandler(event)
     local obj = self
@@ -134,7 +156,7 @@ function Toolbox_Module.childs.init(self)
     local elm,etyp = event.elementName, event.eventType
     local cb = obj.uiCallbacks or {}
     if obj[elm] then return obj:callAction(elm, event) end
-    if cb[elm] and cb[elm][etyp] and self[cb[elm][etyp]] then return obj:callAction(cb[elm][etyp], event) end
+    if cb[elm] and cb[elm][etyp] and obj[cb[elm][etyp]] then return obj:callAction(cb[elm][etyp], event) end
     if obj[elm.."Clicked"] then return obj:callAction(elm.."Clicked", event) end
     if self.EM then
       self:post({type='UI',name=event.elementName,event=event.eventType,value=event.values})

@@ -27,6 +27,9 @@ Toolbox_Module.rpc ={
 }
 
 function Toolbox_Module.rpc.init(self)
+  if Toolbox_Module.rpc.inited then return Toolbox_Module.rpc.inited end
+  Toolbox_Module.rpc.inited = true
+  
   local var,n = "RPC_"..self.id,0
   api.post("/globalVariables",{name=var,value=""})
 

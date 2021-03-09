@@ -23,7 +23,9 @@ Toolbox_Module.files ={
 }
 
 function Toolbox_Module.files.init(self)
-
+  if Toolbox_Module.files.inited then return end
+  Toolbox_Module.files.inited = true 
+  
   function self:deleteFile(deviceId,file)
     local name = type(file)=='table' and file.name or file
     return api.delete("/quickApp/"..deviceId.."/files/"..name)
