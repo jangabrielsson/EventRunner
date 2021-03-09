@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.175"
+local FIBAROAPIHC3_VERSION = "0.178"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -287,6 +287,7 @@ function module.FibaroAPI()
   fibaro.version = "1.0.0"
   local copas = hc3_emulator.copas
   local cache,safeDecode,urlencode = Trigger.cache,Util.safeDecode,Util.urlencode
+  local colorStr = Util.colorStr
 
 --  local function __convertToString(value)
 --    if  type(value) == 'boolean' then
@@ -366,16 +367,11 @@ function module.FibaroAPI()
   local function fibaro_debug(tag,type,str)
     assert(str,"Missing tag for debug")
     if hc3_emulator.HC3_debugmessages then addDebugMessage(tag,type:lower(),str) end
-    if hc3_emulator.colorDebug then
-      local color = DEBUGCOLORS[type] or "black"
-      color = ZBCOLORMAP[color]
-      type = format('%s%s\027[0m', color, type)
-      if hc3_emulator.htmlDebug then -- A bit messy, but try to convert html tags to ZBSconsole equivalents
-        str = html2color(str,'\027[0m')
-        str=str:gsub("&nbsp;"," ")
-      end
+    if hc3_emulator.htmlDebug then -- A bit messy, but try to convert html tags to ZBSconsole equivalents
+      str = html2color(str,'\027[0m')
+      str=str:gsub("&nbsp;"," ")
     end
-    str = format("%s [%s] [%s]: %s",os.date("[%d.%m.%Y] [%X]"),type,tag:upper(),str)
+    str = format("%s [%s] [%s]: %s",os.date("[%d.%m.%Y] [%X]"),colorStr(DEBUGCOLORS[type],type),tag:upper(),str)
     print(str) -- To IDE console
     for pat,skts in pairs(terminals) do
       if tag:match(pat) then
@@ -562,13 +558,28 @@ function module.FibaroAPI()
   function fibaro.sleep(ms) __fibaroSleep(ms) end
 
   local rawCall
+  local function getExtras(call,devs)
+    local a,b,c = rawCall("GET",call)
+    if type(a)=='table' then for _,d in pairs(devs) do a[#a+1]=d end end
+    return a,b,c
+  end
+  local GETintercepts = {
+    ['/devices'] = function(call) return getExtras(call,quickApps) end,   
+    ['/devices?interface=quickApp'] = function(call) return getExtras(call,quickApps) end,  
+    ['/scenes'] = function(call) return getExtras(call,scenes) end,  
+  }
+  GETintercepts['/devices/'] = GETintercepts['/devices']
+  GETintercepts['/scenes/'] = GETintercepts['/scenes']
+
   api={} -- Emulation of api.get/put/post/delete
   function api.get(call)
     local last = call:match("/refreshStates%?last=(%d+)") -- Always fetch from emulator cache...
     if last  then
+      if _debugFlags.api then Log(LOG.SYS,"api.GET - %s",call) end
       return Trigger.refreshStates.getEvents(tonumber(last))
     end
-    return rawCall("GET",call)
+    if GETintercepts[call] then return GETintercepts[call](call)
+    else return rawCall("GET",call) end
   end
   function api.put(call, data, hc3) return rawCall("PUT",call,json.encode(data),"application/json", hc3) end
   function api.post(call, data, hc3) return rawCall("POST",call,data and json.encode(data),"application/json", hc3) end
@@ -579,11 +590,12 @@ function module.FibaroAPI()
     local copas = hc3_emulator.copas
     local http = copas.http
     -- Running offline or calling /refreshStates, re-direct to offline APIs
+    if _debugFlags.api then Log(LOG.SYS,"api.%s - %s",method,call) end
     if hc3_emulator.offline or call:match("/refreshStates") then return Offline.api(method,call,data,cType,hc3) end
     -- api calls for  scenes/quickApps that are emulated, re-direct to offline APIs
     if not hc3 then
       local a,id = call:match("^/(.-)/(%d+)")
-      if a and (a=='devices' or a=='quickApp') and id and quickApps[tonumber(id)] then
+      if (a=='devices' or a=='quickApp') and id and quickApps[tonumber(id)] then
         return Offline.api(method,call,data,cType,hc3)
       elseif a=='scenes' and id and scenes[tonumber(id)] then
         return Offline.api(method,call,data,cType,hc3)
@@ -3157,7 +3169,7 @@ function module.Timer()
   end
 
 --------- Main HC3 timer support based on  Copas -------------------------
-  local format = string.format
+  local format,colorStr = string.format,Util.colorStr
 
   local TimerMetatable = {
     __tostring = function(self)
@@ -3165,8 +3177,7 @@ function module.Timer()
       if self.line then extra = format("%s %s,line:%s",extra,self.source,self.line) end
       if _debugFlags.timersWarn then
         local diff = os.milliTime()-self.time
-        local col = diff > 0.1 and  Util.ZBCOLORMAP.red or Util.ZBCOLORMAP.green
-        return format("%s%s%s%s>\027[0m",col,self.tostr,os.milliStr(self.time),extra)
+        return colorStr(diff > 0.1 and 'red' or 'green',self.tostr..os.milliStr(self.time)..extra..">")
       else
         return self.tostr..os.milliStr(self.time)..extra..">"
       end
@@ -3175,7 +3186,7 @@ function module.Timer()
   -- <Timer:999, fun=0x8888, exp:...>
   local function ISTIMER(t) return type(t)=='table' and t['%%TIMER%%'] end
   local TINDEX = 1
-  local function MAKETIMER(t)
+  local function makeTimer(t)
     t['%%TIMER%%']=true
     t.tostr = format("<Timer:%04d fun:%s exp:",TINDEX,tostring(t.fun):sub(11))
     TINDEX=TINDEX+1
@@ -3206,17 +3217,18 @@ function module.Timer()
   os.milliTime = function() return os.rt() + timeAdjust end
   os.clock = function() return os._clock() end
   os.date = function(s,t) return os._date(s,t or os.time()) end
-  os.setTimer2 = function(fun,sec,recurring,env)
+  os.setTimer2 = function(fun,sec,recurring,params,env)
     local t =
     timer.new({
         delay = sec,
         recurring = recurring or false,
-        callback = function(_, _) fun() end
+        callback = fun,
+        params = params
       })
     contexts[t.co]=env or _ENV
     return t
   end
-  os.setTimer = function(fun,ms,recurring,env) os.setTimer2(fun,ms/1000.0,recurring,env) end
+  os.setTimer = function(fun,ms,recurring,params,env) os.setTimer2(fun,ms/1000.0,recurring,params,env) end
   os.clearTimer = function(t) t:cancel() end
   os.milliStr = function(t) return os.date("%H:%M:%S",math.floor(t))..format(":%03d",math.floor((t%1)*1000+0.5)) end
 
@@ -3250,7 +3262,7 @@ function module.Timer()
     end
     if timers == t then
       if _debugFlags.timersSched then
-        Log(LOG.LOG,"Will run next timer at %s - %s",os.milliStr(timers.time),timers.time-os.milliTime())
+        Log(LOG.LOG,"Will run next timer at %s in %0.4fs",os.milliStr(timers.time),timers.time-os.milliTime())
       end
       if runT then runT:cancel() end
       runT = os.setTimer2(runTimers,max(timers.time-os.milliTime(),0))
@@ -3284,13 +3296,11 @@ function module.Timer()
       if SPEED then
         timers = timers.next
         timeAdjust = t.time-os.rt()
-        t.expired = true
-        os.setTimer2(t.fun,0,false,t.env)
+        os.setTimer2(t.fun,0,false,t.params,t.env)
         if timers ~= nil and timers.time == t.time then goto REDO end
       else
         timers = timers.next
-        t.expired = true
-        os.setTimer2(t.fun,0,false,t.env)
+        os.setTimer2(t.fun,0,false,t.params,t.env)
       end
       if timers then
         if SPEED then
@@ -3303,15 +3313,37 @@ function module.Timer()
     end
   end
 
-  function setTimeout(fun,time,tag,org)
+  local function timerWrap(_,params)
+    local t,fun,eh,now = params[2],params[1],params[3]
+    local ctx = getContext()
+    ctx._getLock()
+    if not t.expired then
+      now = os.milliTime()
+      t.expired = true
+      if now-t.time > 0.1 then
+        Log(LOG.WARNING,"Late timer:%0.3fs %s",now-t.time,t)
+      end
+      ctx._lastTimer = t
+      xpcall(fun,eh)
+    end
+    ctx._releaseLock()
+  end
+
+  local function timerErr(err)
+    Log(LOG.ERROR,"Timer %s crashed - %s",_lastTimer,err)
+    print(debug.traceback(err,1))
+    if _debugFlags.breakOnError then mobdebug.pause() end
+  end
+
+  function setTimeout(fun,time,tag,errHandler,env)
     assert(type(fun)=='function' and type(time)=='number',"Bad arguments to setTimeout")
-    local warn = _debugFlags.timersWarn and time<0
+    local warn,params = _debugFlags.timersWarn and time<0, {fun,nil,errHandler or timerErr}
     time = time > 0 and time or 0
-    local t = insertTimer(MAKETIMER({fun=fun,time=os.milliTime()+time/1000.0,tag=tag,env=getContext()}))
+    local t = insertTimer(makeTimer({fun=timerWrap,params=params,time=os.milliTime()+time/1000.0,tag=tag,env=env or getContext()}))
     if warn then Log(LOG.WARNING,"Negative timer:%s",t) end
+    params[2]=t
     if  _debugFlags.timersExtra then
-      local l = debug.getinfo(3)
-      local f = debug.getinfo(org)
+      local l = debug.getinfo(2)
       t.source = l.source
       t.line = l.currentline
     end
@@ -3320,6 +3352,7 @@ function module.Timer()
 
   function clearTimeout(timer)
     if ISTIMER(timer) and not timer.expired then
+      timer.expired=true
       deleteTimer(timer)
     end
   end
@@ -3362,6 +3395,8 @@ function module.Timer()
   self.copas = copas
   self.copas.lock = lock
   self.dumpTimers = dumpTimers
+  self.makeTimer = makeTimer
+  self.inserTimer = insertTimer
   hc3_emulator.copas = copas
   return self
 end
@@ -4004,10 +4039,18 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
       elseif p == 'UI' then
         self.viewLayout = v.viewLayout
         self.uiCallbacks = v.uiCallbacks
-        if self.uiCallbacks == nil then
-          mobdebug.pause()
-        end
       end
+    end
+  end
+
+  local function resolveCREDS(quickVars)
+    for k,v in pairs(quickVars) do
+      assertf(type(k)=='string',"Corrupt quickVars table, key=%s, value=%s",k,json.encode(v))
+      if type(v)=='string' and v:match("^%$CREDS") then
+        local p = "return hc3_emulator.credentials"..v:match("^%$CREDS(.*)")
+        v=load(p)()
+      end
+      quickVars[k]=v
     end
   end
 
@@ -4046,6 +4089,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
       local dir = arg:sub(1,-(name:len()+1))
       local files,paths = {},{}
       local prefix = "^"..name:match("(.*)%.[Jj][Ss][Oo][Nn]$").."(.*)%.lua"
+      assert(ff.dir(dir),"Not a directory: "..tostring(dir))
       for d,n in ff.dir(dir) do -- read unpacked files
         if d:match(prefix) then
           local name = d:match("_([^_]+)%.lua")
@@ -4086,7 +4130,10 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
       self.resources = env1.hc3_emulator.resources
       self.proxy = env1.hc3_emulator.proxy or false
       loadResources(self)
-      self.quickVars = env1.hc3_emulator.quickVars or {}
+      self.quickVars = self.quickVars or {}
+      for n,v in pairs(env1.hc3_emulator.quickVars or {}) do
+        self.quickVars[n]=v
+      end
       self.UI = env1.hc3_emulator.UI
       if type(self.UI) == 'string' then self.UI = json.decode(self.UI) end
       self.files,self.paths = QA.createFilesFromSource(code,self.fname)
@@ -4151,6 +4198,8 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
 
     --  Upload QuickApp to HC3
     function self:upload(name,id)
+      -- Resolve $CREDS
+      resolveCREDS(self.quickVars)
       if self.fqa or (self.viewLayout and self.uiCallbacks) then
         QA.createQuickApp{
           name=name or self.name,type=self.type, id = id or self.id,
@@ -4189,27 +4238,10 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
           codeEnv.BREAKONINIT = hc3_emulator.breakOnInit
 
           local st = codeEnv.setTimeout
-          codeEnv.setTimeout = function(fun,ms,tag)
-            local t = nil
-            local function f(...)
-              setContext(codeEnv)
-              codeEnv._getLock()
-              local now = os.milliTime()
-              if _debugFlags.timersWarn and now-t.time > 0.1 then
-                Log(LOG.WARNING,"Late timer:%0.3fs %s",now-t.time,t)
-              end
-              local status, err, ret = xpcall(fun,function(err)
-                  Log(LOG.ERROR,"QuickApp timer %s for '%s', deviceId:%s, crashed (%s) at %s",
-                    t,self.name,self.id,err,os.date("%c")
-                  )
-                  print(debug.traceback(err,1))
-                  if _debugFlags.breakOnError then mobdebug.pause() end
-                end,...)
-              codeEnv._releaseLock()
-            end
-            t = st(f,ms,tag,fun)
-            return t
+          local function errHandler(err)
+            Log(LOG.ERROR,"QuickApp timer %s for '%s', deviceId:%s, crashed - %s",codeEnv._lastTimer,self.name,self.id,err)
           end
+          codeEnv.setTimeout = function(fun,ms,tag) return st(fun,ms,tag,errHandler,codeEnv) end
           local st2 = codeEnv.setTimeout
           codeEnv.fibaro.setTimeout = function(a,b,...) return st2(b,a,...) end
           codeEnv.print = function(...) codeEnv.fibaro.debug(codeEnv.__TAG,...) end
@@ -4250,14 +4282,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
           local quickVars = self.quickVars
 
           -- Resolve $CREDS
-          for k,v in pairs(quickVars) do
-            assertf(type(k)=='string',"Corrupt quickVars table, key=%s, value=%s",k,json.encode(v))
-            if type(v)=='string' and v:match("^%$CREDS") then
-              local p = "return hc3_emulator.credentials"..v:match("^%$CREDS(.*)")
-              v=load(p)()
-            end
-            quickVars[k]=v
-          end
+          resolveCREDS(quickVars)
 
           if self.UI then
             local ip = makeInitialProperties(self.UI)
@@ -4340,7 +4365,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
 
   commandLines['pullqatobuffer']=self.copyQA
   commandLines['deploy']=function(file)
-    local code = Files.file.read(file)
+    local code,done = Files.file.read(file),nil
     hc3_emulator._code = code
     if code:match("hc3_emulator%.actions") then
       Scene.loadScene(file):upload()
@@ -4350,7 +4375,8 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
       Log(LOG.LOG,"Unrecognized file")
     end
     hc3_emulator._code = nil
-    osExit()
+    fibaro.sleep(2000)
+    os.exit()
   end
 
 -- Export functions
@@ -4773,33 +4799,29 @@ climate
           codeEnv.BREAKONINIT = hc3_emulator.breakOnInit
           codeEnv.print = function(...) codeEnv.fibaro.debug(codeEnv.tag:upper(),...) end
 
-          local st = codeEnv.fibaro.setTimeout
+          local st = setTimeout
           local timers = {}
-          function codeEnv.fibaro.setTimeout(ms,fun,...)  -- Add blocking sleep (like QAs)
+          local function errHandler(err)
+            Log(LOG.ERROR,"Scene timer %s for '%s', sceneId:%s, crashed - %s",codeEnv._lastTimer,self.name,self.id,err)
+          end
+          codeEnv.setTimeout = function(fun,ms,tag)
             self.timers = self.timers+1
             local function f(...)
-              setContext()
-              codeEnv._getLock()
-              local status, err, ret = xpcall(fun,function(err)
-                  local what = fun == self.actions and "Scene" or "Scene timer"
-                  Log(LOG.ERROR,"%s for '%s', sceneId:%s, crashed (%s) at %s",what,self.name,self.id,err,os.date("%c"))
-                  print(debug.traceback(err,1))
-                end,...)
-              codeEnv._releaseLock()
+              local stat,res = pcall(fun)
               self.timers = self.timers-1
               if self.timers <= 0 then
                 self.struct.isRunning = false
                 Log(LOG.HEADER,"Scene '%s', sceneId:%s, terminated at %s",self.name,self.id,os.date("%c"))
               end
+              if not stat then error(res,2) end
             end
-            local ref = st(ms,f,...)
+            local ref = st(f,ms,tag,errHandler,codeEnv)
             timers[ref]=true
             return ref
           end
 
-          local st1 = codeEnv.fibaro.setTimeout
-          codeEnv.fibaro.setTimeout = function(a,b,...) return st1(b,a,...) end
-          local ct = codeEnv.fibaro.clearTimeout
+          local st1,ct = codeEnv.setTimeout,codeEnv.fibaro.clearTimeout
+          codeEnv.fibaro.setTimeout = function(a,b,...) return st1(b,a,...) end 
           function codeEnv.fibaro.clearTimeout(ref)
             if not ref.expired then timers[ref]=nil; self.timers = self.timers-1 end
             return ct(ref)
@@ -5016,9 +5038,6 @@ function module.Trigger()
     }
     req.headers["Accept"] = '*/*'
     req.headers["X-Fibaro-Version"] = 2
---    local to = http.TIMEOUT
---    http.TIMEOUT = 1 -- TIMEOUT == 0 doesn't work...
-    --   os.setTimer2(function()
     local r, c, h = copas.http.request(req)       -- ToDo https
 --    http.TIMEOUT = to
     if not r then return nil,c, h end
@@ -5153,7 +5172,7 @@ function module.Utilities()
     local mt = {}
 --  mt.__index = function(tab,key) return rawget(c,key) end
 --  mt.__newindex = function(tab,key,value) rawset(c,key,value) end
-    mt.__call = function(class_tbl, ...) mobdebug.off()
+    mt.__call = function(class_tbl, ...)
       local obj = {}
       setmetatable(obj,class_tbl)
 
@@ -5167,17 +5186,17 @@ function module.Utilities()
 
       if hc3_emulator.strictClass then
         if not rawget(class_tbl,'__init') then error("Class "..name.." missing constructor") end
-        mobdebug.on() class_tbl.__init(obj,...) mobdebug.off()
+        class_tbl.__init(obj,...) 
       else
         if class_tbl.__init then
-          mobdebug.on() class_tbl.__init(obj,...) mobdebug.off()
+          class_tbl.__init(obj,...) 
         else
           if class_tbl.__base and class_tbl.__base.__init then
-            mobdebug.on() class_tbl.__base.__init(obj, ...) mobdebug.off()
+            class_tbl.__base.__init(obj, ...) 
           end
         end
       end
-      mobdebug.on() return obj
+      return obj
     end
 
     if not hc3_emulator.noClassProps then
@@ -5223,7 +5242,7 @@ function module.Utilities()
   function self.class2(name)
     local c = {}    -- a new class instance
     local mt = {}
-    mt.__call = function(class_tbl, ...) mobdebug.off()
+    mt.__call = function(class_tbl, ...)
       local obj = {}
       setmetatable(obj,class_tbl)
       for i,v in pairs(class_tbl) do
@@ -5234,17 +5253,17 @@ function module.Utilities()
 
       if hc3_emulator.strictClass then
         if not rawget(class_tbl,'__init') then error("Class "..name.." missing constructor") end
-        mobdebug.on() class_tbl.__init(obj,...) mobdebug.off()
+        class_tbl.__init(obj,...) 
       else
         if class_tbl.__init then
-          mobdebug.on() class_tbl.__init(obj,...) mobdebug.off()
+          class_tbl.__init(obj,...)
         else
           if class_tbl.__base and class_tbl.__base.__init then
-            mobdebug.on() class_tbl.__base.__init(obj, ...) mobdebug.off()
+            class_tbl.__base.__init(obj, ...)
           end
         end
       end
-      mobdebug.on() return obj
+      return obj
     end
 
     setmetatable(c, mt)
@@ -5297,28 +5316,25 @@ function module.Utilities()
     [LOG.SYS]='purple', [LOG.ERROR]='red',[LOG.HEADER]='blue'
   }
 
+  local function colorStr(color,str)
+    if hc3_emulator.colorDebug then 
+      return (ZBCOLORMAP[color] or ZBCOLORMAP['black'])..str.."\027[0m"
+    else return str end
+  end
+  self.colorStr = colorStr
+
   function Debug(flag,...) if flag then Log(LOG.DEBUG,...) end end
   function Log(flag,arg1,...)
     local args={...}
     local stat,res = pcall(function()
         local str = #args==0 and arg1 or format(arg1,table.unpack(args))
         local color = "black"
-        if hc3_emulator.colorDebug then
-          color = DEBUGCOLORS[flag] or color
-          color = ZBCOLORMAP[color]
-          if flag == LOG.HEADER then
-            str = color..logHeader(100,str).."\027[0m"
-            print(format("%s |%s|: %s",os.date("[%d.%m.%Y] [%X]"),"-----",str))
-            return str
-          else
-            flag = format('%s%s\027[0m', color, flag)
-          end
-        end
-        if flag == LOG.HEADER then print(logHeader(100,str))
-        else
-          print(format("%s |%s|: %s",os.date("[%d.%m.%Y] [%X]"),flag,str))
+        if flag == LOG.HEADER  then
+          print(format("%s |%s|: %s",os.date("[%d.%m.%Y] [%X]"),"-----",colorStr(DEBUGCOLORS[flag],logHeader(100,str))))
           return str
         end
+        print(format("%s |%s|: %s",os.date("[%d.%m.%Y] [%X]"),colorStr(DEBUGCOLORS[flag],flag),str))
+        return str
       end)
     if not stat then error(res) end
   end
@@ -6174,8 +6190,16 @@ function module.WebAPI()
       ["/fibaroapiHC3/event"] = function(_,_,_,_,_,_)
         --- ToDo
       end,
-      ["/fibaroapiHC3/action/(.+)$"] = function(_,_,body,_) onAction(json.decode(body)) end,
-      ["/fibaroapiHC3/ui/(.+)$"] = function(_,_,body,_) onUIEvent(json.decode(body)) end,
+      ["/fibaroapiHC3/action/(.+)$"] = function(client,_,body,_) 
+        local stat,res = pcall(onAction,(json.decode(body)))
+        client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n\n")
+        return true
+      end,
+      ["/fibaroapiHC3/ui/(.+)$"] = function(client,_,body,_) 
+        local stat,res = pcall(onUIEvent,(json.decode(body)))
+        client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n\n")
+        return true
+      end,
       ["/devices/(%d+)/action/(.+)$"] = function(client,_,body,id,action) 
         local data = json.decode(body)
         local event = {actionName=action,deviceId=tonumber(id),args=data.args}
@@ -7342,10 +7366,7 @@ function module.Offline(self)
         --onAction({deviceId=id,actionName=action,args=res})
         local stat,err
         if quickApps[id] then
-          stat = true
-          dev._emu.env.setTimeout(function()
-              dev[action](dev,table.unpack(res))
-            end,0)
+          stat, err = pcall(onAction,{deviceId=id,actionName=action,args=res})
         else
           stat,err = pcall(dev[action],dev,table.unpack(res))
         end
@@ -7627,14 +7648,14 @@ function module.Offline(self)
     for k,_ in pairs(d0.data.actions) do u[k]=d0[k] end
     function u:breach(secRestore)
       u.turnOn(d0)
-      setTimeout(function() u.turnOff(d0) end,1000*secRestore)
+      os.setTimer(function() u.turnOff(d0) end,1000*secRestore)
     end
     function u:delay(s)
       local res = {}
       for k,v in pairs(u) do
         res[k]=function(...)
           local a={...}
-          setTimeout(function() v(d0,select(2,table.unpack(a))) end,s*1000)
+          os.setTimer(function() v(d0,select(2,table.unpack(a))) end,s*1000)
         end
       end
       return res
@@ -7688,9 +7709,9 @@ function module.Offline(self)
     local function midnight()
       setupSuntimes()
       t = t+24*60*60
-      setTimeout(midnight,1000*(t-os.time()))
+      os.setTimer(midnight,1000*(t-os.time()))
     end
-    setTimeout(midnight,1000*(t-os.time()))
+    os.setTimer(midnight,1000*(t-os.time()))
     setupSuntimes()
   end
 
