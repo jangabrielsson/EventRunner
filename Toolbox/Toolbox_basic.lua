@@ -11,9 +11,9 @@
   self._TRACE == false will inhibit all self:trace messages
   self._NOTIFY == true will create NotificationCenter messages for self:error and self:warning
   self._NOTIFYREUSE == true will reuse notifications with same title
-  self._INSTALL_MISSING_MODULES == true will try to install missing modules from githib reppository
+  self._INSTALL_MISSING_MODULES == true will try to install missing modules from github reppository
   self._HTML == true will format space/nl with html codes for log with self:*f functions
-  self._PROPWARN == true will warn if property don't exist when doung self:updateProperty. Default true
+  self._PROPWARN == true will warn if property don't exist when doing self:updateProperty. Default true
   self._ONACTIONLOG == false will inhibit the 'onAction' log message. Default false
   
   Children will be loaded if there are any children (and module 'child' is loaded)

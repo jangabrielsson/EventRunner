@@ -75,6 +75,7 @@ function Toolbox_Module.childs.init(self)
   end
 
   local function setCallbacks(obj,callbacks)
+    if callbacks =="" then return end
     local cbs = {}
     for _,cb in ipairs(callbacks or {}) do
       cbs[cb.name]=cbs[cb.name] or {}

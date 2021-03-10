@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.178"
+local FIBAROAPIHC3_VERSION = "0.179"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -194,7 +194,7 @@ local _debugFlags = {
   fcall=true, fget=true, post=true, trigger=true, timers=nil, refreshLoop=false,
   mqtt=true, http=false, onAction=true, UIEvent=true, debugPlugin=true,
   webServer=false, webServerReq=false,
-  ctx=false, timersSched=false, timersWarn=true, timersExtra=true,
+  ctx=false, timersSched=false, timersWarn=0.500, timersExtra=true,
 }
 local function merge(t1,t2)
   if type(t1)=='table' and type(t2)=='table' then for k,v in pairs(t2) do if t1[k]==nil then t1[k]=v else merge(t1[k],v) end end end
@@ -564,9 +564,9 @@ function module.FibaroAPI()
     return a,b,c
   end
   local GETintercepts = {
-    ['/devices'] = function(call) return getExtras(call,quickApps) end,   
-    ['/devices?interface=quickApp'] = function(call) return getExtras(call,quickApps) end,  
-    ['/scenes'] = function(call) return getExtras(call,scenes) end,  
+    ['/devices'] = function(call) return getExtras(call,quickApps) end,
+    ['/devices?interface=quickApp'] = function(call) return getExtras(call,quickApps) end,
+    ['/scenes'] = function(call) return getExtras(call,scenes) end,
   }
   GETintercepts['/devices/'] = GETintercepts['/devices']
   GETintercepts['/scenes/'] = GETintercepts['/scenes']
@@ -582,7 +582,11 @@ function module.FibaroAPI()
     else return rawCall("GET",call) end
   end
   function api.put(call, data, hc3) return rawCall("PUT",call,json.encode(data),"application/json", hc3) end
-  function api.post(call, data, hc3) return rawCall("POST",call,data and json.encode(data),"application/json", hc3) end
+  function api.post(call, data, hc3)
+    if call=='/plugins/restart' and quickApps[data.deviceId] then
+      return Offline.api("POST",call,data,nil,hc3)
+    else return rawCall("POST",call,data and json.encode(data),"application/json", hc3)  end
+  end
   function api.delete(call, data, hc3) return rawCall("DELETE",call,data and json.encode(data),"application/json", hc3) end
 
   -- Used by api.* call
@@ -719,7 +723,7 @@ function module.HTTP()
         req.headers["Content-Length"] = #req.data
         req.source = ltn12.source.string(req.data)
       else req.headers["Content-Length"]=0 end
-      local ctx,call = getContext()
+      local ctx,call = getContext(),nil
       assert(ctx._getLock,"net.HTTPClient() not called from QuickApp/Scene")
       local sync = i_options and i_options.sync==true
       call = sync and (function(f) f() end) or ctx.setTimeout
@@ -3177,7 +3181,7 @@ function module.Timer()
       if self.line then extra = format("%s %s,line:%s",extra,self.source,self.line) end
       if _debugFlags.timersWarn then
         local diff = os.milliTime()-self.time
-        return colorStr(diff > 0.1 and 'red' or 'green',self.tostr..os.milliStr(self.time)..extra..">")
+        return colorStr(diff > _debugFlags.timersWarn and 'red' or 'green',self.tostr..os.milliStr(self.time)..extra..">")
       else
         return self.tostr..os.milliStr(self.time)..extra..">"
       end
@@ -3272,11 +3276,12 @@ function module.Timer()
   end
 
   local function deleteTimer(timer) -- ToDo: delete scheduled timer?
-    if timer==nil then return
-    elseif timers == timer then
+    if timer==nil then return end
+    timer.expired = true
+    if timers == timer then
       timers = timers.next
-      if runT then runT:cancel() end
-      runT = os.setTimer2(runTimers,max(timers.time-os.milliTime(),0))
+      if runT then runT:cancel() runT=nil end
+      if timers then runT = os.setTimer2(runTimers,max(timers.time-os.milliTime(),0)) end
     else
       local tp = timers
       while tp and tp.next do
@@ -3352,9 +3357,20 @@ function module.Timer()
 
   function clearTimeout(timer)
     if ISTIMER(timer) and not timer.expired then
-      timer.expired=true
       deleteTimer(timer)
     end
+  end
+
+  function self.killTimers(id)
+    local n,killable = 0,function (t) return t and t.env and t.env._ENVID == id end
+    while killable(timers) do deleteTimer(timers) n=n+1 end
+    if timers==nil then return n end
+    local t = timers
+    while t.next do
+      if killable(t.next) then deleteTimer(t.next) n=n+1
+      else t=t.next end
+    end
+    return n
   end
 
   function setInterval(fun,ms,tag)
@@ -3510,9 +3526,13 @@ function module.QuickApp()
   end
 
   function QuickAppBase:callAction(fun, ...)
-    if type(self[fun])=='function' then return self[fun](self,...)
+    local args = {...}
+    if type(self[fun])=='function' then 
+      self._emu.env.setTimeout(function()
+          pcall(self[fun],self,table.unpack(args))
+        end,0)
     else
-      self:warning("Class does not have "..fun.." function defined - action ignored")
+      error("Class does not have "..fun.." function defined - action ignored")
     end
   end
 
@@ -3963,22 +3983,19 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
     local self = quickApps[event.deviceId]
     if self.parentId then self = quickApps[self.parentId] end
     assert(self,"Unknown deviceID for onAction:"..event.deviceId)
-    self._emu.env.setTimeout(function()
-        if self.actionHandler then self:actionHandler(event)
+    if self.actionHandler then self:actionHandler(event)
+    else
+      local id = event.deviceId
+      if id == self.id then
+        self:callAction(event.actionName, table.unpack(event.args))
+      else
+        local child = self.childDevices[id]
+        if child then child:callAction(event.actionName, table.unpack(event.args))
         else
-          local id = event.deviceId
-          if id == self.id then
-            self:callAction(event.actionName, table.unpack(event.args))
-          else
-            local child = self.childDevices[id]
-            if child then child:callAction(event.actionName, table.unpack(event.args))
-            else
-              Log(LOG.WARNING,"Child with id:%s not found.", id)
-            end
-          end
+          error(format("Child with id:%s not found.", id))
         end
-      end,0)
-    return true
+      end
+    end
   end
 
 --"{\"eventType\":\"onReleased\",\"values\":[null],\"elementName\":\"bt\",\"deviceId\":726}"
@@ -3988,23 +4005,20 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
     local self = quickApps[event.deviceId]
     if self.parentId then self = quickApps[self.parentId] end
     assert(self,"Unknown deviceID for UIEvent:"..event.deviceId)
-    self._emu.env.setTimeout(function()
-        if self.UIHandler then self:UIHandler(event)
-        else
-          local elm,etyp = event.elementName, event.eventType
-          local cb = self.uiCallbacks
-          if cb[elm] and cb[elm][etyp] then
-            if etyp=='onChanged' then
-              QA.setWebUIValue(event.deviceId,elm,'value',event.values[1])
-            end
-            return self:callAction(cb[elm][etyp], event)
-          elseif self[elm] then
-            return self:callAction(elm, event)
-          end
-          Log(LOG.WARNING,"UI callback for element:%s not found.", elm)
+    if self.UIHandler then self:UIHandler(event)
+    else
+      local elm,etyp = event.elementName, event.eventType
+      local cb = self.uiCallbacks
+      if cb[elm] and cb[elm][etyp] then
+        if etyp=='onChanged' then
+          QA.setWebUIValue(event.deviceId,elm,'value',event.values[1])
         end
-      end,0)
-    return true
+        return self:callAction(cb[elm][etyp], event)
+      elseif self[elm] then
+        return self:callAction(elm, event)
+      end
+      error(format("UI callback for element:%s not found.", elm))
+    end
   end
 
 
@@ -4304,7 +4318,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
           if not fl then self.interfaces[#self.interfaces+1]='quickApp' end
 
           -- Connected to something at the HC3...
-          local remoteDevice,qvs=nil,{}
+          local remoteDevice,qvs={},vars2list(quickVars)
           for n,v in pairs(quickVars) do qvs[#qvs+1]={name=n, value=v} end
 
           if not hc3_emulator.offline then
@@ -4341,6 +4355,10 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
             }
           }
 
+          function device.kill()
+            Log(LOG.LOG,"Here we should kill %s",device.id)
+          end
+
           quickApps[device.id] = device
           codeEnv._getLock()
           local status, err, ret = xpcall(
@@ -4363,8 +4381,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
     return self
   end
 
-  commandLines['pullqatobuffer']=self.copyQA
-  commandLines['deploy']=function(file)
+  function hc3_emulator.loadQAScene(file)
     local code,done = Files.file.read(file),nil
     hc3_emulator._code = code
     if code:match("hc3_emulator%.actions") then
@@ -4375,6 +4392,12 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
       Log(LOG.LOG,"Unrecognized file")
     end
     hc3_emulator._code = nil
+  end
+
+  commandLines['pullqatobuffer']=self.copyQA
+  commandLines['deploy']=function(file)
+    print("OKOKOK")
+    hc3_emulator.loadQAScene(file)
     fibaro.sleep(2000)
     os.exit()
   end
@@ -4786,6 +4809,8 @@ climate
           end
 
           codeEnv.sceneId = self.id
+
+          codeEnv._ENVID='SCENE'..self.id
           codeEnv.tag = "Scene"..self.id
           self.timers = 0
           self.content = json.encode({
@@ -4800,7 +4825,6 @@ climate
           codeEnv.print = function(...) codeEnv.fibaro.debug(codeEnv.tag:upper(),...) end
 
           local st = setTimeout
-          local timers = {}
           local function errHandler(err)
             Log(LOG.ERROR,"Scene timer %s for '%s', sceneId:%s, crashed - %s",codeEnv._lastTimer,self.name,self.id,err)
           end
@@ -4815,16 +4839,14 @@ climate
               end
               if not stat then error(res,2) end
             end
-            local ref = st(f,ms,tag,errHandler,codeEnv)
-            timers[ref]=true
-            return ref
+            return st(f,ms,tag,errHandler,codeEnv)
           end
 
-          local st1,ct = codeEnv.setTimeout,codeEnv.fibaro.clearTimeout
-          codeEnv.fibaro.setTimeout = function(a,b,...) return st1(b,a,...) end 
+          local ct1 = codeEnv.fibaro.clearTimeout
+          codeEnv.fibaro.setTimeout = function(a,b,...) return codeEnv.setTimeout(b,a,...) end
           function codeEnv.fibaro.clearTimeout(ref)
-            if not ref.expired then timers[ref]=nil; self.timers = self.timers-1 end
-            return ct(ref)
+            self.timers = self.timers-1
+            return ct1(ref)
           end
 
           scenes[self.id] = self
@@ -4850,10 +4872,10 @@ climate
               end)
           end
 
-          function self.kill()
-            for ref,_ in pairs(timers) do 
-              codeEnv.fibaro.clearTimeout(ref)
-            end
+          function self.kill() 
+            Log(LOG.SYS,"Killing scene %s, timers=%s",self.id,Timer.killTimers("SCENE"..self.id)) 
+            self.struct.isRunning = false
+            Log(LOG.HEADER,"Scene '%s', sceneId:%s, terminated at %s",self.name,self.id,os.date("%c"))
           end
 
           function self.eventHandler(e)
@@ -6085,7 +6107,7 @@ function module.WebAPI()
           local i,v = a:match("^arg(%d+)=(.*)")
           res[tonumber(i)]=json.decode(urldecode(v))
         end
-        local stat,res2=pcall(function() onAction({actionName=action,deviceId=tonumber(id),args=res}) end)
+        local stat,res2=pcall(onAction,{actionName=action,deviceId=tonumber(id),args=res})
         if not stat then Log(LOG.ERROR,"Bad eventCall:%s",res2) end
         client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n\n")
         return true
@@ -6203,8 +6225,8 @@ function module.WebAPI()
       ["/devices/(%d+)/action/(.+)$"] = function(client,_,body,id,action) 
         local data = json.decode(body)
         local event = {actionName=action,deviceId=tonumber(id),args=data.args}
-        local stat,err=pcall(function() onAction(event) end)
-        if not stat then error(format("Bad fibaro.call(%s,'%s',%s)",id,action,json.encode(data.args):sub(2,-2),err),4) end
+        local stat,err=pcall(onAction,event)
+        if not stat then error(format("Bad fibaro.call(%s,'%s',%s) - %s",id,action,json.encode(data.args):sub(2,-2),err),4) end
         client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n\n")
         return true
       end,
@@ -7363,7 +7385,6 @@ function module.Offline(self)
         end
         dev = quickApps[id] or resources.devices[id]
         if not dev then return nil,404 end
-        --onAction({deviceId=id,actionName=action,args=res})
         local stat,err
         if quickApps[id] then
           stat, err = pcall(onAction,{deviceId=id,actionName=action,args=res})
@@ -7371,7 +7392,7 @@ function module.Offline(self)
           stat,err = pcall(dev[action],dev,table.unpack(res))
         end
         if not stat then
-          Log(LOG.ERROR,"Bad fibaro.call(%s,'%s',%s)",id,action,json.encode(res):sub(2,-2),err)
+          Log(LOG.ERROR,"Bad fibaro.call(%s,'%s',%s) - %s",id,action,json.encode(res):sub(2,-2),err)
           return nil,501
         end
         return nil,200
@@ -7503,15 +7524,12 @@ function module.Offline(self)
         end
         local stat,err
         if quickApps[id] then
-          stat = true
-          dev._emu.env.setTiemout(function()
-              dev[action](dev,table.unpack(data.args))
-            end,0)
+          stat,err = pcall(onAction,{deviceId=id,actionName=action,args=data.args})
         else
           stat,err = pcall(dev[action],dev,table.unpack(data.args))
         end
         if not stat then
-          Log(LOG.ERROR,"Bad fibaro.call(%s,'%s',%s)",id,action,json.encode(data.args):sub(2,-2),err)
+          Log(LOG.ERROR,"Bad fibaro.call(%s,'%s',%s) - %s",id,action,json.encode(data.args):sub(2,-2),err)
           return nil,501
         end
         return nil,200
@@ -7530,7 +7548,13 @@ function module.Offline(self)
           return nil,409
         end
         Trigger.checkEvents({type='CustomEvent', data={name=name,}})
-      end
+      end,
+      ["/plugins/restart$"] = function(_,data,_)
+        if quickApps[data.deviceId] then
+          quickApps[data.deviceId].kill()
+          return data,200
+        end
+      end,     
     },
     ["PUT"] = {
       ["/globalVariables/(.+)"] = function(_,data,_,name) -- modify value
@@ -8176,6 +8200,8 @@ function Util.createEnvironment(envType, extras)
     env.io = io
     env.dofile = hc3_emulator.dofile -- Allow dofile for including code for testing, but use our version that sets context
     env.loadfile = loadfile
+    env.require = require
+    env.type = type
   end
 
   return env
