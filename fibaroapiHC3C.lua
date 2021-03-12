@@ -3888,6 +3888,7 @@ local function createQuickApp(args)
   --body = replaceRequires(body)
   local UI = args.UI or {}
   local variables = args.quickVars or {}
+  local interfaces = args.interfaces
   local dryRun = args.dryrun or false
   d.apiVersion = "1.2"
   if not args.initialProperties then
@@ -3898,7 +3899,7 @@ local function createQuickApp(args)
   if not d.initialProperties.uiCallbacks[1] then
     d.initialProperties.uiCallbacks = nil
   end
-
+  
   if type(files)=='string' then files = {{name='main',type='lua',isMain=true,isOpen=false,content=files}} end
   d.files  = {}
 
@@ -3907,7 +3908,7 @@ local function createQuickApp(args)
   if dryRun then return d end
 
   local what,d1,res="updated"
-  if args.id then
+  if args.id and api.get("/devices/"..args.id,true) then
     d1,res = api.put("/devices/"..args.id,{
         properties={
           quickAppVariables = d.initialProperties.quickAppVariables,
@@ -4147,6 +4148,7 @@ local function loadQA(arg)
     self.name = env1.hc3_emulator.name or arg:match("(.-)%.[Ll][Uu][Aa]$")
     self.type = env1.hc3_emulator.type or "com.fibaro.binarySwitch"
     self.id = env1.hc3_emulator.id
+    self.interfaces = env1.hc3_emulator.interfaces
     self.resources = env1.hc3_emulator.resources
     self.proxy = env1.hc3_emulator.proxy or false
     loadResources(self)
@@ -4416,8 +4418,7 @@ end
 
 commandLines['pullqatobuffer']=self.copyQA
 commandLines['deploy']=function(file)
-  print("OKOKOK")
-  hc3_emulator.loadQAScene(file)
+  hc3_emulator.loadQAorScene(file)
   fibaro.sleep(2000)
   os.exit()
 end
@@ -4718,6 +4719,7 @@ climate
       local code = hc3_emulator._code or ff.read(arg)
       hc3_emulator._code = nil
       local header,env1 = code:match("^if(.-)[\n\r]end"),{dofile=function() end}
+      print(header)
       local e1,msg = load("if "..header.." end",nil,nil,env1)
       if msg then error(msg) end
       local stat,res = pcall(e1)
