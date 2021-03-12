@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.181"
+local FIBAROAPIHC3_VERSION = "0.182"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -3899,7 +3899,7 @@ local function createQuickApp(args)
   if not d.initialProperties.uiCallbacks[1] then
     d.initialProperties.uiCallbacks = nil
   end
-  
+
   if type(files)=='string' then files = {{name='main',type='lua',isMain=true,isOpen=false,content=files}} end
   d.files  = {}
 
@@ -4109,14 +4109,14 @@ local function loadQA(arg)
     local name = ff.extract_name(arg)
     local dir = arg:sub(1,-(name:len()+1))
     local files,paths = {},{}
-    local prefix = "^"..name:match("(.*)%.[Jj][Ss][Oo][Nn]$").."(.*)%.lua"
+    local prefix = "^"..name:match("(.*)%.[Jj][Ss][Oo][Nn]$").."_(%d+)_(.-)%.lua"
     assert(ff.dir(dir),"Not a directory: "..tostring(dir))
     for d,n in ff.dir(dir) do -- read unpacked files
       if d:match(prefix) then
-        local name = d:match("_([^_]+)%.lua")
+        local id,name = d:match("(%d+)_([^_]+)%.lua")
         assert(name,"Bad unpacked file "..d)
         local content  = ff.read(dir..d)
-        files[#files+1]={name=name, content=content, type="lua", isMain=name == 'main', isOpen=false}
+        files[tonumber(id)]={name=name, content=content, type="lua", isMain=name == 'main', isOpen=false}
         paths[name]=dir..d
       end
     end
@@ -4162,7 +4162,15 @@ local function loadQA(arg)
   else error("Bad argument to loadQA") end
 
   --  Inject args -- overwriting existing args
-  function self:args(args) for k,v in pairs(args) do self[k]=v end return self end
+  function self:args(args) 
+    for k,v in pairs(args) do
+      if k=='quickVars' then
+        self.quickVars = self.quickVars or {}
+        for m,n in pairs(v) do self.quickVars[m]=n end
+      else self[k]=v end
+    end 
+    return self 
+  end
 
   -- Saving file in filesystem. We can save in .fqa or "unpacked" format
   function self:save(fm,path,overwrite)
@@ -4205,7 +4213,7 @@ local function loadQA(arg)
       end
       local paths = {}
       for i,f in ipairs(self.files or self.fqa.files or {}) do
-        local name = path.."_"..f.name:gsub("(%/)","_")..".lua"
+        local name = path.."_"..i.."_"..f.name:gsub("(%/)","_")..".lua"
         ff.write(name,f.content,overwrite)
         paths[f.name]=name
       end
@@ -8168,7 +8176,10 @@ function Util.createEnvironment(envType, extras)
   env.ipairs = ipairs
   env.pcall = pcall
   env.error = error
-  env.type = function(o) local t = type(o) return t=='table' and t._USERDATA and 'userdata' or t end
+  env.type = function(o) 
+    local t = type(o) 
+    return t=='table' and o._USERDATA and 'userdata' or t 
+  end
   env.next = next
   env.select = select
   env.assert = assert
@@ -8202,6 +8213,7 @@ function Util.createEnvironment(envType, extras)
     env.bit32 = bit32
     env.debug = debug
     env.mqtt = mqtt
+    env.unpack = unpack
     env.os = { time = os.time, date = os.date, clock = os.clock, difftime = os.difftime }
 
     local mt = getmetatable(QuickApp)
