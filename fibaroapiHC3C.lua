@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.180"
+local FIBAROAPIHC3_VERSION = "0.181"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -560,7 +560,12 @@ function module.FibaroAPI()
   local rawCall
   local function getExtras(call,devs)
     local a,b,c = rawCall("GET",call)
-    if type(a)=='table' then for _,d in pairs(devs) do a[#a+1]=d.deviceStruct or d end end
+    if type(a)=='table' then 
+      local d = {}
+      for _,i in ipairs(a) do if not devs[i.id] then d[#d+1]=i end end
+      for _,i in pairs(devs) do d[#d+1]=i.deviceStruct or i end
+      a = d
+    end
     return a,b,c
   end
   local GETintercepts = {
@@ -5211,7 +5216,7 @@ function module.Utilities()
 --  mt.__index = function(tab,key) return rawget(c,key) end
 --  mt.__newindex = function(tab,key,value) rawset(c,key,value) end
     mt.__call = function(class_tbl, ...)
-      local obj = {_CLASS=true}
+      local obj = {_USERDATA=true}
       setmetatable(obj,class_tbl)
 
       if hc3_emulator.noClassProps then
@@ -5281,7 +5286,7 @@ function module.Utilities()
     local c = {}    -- a new class instance
     local mt = {}
     mt.__call = function(class_tbl, ...)
-      local obj = {_CLASS=true}
+      local obj = {_USERDATA=true}
       setmetatable(obj,class_tbl)
       for i,v in pairs(class_tbl) do
         if not ({__index=true,__newindex=true,__base=true,__init=true})[i] then
@@ -6209,7 +6214,7 @@ function module.WebAPI()
               if tonumber(str.value.value) then 
                 res[tostring(id)] = tostring(str.value.value)
               end
-              Log(LOG.LOG,"Update %s, %s",id,str.value.value)
+              --Log(LOG.LOG,"Update %s, %s",id,str.value.value)
             end
           end
         end
@@ -6552,7 +6557,7 @@ tr:nth-child(even) {
 <td style="width:80px;" align="center"><span id="D%s" class="dot"></span></td>
 <td><button type="button" onClick="QAbutton(%s,'turnOn');">Turn ON</button></td>
 <td><button type="button" onClick="QAbutton(%s,'turnOff');">Turn Off</button></td>
-<td> </td><td><input type="range" class="form-control-range" max="99" min="0" value="0"
+<td> </td><td><input type="range" class="form-control-range" max="99" min="0" value="%s"
     onmouseup="QAslider(%s,this.value);"
     onmouseup="QAslider(%s,this.value);"
     oninput="$('#L%s').text(value);"
@@ -6561,7 +6566,8 @@ tr:nth-child(even) {
 <td><label id="L%s">0</label></td>
 </tr>
 ]]
-    return ctrl:format(d.id,d.name,d.id,d.id,d.id,d.id,d.id,d.id,d.id,d.id)
+    return 
+    ctrl:format(d.id,d.name,d.id,d.id,d.id,fibaro.getValue(d.id,"value"),d.id,d.id,d.id,d.id,d.id)
   end
 
 
@@ -8160,7 +8166,7 @@ function Util.createEnvironment(envType, extras)
   env.ipairs = ipairs
   env.pcall = pcall
   env.error = error
-  env.type = function(t) return type(t)=='table' and t._CLASS and 'userdata' or type(t) end
+  env.type = function(o) local t = type(o) return t=='table' and t._USERDATA and 'userdata' or t end
   env.next = next
   env.select = select
   env.assert = assert
