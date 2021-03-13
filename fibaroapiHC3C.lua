@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.182"
+local FIBAROAPIHC3_VERSION = "0.183"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -739,1298 +739,1302 @@ function module.HTTP()
           if not sync then ctx._getLock() end
           if _debugFlags.http then Log(LOG.LOG,"httpRequest(%.03fs): %s %s %s",os.milliTime()-t1,req.method,url,req.data or "") end
           if tonumber(status) and status >= 200 and status < 400 then
-            if args.success then call(function() args.success({status=status, headers=headers, data=table.concat(resp)}) end,0) end
-          elseif args.error then call(function() args.error(status) end,0) end
-        end, 0, false, ctx)
-      return nil
-    end
-    local pstr = "HTTPClient object: "..tostring(self):match("%s(.*)")
-    setmetatable(self,{__tostring = function() return pstr end})
-    return self
-  end
-
-  function net.TCPSocket(opts)
-    local self = { opts = opts or {} }
-    local sock = socket.tcp()
-    function self:connect(ip, port, opts)
-      for k,v in pairs(self.opts) do opts[k]=v end
-      copas.addthread(function()
-          local sock, err = sock:connect(ip,port)
-          if err==nil and opts.success then opts.success()
-          elseif opts.error then opts.error(err) end
-        end)
-    end
-    function self:read(opts)
-      copas.addthread(function()
-          local data,err = sock:receive()
-          if data and opts.success then opts.success(data)
-          elseif data==nil and opts.error then opts.error(err) end
-        end)
-    end
-    function self:readUntil(delimiter, callbacks) end
-    function self:write(data, opts)
-      copas.addthread(function()
-          local res,err = sock:send(data)
-          if res and opts.success then opts.success(res)
-          elseif res==nil and opts.error then opts.error(err) end
-        end)
-    end
-    function self:close() sock:close() end
-    local pstr = "TCPSocket object: "..tostring(self):match("%s(.*)")
-    setmetatable(self,{__tostring = function() return pstr end})
-    return self
-  end
-
-  function net.UDPSocket(opts)
-    local self = { opts = opts or {} }
-    local sock = socket.udp()
-    if self.opts.broadcast~=nil then
-      sock:setsockname(Util.getIPaddress(), 0)
-      sock:setoption("broadcast", self.opts.broadcast)
-    end
-    if opts.timeout~=nil then sock:settimeout(opts.timeout / 1000) end
-    function self:sendTo(datagram, ip,port, callbacks) -- udp sendTo doesn't block.
-      local stat, res = sock:sendto(datagram, ip, port)
-      if stat and callbacks.success then
-        pcall(function() callbacks.success(1) end)
-      elseif stat==nil and callbacks.error then
-        pcall(function() callbacks.error(res) end)
+            if args.success then 
+              call(function() 
+                  args.success({status=status, headers=headers, data=table.concat(resp)}) end,0,"HTTP Success handler",nil,nil,
+                  _debugFlags.timersExtra and debug.getinfo(args.success,"Sl")) 
+              end
+            elseif args.error then call(function() args.error(status) end,0,"HTTP Error handler") end
+          end, 0, "HTTPClient", ctx)
+        return nil
       end
-    end
-    function self:bind(ip,port) sock:setsockname(ip,port) end
-    function self:receive(callbacks)
-      copas.addthread(function()
-          local stat, res = sock:receivefrom()
-          if stat and callbacks.success then
-            pcall(function() callbacks.success(stat, res) end)
-          elseif stat==nil and callbacks.error then
-            pcall(function() callbacks.error(res) end)
-          end
-        end)
-    end
-    function self:close() sock:close() end
-    local pstr = "UDPSocket object: "..tostring(self):match("%s(.*)")
-    setmetatable(self,{__tostring = function() return pstr end})
-    return self
-  end
-
--------------- MQTT support ---------------------
-  local function safeJson(e)
-    if type(e)=='table' then
-      for k,v in pairs(e) do e[k]=safeJson(v) end
-      return e
-    elseif type(e)=='function' or type(e)=='thread' or type(e)=='userdata' then return tostring(e)
-    else return e end
-  end
-
-  local stat,_mqtt=pcall(function() return require("mqtt") end)
-  if stat then
-    mqtt={
-      Client = {},
-      QoS = {EXACTLY_ONCE=1},
-      MSGT = {
-        CONNECT = 1,
-        CONNACK = 2,
-        PUBLISH = 3,
-        PUBACK = 4,
-        PUBREC = 5,
-        PUBREL = 6,
-        PUBCOMP = 7,
-        SUBSCRIBE = 8,
-        SUBACK = 9,
-        UNSUBSCRIBE = 10,
-        UNSUBACK = 11,
-        PINGREQ = 12,
-        PINGRESP = 13,
-        DISCONNECT = 14,
-        AUTH = 15,
-      },
-      MSGMAP = {
-        [9]='subscribed',
-        [11]='unsubscribed',
-        [4]='published',  -- Should be onpublished according to doc?
-        [14]='closed',
-      }
-    }
-    function mqtt.Client.connect(uri, options)
-      options = options or {}
-      local args = {}
-      args.uri = uri
-      args.uri = string.gsub(uri, "mqtt://", "")
-      args.username = options.username
-      args.password = options.password
-      args.clean = options.cleanSession
-      if args.clean == nil then args.clean=true end
-      args.will = options.lastWill
-      args.keep_alive = options.keepAlivePeriod
-      args.id = options.clientId
-
-      --cafile="...", certificate="...", key="..." (default false)
-      if options.clientCertificate then -- Not in place...
-        args.secure = {
-          certificate= options.clientCertificate,
-          cafile = options.certificateAuthority,
-          key = "",
-        }
-      end
-
-      local _client = _mqtt.client(args)
-      local client={ _client=_client, _handlers={} }
-      function client:addEventListener(message,handler)
-        self._handlers[message]=handler
-      end
-      function client:subscribe(topic, options)
-        options = options or {}
-        local args = {}
-        args.topic = topic
-        args.qos = options.qos or 0
-        args.callback = options.callback
-        return self._client:subscribe(args)
-      end
-      function client:unsubscribe(topics, options)
-        if type(topics)=='string' then return self._client:unsubscribe({topic=topics})
-        else
-          local res
-          for _,t in ipairs(topics) do res=self:unsubscribe(t) end
-          return res
-        end
-      end
-      function client:publish(topic, payload, options)
-        options = options or {}
-        local args = {}
-        args.topic = topic
-        args.payload = payload
-        args.qos = options.qos or 0
-        args.retain = options.retain or false
-        args.callback = options.callback
-        return self._client:publish(args)
-      end
-      function client:disconnect(options)
-        options = options or {}
-        local args = {}
-        args.callback = options.callback
-        return self._client:disconnect(args)
-      end
-      --function client:acknowledge() end
-
-      _client:on{
-        --{"type":2,"sp":false,"rc":0}
-        connect = function(connack)
-          Debug(_debugFlags.mqtt,"MQTT connect:"..Util.prettyJson(connack))
-          if client._handlers['connected'] then
-            client._handlers['connected']({sessionPresent=connack.sp,returnCode=connack.rc})
-          end
-        end,
-        subscribe = function(event)
-          Debug(_debugFlags.mqtt,"MQTT subscribe:"..Util.prettyJson(event))
-          if client._handlers['subscribed'] then client._handlers['subscribed'](safeJson(event)) end
-        end,
-        unsubscribe = function(event)
-          Debug(_debugFlags.mqtt,"MQTT unsubscribe:"..Util.prettyJson(event))
-          if client._handlers['unsubscribed'] then client._handlers['unsubscribed'](safeJson(event)) end
-        end,
-        message = function(msg)
-          Debug(_debugFlags.mqtt,"MQTT message:"..Util.prettyJson(msg))
-          local msgt = mqtt.MSGMAP[msg.type]
-          if msgt and client._handlers[msgt] then client._handlers[msgt](msg)
-          elseif client._handlers['message'] then client._handlers['message'](msg) end
-        end,
-        acknowledge = function(event)
-          Debug(_debugFlags.mqtt,"MQTT acknowledge:"..Util.prettyJson(event))
-          if client._handlers['acknowledge'] then client._handlers['acknowledge']() end
-        end,
-        error = function(err)
-          if _debugFlags.mqtt then Log(LOG.ERROR,"MQTT error:"..err) end
-          if client._handlers['error'] then client._handlers['error'](err) end
-        end,
-        close = function(event)
-          Debug(_debugFlags.mqtt,"MQTT close:"..Util.prettyJson(event))
-          event = safeJson(event)
-          if client._handlers['closed'] then client._handlers['closed'](safeJson(event)) end
-        end,
-        auth = function(event)
-          Debug(_debugFlags.mqtt,"MQTT auth:"..Util.prettyJson(event))
-          if client._handlers['auth'] then client._handlers['auth'](safeJson(event)) end
-        end,
-      }
-
-      _mqtt.get_ioloop():add(client._client)
-      if not mqtt._loop then
-        local iter = _mqtt.get_ioloop()
-        mqtt._loop = os.setTimer(function() iter:iteration() end,1000,true)
-      end
-      return client
-    end
-  else
-    mqtt={ Client = {} }
-    function mqtt.Client.connect()
-      Log(LOG.ERROR,
-[[You need to have installed https://github.com/xHasKx/luamqtt so that require("mqtt") works from fibaroapiHC3.lua]]
-      )
-    end
-  end
-
--------------- WebSocket support ---------------------
-  local stat2,websocket = pcall(function()
-      local v,res=_VERSION,require("wsLua_ER")
-      net._WSVERSION,_VERSION = _VERSION,v
-      return res
-    end)
-  if stat2 then
-
-    function net.WebSocketClientTls()
-      local POLLINTERVAL = 1000
-      local conn,err,lt = nil
-      local self = { }
-      local handlers = {}
-      local function dispatch(h,...)
-        if handlers[h] then
-          h = handlers[h]
-          local args = {...}
-          os.setTimer(function() h(table.unpack(args)) end,0)
-        end
-      end
-      local function listen()
-        if not conn then return end
-        local function loop()
-          if lt == nil then return end
-          websocket.wsreceive(conn)
-          if lt then lt = os.setTimer(loop,POLLINTERVAL) end
-        end
-        lt = os.setTimer(loop,0)
-      end
-      local function stopListen() if lt then clearTimeout(lt) lt = nil end end
-      local function disconnected() websocket.wsclose(conn) conn=nil; stopListen(); dispatch("disconnected") end
-      local function connected() self.co = true; listen();  dispatch("connected") end
-      local function dataReceived(data) dispatch("dataReceived",data) end
-      local function error(err) dispatch("error",err) end
-      local function message_handler( conn, opcode, data, ... )
-        if not opcode then
-          error(data)
-          disconnected()
-        else
-          dataReceived(data)
-        end
-      end
-      function self:addEventListener(h,f) handlers[h]=f end
-      function self:connect(url)
-        if conn then return false end
-        conn, err = websocket.wsopen( url, message_handler, nil ) --options )
-        if not err then connected(); return true
-        else return false,err end
-      end
-      function self:send(data)
-        if not conn then return false end
-        if not websocket.wssend(conn,1,data) then return disconnected() end
-        return true
-      end
-      function self:isOpen() return conn and true end
-      function self:close() if conn then disconnected() return true end end
+      local pstr = "HTTPClient object: "..tostring(self):match("%s(.*)")
+      setmetatable(self,{__tostring = function() return pstr end})
       return self
     end
 
-    net.WebSocketClient = net.WebSocketClientTls
-  else
-    function net.WebSocketClientTls()
-      Log(LOG.ERROR,
-[[You need to have installed https://github.com/jangabrielsson/wsLua_ER so that require("wsLua_ER") works from fibaroapiHC3.lua]]
-      )
-    end
-    net.WebSocketClient = net.WebSocketClientTls
-  end
-
-end
-
--------------- Timer support -------------------------
-function module.Timer()
-  local self = {}
-  local copas,timer,timerwheel2,lock
-  local http,binaryheap
-
-  ------- Timer wheel --------------
-  do
-    local default_now  -- return time in seconds
-    if _G['ngx'] then -- no problem, main thread
-      default_now = _G['ngx'].now
-    else
-      local ok, socket = true,socket ---pcall(require, "socket")
-      if ok then
-        default_now = socket.gettime
-      else
-        default_now = nil -- we don't have a default
+    function net.TCPSocket(opts)
+      local self = { opts = opts or {} }
+      local sock = socket.tcp()
+      function self:connect(ip, port, opts)
+        for k,v in pairs(self.opts) do opts[k]=v end
+        copas.addthread(function()
+            local sock, err = sock:connect(ip,port)
+            if err==nil and opts.success then opts.success()
+            elseif opts.error then opts.error(err) end
+          end)
       end
+      function self:read(opts)
+        copas.addthread(function()
+            local data,err = sock:receive()
+            if data and opts.success then opts.success(data)
+            elseif data==nil and opts.error then opts.error(err) end
+          end)
+      end
+      function self:readUntil(delimiter, callbacks) end
+      function self:write(data, opts)
+        copas.addthread(function()
+            local res,err = sock:send(data)
+            if res and opts.success then opts.success(res)
+            elseif res==nil and opts.error then opts.error(err) end
+          end)
+      end
+      function self:close() sock:close() end
+      local pstr = "TCPSocket object: "..tostring(self):match("%s(.*)")
+      setmetatable(self,{__tostring = function() return pstr end})
+      return self
     end
 
-    new_tab = function(narr, nrec) return {} end
-
-    local xpcall = xpcall --pcall(function() return require("coxpcall").xpcall end) or xpcall
-    local default_err_handler = function(err)
-      io.stderr:write(debug.traceback("TimerWheel callback failed with: " .. tostring(err)))
-    end
-
-    local math_floor = math.floor
-    local math_huge = math.huge
-    local EMPTY = {}
-
-    local _M = {}
-
-    function _M.new(opts)
-      assert(opts ~= _M, "new should not be called with colon ':' notation")
-
-      opts = opts or EMPTY
-      assert(type(opts) == "table", "expected options to be a table")
-
-      local precision = opts.precision or 0.050  -- in seconds, 50ms by default
-      local ringsize  = opts.ringsize or 72000   -- #slots per ring, default 1 hour = 60 * 60 / 0.050
-      local now       = opts.now or default_now  -- function to get time in seconds
-      local err_handler = opts.err_handler or default_err_handler
-      opts = nil   -- luacheck: ignore
-
-      assert(type(precision) == "number" and precision > 0,
-        "expected 'precision' to be number > 0")
-      assert(type(ringsize) == "number" and ringsize > 0 and math_floor(ringsize) == ringsize,
-        "expected 'ringsize' to be an integer number > 0")
-      assert(type(now) == "function",
-        "expected 'now' to be a function, got: " .. type(now))
-      assert(type(err_handler) == "function",
-        "expected 'err_handler' to be a function, got: " .. type(err_handler))
-
-      local start     = now()
-      local position  = 1  -- position next up in first ring of timer wheel
-      local id_count  = 0  -- counter to generate unique ids (all negative)
-      local id_list   = {} -- reverse lookup table to find timers by id
-      local rings     = {} -- list of rings, index 1 is the current ring
-      local rings_n   = 0  -- the number of the last ring in the rings list
-      local count     = 0  -- how many timers do we have
-      local wheel     = {} -- the returned wheel object
-      -- because we assume hefty setting and cancelling, we're reusing tables
-      -- to prevent excessive GC.
-      local tables    = {} -- list of tables to be reused
-      local tables_n  = 0  -- number of tables in the list
-      --- Checks and executes timers.
-      -- Call this function (at least) every `precision` seconds.
-      -- @return `true`
-      function wheel:step()
-        local new_position = math_floor((now() - start) / precision) + 1
-        local ring = rings[1] or EMPTY
-
-        while position < new_position do
-          -- get the expired slot, and remove it from the ring
-          local slot = ring[position]
-          ring[position] = nil
-          -- forward pointers
-          position = position + 1
-          if position > ringsize then
-            -- current ring is done, remove it and forward pointers
-            for i = 1, rings_n do
-              -- manual loop, since table.remove won't deal with holes
-              rings[i] = rings[i + 1]
+    function net.UDPSocket(opts)
+      local self = { opts = opts or {} }
+      local sock = socket.udp()
+      if self.opts.broadcast~=nil then
+        sock:setsockname(Util.getIPaddress(), 0)
+        sock:setoption("broadcast", self.opts.broadcast)
+      end
+      if opts.timeout~=nil then sock:settimeout(opts.timeout / 1000) end
+      function self:sendTo(datagram, ip,port, callbacks) -- udp sendTo doesn't block.
+        local stat, res = sock:sendto(datagram, ip, port)
+        if stat and callbacks.success then
+          pcall(function() callbacks.success(1) end)
+        elseif stat==nil and callbacks.error then
+          pcall(function() callbacks.error(res) end)
+        end
+      end
+      function self:bind(ip,port) sock:setsockname(ip,port) end
+      function self:receive(callbacks)
+        copas.addthread(function()
+            local stat, res = sock:receivefrom()
+            if stat and callbacks.success then
+              pcall(function() callbacks.success(stat, res) end)
+            elseif stat==nil and callbacks.error then
+              pcall(function() callbacks.error(res) end)
             end
-            rings_n = rings_n - 1
-
-            ring = rings[1] or EMPTY
-            start = start + ringsize * precision
-            position = 1
-            new_position = new_position - ringsize
-          end
-          -- only deal with slot after forwarding pointers, to make sure that
-          -- any cb inserting another timer, does not end up in the slot being
-          -- handled
-          if slot then
-            -- deal with the slot
-            local ids = slot.ids
-            local args = slot.arg
-            for i = 1, slot.n do
-              local id  = slot[i];  slot[i]  = nil; slot[id] = nil
-              local cb  = ids[id];  ids[id]  = nil
-              local arg = args[id]; args[id] = nil
-              id_list[id] = nil
-              count = count - 1
-              xpcall(cb, err_handler, arg)
-            end
-
-            slot.n = 0
-            -- delete the slot
-            tables_n = tables_n + 1
-            tables[tables_n] = slot
-          end
-
-        end
-        return true
+          end)
       end
+      function self:close() sock:close() end
+      local pstr = "UDPSocket object: "..tostring(self):match("%s(.*)")
+      setmetatable(self,{__tostring = function() return pstr end})
+      return self
+    end
 
-      --- Gets the number of timers.
-      -- @return number of timers
-      function wheel:count()
-        return count
-      end
+-------------- MQTT support ---------------------
+    local function safeJson(e)
+      if type(e)=='table' then
+        for k,v in pairs(e) do e[k]=safeJson(v) end
+        return e
+      elseif type(e)=='function' or type(e)=='thread' or type(e)=='userdata' then return tostring(e)
+      else return e end
+    end
 
-      function wheel:set(expire_in, cb, arg)
-        local time_expire = now() + expire_in
-        local pos = math_floor((time_expire - start) / precision) + 1
-        if pos < position then
-          -- we cannot set it in the past
-          pos = position
+    local stat,_mqtt=pcall(function() return require("mqtt") end)
+    if stat then
+      mqtt={
+        Client = {},
+        QoS = {EXACTLY_ONCE=1},
+        MSGT = {
+          CONNECT = 1,
+          CONNACK = 2,
+          PUBLISH = 3,
+          PUBACK = 4,
+          PUBREC = 5,
+          PUBREL = 6,
+          PUBCOMP = 7,
+          SUBSCRIBE = 8,
+          SUBACK = 9,
+          UNSUBSCRIBE = 10,
+          UNSUBACK = 11,
+          PINGREQ = 12,
+          PINGRESP = 13,
+          DISCONNECT = 14,
+          AUTH = 15,
+        },
+        MSGMAP = {
+          [9]='subscribed',
+          [11]='unsubscribed',
+          [4]='published',  -- Should be onpublished according to doc?
+          [14]='closed',
+        }
+      }
+      function mqtt.Client.connect(uri, options)
+        options = options or {}
+        local args = {}
+        args.uri = uri
+        args.uri = string.gsub(uri, "mqtt://", "")
+        args.username = options.username
+        args.password = options.password
+        args.clean = options.cleanSession
+        if args.clean == nil then args.clean=true end
+        args.will = options.lastWill
+        args.keep_alive = options.keepAlivePeriod
+        args.id = options.clientId
+
+        --cafile="...", certificate="...", key="..." (default false)
+        if options.clientCertificate then -- Not in place...
+          args.secure = {
+            certificate= options.clientCertificate,
+            cafile = options.certificateAuthority,
+            key = "",
+          }
         end
-        local ring_idx = math_floor((pos - 1) / ringsize) + 1
-        local slot_idx = pos - (ring_idx - 1) * ringsize
 
-        -- fetch actual ring table
-        local ring = rings[ring_idx]
-        if not ring then
-          ring = new_tab(ringsize, 0)
-          rings[ring_idx] = ring
-          if ring_idx > rings_n then
-            rings_n = ring_idx
-          end
+        local _client = _mqtt.client(args)
+        local client={ _client=_client, _handlers={} }
+        function client:addEventListener(message,handler)
+          self._handlers[message]=handler
         end
-
-        -- fetch actual slot
-        local slot = ring[slot_idx]
-        if not slot then
-          if tables_n == 0 then
-            slot = { n = 0, ids = {}, arg = {} }
+        function client:subscribe(topic, options)
+          options = options or {}
+          local args = {}
+          args.topic = topic
+          args.qos = options.qos or 0
+          args.callback = options.callback
+          return self._client:subscribe(args)
+        end
+        function client:unsubscribe(topics, options)
+          if type(topics)=='string' then return self._client:unsubscribe({topic=topics})
           else
-            slot = tables[tables_n]
-            tables_n = tables_n - 1
+            local res
+            for _,t in ipairs(topics) do res=self:unsubscribe(t) end
+            return res
           end
-          ring[slot_idx] = slot
         end
+        function client:publish(topic, payload, options)
+          options = options or {}
+          local args = {}
+          args.topic = topic
+          args.payload = payload
+          args.qos = options.qos or 0
+          args.retain = options.retain or false
+          args.callback = options.callback
+          return self._client:publish(args)
+        end
+        function client:disconnect(options)
+          options = options or {}
+          local args = {}
+          args.callback = options.callback
+          return self._client:disconnect(args)
+        end
+        --function client:acknowledge() end
 
-        -- get new id
-        local id = id_count - 1 -- use negative idx to not interfere with array part
-        id_count = id
+        _client:on{
+          --{"type":2,"sp":false,"rc":0}
+          connect = function(connack)
+            Debug(_debugFlags.mqtt,"MQTT connect:"..Util.prettyJson(connack))
+            if client._handlers['connected'] then
+              client._handlers['connected']({sessionPresent=connack.sp,returnCode=connack.rc})
+            end
+          end,
+          subscribe = function(event)
+            Debug(_debugFlags.mqtt,"MQTT subscribe:"..Util.prettyJson(event))
+            if client._handlers['subscribed'] then client._handlers['subscribed'](safeJson(event)) end
+          end,
+          unsubscribe = function(event)
+            Debug(_debugFlags.mqtt,"MQTT unsubscribe:"..Util.prettyJson(event))
+            if client._handlers['unsubscribed'] then client._handlers['unsubscribed'](safeJson(event)) end
+          end,
+          message = function(msg)
+            Debug(_debugFlags.mqtt,"MQTT message:"..Util.prettyJson(msg))
+            local msgt = mqtt.MSGMAP[msg.type]
+            if msgt and client._handlers[msgt] then client._handlers[msgt](msg)
+            elseif client._handlers['message'] then client._handlers['message'](msg) end
+          end,
+          acknowledge = function(event)
+            Debug(_debugFlags.mqtt,"MQTT acknowledge:"..Util.prettyJson(event))
+            if client._handlers['acknowledge'] then client._handlers['acknowledge']() end
+          end,
+          error = function(err)
+            if _debugFlags.mqtt then Log(LOG.ERROR,"MQTT error:"..err) end
+            if client._handlers['error'] then client._handlers['error'](err) end
+          end,
+          close = function(event)
+            Debug(_debugFlags.mqtt,"MQTT close:"..Util.prettyJson(event))
+            event = safeJson(event)
+            if client._handlers['closed'] then client._handlers['closed'](safeJson(event)) end
+          end,
+          auth = function(event)
+            Debug(_debugFlags.mqtt,"MQTT auth:"..Util.prettyJson(event))
+            if client._handlers['auth'] then client._handlers['auth'](safeJson(event)) end
+          end,
+        }
 
-        -- store timer
-        -- if we do not do this check, it will go unnoticed and lead to very
-        -- hard to find bugs (`count` will go out of sync)
-        slot.ids[id] = cb or error("the callback parameter is required", 2)
-        slot.arg[id] = arg
-        local idx = slot.n + 1
-        slot.n = idx
-        slot[idx] = id
-        slot[id] = idx
-        id_list[id] = slot
-        count = count + 1
-
-        return id
+        _mqtt.get_ioloop():add(client._client)
+        if not mqtt._loop then
+          local iter = _mqtt.get_ioloop()
+          mqtt._loop = os.setTimer(function() iter:iteration() end,1000,true)
+        end
+        return client
       end
+    else
+      mqtt={ Client = {} }
+      function mqtt.Client.connect()
+        Log(LOG.ERROR,
+[[You need to have installed https://github.com/xHasKx/luamqtt so that require("mqtt") works from fibaroapiHC3.lua]]
+        )
+      end
+    end
 
-      function wheel:cancel(id)
-        local slot = id_list[id]
-        if slot then
-          local idx = slot[id]
-          slot[id] = nil
-          slot.ids[id] = nil
-          slot.arg[id] = nil
-          local n = slot.n
-          slot[idx] = slot[n]
-          slot[n] = nil
-          slot.n = n - 1
-          id_list[id] = nil
-          count = count - 1
+-------------- WebSocket support ---------------------
+    local stat2,websocket = pcall(function()
+        local v,res=_VERSION,require("wsLua_ER")
+        net._WSVERSION,_VERSION = _VERSION,v
+        return res
+      end)
+    if stat2 then
+
+      function net.WebSocketClientTls()
+        local POLLINTERVAL = 1000
+        local conn,err,lt = nil
+        local self = { }
+        local handlers = {}
+        local function dispatch(h,...)
+          if handlers[h] then
+            h = handlers[h]
+            local args = {...}
+            os.setTimer(function() h(table.unpack(args)) end,0)
+          end
+        end
+        local function listen()
+          if not conn then return end
+          local function loop()
+            if lt == nil then return end
+            websocket.wsreceive(conn)
+            if lt then lt = os.setTimer(loop,POLLINTERVAL) end
+          end
+          lt = os.setTimer(loop,0)
+        end
+        local function stopListen() if lt then clearTimeout(lt) lt = nil end end
+        local function disconnected() websocket.wsclose(conn) conn=nil; stopListen(); dispatch("disconnected") end
+        local function connected() self.co = true; listen();  dispatch("connected") end
+        local function dataReceived(data) dispatch("dataReceived",data) end
+        local function error(err) dispatch("error",err) end
+        local function message_handler( conn, opcode, data, ... )
+          if not opcode then
+            error(data)
+            disconnected()
+          else
+            dataReceived(data)
+          end
+        end
+        function self:addEventListener(h,f) handlers[h]=f end
+        function self:connect(url)
+          if conn then return false end
+          conn, err = websocket.wsopen( url, message_handler, nil ) --options )
+          if not err then connected(); return true
+          else return false,err end
+        end
+        function self:send(data)
+          if not conn then return false end
+          if not websocket.wssend(conn,1,data) then return disconnected() end
           return true
         end
-        return false
+        function self:isOpen() return conn and true end
+        function self:close() if conn then disconnected() return true end end
+        return self
       end
 
-      function wheel:peek(max_ahead)
-        if count == 0 then
-          return nil
-        end
-        local time_now = now()
+      net.WebSocketClient = net.WebSocketClientTls
+    else
+      function net.WebSocketClientTls()
+        Log(LOG.ERROR,
+[[You need to have installed https://github.com/jangabrielsson/wsLua_ER so that require("wsLua_ER") works from fibaroapiHC3.lua]]
+        )
+      end
+      net.WebSocketClient = net.WebSocketClientTls
+    end
 
-        -- convert max_ahead from seconds to positions
-        if max_ahead then
-          max_ahead = math_floor((time_now + max_ahead - start) / precision)
+  end
+
+-------------- Timer support -------------------------
+  function module.Timer()
+    local self = {}
+    local copas,timer,timerwheel2,lock
+    local http,binaryheap
+
+    ------- Timer wheel --------------
+    do
+      local default_now  -- return time in seconds
+      if _G['ngx'] then -- no problem, main thread
+        default_now = _G['ngx'].now
+      else
+        local ok, socket = true,socket ---pcall(require, "socket")
+        if ok then
+          default_now = socket.gettime
         else
-          max_ahead = math_huge
+          default_now = nil -- we don't have a default
+        end
+      end
+
+      new_tab = function(narr, nrec) return {} end
+
+      local xpcall = xpcall --pcall(function() return require("coxpcall").xpcall end) or xpcall
+      local default_err_handler = function(err)
+        io.stderr:write(debug.traceback("TimerWheel callback failed with: " .. tostring(err)))
+      end
+
+      local math_floor = math.floor
+      local math_huge = math.huge
+      local EMPTY = {}
+
+      local _M = {}
+
+      function _M.new(opts)
+        assert(opts ~= _M, "new should not be called with colon ':' notation")
+
+        opts = opts or EMPTY
+        assert(type(opts) == "table", "expected options to be a table")
+
+        local precision = opts.precision or 0.050  -- in seconds, 50ms by default
+        local ringsize  = opts.ringsize or 72000   -- #slots per ring, default 1 hour = 60 * 60 / 0.050
+        local now       = opts.now or default_now  -- function to get time in seconds
+        local err_handler = opts.err_handler or default_err_handler
+        opts = nil   -- luacheck: ignore
+
+        assert(type(precision) == "number" and precision > 0,
+          "expected 'precision' to be number > 0")
+        assert(type(ringsize) == "number" and ringsize > 0 and math_floor(ringsize) == ringsize,
+          "expected 'ringsize' to be an integer number > 0")
+        assert(type(now) == "function",
+          "expected 'now' to be a function, got: " .. type(now))
+        assert(type(err_handler) == "function",
+          "expected 'err_handler' to be a function, got: " .. type(err_handler))
+
+        local start     = now()
+        local position  = 1  -- position next up in first ring of timer wheel
+        local id_count  = 0  -- counter to generate unique ids (all negative)
+        local id_list   = {} -- reverse lookup table to find timers by id
+        local rings     = {} -- list of rings, index 1 is the current ring
+        local rings_n   = 0  -- the number of the last ring in the rings list
+        local count     = 0  -- how many timers do we have
+        local wheel     = {} -- the returned wheel object
+        -- because we assume hefty setting and cancelling, we're reusing tables
+        -- to prevent excessive GC.
+        local tables    = {} -- list of tables to be reused
+        local tables_n  = 0  -- number of tables in the list
+        --- Checks and executes timers.
+        -- Call this function (at least) every `precision` seconds.
+        -- @return `true`
+        function wheel:step()
+          local new_position = math_floor((now() - start) / precision) + 1
+          local ring = rings[1] or EMPTY
+
+          while position < new_position do
+            -- get the expired slot, and remove it from the ring
+            local slot = ring[position]
+            ring[position] = nil
+            -- forward pointers
+            position = position + 1
+            if position > ringsize then
+              -- current ring is done, remove it and forward pointers
+              for i = 1, rings_n do
+                -- manual loop, since table.remove won't deal with holes
+                rings[i] = rings[i + 1]
+              end
+              rings_n = rings_n - 1
+
+              ring = rings[1] or EMPTY
+              start = start + ringsize * precision
+              position = 1
+              new_position = new_position - ringsize
+            end
+            -- only deal with slot after forwarding pointers, to make sure that
+            -- any cb inserting another timer, does not end up in the slot being
+            -- handled
+            if slot then
+              -- deal with the slot
+              local ids = slot.ids
+              local args = slot.arg
+              for i = 1, slot.n do
+                local id  = slot[i];  slot[i]  = nil; slot[id] = nil
+                local cb  = ids[id];  ids[id]  = nil
+                local arg = args[id]; args[id] = nil
+                id_list[id] = nil
+                count = count - 1
+                xpcall(cb, err_handler, arg)
+              end
+
+              slot.n = 0
+              -- delete the slot
+              tables_n = tables_n + 1
+              tables[tables_n] = slot
+            end
+
+          end
+          return true
         end
 
-        local position_idx = position
-        local ring_idx = 1
-        local ring = rings[ring_idx] or EMPTY -- TODO: if EMPTY then we can skip it?
-        local ahead_count = 0
-        while ahead_count < max_ahead do
+        --- Gets the number of timers.
+        -- @return number of timers
+        function wheel:count()
+          return count
+        end
 
-          local slot = ring[position_idx]
-          if slot then
-            if slot[1] then
-              -- we have a timer
-              return ((ring_idx - 1) * ringsize + position_idx) * precision +
-              start - time_now
+        function wheel:set(expire_in, cb, arg)
+          local time_expire = now() + expire_in
+          local pos = math_floor((time_expire - start) / precision) + 1
+          if pos < position then
+            -- we cannot set it in the past
+            pos = position
+          end
+          local ring_idx = math_floor((pos - 1) / ringsize) + 1
+          local slot_idx = pos - (ring_idx - 1) * ringsize
+
+          -- fetch actual ring table
+          local ring = rings[ring_idx]
+          if not ring then
+            ring = new_tab(ringsize, 0)
+            rings[ring_idx] = ring
+            if ring_idx > rings_n then
+              rings_n = ring_idx
             end
           end
 
-          -- there is nothing in this position
-          position_idx = position_idx + 1
-          ahead_count = ahead_count + 1
-          if position_idx > ringsize then
-            position_idx = 1
-            ring_idx = ring_idx + 1
-            ring = rings[ring_idx] or EMPTY
+          -- fetch actual slot
+          local slot = ring[slot_idx]
+          if not slot then
+            if tables_n == 0 then
+              slot = { n = 0, ids = {}, arg = {} }
+            else
+              slot = tables[tables_n]
+              tables_n = tables_n - 1
+            end
+            ring[slot_idx] = slot
           end
-        end
-        return nil
-      end
-      return wheel
-    end
 
-    timerwheel2 = _M
-  end
+          -- get new id
+          local id = id_count - 1 -- use negative idx to not interfere with array part
+          id_count = id
+
+          -- store timer
+          -- if we do not do this check, it will go unnoticed and lead to very
+          -- hard to find bugs (`count` will go out of sync)
+          slot.ids[id] = cb or error("the callback parameter is required", 2)
+          slot.arg[id] = arg
+          local idx = slot.n + 1
+          slot.n = idx
+          slot[idx] = id
+          slot[id] = idx
+          id_list[id] = slot
+          count = count + 1
+
+          return id
+        end
+
+        function wheel:cancel(id)
+          local slot = id_list[id]
+          if slot then
+            local idx = slot[id]
+            slot[id] = nil
+            slot.ids[id] = nil
+            slot.arg[id] = nil
+            local n = slot.n
+            slot[idx] = slot[n]
+            slot[n] = nil
+            slot.n = n - 1
+            id_list[id] = nil
+            count = count - 1
+            return true
+          end
+          return false
+        end
+
+        function wheel:peek(max_ahead)
+          if count == 0 then
+            return nil
+          end
+          local time_now = now()
+
+          -- convert max_ahead from seconds to positions
+          if max_ahead then
+            max_ahead = math_floor((time_now + max_ahead - start) / precision)
+          else
+            max_ahead = math_huge
+          end
+
+          local position_idx = position
+          local ring_idx = 1
+          local ring = rings[ring_idx] or EMPTY -- TODO: if EMPTY then we can skip it?
+          local ahead_count = 0
+          while ahead_count < max_ahead do
+
+            local slot = ring[position_idx]
+            if slot then
+              if slot[1] then
+                -- we have a timer
+                return ((ring_idx - 1) * ringsize + position_idx) * precision +
+                start - time_now
+              end
+            end
+
+            -- there is nothing in this position
+            position_idx = position_idx + 1
+            ahead_count = ahead_count + 1
+            if position_idx > ringsize then
+              position_idx = 1
+              ring_idx = ring_idx + 1
+              ring = rings[ring_idx] or EMPTY
+            end
+          end
+          return nil
+        end
+        return wheel
+      end
+
+      timerwheel2 = _M
+    end
 
 --------- Binary heap ----------
-  do
+    do
 
-    local M = {}
-    local floor = math.floor
+      local M = {}
+      local floor = math.floor
 
-    M.binaryHeap = function(swap, erase, lt)
+      M.binaryHeap = function(swap, erase, lt)
 
-      local heap = {
-        values = {},  -- list containing values
-        erase = erase,
-        swap = swap,
-        lt = lt,
-      }
+        local heap = {
+          values = {},  -- list containing values
+          erase = erase,
+          swap = swap,
+          lt = lt,
+        }
 
-      function heap:bubbleUp(pos)
-        local values = self.values
-        while pos>1 do
-          local parent = floor(pos/2)
-          if not lt(values[pos], values[parent]) then
-            break
+        function heap:bubbleUp(pos)
+          local values = self.values
+          while pos>1 do
+            local parent = floor(pos/2)
+            if not lt(values[pos], values[parent]) then
+              break
+            end
+            swap(self, parent, pos)
+            pos = parent
           end
-          swap(self, parent, pos)
-          pos = parent
         end
+
+        function heap:sinkDown(pos)
+          local values = self.values
+          local last = #values
+          while true do
+            local min = pos
+            local child = 2 * pos
+
+            for c = child, child + 1 do
+              if c <= last and lt(values[c], values[min]) then min = c end
+            end
+
+            if min == pos then break end
+
+            swap(self, pos, min)
+            pos = min
+          end
+        end
+
+        return heap
       end
 
-      function heap:sinkDown(pos)
-        local values = self.values
-        local last = #values
-        while true do
-          local min = pos
-          local child = 2 * pos
-
-          for c = child, child + 1 do
-            if c <= last and lt(values[c], values[min]) then min = c end
-          end
-
-          if min == pos then break end
-
-          swap(self, pos, min)
-          pos = min
-        end
-      end
-
-      return heap
-    end
-
-    local update
+      local update
 --- Updates the value of an element in the heap.
 -- @function heap:update
 -- @param pos the position which value to update
 -- @param newValue the new value to use for this payload
-    update = function(self, pos, newValue)
-      assert(newValue ~= nil, "cannot add 'nil' as value")
-      assert(pos >= 1 and pos <= #self.values, "illegal position")
-      self.values[pos] = newValue
-      if pos > 1 then self:bubbleUp(pos) end
-      if pos < #self.values then self:sinkDown(pos) end
-    end
+      update = function(self, pos, newValue)
+        assert(newValue ~= nil, "cannot add 'nil' as value")
+        assert(pos >= 1 and pos <= #self.values, "illegal position")
+        self.values[pos] = newValue
+        if pos > 1 then self:bubbleUp(pos) end
+        if pos < #self.values then self:sinkDown(pos) end
+      end
 
-    local remove
+      local remove
 --- Removes an element from the heap.
 -- @function heap:remove
 -- @param pos the position to remove
 -- @return value, or nil if a bad `pos` value was provided
-    remove = function(self, pos)
-      local last = #self.values
-      if pos < 1 then
-        return  -- bad pos
+      remove = function(self, pos)
+        local last = #self.values
+        if pos < 1 then
+          return  -- bad pos
 
-      elseif pos < last then
-        local v = self.values[pos]
-        self:swap(pos, last)
-        self:erase(last)
-        self:bubbleUp(pos)
-        self:sinkDown(pos)
-        return v
+        elseif pos < last then
+          local v = self.values[pos]
+          self:swap(pos, last)
+          self:erase(last)
+          self:bubbleUp(pos)
+          self:sinkDown(pos)
+          return v
 
-      elseif pos == last then
-        local v = self.values[pos]
-        self:erase(last)
-        return v
+        elseif pos == last then
+          local v = self.values[pos]
+          self:erase(last)
+          return v
 
-      else
-        return  -- bad pos: pos > last
+        else
+          return  -- bad pos: pos > last
+        end
       end
-    end
 
-    local insert
+      local insert
 --- Inserts an element in the heap.
 -- @function heap:insert
 -- @param value the value used for sorting this element
 -- @return nothing, or throws an error on bad input
-    insert = function(self, value)
-      assert(value ~= nil, "cannot add 'nil' as value")
-      local pos = #self.values + 1
-      self.values[pos] = value
-      self:bubbleUp(pos)
-    end
+      insert = function(self, value)
+        assert(value ~= nil, "cannot add 'nil' as value")
+        local pos = #self.values + 1
+        self.values[pos] = value
+        self:bubbleUp(pos)
+      end
 
-    local pop
+      local pop
 --- Removes the top of the heap and returns it.
 -- @function heap:pop
 -- @return value at the top, or `nil` if there is none
-    pop = function(self)
-      if self.values[1] ~= nil then
-        return remove(self, 1)
+      pop = function(self)
+        if self.values[1] ~= nil then
+          return remove(self, 1)
+        end
       end
-    end
 
-    local peek
+      local peek
 --- Returns the element at the top of the heap, without removing it.
 -- @function heap:peek
 -- @return value at the top, or `nil` if there is none
-    peek = function(self)
-      return self.values[1]
-    end
+      peek = function(self)
+        return self.values[1]
+      end
 
-    local size
+      local size
 --- Returns the number of elements in the heap.
 -- @function heap:size
 -- @return number of elements
-    size = function(self)
-      return #self.values
-    end
+      size = function(self)
+        return #self.values
+      end
 
-    local function swap(heap, a, b)
-      heap.values[a], heap.values[b] = heap.values[b], heap.values[a]
-    end
+      local function swap(heap, a, b)
+        heap.values[a], heap.values[b] = heap.values[b], heap.values[a]
+      end
 
-    local function erase(heap, pos)
-      heap.values[pos] = nil
-    end
+      local function erase(heap, pos)
+        heap.values[pos] = nil
+      end
 
-    do end -- luacheck: ignore
+      do end -- luacheck: ignore
 -- the above is to trick ldoc (otherwise `update` below disappears)
 
-    local updateU
-    function updateU(self, payload, newValue)
-      return update(self, self.reverse[payload], newValue)
-    end
-
-    local insertU
-    function insertU(self, value, payload)
-      assert(self.reverse[payload] == nil, "duplicate payload")
-      local pos = #self.values + 1
-      self.reverse[payload] = pos
-      self.payloads[pos] = payload
-      return insert(self, value)
-    end
-
-    local removeU
-    function removeU(self, payload)
-      local pos = self.reverse[payload]
-      if pos ~= nil then
-        return remove(self, pos), payload
+      local updateU
+      function updateU(self, payload, newValue)
+        return update(self, self.reverse[payload], newValue)
       end
-    end
 
-    local popU
-    function popU(self)
-      if self.values[1] then
-        local payload = self.payloads[1]
-        local value = remove(self, 1)
-        return payload, value
+      local insertU
+      function insertU(self, value, payload)
+        assert(self.reverse[payload] == nil, "duplicate payload")
+        local pos = #self.values + 1
+        self.reverse[payload] = pos
+        self.payloads[pos] = payload
+        return insert(self, value)
       end
-    end
 
-    local peekU
-    peekU = function(self)
-      return self.payloads[1], self.values[1]
-    end
+      local removeU
+      function removeU(self, payload)
+        local pos = self.reverse[payload]
+        if pos ~= nil then
+          return remove(self, pos), payload
+        end
+      end
 
-    local peekValueU
-    peekValueU = function(self)
-      return self.values[1]
-    end
+      local popU
+      function popU(self)
+        if self.values[1] then
+          local payload = self.payloads[1]
+          local value = remove(self, 1)
+          return payload, value
+        end
+      end
 
-    local valueByPayload
-    valueByPayload = function(self, payload)
-      return self.values[self.reverse[payload]]
-    end
+      local peekU
+      peekU = function(self)
+        return self.payloads[1], self.values[1]
+      end
 
-    local sizeU
-    sizeU = function(self)
-      return #self.values
-    end
+      local peekValueU
+      peekValueU = function(self)
+        return self.values[1]
+      end
 
-    local function swapU(heap, a, b)
-      local pla, plb = heap.payloads[a], heap.payloads[b]
-      heap.reverse[pla], heap.reverse[plb] = b, a
-      heap.payloads[a], heap.payloads[b] = plb, pla
-      swap(heap, a, b)
-    end
+      local valueByPayload
+      valueByPayload = function(self, payload)
+        return self.values[self.reverse[payload]]
+      end
 
-    local function eraseU(heap, pos)
-      local payload = heap.payloads[pos]
-      heap.reverse[payload] = nil
-      heap.payloads[pos] = nil
-      erase(heap, pos)
-    end
+      local sizeU
+      sizeU = function(self)
+        return #self.values
+      end
+
+      local function swapU(heap, a, b)
+        local pla, plb = heap.payloads[a], heap.payloads[b]
+        heap.reverse[pla], heap.reverse[plb] = b, a
+        heap.payloads[a], heap.payloads[b] = plb, pla
+        swap(heap, a, b)
+      end
+
+      local function eraseU(heap, pos)
+        local payload = heap.payloads[pos]
+        heap.reverse[payload] = nil
+        heap.payloads[pos] = nil
+        erase(heap, pos)
+      end
 
 --================================================================
 -- unique heap creation
 --================================================================
 
-    local function uniqueHeap(lt)
-      local h = M.binaryHeap(swapU, eraseU, lt)
-      h.payloads = {}  -- list contains payloads
-      h.reverse = {}  -- reverse of the payloads list
-      h.peek = peekU
-      h.peekValue = peekValueU
-      h.valueByPayload = valueByPayload
-      h.pop = popU
-      h.size = sizeU
-      h.remove = removeU
-      h.insert = insertU
-      h.update = updateU
-      return h
-    end
-
-    M.minUnique = function(lt)
-      if not lt then
-        lt = function(a,b) return (a < b) end
+      local function uniqueHeap(lt)
+        local h = M.binaryHeap(swapU, eraseU, lt)
+        h.payloads = {}  -- list contains payloads
+        h.reverse = {}  -- reverse of the payloads list
+        h.peek = peekU
+        h.peekValue = peekValueU
+        h.valueByPayload = valueByPayload
+        h.pop = popU
+        h.size = sizeU
+        h.remove = removeU
+        h.insert = insertU
+        h.update = updateU
+        return h
       end
-      return uniqueHeap(lt)
-    end
 
-    binaryheap = M
-  end
+      M.minUnique = function(lt)
+        if not lt then
+          lt = function(a,b) return (a < b) end
+        end
+        return uniqueHeap(lt)
+      end
+
+      binaryheap = M
+    end
 
 --------- Copas ------------------
-  do
-    local socket = require "socket"
-    local gettime = socket.gettime
-    local ssl -- only loaded upon demand
+    do
+      local socket = require "socket"
+      local gettime = socket.gettime
+      local ssl -- only loaded upon demand
 
-    local WATCH_DOG_TIMEOUT = 120
-    local UDP_DATAGRAM_MAX = 8192  -- TODO: dynamically get this value from LuaSocket
-    local TIMEOUT_PRECISION = 0.1  -- 100ms
-    local fnil = function() end
+      local WATCH_DOG_TIMEOUT = 120
+      local UDP_DATAGRAM_MAX = 8192  -- TODO: dynamically get this value from LuaSocket
+      local TIMEOUT_PRECISION = 0.1  -- 100ms
+      local fnil = function() end
 
-    local pcall = pcall
+      local pcall = pcall
 
 -- Redefines LuaSocket functions with coroutine safe versions
 -- (this allows the use of socket.http from within copas)
-    local function statusHandler(status, ...)
-      if status then return ... end
-      local err = (...)
-      if type(err) == "table" then
-        return nil, err[1]
-      else
-        error(err)
-      end
-    end
-
-    function socket.protect(func)
-      return function (...)
-        return statusHandler(pcall(func, ...))
-      end
-    end
-
-    function socket.newtry(finalizer)
-      return function (...)
-        local status = (...)
-        if not status then
-          pcall(finalizer, select(2, ...))
-          error({ (select(2, ...)) }, 0)
+      local function statusHandler(status, ...)
+        if status then return ... end
+        local err = (...)
+        if type(err) == "table" then
+          return nil, err[1]
+        else
+          error(err)
         end
-        return ...
       end
-    end
 
-    copas = {}
+      function socket.protect(func)
+        return function (...)
+          return statusHandler(pcall(func, ...))
+        end
+      end
+
+      function socket.newtry(finalizer)
+        return function (...)
+          local status = (...)
+          if not status then
+            pcall(finalizer, select(2, ...))
+            error({ (select(2, ...)) }, 0)
+          end
+          return ...
+        end
+      end
+
+      copas = {}
 
 -- Meta information is public even if beginning with an "_"
-    copas._COPYRIGHT   = "Copyright (C) 2005-2017 Kepler Project"
-    copas._DESCRIPTION = "Coroutine Oriented Portable Asynchronous Services"
-    copas._VERSION     = "Copas 2.0.2"
+      copas._COPYRIGHT   = "Copyright (C) 2005-2017 Kepler Project"
+      copas._DESCRIPTION = "Coroutine Oriented Portable Asynchronous Services"
+      copas._VERSION     = "Copas 2.0.2"
 
 -- Close the socket associated with the current connection after the handler finishes
-    copas.autoclose = true
+      copas.autoclose = true
 
 -- indicator for the loop running
-    copas.running = false
+      copas.running = false
 -------------------------------------------------------------------------------
 -- Simple set implementation
 -- adds a FIFO queue for each socket in the set
 -------------------------------------------------------------------------------
 
-    local function newsocketset()
-      local set = {}
+      local function newsocketset()
+        local set = {}
 
-      do  -- set implementation
-        local reverse = {}
+        do  -- set implementation
+          local reverse = {}
 
-        -- Adds a socket to the set, does nothing if it exists
-        function set:insert(skt)
-          if not reverse[skt] then
-            self[#self + 1] = skt
-            reverse[skt] = #self
+          -- Adds a socket to the set, does nothing if it exists
+          function set:insert(skt)
+            if not reverse[skt] then
+              self[#self + 1] = skt
+              reverse[skt] = #self
+            end
           end
-        end
 
-        -- Removes socket from the set, does nothing if not found
-        function set:remove(skt)
-          local index = reverse[skt]
-          if index then
-            reverse[skt] = nil
-            local top = self[#self]
-            self[#self] = nil
-            if top ~= skt then
-              reverse[top] = index
-              self[index] = top
+          -- Removes socket from the set, does nothing if not found
+          function set:remove(skt)
+            local index = reverse[skt]
+            if index then
+              reverse[skt] = nil
+              local top = self[#self]
+              self[#self] = nil
+              if top ~= skt then
+                reverse[top] = index
+                self[index] = top
+              end
             end
           end
         end
-      end
 
-      do  -- queues implementation
-        local fifo_queues = setmetatable({},{
-            __mode = "k",                 -- auto collect queue if socket is gone
-            __index = function(self, skt) -- auto create fifo queue if not found
-              local newfifo = {}
-              self[skt] = newfifo
-              return newfifo
-            end,
-          })
+        do  -- queues implementation
+          local fifo_queues = setmetatable({},{
+              __mode = "k",                 -- auto collect queue if socket is gone
+              __index = function(self, skt) -- auto create fifo queue if not found
+                local newfifo = {}
+                self[skt] = newfifo
+                return newfifo
+              end,
+            })
 
-        -- pushes an item in the fifo queue for the socket.
-        function set:push(skt, itm)
-          local queue = fifo_queues[skt]
-          queue[#queue + 1] = itm
+          -- pushes an item in the fifo queue for the socket.
+          function set:push(skt, itm)
+            local queue = fifo_queues[skt]
+            queue[#queue + 1] = itm
+          end
+
+          -- pops an item from the fifo queue for the socket
+          function set:pop(skt)
+            local queue = fifo_queues[skt]
+            return table.remove(queue, 1)
+          end
         end
-
-        -- pops an item from the fifo queue for the socket
-        function set:pop(skt)
-          local queue = fifo_queues[skt]
-          return table.remove(queue, 1)
-        end
+        return set
       end
-      return set
-    end
 
 -- Threads immediately resumable
-    local _resumable = {} do
-      local resumelist = {}
+      local _resumable = {} do
+        local resumelist = {}
 
-      function _resumable:push(co)
-        resumelist[#resumelist + 1] = co
-      end
+        function _resumable:push(co)
+          resumelist[#resumelist + 1] = co
+        end
 
-      function _resumable:clear_resumelist()
-        local lst = resumelist
-        resumelist = {}
-        return lst
+        function _resumable:clear_resumelist()
+          local lst = resumelist
+          resumelist = {}
+          return lst
+        end
+        function _resumable:done()
+          return resumelist[1] == nil
+        end
       end
-      function _resumable:done()
-        return resumelist[1] == nil
-      end
-    end
 
 -- Similar to the socket set above, but tailored for the use of
 -- sleeping threads
-    local _sleeping = {} do
+      local _sleeping = {} do
 
-      local heap = binaryheap.minUnique()
-      local lethargy = setmetatable({}, { __mode = "k" }) -- list of coroutines sleeping without a wakeup time
-      -- Required base implementation
-      -----------------------------------------
-      _sleeping.insert = fnil
-      _sleeping.remove = fnil
+        local heap = binaryheap.minUnique()
+        local lethargy = setmetatable({}, { __mode = "k" }) -- list of coroutines sleeping without a wakeup time
+        -- Required base implementation
+        -----------------------------------------
+        _sleeping.insert = fnil
+        _sleeping.remove = fnil
 
-      -- push a new timer on the heap
-      function _sleeping:push(sleeptime, co)
-        if sleeptime < 0 then
-          lethargy[co] = true
-        elseif sleeptime == 0 then
-          _resumable:push(co)
-        else
-          heap:insert(gettime() + sleeptime, co)
+        -- push a new timer on the heap
+        function _sleeping:push(sleeptime, co)
+          if sleeptime < 0 then
+            lethargy[co] = true
+          elseif sleeptime == 0 then
+            _resumable:push(co)
+          else
+            heap:insert(gettime() + sleeptime, co)
+          end
         end
-      end
 
-      -- find the thread that should wake up to the time, if any
-      function _sleeping:pop(time)
-        if time < (heap:peekValue() or math.huge) then
-          return
+        -- find the thread that should wake up to the time, if any
+        function _sleeping:pop(time)
+          if time < (heap:peekValue() or math.huge) then
+            return
+          end
+          return heap:pop()
         end
-        return heap:pop()
-      end
 
-      -- additional methods for time management
-      -----------------------------------------
-      function _sleeping:getnext()  -- returns delay until next sleep expires, or nil if there is none
-        local t = heap:peekValue()
-        if t then
-          -- never report less than 0, because select() might block
-          return math.max(t - gettime(), 0)
+        -- additional methods for time management
+        -----------------------------------------
+        function _sleeping:getnext()  -- returns delay until next sleep expires, or nil if there is none
+          local t = heap:peekValue()
+          if t then
+            -- never report less than 0, because select() might block
+            return math.max(t - gettime(), 0)
+          end
         end
-      end
 
-      function _sleeping:wakeup(co)
-        if lethargy[co] then
-          lethargy[co] = nil
-          _resumable:push(co)
-          return
+        function _sleeping:wakeup(co)
+          if lethargy[co] then
+            lethargy[co] = nil
+            _resumable:push(co)
+            return
+          end
+          if heap:remove(co) then
+            _resumable:push(co)
+          end
         end
-        if heap:remove(co) then
-          _resumable:push(co)
+
+        -- @param tos number of timeouts running
+        function _sleeping:done(tos)
+          -- return true if we have nothing more to do
+          -- the timeout task doesn't qualify as work (fallbacks only),
+          -- the lethargy also doesn't qualify as work ('dead' tasks),
+          -- but the combination of a timeout + a lethargy can be work
+          return heap:size() == 1       -- 1 means only the timeout-timer task is running
+          and not (tos > 0 and next(lethargy))
         end
-      end
 
-      -- @param tos number of timeouts running
-      function _sleeping:done(tos)
-        -- return true if we have nothing more to do
-        -- the timeout task doesn't qualify as work (fallbacks only),
-        -- the lethargy also doesn't qualify as work ('dead' tasks),
-        -- but the combination of a timeout + a lethargy can be work
-        return heap:size() == 1       -- 1 means only the timeout-timer task is running
-        and not (tos > 0 and next(lethargy))
-      end
-
-    end   -- _sleeping
+      end   -- _sleeping
 
 -------------------------------------------------------------------------------
 -- Tracking coroutines and sockets
 -------------------------------------------------------------------------------
 
-    local _servers = newsocketset() -- servers being handled
-    local _threads = setmetatable({}, {__mode = "k"})  -- registered threads added with addthread()
-    local _canceled = setmetatable({}, {__mode = "k"}) -- threads that are canceled and pending removal
+      local _servers = newsocketset() -- servers being handled
+      local _threads = setmetatable({}, {__mode = "k"})  -- registered threads added with addthread()
+      local _canceled = setmetatable({}, {__mode = "k"}) -- threads that are canceled and pending removal
 
 -- for each socket we log the last read and last write times to enable the
 -- watchdog to follow up if it takes too long.
 -- tables contain the time, indexed by the socket
-    local _reading_log = {}
-    local _writing_log = {}
+      local _reading_log = {}
+      local _writing_log = {}
 
-    local _reading = newsocketset() -- sockets currently being read
-    local _writing = newsocketset() -- sockets currently being written
-    local _isSocketTimeout = { -- set of errors indicating a socket-timeout
-      ["timeout"] = true,      -- default LuaSocket timeout
-      ["wantread"] = true,     -- LuaSec specific timeout
-      ["wantwrite"] = true,    -- LuaSec specific timeout
-    }
+      local _reading = newsocketset() -- sockets currently being read
+      local _writing = newsocketset() -- sockets currently being written
+      local _isSocketTimeout = { -- set of errors indicating a socket-timeout
+        ["timeout"] = true,      -- default LuaSocket timeout
+        ["wantread"] = true,     -- LuaSec specific timeout
+        ["wantwrite"] = true,    -- LuaSec specific timeout
+      }
 
 -------------------------------------------------------------------------------
 -- Coroutine based socket timeouts.
 -------------------------------------------------------------------------------
-    local usertimeouts = setmetatable({}, {
-        __mode = "k",
-        __index = function(self, skt)
-          -- if there is no timeout found, we insert one automatically,
-          -- a 10 year timeout as substitute for the default "blocking" should do
-          self[skt] = 10*365*24*60*60
-          return self[skt]
-        end,
-      })
+      local usertimeouts = setmetatable({}, {
+          __mode = "k",
+          __index = function(self, skt)
+            -- if there is no timeout found, we insert one automatically,
+            -- a 10 year timeout as substitute for the default "blocking" should do
+            self[skt] = 10*365*24*60*60
+            return self[skt]
+          end,
+        })
 
-    local useSocketTimeoutErrors = setmetatable({},{ __mode = "k" })
+      local useSocketTimeoutErrors = setmetatable({},{ __mode = "k" })
 
 -- sto = socket-time-out
-    local sto_timeout, sto_timed_out, sto_change_queue, sto_error do
+      local sto_timeout, sto_timed_out, sto_change_queue, sto_error do
 
-      local socket_register = setmetatable({}, { __mode = "k" })    -- socket by coroutine
-      local operation_register = setmetatable({}, { __mode = "k" }) -- operation "read"/"write" by coroutine
-      local timeout_flags = setmetatable({}, { __mode = "k" })      -- true if timedout, by coroutine
+        local socket_register = setmetatable({}, { __mode = "k" })    -- socket by coroutine
+        local operation_register = setmetatable({}, { __mode = "k" }) -- operation "read"/"write" by coroutine
+        local timeout_flags = setmetatable({}, { __mode = "k" })      -- true if timedout, by coroutine
 
 
-      local function socket_callback(co)
-        local skt = socket_register[co]
-        local queue = operation_register[co]
+        local function socket_callback(co)
+          local skt = socket_register[co]
+          local queue = operation_register[co]
 
-        -- flag the timeout and resume the coroutine
-        timeout_flags[co] = true
-        _resumable:push(co)
+          -- flag the timeout and resume the coroutine
+          timeout_flags[co] = true
+          _resumable:push(co)
 
-        -- clear the socket from the current queue
-        if queue == "read" then
-          _reading:remove(skt)
-        elseif queue == "write" then
-          _writing:remove(skt)
-        else
-          error("bad queue name; expected 'read'/'write', got: "..tostring(queue))
+          -- clear the socket from the current queue
+          if queue == "read" then
+            _reading:remove(skt)
+          elseif queue == "write" then
+            _writing:remove(skt)
+          else
+            error("bad queue name; expected 'read'/'write', got: "..tostring(queue))
+          end
+        end
+
+        -- Sets a socket timeout.
+        -- Calling it as `sto_timeout()` will cancel the timeout.
+        -- @param queue (string) the queue the socket is currently in, must be either "read" or "write"
+        -- @param skt (socket) the socket on which to operate
+        -- @return true
+        function sto_timeout(skt, queue)
+          local co = coroutine.running()
+          socket_register[co] = skt
+          operation_register[co] = queue
+          timeout_flags[co] = nil
+          if skt then
+            copas.timeout(usertimeouts[skt], socket_callback)
+          else
+            copas.timeout(0)
+          end
+          return true
+        end
+
+        -- Changes the timeout to a different queue (read/write).
+        -- Only usefull with ssl-handshakes and "wantread", "wantwrite" errors, when
+        -- the queue has to be changed, so the timeout handler knows where to find the socket.
+        -- @param queue (string) the new queue the socket is in, must be either "read" or "write"
+        -- @return true
+        function sto_change_queue(queue)
+          operation_register[coroutine.running()] = queue
+          return true
+        end
+
+        -- Responds with `true` if the operation timed-out.
+        function sto_timed_out()
+          return timeout_flags[coroutine.running()]
+        end
+
+        -- Returns the poroper timeout error
+        function sto_error(err)
+          return useSocketTimeoutErrors[coroutine.running()] and err or "timeout"
         end
       end
-
-      -- Sets a socket timeout.
-      -- Calling it as `sto_timeout()` will cancel the timeout.
-      -- @param queue (string) the queue the socket is currently in, must be either "read" or "write"
-      -- @param skt (socket) the socket on which to operate
-      -- @return true
-      function sto_timeout(skt, queue)
-        local co = coroutine.running()
-        socket_register[co] = skt
-        operation_register[co] = queue
-        timeout_flags[co] = nil
-        if skt then
-          copas.timeout(usertimeouts[skt], socket_callback)
-        else
-          copas.timeout(0)
-        end
-        return true
-      end
-
-      -- Changes the timeout to a different queue (read/write).
-      -- Only usefull with ssl-handshakes and "wantread", "wantwrite" errors, when
-      -- the queue has to be changed, so the timeout handler knows where to find the socket.
-      -- @param queue (string) the new queue the socket is in, must be either "read" or "write"
-      -- @return true
-      function sto_change_queue(queue)
-        operation_register[coroutine.running()] = queue
-        return true
-      end
-
-      -- Responds with `true` if the operation timed-out.
-      function sto_timed_out()
-        return timeout_flags[coroutine.running()]
-      end
-
-      -- Returns the poroper timeout error
-      function sto_error(err)
-        return useSocketTimeoutErrors[coroutine.running()] and err or "timeout"
-      end
-    end
 -------------------------------------------------------------------------------
 -- Coroutine based socket I/O functions.
 -------------------------------------------------------------------------------
 
-    local function isTCP(socket)
-      return string.sub(tostring(socket),1,3) ~= "udp"
-    end
-
-    function copas.settimeout(skt, timeout)
-      if timeout ~= nil and type(timeout) ~= "number" then
-        return nil, "timeout must be a 'nil' or a number"
+      local function isTCP(socket)
+        return string.sub(tostring(socket),1,3) ~= "udp"
       end
 
-      if timeout and timeout < 0 then
-        timeout = nil    -- negative is same as nil; blocking indefinitely
-      end
+      function copas.settimeout(skt, timeout)
+        if timeout ~= nil and type(timeout) ~= "number" then
+          return nil, "timeout must be a 'nil' or a number"
+        end
 
-      usertimeouts[skt] = timeout
-      return true
-    end
+        if timeout and timeout < 0 then
+          timeout = nil    -- negative is same as nil; blocking indefinitely
+        end
+
+        usertimeouts[skt] = timeout
+        return true
+      end
 
 -- reads a pattern from a client and yields to the reading set on timeouts
 -- UDP: a UDP socket expects a second argument to be a number, so it MUST
 -- be provided as the 'pattern' below defaults to a string. Will throw a
 -- 'bad argument' error if omitted.
-    function copas.receive(client, pattern, part)
-      local s, err
-      pattern = pattern or "*l"
-      local current_log = _reading_log
-      sto_timeout(client, "read")
+      function copas.receive(client, pattern, part)
+        local s, err
+        pattern = pattern or "*l"
+        local current_log = _reading_log
+        sto_timeout(client, "read")
 
-      repeat
-        s, err, part = client:receive(pattern, part)
+        repeat
+          s, err, part = client:receive(pattern, part)
 
-        if s then
-          current_log[client] = nil
-          sto_timeout()
-          return s, err, part
+          if s then
+            current_log[client] = nil
+            sto_timeout()
+            return s, err, part
 
-        elseif not _isSocketTimeout[err] then
-          current_log[client] = nil
-          sto_timeout()
-          return s, err, part
+          elseif not _isSocketTimeout[err] then
+            current_log[client] = nil
+            sto_timeout()
+            return s, err, part
 
-        elseif sto_timed_out() then
-          current_log[client] = nil
-          return nil, sto_error(err)
-        end
+          elseif sto_timed_out() then
+            current_log[client] = nil
+            return nil, sto_error(err)
+          end
 
-        if err == "wantwrite" then -- wantwrite may be returned during SSL renegotiations
-          current_log = _writing_log
-          current_log[client] = gettime()
-          sto_change_queue("write")
-          coroutine.yield(client, _writing)
-        else
-          current_log = _reading_log
-          current_log[client] = gettime()
-          sto_change_queue("read")
-          coroutine.yield(client, _reading)
-        end
-      until false
-    end
+          if err == "wantwrite" then -- wantwrite may be returned during SSL renegotiations
+            current_log = _writing_log
+            current_log[client] = gettime()
+            sto_change_queue("write")
+            coroutine.yield(client, _writing)
+          else
+            current_log = _reading_log
+            current_log[client] = gettime()
+            sto_change_queue("read")
+            coroutine.yield(client, _reading)
+          end
+        until false
+      end
 
 -- receives data from a client over UDP. Not available for TCP.
 -- (this is a copy of receive() method, adapted for receivefrom() use)
-    function copas.receivefrom(client, size)
-      local s, err, port
-      size = size or UDP_DATAGRAM_MAX
-      sto_timeout(client, "read")
+      function copas.receivefrom(client, size)
+        local s, err, port
+        size = size or UDP_DATAGRAM_MAX
+        sto_timeout(client, "read")
 
-      repeat
-        s, err, port = client:receivefrom(size) -- upon success err holds ip address
+        repeat
+          s, err, port = client:receivefrom(size) -- upon success err holds ip address
 
-        if s then
-          _reading_log[client] = nil
-          sto_timeout()
-          return s, err, port
+          if s then
+            _reading_log[client] = nil
+            sto_timeout()
+            return s, err, port
 
-        elseif err ~= "timeout" then
-          _reading_log[client] = nil
-          sto_timeout()
-          return s, err, port
+          elseif err ~= "timeout" then
+            _reading_log[client] = nil
+            sto_timeout()
+            return s, err, port
 
-        elseif sto_timed_out() then
-          _reading_log[client] = nil
-          return nil, sto_error(err)
-        end
+          elseif sto_timed_out() then
+            _reading_log[client] = nil
+            return nil, sto_error(err)
+          end
 
-        _reading_log[client] = gettime()
-        coroutine.yield(client, _reading)
-      until false
-    end
+          _reading_log[client] = gettime()
+          coroutine.yield(client, _reading)
+        until false
+      end
 
 -- same as above but with special treatment when reading chunks,
 -- unblocks on any data received.
-    function copas.receivePartial(client, pattern, part)
-      local s, err
-      pattern = pattern or "*l"
-      local current_log = _reading_log
-      sto_timeout(client, "read")
+      function copas.receivePartial(client, pattern, part)
+        local s, err
+        pattern = pattern or "*l"
+        local current_log = _reading_log
+        sto_timeout(client, "read")
 
-      repeat
-        s, err, part = client:receive(pattern, part)
+        repeat
+          s, err, part = client:receive(pattern, part)
 
-        if s or (type(pattern) == "number" and part ~= "" and part ~= nil) then
-          current_log[client] = nil
-          sto_timeout()
-          return s, err, part
+          if s or (type(pattern) == "number" and part ~= "" and part ~= nil) then
+            current_log[client] = nil
+            sto_timeout()
+            return s, err, part
 
-        elseif not _isSocketTimeout[err] then
-          current_log[client] = nil
-          sto_timeout()
-          return s, err, part
+          elseif not _isSocketTimeout[err] then
+            current_log[client] = nil
+            sto_timeout()
+            return s, err, part
 
-        elseif sto_timed_out() then
-          current_log[client] = nil
-          return nil, sto_error(err)
-        end
+          elseif sto_timed_out() then
+            current_log[client] = nil
+            return nil, sto_error(err)
+          end
 
-        if err == "wantwrite" then
-          current_log = _writing_log
-          current_log[client] = gettime()
-          sto_change_queue("write")
-          coroutine.yield(client, _writing)
-        else
-          current_log = _reading_log
-          current_log[client] = gettime()
-          sto_change_queue("read")
-          coroutine.yield(client, _reading)
-        end
-      until false
-    end
+          if err == "wantwrite" then
+            current_log = _writing_log
+            current_log[client] = gettime()
+            sto_change_queue("write")
+            coroutine.yield(client, _writing)
+          else
+            current_log = _reading_log
+            current_log[client] = gettime()
+            sto_change_queue("read")
+            coroutine.yield(client, _reading)
+          end
+        until false
+      end
 
 -- sends data to a client. The operation is buffered and
 -- yields to the writing set on timeouts
 -- Note: from and to parameters will be ignored by/for UDP sockets
-    function copas.send(client, data, from, to)
-      local s, err
-      from = from or 1
-      local lastIndex = from - 1
-      local current_log = _writing_log
-      sto_timeout(client, "write")
+      function copas.send(client, data, from, to)
+        local s, err
+        from = from or 1
+        local lastIndex = from - 1
+        local current_log = _writing_log
+        sto_timeout(client, "write")
 
-      repeat
-        s, err, lastIndex = client:send(data, lastIndex + 1, to)
+        repeat
+          s, err, lastIndex = client:send(data, lastIndex + 1, to)
 
-        -- adds extra coroutine swap
-        -- garantees that high throughput doesn't take other threads to starvation
-        if (math.random(100) > 90) then
-          current_log[client] = gettime()   -- TODO: how to handle this??
-          if current_log == _writing_log then
-            coroutine.yield(client, _writing)
-          else
-            coroutine.yield(client, _reading)
+          -- adds extra coroutine swap
+          -- garantees that high throughput doesn't take other threads to starvation
+          if (math.random(100) > 90) then
+            current_log[client] = gettime()   -- TODO: how to handle this??
+            if current_log == _writing_log then
+              coroutine.yield(client, _writing)
+            else
+              coroutine.yield(client, _reading)
+            end
           end
-        end
 
-        if s then
-          current_log[client] = nil
-          sto_timeout()
-          return s, err, lastIndex
+          if s then
+            current_log[client] = nil
+            sto_timeout()
+            return s, err, lastIndex
 
-        elseif not _isSocketTimeout[err] then
-          current_log[client] = nil
-          sto_timeout()
-          return s, err, lastIndex
+          elseif not _isSocketTimeout[err] then
+            current_log[client] = nil
+            sto_timeout()
+            return s, err, lastIndex
 
-        elseif sto_timed_out() then
-          current_log[client] = nil
-          return nil, sto_error(err)
-        end
+          elseif sto_timed_out() then
+            current_log[client] = nil
+            return nil, sto_error(err)
+          end
 
-        if err == "wantread" then
-          current_log = _reading_log
-          current_log[client] = gettime()
-          sto_change_queue("read")
-          coroutine.yield(client, _reading)
-        else
-          current_log = _writing_log
-          current_log[client] = gettime()
-          sto_change_queue("write")
-          coroutine.yield(client, _writing)
-        end
-      until false
-    end
+          if err == "wantread" then
+            current_log = _reading_log
+            current_log[client] = gettime()
+            sto_change_queue("read")
+            coroutine.yield(client, _reading)
+          else
+            current_log = _writing_log
+            current_log[client] = gettime()
+            sto_change_queue("write")
+            coroutine.yield(client, _writing)
+          end
+        until false
+      end
 
-    function copas.sendto(client, data, ip, port)
-      -- deprecated; for backward compatibility only, since UDP doesn't block on sending
-      return client:sendto(data, ip, port)
-    end
+      function copas.sendto(client, data, ip, port)
+        -- deprecated; for backward compatibility only, since UDP doesn't block on sending
+        return client:sendto(data, ip, port)
+      end
 
 -- waits until connection is completed
-    function copas.connect(skt, host, port)
-      skt:settimeout(0)
-      local ret, err, tried_more_than_once
-      sto_timeout(skt, "write")
+      function copas.connect(skt, host, port)
+        skt:settimeout(0)
+        local ret, err, tried_more_than_once
+        sto_timeout(skt, "write")
 
-      repeat
-        ret, err = skt:connect(host, port)
+        repeat
+          ret, err = skt:connect(host, port)
 
-        -- non-blocking connect on Windows results in error "Operation already
-        -- in progress" to indicate that it is completing the request async. So essentially
-        -- it is the same as "timeout"
-        if ret or (err ~= "timeout" and err ~= "Operation already in progress") then
-          _writing_log[skt] = nil
-          sto_timeout()
-          -- Once the async connect completes, Windows returns the error "already connected"
-          -- to indicate it is done, so that error should be ignored. Except when it is the
-          -- first call to connect, then it was already connected to something else and the
-          -- error should be returned
-          if (not ret) and (err == "already connected" and tried_more_than_once) then
-            return 1
+          -- non-blocking connect on Windows results in error "Operation already
+          -- in progress" to indicate that it is completing the request async. So essentially
+          -- it is the same as "timeout"
+          if ret or (err ~= "timeout" and err ~= "Operation already in progress") then
+            _writing_log[skt] = nil
+            sto_timeout()
+            -- Once the async connect completes, Windows returns the error "already connected"
+            -- to indicate it is done, so that error should be ignored. Except when it is the
+            -- first call to connect, then it was already connected to something else and the
+            -- error should be returned
+            if (not ret) and (err == "already connected" and tried_more_than_once) then
+              return 1
+            end
+            return ret, err
+
+          elseif sto_timed_out() then
+            _writing_log[skt] = nil
+            return nil, sto_error(err)
           end
-          return ret, err
 
-        elseif sto_timed_out() then
-          _writing_log[skt] = nil
-          return nil, sto_error(err)
-        end
-
-        tried_more_than_once = tried_more_than_once or true
-        _writing_log[skt] = gettime()
-        coroutine.yield(skt, _writing)
-      until false
-    end
+          tried_more_than_once = tried_more_than_once or true
+          _writing_log[skt] = gettime()
+          coroutine.yield(skt, _writing)
+        until false
+      end
 ---
 -- Peforms an (async) ssl handshake on a connected TCP client socket.
 -- NOTE: replace all previous socket references, with the returned new ssl wrapped socket
@@ -2043,569 +2047,569 @@ function module.Timer()
 -- @param skt Regular LuaSocket CLIENT socket object
 -- @param sslt Table with ssl parameters
 -- @return wrapped ssl socket, or throws an error
-    function copas.dohandshake(skt, sslt)
-      ssl = ssl or require("ssl")
-      local nskt, err = ssl.wrap(skt, sslt)
-      if not nskt then return error(err) end
-      local queue
-      nskt:settimeout(0)  -- non-blocking on the ssl-socket
-      copas.settimeout(nskt, usertimeouts[skt]) -- copy copas user-timeout to newly wrapped one
-      sto_timeout(nskt, "write")
+      function copas.dohandshake(skt, sslt)
+        ssl = ssl or require("ssl")
+        local nskt, err = ssl.wrap(skt, sslt)
+        if not nskt then return error(err) end
+        local queue
+        nskt:settimeout(0)  -- non-blocking on the ssl-socket
+        copas.settimeout(nskt, usertimeouts[skt]) -- copy copas user-timeout to newly wrapped one
+        sto_timeout(nskt, "write")
 
-      repeat
-        local success, err = nskt:dohandshake()
+        repeat
+          local success, err = nskt:dohandshake()
 
-        if success then
-          sto_timeout()
-          return nskt
+          if success then
+            sto_timeout()
+            return nskt
 
-        elseif not _isSocketTimeout[err] then
-          sto_timeout()
-          return error(err)
+          elseif not _isSocketTimeout[err] then
+            sto_timeout()
+            return error(err)
 
-        elseif sto_timed_out() then
-          return nil, sto_error(err)
+          elseif sto_timed_out() then
+            return nil, sto_error(err)
 
-        elseif err == "wantwrite" then
-          sto_change_queue("write")
-          queue = _writing
+          elseif err == "wantwrite" then
+            sto_change_queue("write")
+            queue = _writing
 
-        elseif err == "wantread" then
-          sto_change_queue("read")
-          queue = _reading
+          elseif err == "wantread" then
+            sto_change_queue("read")
+            queue = _reading
 
-        else
-          error(err)
-        end
+          else
+            error(err)
+          end
 
-        coroutine.yield(nskt, queue)
-      until false
-    end
+          coroutine.yield(nskt, queue)
+        until false
+      end
 
 -- flushes a client write buffer (deprecated)
-    function copas.flush()
-    end
+      function copas.flush()
+      end
 
 -- wraps a TCP socket to use Copas methods (send, receive, flush and settimeout)
-    local _skt_mt_tcp = {
-      __tostring = function(self)
-        return tostring(self.socket).." (copas wrapped)"
-      end,
-      __index = {
-
-        send = function (self, data, from, to)
-          return copas.send (self.socket, data, from, to)
+      local _skt_mt_tcp = {
+        __tostring = function(self)
+          return tostring(self.socket).." (copas wrapped)"
         end,
+        __index = {
 
-        receive = function (self, pattern, prefix)
-          if usertimeouts[self.socket] == 0 then
-            return copas.receivePartial(self.socket, pattern, prefix)
-          end
-          return copas.receive(self.socket, pattern, prefix)
-        end,
+          send = function (self, data, from, to)
+            return copas.send (self.socket, data, from, to)
+          end,
 
-        flush = function (self)
-          return copas.flush(self.socket)
-        end,
+          receive = function (self, pattern, prefix)
+            if usertimeouts[self.socket] == 0 then
+              return copas.receivePartial(self.socket, pattern, prefix)
+            end
+            return copas.receive(self.socket, pattern, prefix)
+          end,
 
-        settimeout = function (self, time)
-          return copas.settimeout(self.socket, time)
-        end,
+          flush = function (self)
+            return copas.flush(self.socket)
+          end,
 
-        -- TODO: socket.connect is a shortcut, and must be provided with an alternative
-        -- if ssl parameters are available, it will also include a handshake
-        connect = function(self, ...)
-          local res, err = copas.connect(self.socket, ...)
-          if res and self.ssl_params then
-            res, err = self:dohandshake()
-          end
-          return res, err
-        end,
+          settimeout = function (self, time)
+            return copas.settimeout(self.socket, time)
+          end,
 
-        close = function(self, ...) return self.socket:close(...) end,
+          -- TODO: socket.connect is a shortcut, and must be provided with an alternative
+          -- if ssl parameters are available, it will also include a handshake
+          connect = function(self, ...)
+            local res, err = copas.connect(self.socket, ...)
+            if res and self.ssl_params then
+              res, err = self:dohandshake()
+            end
+            return res, err
+          end,
 
-        -- TODO: socket.bind is a shortcut, and must be provided with an alternative
-        bind = function(self, ...) return self.socket:bind(...) end,
+          close = function(self, ...) return self.socket:close(...) end,
 
-        -- TODO: is this DNS related? hence blocking?
-        getsockname = function(self, ...) return self.socket:getsockname(...) end,
+          -- TODO: socket.bind is a shortcut, and must be provided with an alternative
+          bind = function(self, ...) return self.socket:bind(...) end,
 
-        getstats = function(self, ...) return self.socket:getstats(...) end,
+          -- TODO: is this DNS related? hence blocking?
+          getsockname = function(self, ...) return self.socket:getsockname(...) end,
 
-        setstats = function(self, ...) return self.socket:setstats(...) end,
+          getstats = function(self, ...) return self.socket:getstats(...) end,
 
-        listen = function(self, ...) return self.socket:listen(...) end,
+          setstats = function(self, ...) return self.socket:setstats(...) end,
 
-        accept = function(self, ...) return self.socket:accept(...) end,
+          listen = function(self, ...) return self.socket:listen(...) end,
 
-        setoption = function(self, ...) return self.socket:setoption(...) end,
+          accept = function(self, ...) return self.socket:accept(...) end,
 
-        -- TODO: is this DNS related? hence blocking?
-        getpeername = function(self, ...) return self.socket:getpeername(...) end,
+          setoption = function(self, ...) return self.socket:setoption(...) end,
 
-        shutdown = function(self, ...) return self.socket:shutdown(...) end,
+          -- TODO: is this DNS related? hence blocking?
+          getpeername = function(self, ...) return self.socket:getpeername(...) end,
 
-        dohandshake = function(self, sslt)
-          self.ssl_params = sslt or self.ssl_params
-          local nskt, err = copas.dohandshake(self.socket, self.ssl_params)
-          if not nskt then return nskt, err end
-          self.socket = nskt  -- replace internal socket with the newly wrapped ssl one
-          return self
-        end,
+          shutdown = function(self, ...) return self.socket:shutdown(...) end,
 
-      }}
+          dohandshake = function(self, sslt)
+            self.ssl_params = sslt or self.ssl_params
+            local nskt, err = copas.dohandshake(self.socket, self.ssl_params)
+            if not nskt then return nskt, err end
+            self.socket = nskt  -- replace internal socket with the newly wrapped ssl one
+            return self
+          end,
+
+        }}
 
 -- wraps a UDP socket, copy of TCP one adapted for UDP.
-    local _skt_mt_udp = {__index = { }}
-    for k,v in pairs(_skt_mt_tcp) do _skt_mt_udp[k] = _skt_mt_udp[k] or v end
-    for k,v in pairs(_skt_mt_tcp.__index) do _skt_mt_udp.__index[k] = v end
+      local _skt_mt_udp = {__index = { }}
+      for k,v in pairs(_skt_mt_tcp) do _skt_mt_udp[k] = _skt_mt_udp[k] or v end
+      for k,v in pairs(_skt_mt_tcp.__index) do _skt_mt_udp.__index[k] = v end
 
-    _skt_mt_udp.__index.send        = function(self, ...) return self.socket:send(...) end
+      _skt_mt_udp.__index.send        = function(self, ...) return self.socket:send(...) end
 
-    _skt_mt_udp.__index.sendto      = function(self, ...) return self.socket:sendto(...) end
+      _skt_mt_udp.__index.sendto      = function(self, ...) return self.socket:sendto(...) end
 
-    _skt_mt_udp.__index.receive =     function (self, size)
-      return copas.receive (self.socket, (size or UDP_DATAGRAM_MAX))
-    end
+      _skt_mt_udp.__index.receive =     function (self, size)
+        return copas.receive (self.socket, (size or UDP_DATAGRAM_MAX))
+      end
 
-    _skt_mt_udp.__index.receivefrom = function (self, size)
-      return copas.receivefrom (self.socket, (size or UDP_DATAGRAM_MAX))
-    end
+      _skt_mt_udp.__index.receivefrom = function (self, size)
+        return copas.receivefrom (self.socket, (size or UDP_DATAGRAM_MAX))
+      end
 
-    -- TODO: is this DNS related? hence blocking?
-    _skt_mt_udp.__index.setpeername = function(self, ...) return self.socket:setpeername(...) end
+      -- TODO: is this DNS related? hence blocking?
+      _skt_mt_udp.__index.setpeername = function(self, ...) return self.socket:setpeername(...) end
 
-    _skt_mt_udp.__index.setsockname = function(self, ...) return self.socket:setsockname(...) end
+      _skt_mt_udp.__index.setsockname = function(self, ...) return self.socket:setsockname(...) end
 
-    -- do not close client, as it is also the server for udp.
-    _skt_mt_udp.__index.close       = function(self, ...) return true end
+      -- do not close client, as it is also the server for udp.
+      _skt_mt_udp.__index.close       = function(self, ...) return true end
 ---
 -- Wraps a LuaSocket socket object in an async Copas based socket object.
 -- @param skt The socket to wrap
 -- @sslt (optional) Table with ssl parameters, use an empty table to use ssl with defaults
 -- @return wrapped socket object
-    function copas.wrap (skt, sslt)
-      if (getmetatable(skt) == _skt_mt_tcp) or (getmetatable(skt) == _skt_mt_udp) then
-        return skt -- already wrapped
+      function copas.wrap (skt, sslt)
+        if (getmetatable(skt) == _skt_mt_tcp) or (getmetatable(skt) == _skt_mt_udp) then
+          return skt -- already wrapped
+        end
+        skt:settimeout(0)
+        if not isTCP(skt) then
+          return  setmetatable ({socket = skt}, _skt_mt_udp)
+        else
+          return  setmetatable ({socket = skt, ssl_params = sslt}, _skt_mt_tcp)
+        end
       end
-      skt:settimeout(0)
-      if not isTCP(skt) then
-        return  setmetatable ({socket = skt}, _skt_mt_udp)
-      else
-        return  setmetatable ({socket = skt, ssl_params = sslt}, _skt_mt_tcp)
-      end
-    end
 
 --- Wraps a handler in a function that deals with wrapping the socket and doing the
 -- optional ssl handshake.
-    function copas.handler(handler, sslparams)
-      -- TODO: pass a timeout value to set, and use during handshake
-      return function (skt, ...)
-        skt = copas.wrap(skt)
-        if sslparams then skt:dohandshake(sslparams) end
-        return handler(skt, ...)
+      function copas.handler(handler, sslparams)
+        -- TODO: pass a timeout value to set, and use during handshake
+        return function (skt, ...)
+          skt = copas.wrap(skt)
+          if sslparams then skt:dohandshake(sslparams) end
+          return handler(skt, ...)
+        end
       end
-    end
 
 --------------------------------------------------
 -- Error handling
 --------------------------------------------------
-    local _errhandlers = setmetatable({}, { __mode = "k" })   -- error handler per coroutine
+      local _errhandlers = setmetatable({}, { __mode = "k" })   -- error handler per coroutine
 
-    local function _deferror(msg, co, skt)
-      msg = ("%s (coroutine: %s, socket: %s)"):format(tostring(msg), tostring(co), tostring(skt))
-      if type(co) == "thread" then
-        -- regular Copas coroutine
-        msg = debug.traceback(co, msg)
-      else
-        -- not a coroutine, but the main thread, this happens if a timeout callback
-        -- (see `copas.timeout` causes an error (those callbacks run on the main thread).
-        msg = debug.traceback(msg, 2)
+      local function _deferror(msg, co, skt)
+        msg = ("%s (coroutine: %s, socket: %s)"):format(tostring(msg), tostring(co), tostring(skt))
+        if type(co) == "thread" then
+          -- regular Copas coroutine
+          msg = debug.traceback(co, msg)
+        else
+          -- not a coroutine, but the main thread, this happens if a timeout callback
+          -- (see `copas.timeout` causes an error (those callbacks run on the main thread).
+          msg = debug.traceback(msg, 2)
+        end
+        print(msg)
       end
-      print(msg)
-    end
 
-    function copas.setErrorHandler (err, default)
-      if default then
-        _deferror = err
-      else
-        _errhandlers[coroutine.running()] = err
+      function copas.setErrorHandler (err, default)
+        if default then
+          _deferror = err
+        else
+          _errhandlers[coroutine.running()] = err
+        end
       end
-    end
 
 -- if `bool` is truthy, then the original socket errors will be returned in case of timeouts;
 -- `timeout, wantread, wantwrite, Operation already in progress`. If falsy, it will always
 -- return `timeout`.
-    function copas.useSocketTimeoutErrors(bool)
-      useSocketTimeoutErrors[coroutine.running()] = not not bool -- force to a boolean
-    end
+      function copas.useSocketTimeoutErrors(bool)
+        useSocketTimeoutErrors[coroutine.running()] = not not bool -- force to a boolean
+      end
 
 -------------------------------------------------------------------------------
 -- Thread handling
 -------------------------------------------------------------------------------
 
-    local function _doTick (co, skt, ...)
-      if not co then return end
-      -- if a coroutine was canceled/removed, don't resume it
-      if _canceled[co] then
-        _canceled[co] = nil -- also clean up the registry
-        _threads[co] = nil
-        return
-      end
-
-      local ok, res, new_q = coroutine.resume(co, skt, ...)
-
-      if ok and res and new_q then
-        new_q:insert (res)
-        new_q:push (res, co)
-      else
-        if not ok then pcall (_errhandlers [co] or _deferror, res, co, skt) end
-        if skt and copas.autoclose and isTCP(skt) then
-          skt:close() -- do not auto-close UDP sockets, as the handler socket is also the server socket
+      local function _doTick (co, skt, ...)
+        if not co then return end
+        -- if a coroutine was canceled/removed, don't resume it
+        if _canceled[co] then
+          _canceled[co] = nil -- also clean up the registry
+          _threads[co] = nil
+          return
         end
-        _errhandlers [co] = nil
+
+        local ok, res, new_q = coroutine.resume(co, skt, ...)
+
+        if ok and res and new_q then
+          new_q:insert (res)
+          new_q:push (res, co)
+        else
+          if not ok then pcall (_errhandlers [co] or _deferror, res, co, skt) end
+          if skt and copas.autoclose and isTCP(skt) then
+            skt:close() -- do not auto-close UDP sockets, as the handler socket is also the server socket
+          end
+          _errhandlers [co] = nil
+        end
       end
-    end
 
 -- accepts a connection on socket input
-    local function _accept(server_skt, handler)
-      local client_skt = server_skt:accept()
-      if client_skt then
-        client_skt:settimeout(0)
-        local co = coroutine.create(handler)
-        _doTick(co, client_skt)
+      local function _accept(server_skt, handler)
+        local client_skt = server_skt:accept()
+        if client_skt then
+          client_skt:settimeout(0)
+          local co = coroutine.create(handler)
+          _doTick(co, client_skt)
+        end
       end
-    end
 -------------------------------------------------------------------------------
 -- Adds a server/handler pair to Copas dispatcher
 -------------------------------------------------------------------------------
-    do
-      local function addTCPserver(server, handler, timeout)
-        server:settimeout(timeout or 0)
-        _servers[server] = handler
-        _reading:insert(server)
-      end
+      do
+        local function addTCPserver(server, handler, timeout)
+          server:settimeout(timeout or 0)
+          _servers[server] = handler
+          _reading:insert(server)
+        end
 
-      local function addUDPserver(server, handler, timeout)
-        server:settimeout(timeout or 0)
-        local co = coroutine.create(handler)
-        _reading:insert(server)
-        _doTick(co, server)
-      end
+        local function addUDPserver(server, handler, timeout)
+          server:settimeout(timeout or 0)
+          local co = coroutine.create(handler)
+          _reading:insert(server)
+          _doTick(co, server)
+        end
 
-      function copas.addserver(server, handler, timeout)
-        if isTCP(server) then
-          addTCPserver(server, handler, timeout)
-        else
-          addUDPserver(server, handler, timeout)
+        function copas.addserver(server, handler, timeout)
+          if isTCP(server) then
+            addTCPserver(server, handler, timeout)
+          else
+            addUDPserver(server, handler, timeout)
+          end
         end
       end
-    end
 
-    function copas.removeserver(server, keep_open)
-      local skt = server
-      local mt = getmetatable(server)
-      if mt == _skt_mt_tcp or mt == _skt_mt_udp then
-        skt = server.socket
+      function copas.removeserver(server, keep_open)
+        local skt = server
+        local mt = getmetatable(server)
+        if mt == _skt_mt_tcp or mt == _skt_mt_udp then
+          skt = server.socket
+        end
+        _servers:remove(skt)
+        _reading:remove(skt)
+        if keep_open then
+          return true
+        end
+        return server:close()
       end
-      _servers:remove(skt)
-      _reading:remove(skt)
-      if keep_open then
-        return true
-      end
-      return server:close()
-    end
 
 -------------------------------------------------------------------------------
 -- Adds an new coroutine thread to Copas dispatcher
 -------------------------------------------------------------------------------
-    function copas.addthread(handler, ...)
-      -- create a coroutine that skips the first argument, which is always the socket
-      -- passed by the scheduler, but `nil` in case of a task/thread
-      local thread = coroutine.create(function(_, ...) return handler(...) end)
-      _threads[thread] = true -- register this thread so it can be removed
-      _doTick (thread, nil, ...)
-      return thread
-    end
+      function copas.addthread(handler, ...)
+        -- create a coroutine that skips the first argument, which is always the socket
+        -- passed by the scheduler, but `nil` in case of a task/thread
+        local thread = coroutine.create(function(_, ...) return handler(...) end)
+        _threads[thread] = true -- register this thread so it can be removed
+        _doTick (thread, nil, ...)
+        return thread
+      end
 
-    function copas.removethread(thread)
-      -- if the specified coroutine is registered, add it to the canceled table so
-      -- that next time it tries to resume it exits.
-      _canceled[thread] = _threads[thread or 0]
-    end
+      function copas.removethread(thread)
+        -- if the specified coroutine is registered, add it to the canceled table so
+        -- that next time it tries to resume it exits.
+        _canceled[thread] = _threads[thread or 0]
+      end
 -------------------------------------------------------------------------------
 -- Sleep/pause management functions
 -------------------------------------------------------------------------------
 -- yields the current coroutine and wakes it after 'sleeptime' seconds.
 -- If sleeptime < 0 then it sleeps until explicitly woken up using 'wakeup'
-    function copas.sleep(sleeptime)
-      coroutine.yield((sleeptime or 0), _sleeping)
-    end
+      function copas.sleep(sleeptime)
+        coroutine.yield((sleeptime or 0), _sleeping)
+      end
 
 -- Wakes up a sleeping coroutine 'co'.
-    function copas.wakeup(co)
-      _sleeping:wakeup(co)
-    end
+      function copas.wakeup(co)
+        _sleeping:wakeup(co)
+      end
 -------------------------------------------------------------------------------
 -- Timeout management
 -------------------------------------------------------------------------------
-    do
-      local timeout_register = setmetatable({}, { __mode = "k" })
-      local timerwheel = timerwheel2.new({
-          precision = TIMEOUT_PRECISION,                -- timeout precision 100ms
-          ringsize = math.floor(60/TIMEOUT_PRECISION),  -- ring size 1 minute
-          err_handler = function(...) return _deferror(...) end,
-        })
+      do
+        local timeout_register = setmetatable({}, { __mode = "k" })
+        local timerwheel = timerwheel2.new({
+            precision = TIMEOUT_PRECISION,                -- timeout precision 100ms
+            ringsize = math.floor(60/TIMEOUT_PRECISION),  -- ring size 1 minute
+            err_handler = function(...) return _deferror(...) end,
+          })
 
-      copas.addthread(function()
-          while true do
-            copas.sleep(TIMEOUT_PRECISION)
-            timerwheel:step()
+        copas.addthread(function()
+            while true do
+              copas.sleep(TIMEOUT_PRECISION)
+              timerwheel:step()
+            end
+          end)
+
+        -- get the number of timeouts running
+        function copas.gettimeouts()
+          return timerwheel:count()
+        end
+
+        function copas.timeout(delay, callback)
+          local co = coroutine.running()
+          local existing_timer = timeout_register[co]
+          if existing_timer then
+            timerwheel:cancel(existing_timer)
           end
-        end)
-
-      -- get the number of timeouts running
-      function copas.gettimeouts()
-        return timerwheel:count()
+          if delay > 0 then
+            timeout_register[co] = timerwheel:set(delay, callback, co)
+          else
+            timeout_register[co] = nil
+          end
+          return true
+        end
       end
 
-      function copas.timeout(delay, callback)
-        local co = coroutine.running()
-        local existing_timer = timeout_register[co]
-        if existing_timer then
-          timerwheel:cancel(existing_timer)
-        end
-        if delay > 0 then
-          timeout_register[co] = timerwheel:set(delay, callback, co)
-        else
-          timeout_register[co] = nil
-        end
-        return true
-      end
-    end
-
-    local _tasks = {} do function _tasks:add(tsk) _tasks[#_tasks + 1] = tsk end end
+      local _tasks = {} do function _tasks:add(tsk) _tasks[#_tasks + 1] = tsk end end
 
 -- a task to check ready to read events
-    local _readable_task = {} do
+      local _readable_task = {} do
 
-      local function tick(skt)
-        local handler = _servers[skt]
-        if handler then
-          _accept(skt, handler)
-        else
-          _reading:remove(skt)
-          _doTick(_reading:pop(skt), skt)
+        local function tick(skt)
+          local handler = _servers[skt]
+          if handler then
+            _accept(skt, handler)
+          else
+            _reading:remove(skt)
+            _doTick(_reading:pop(skt), skt)
+          end
         end
-      end
-      function _readable_task:step()
-        for _, skt in ipairs(self._evs) do
-          tick(skt)
+        function _readable_task:step()
+          for _, skt in ipairs(self._evs) do
+            tick(skt)
+          end
         end
+        _tasks:add(_readable_task)
       end
-      _tasks:add(_readable_task)
-    end
 
 -- a task to check ready to write events
-    local _writable_task = {} do
+      local _writable_task = {} do
 
-      local function tick(skt)
-        _writing:remove(skt)
-        _doTick(_writing:pop(skt), skt)
-      end
+        local function tick(skt)
+          _writing:remove(skt)
+          _doTick(_writing:pop(skt), skt)
+        end
 
-      function _writable_task:step()
-        for _, skt in ipairs(self._evs) do tick(skt) end
+        function _writable_task:step()
+          for _, skt in ipairs(self._evs) do tick(skt) end
+        end
+        _tasks:add(_writable_task)
       end
-      _tasks:add(_writable_task)
-    end
 
 -- sleeping threads task
-    local _sleeping_task = {} do
+      local _sleeping_task = {} do
 
-      function _sleeping_task:step()
-        local now = gettime()
+        function _sleeping_task:step()
+          local now = gettime()
 
-        local co = _sleeping:pop(now)
-        while co do
-          -- we're pushing them to _resumable, since that list will be replaced before
-          -- executing. This prevents tasks running twice in a row with sleep(0) for example.
-          -- So here we won't execute, but at _resumable step which is next
-          _resumable:push(co)
-          co = _sleeping:pop(now)
+          local co = _sleeping:pop(now)
+          while co do
+            -- we're pushing them to _resumable, since that list will be replaced before
+            -- executing. This prevents tasks running twice in a row with sleep(0) for example.
+            -- So here we won't execute, but at _resumable step which is next
+            _resumable:push(co)
+            co = _sleeping:pop(now)
+          end
         end
-      end
 
-      _tasks:add(_sleeping_task)
-    end
+        _tasks:add(_sleeping_task)
+      end
 
 -- resumable threads task
-    local _resumable_task = {} do
+      local _resumable_task = {} do
 
-      function _resumable_task:step()
-        -- replace the resume list before iterating, so items placed in there
-        -- will indeed end up in the next copas step, not in this one, and not
-        -- create a loop
-        local resumelist = _resumable:clear_resumelist()
+        function _resumable_task:step()
+          -- replace the resume list before iterating, so items placed in there
+          -- will indeed end up in the next copas step, not in this one, and not
+          -- create a loop
+          local resumelist = _resumable:clear_resumelist()
 
-        for _, co in ipairs(resumelist) do _doTick(co) end
+          for _, co in ipairs(resumelist) do _doTick(co) end
+        end
+
+        _tasks:add(_resumable_task)
       end
-
-      _tasks:add(_resumable_task)
-    end
 
 -------------------------------------------------------------------------------
 -- Checks for reads and writes on sockets
 -------------------------------------------------------------------------------
-    local _select do
+      local _select do
 
-      local last_cleansing = 0
-      local duration = function(t2, t1) return t2-t1 end
+        local last_cleansing = 0
+        local duration = function(t2, t1) return t2-t1 end
 
-      _select = function(timeout)
-        local err
-        local now = gettime()
+        _select = function(timeout)
+          local err
+          local now = gettime()
 
-        _readable_task._evs, _writable_task._evs, err = socket.select(_reading, _writing, timeout)
-        local r_evs, w_evs = _readable_task._evs, _writable_task._evs
+          _readable_task._evs, _writable_task._evs, err = socket.select(_reading, _writing, timeout)
+          local r_evs, w_evs = _readable_task._evs, _writable_task._evs
 
-        if duration(now, last_cleansing) > WATCH_DOG_TIMEOUT then
-          last_cleansing = now
+          if duration(now, last_cleansing) > WATCH_DOG_TIMEOUT then
+            last_cleansing = now
 
-          -- Check all sockets selected for reading, and check how long they have been waiting
-          -- for data already, without select returning them as readable
-          for skt,time in pairs(_reading_log) do
-            if not r_evs[skt] and duration(now, time) > WATCH_DOG_TIMEOUT then
-              -- This one timedout while waiting to become readable, so move
-              -- it in the readable list and try and read anyway, despite not
-              -- having been returned by select
-              _reading_log[skt] = nil
-              r_evs[#r_evs + 1] = skt
-              r_evs[skt] = #r_evs
+            -- Check all sockets selected for reading, and check how long they have been waiting
+            -- for data already, without select returning them as readable
+            for skt,time in pairs(_reading_log) do
+              if not r_evs[skt] and duration(now, time) > WATCH_DOG_TIMEOUT then
+                -- This one timedout while waiting to become readable, so move
+                -- it in the readable list and try and read anyway, despite not
+                -- having been returned by select
+                _reading_log[skt] = nil
+                r_evs[#r_evs + 1] = skt
+                r_evs[skt] = #r_evs
+              end
+            end
+
+            -- Do the same for writing
+            for skt,time in pairs(_writing_log) do
+              if not w_evs[skt] and duration(now, time) > WATCH_DOG_TIMEOUT then
+                _writing_log[skt] = nil
+                w_evs[#w_evs + 1] = skt
+                w_evs[skt] = #w_evs
+              end
             end
           end
 
-          -- Do the same for writing
-          for skt,time in pairs(_writing_log) do
-            if not w_evs[skt] and duration(now, time) > WATCH_DOG_TIMEOUT then
-              _writing_log[skt] = nil
-              w_evs[#w_evs + 1] = skt
-              w_evs[skt] = #w_evs
-            end
+          if err == "timeout" and #r_evs + #w_evs > 0 then
+            return nil
+          else
+            return err
           end
-        end
-
-        if err == "timeout" and #r_evs + #w_evs > 0 then
-          return nil
-        else
-          return err
         end
       end
-    end
 -------------------------------------------------------------------------------
 -- Dispatcher loop step.
 -- Listen to client requests and handles them
 -- Returns false if no socket-data was handled, or true if there was data
 -- handled (or nil + error message)
 -------------------------------------------------------------------------------
-    function copas.step(timeout)
-      -- Need to wake up the select call in time for the next sleeping event
-      if not _resumable:done() then
-        timeout = 0
-      else
-        timeout = math.min(_sleeping:getnext(), timeout or math.huge)
+      function copas.step(timeout)
+        -- Need to wake up the select call in time for the next sleeping event
+        if not _resumable:done() then
+          timeout = 0
+        else
+          timeout = math.min(_sleeping:getnext(), timeout or math.huge)
+        end
+        local err = _select(timeout)
+        for _, tsk in ipairs(_tasks) do
+          tsk:step()
+        end
+        if err then
+          if err == "timeout" then return false end
+          return nil, err
+        end
+        return true
       end
-      local err = _select(timeout)
-      for _, tsk in ipairs(_tasks) do
-        tsk:step()
-      end
-      if err then
-        if err == "timeout" then return false end
-        return nil, err
-      end
-      return true
-    end
 -------------------------------------------------------------------------------
 -- Check whether there is something to do.
 -- returns false if there are no sockets for read/write nor tasks scheduled
 -- (which means Copas is in an empty spin)
 -------------------------------------------------------------------------------
-    function copas.finished()
-      return #_reading == 0 and #_writing == 0 and _resumable:done() and _sleeping:done(copas.gettimeouts())
-    end
+      function copas.finished()
+        return #_reading == 0 and #_writing == 0 and _resumable:done() and _sleeping:done(copas.gettimeouts())
+      end
 -------------------------------------------------------------------------------
 -- Dispatcher endless loop.
 -- Listen to client requests and handles them forever
 -------------------------------------------------------------------------------
-    function copas.loop(initializer, timeout)
-      if type(initializer) == "function" then
-        copas.addthread(initializer)
-      else
-        timeout = initializer or timeout
+      function copas.loop(initializer, timeout)
+        if type(initializer) == "function" then
+          copas.addthread(initializer)
+        else
+          timeout = initializer or timeout
+        end
+
+        copas.running = true
+        while not copas.finished() do copas.step(timeout) end
+        copas.running = false
       end
-
-      copas.running = true
-      while not copas.finished() do copas.step(timeout) end
-      copas.running = false
     end
-  end
 --------- Copas timer ---------
-  do
-    timer = {}
-    timer.__index = timer
-
     do
-      local function expire_func(self, initial_delay)
-        copas.sleep(initial_delay)
-        while true do
-          if not self.cancelled then
-            self:callback(self.params)
+      timer = {}
+      timer.__index = timer
+
+      do
+        local function expire_func(self, initial_delay)
+          copas.sleep(initial_delay)
+          while true do
+            if not self.cancelled then
+              self:callback(self.params)
+            end
+            if (not self.recurring) or self.cancelled then
+              -- clean up and exit the thread
+              self.co = nil
+              self.cancelled = true
+              return
+            end
+            copas.sleep(self.delay)
           end
-          if (not self.recurring) or self.cancelled then
-            -- clean up and exit the thread
-            self.co = nil
-            self.cancelled = true
-            return
-          end
-          copas.sleep(self.delay)
+        end
+
+        function timer:arm(initial_delay)
+          assert(initial_delay == nil or initial_delay >= 0, "delay must be greater than or equal to 0")
+          if self.co then return nil, "already armed" end
+          self.cancelled = false
+          self.co = copas.addthread(expire_func, self, initial_delay or self.delay)
+          return self
         end
       end
 
-      function timer:arm(initial_delay)
-        assert(initial_delay == nil or initial_delay >= 0, "delay must be greater than or equal to 0")
-        if self.co then return nil, "already armed" end
-        self.cancelled = false
-        self.co = copas.addthread(expire_func, self, initial_delay or self.delay)
+      function timer:cancel()
+        if not self.co then return nil, "not armed" end
+        if self.cancelled then return nil, "already cancelled" end
+        self.cancelled = true
+        copas.wakeup(self.co)       -- resume asap
+        copas.removethread(self.co) -- will immediately drop the thread upon resuming
+        self.co = nil
         return self
+      end
+
+      function timer.new(opts)
+        assert(opts.delay >= 0, "delay must be greater than or equal to 0")
+        assert(type(opts.callback) == "function", "expected callback to be a function")
+        return setmetatable({
+            delay = opts.delay,
+            callback = opts.callback,
+            recurring = not not opts.recurring,
+            params = opts.params,
+            cancelled = false,
+            }, timer):arm(opts.initial_delay)
       end
     end
 
-    function timer:cancel()
-      if not self.co then return nil, "not armed" end
-      if self.cancelled then return nil, "already cancelled" end
-      self.cancelled = true
-      copas.wakeup(self.co)       -- resume asap
-      copas.removethread(self.co) -- will immediately drop the thread upon resuming
-      self.co = nil
-      return self
-    end
-
-    function timer.new(opts)
-      assert(opts.delay >= 0, "delay must be greater than or equal to 0")
-      assert(type(opts.callback) == "function", "expected callback to be a function")
-      return setmetatable({
-          delay = opts.delay,
-          callback = opts.callback,
-          recurring = not not opts.recurring,
-          params = opts.params,
-          cancelled = false,
-          }, timer):arm(opts.initial_delay)
-    end
-  end
-
 --------- Copas HTTP support -------------------------
-  do
-    -----------------------------------------------------------------------------
+    do
+      -----------------------------------------------------------------------------
 -- Full copy of the LuaSocket code, modified to include
 -- https and http/https redirects, and Copas async enabled.
 -----------------------------------------------------------------------------
@@ -2617,481 +2621,481 @@ function module.Timer()
 -----------------------------------------------------------------------------
 -- Declare module and import dependencies
 -------------------------------------------------------------------------------
-    local socket = require("socket")
-    local url = require("socket.url")
-    local ltn12 = require("ltn12")
-    local mime = require("mime")
-    local string = require("string")
-    local headers = require("socket.headers")
-    local base = _G
-    --local table = require("table")
-    local try = socket.try
-    copas.http = {}
-    local _M = copas.http
+      local socket = require("socket")
+      local url = require("socket.url")
+      local ltn12 = require("ltn12")
+      local mime = require("mime")
+      local string = require("string")
+      local headers = require("socket.headers")
+      local base = _G
+      --local table = require("table")
+      local try = socket.try
+      copas.http = {}
+      local _M = copas.http
 
 -----------------------------------------------------------------------------
 -- Program constants
 -----------------------------------------------------------------------------
 -- connection timeout in seconds
-    _M.TIMEOUT = 60
+      _M.TIMEOUT = 60
 -- default port for document retrieval
-    _M.PORT = 80
+      _M.PORT = 80
 -- user agent field sent in request
-    _M.USERAGENT = socket._VERSION
+      _M.USERAGENT = socket._VERSION
 
 -- Default settings for SSL
-    _M.SSLPORT = 443
-    _M.SSLPROTOCOL = "tlsv1_2"
-    _M.SSLOPTIONS  = "all"
-    _M.SSLVERIFY   = "none"
+      _M.SSLPORT = 443
+      _M.SSLPROTOCOL = "tlsv1_2"
+      _M.SSLOPTIONS  = "all"
+      _M.SSLVERIFY   = "none"
 
 
 -----------------------------------------------------------------------------
 -- Reads MIME headers from a connection, unfolding where needed
 -----------------------------------------------------------------------------
-    local function receiveheaders(sock, headers)
-      local line, name, value, err
-      headers = headers or {}
-      -- get first line
-      line, err = sock:receive()
-      if err then return nil, err end
-      -- headers go until a blank line is found
-      while line ~= "" do
-        -- get field-name and value
-        name, value = socket.skip(2, string.find(line, "^(.-):%s*(.*)"))
-        if not (name and value) then return nil, "malformed reponse headers" end
-        name = string.lower(name)
-        -- get next line (value might be folded)
-        line, err  = sock:receive()
+      local function receiveheaders(sock, headers)
+        local line, name, value, err
+        headers = headers or {}
+        -- get first line
+        line, err = sock:receive()
         if err then return nil, err end
-        -- unfold any folded values
-        while string.find(line, "^%s") do
-          value = value .. line
-          line = sock:receive()
+        -- headers go until a blank line is found
+        while line ~= "" do
+          -- get field-name and value
+          name, value = socket.skip(2, string.find(line, "^(.-):%s*(.*)"))
+          if not (name and value) then return nil, "malformed reponse headers" end
+          name = string.lower(name)
+          -- get next line (value might be folded)
+          line, err  = sock:receive()
           if err then return nil, err end
+          -- unfold any folded values
+          while string.find(line, "^%s") do
+            value = value .. line
+            line = sock:receive()
+            if err then return nil, err end
+          end
+          -- save pair in table
+          if headers[name] then headers[name] = headers[name] .. ", " .. value
+          else headers[name] = value end
         end
-        -- save pair in table
-        if headers[name] then headers[name] = headers[name] .. ", " .. value
-        else headers[name] = value end
+        return headers
       end
-      return headers
-    end
 
 -----------------------------------------------------------------------------
 -- Extra sources and sinks
 -----------------------------------------------------------------------------
-    socket.sourcet["http-chunked"] = function(sock, headers)
-      return base.setmetatable({
-          getfd = function() return sock:getfd() end,
-          dirty = function() return sock:dirty() end
-          }, {
-          __call = function()
-            -- get chunk size, skip extention
-            local line, err = sock:receive()
-            if err then return nil, err end
-            local size = base.tonumber(string.gsub(line, ";.*", ""), 16)
-            if not size then return nil, "invalid chunk size" end
-            -- was it the last chunk?
-            if size > 0 then
-              -- if not, get chunk and skip terminating CRLF
-              local chunk, err = sock:receive(size)
-              if chunk then sock:receive() end
-              return chunk, err
-            else
-              -- if it was, read trailers into headers table
-              headers, err = receiveheaders(sock, headers)
-              if not headers then return nil, err end
+      socket.sourcet["http-chunked"] = function(sock, headers)
+        return base.setmetatable({
+            getfd = function() return sock:getfd() end,
+            dirty = function() return sock:dirty() end
+            }, {
+            __call = function()
+              -- get chunk size, skip extention
+              local line, err = sock:receive()
+              if err then return nil, err end
+              local size = base.tonumber(string.gsub(line, ";.*", ""), 16)
+              if not size then return nil, "invalid chunk size" end
+              -- was it the last chunk?
+              if size > 0 then
+                -- if not, get chunk and skip terminating CRLF
+                local chunk, err = sock:receive(size)
+                if chunk then sock:receive() end
+                return chunk, err
+              else
+                -- if it was, read trailers into headers table
+                headers, err = receiveheaders(sock, headers)
+                if not headers then return nil, err end
+              end
             end
-          end
-        })
-    end
+          })
+      end
 
-    socket.sinkt["http-chunked"] = function(sock)
-      return base.setmetatable({
-          getfd = function() return sock:getfd() end,
-          dirty = function() return sock:dirty() end
-          }, {
-          __call = function(self, chunk, err)
-            if not chunk then return sock:send("0\r\n\r\n") end
-            local size = string.format("%X\r\n", string.len(chunk))
-            return sock:send(size ..  chunk .. "\r\n")
-          end
-        })
-    end
+      socket.sinkt["http-chunked"] = function(sock)
+        return base.setmetatable({
+            getfd = function() return sock:getfd() end,
+            dirty = function() return sock:dirty() end
+            }, {
+            __call = function(self, chunk, err)
+              if not chunk then return sock:send("0\r\n\r\n") end
+              local size = string.format("%X\r\n", string.len(chunk))
+              return sock:send(size ..  chunk .. "\r\n")
+            end
+          })
+      end
 
 -----------------------------------------------------------------------------
 -- Low level HTTP API
 -----------------------------------------------------------------------------
-    local metat = { __index = {} }
+      local metat = { __index = {} }
 
-    function _M.open(reqt)
-      -- create socket with user connect function
-      local c = socket.try(reqt:create())   -- method call, passing reqt table as self!
-      local h = base.setmetatable({ c = c }, metat)
-      -- create finalized try
-      h.try = socket.newtry(function() h:close() end)
-      -- set timeout before connecting
-      h.try(c:settimeout(reqt.timeout or _M.TIMEOUT))
-      h.try(c:connect(reqt.host, reqt.port or _M.PORT))
-      -- here everything worked
-      return h
-    end
-
-    function metat.__index:sendrequestline(method, uri)
-      local reqline = string.format("%s %s HTTP/1.1\r\n", method or "GET", uri)
-      return self.try(self.c:send(reqline))
-    end
-
-    function metat.__index:sendheaders(tosend)
-      local canonic = headers.canonic
-      local h = "\r\n"
-      for f, v in base.pairs(tosend) do
-        h = (canonic[f] or f) .. ": " .. v .. "\r\n" .. h
+      function _M.open(reqt)
+        -- create socket with user connect function
+        local c = socket.try(reqt:create())   -- method call, passing reqt table as self!
+        local h = base.setmetatable({ c = c }, metat)
+        -- create finalized try
+        h.try = socket.newtry(function() h:close() end)
+        -- set timeout before connecting
+        h.try(c:settimeout(reqt.timeout or _M.TIMEOUT))
+        h.try(c:connect(reqt.host, reqt.port or _M.PORT))
+        -- here everything worked
+        return h
       end
-      self.try(self.c:send(h))
-      return 1
-    end
 
-    function metat.__index:sendbody(headers, source, step)
-      source = source or ltn12.source.empty()
-      step = step or ltn12.pump.step
-      -- if we don't know the size in advance, send chunked and hope for the best
-      local mode = "http-chunked"
-      if headers["content-length"] then mode = "keep-open" end
-      return self.try(ltn12.pump.all(source, socket.sink(mode, self.c), step))
-    end
-    function metat.__index:receivestatusline()
-      local status = self.try(self.c:receive(5))
-      -- identify HTTP/0.9 responses, which do not contain a status line
-      -- this is just a heuristic, but is what the RFC recommends
-      if status ~= "HTTP/" then return nil, status end
-      -- otherwise proceed reading a status line
-      status = self.try(self.c:receive("*l", status))
-      local code = socket.skip(2, string.find(status, "HTTP/%d*%.%d* (%d%d%d)"))
-      return self.try(base.tonumber(code), status)
-    end
+      function metat.__index:sendrequestline(method, uri)
+        local reqline = string.format("%s %s HTTP/1.1\r\n", method or "GET", uri)
+        return self.try(self.c:send(reqline))
+      end
 
-    function metat.__index:receiveheaders()
-      return self.try(receiveheaders(self.c))
-    end
+      function metat.__index:sendheaders(tosend)
+        local canonic = headers.canonic
+        local h = "\r\n"
+        for f, v in base.pairs(tosend) do
+          h = (canonic[f] or f) .. ": " .. v .. "\r\n" .. h
+        end
+        self.try(self.c:send(h))
+        return 1
+      end
 
-    function metat.__index:receivebody(headers, sink, step)
-      sink = sink or ltn12.sink.null()
-      step = step or ltn12.pump.step
-      local length = base.tonumber(headers["content-length"])
-      local t = headers["transfer-encoding"] -- shortcut
-      local mode = "default" -- connection close
-      if t and t ~= "identity" then mode = "http-chunked"
-      elseif base.tonumber(headers["content-length"]) then mode = "by-length" end
-      return self.try(ltn12.pump.all(socket.source(mode, self.c, length),
-          sink, step))
-    end
+      function metat.__index:sendbody(headers, source, step)
+        source = source or ltn12.source.empty()
+        step = step or ltn12.pump.step
+        -- if we don't know the size in advance, send chunked and hope for the best
+        local mode = "http-chunked"
+        if headers["content-length"] then mode = "keep-open" end
+        return self.try(ltn12.pump.all(source, socket.sink(mode, self.c), step))
+      end
+      function metat.__index:receivestatusline()
+        local status = self.try(self.c:receive(5))
+        -- identify HTTP/0.9 responses, which do not contain a status line
+        -- this is just a heuristic, but is what the RFC recommends
+        if status ~= "HTTP/" then return nil, status end
+        -- otherwise proceed reading a status line
+        status = self.try(self.c:receive("*l", status))
+        local code = socket.skip(2, string.find(status, "HTTP/%d*%.%d* (%d%d%d)"))
+        return self.try(base.tonumber(code), status)
+      end
 
-    function metat.__index:receive09body(status, sink, step)
-      local source = ltn12.source.rewind(socket.source("until-closed", self.c))
-      source(status)
-      return self.try(ltn12.pump.all(source, sink, step))
-    end
+      function metat.__index:receiveheaders()
+        return self.try(receiveheaders(self.c))
+      end
 
-    function metat.__index:close() return self.c:close() end
+      function metat.__index:receivebody(headers, sink, step)
+        sink = sink or ltn12.sink.null()
+        step = step or ltn12.pump.step
+        local length = base.tonumber(headers["content-length"])
+        local t = headers["transfer-encoding"] -- shortcut
+        local mode = "default" -- connection close
+        if t and t ~= "identity" then mode = "http-chunked"
+        elseif base.tonumber(headers["content-length"]) then mode = "by-length" end
+        return self.try(ltn12.pump.all(socket.source(mode, self.c, length),
+            sink, step))
+      end
+
+      function metat.__index:receive09body(status, sink, step)
+        local source = ltn12.source.rewind(socket.source("until-closed", self.c))
+        source(status)
+        return self.try(ltn12.pump.all(source, sink, step))
+      end
+
+      function metat.__index:close() return self.c:close() end
 
 -----------------------------------------------------------------------------
 -- High level HTTP API
 -----------------------------------------------------------------------------
-    local function adjusturi(reqt)
-      local u = reqt
-      -- if there is a proxy, we need the full url. otherwise, just a part.
-      if not reqt.proxy and not _M.PROXY then
-        u = {
-          path = socket.try(reqt.path, "invalid path 'nil'"),
-          params = reqt.params,
-          query = reqt.query,
-          fragment = reqt.fragment
-        }
+      local function adjusturi(reqt)
+        local u = reqt
+        -- if there is a proxy, we need the full url. otherwise, just a part.
+        if not reqt.proxy and not _M.PROXY then
+          u = {
+            path = socket.try(reqt.path, "invalid path 'nil'"),
+            params = reqt.params,
+            query = reqt.query,
+            fragment = reqt.fragment
+          }
+        end
+        return url.build(u)
       end
-      return url.build(u)
-    end
 
-    local function adjustproxy(reqt)
-      local proxy = reqt.proxy or _M.PROXY
-      if proxy then
-        proxy = url.parse(proxy)
-        return proxy.host, proxy.port or 3128
-      else
-        return reqt.host, reqt.port
-      end
-    end
-
-    local function adjustheaders(reqt)
-      -- default headers
-      local host = string.gsub(reqt.authority, "^.-@", "")
-      local lower = {
-        ["user-agent"] = _M.USERAGENT,
-        ["host"] = host,
-        ["connection"] = "close, TE",
-        ["te"] = "trailers"
-      }
-      -- if we have authentication information, pass it along
-      if reqt.user and reqt.password then
-        lower["authorization"] =
-        "Basic " ..  (mime.b64(reqt.user .. ":" .. reqt.password))
-      end
-      -- override with user headers
-      for i,v in base.pairs(reqt.headers or lower) do
-        lower[string.lower(i)] = v
-      end
-      return lower
-    end
-
--- default url parts
-    local default = {
-      host = "",
-      port = _M.PORT,
-      path ="/",
-      scheme = "http"
-    }
-
-    local function adjustrequest(reqt)
-      -- parse url if provided
-      local nreqt = reqt.url and url.parse(reqt.url, default) or {}
-      -- explicit components override url
-      for i,v in base.pairs(reqt) do nreqt[i] = v end
-      if nreqt.port == "" then nreqt.port = 80 end
-      socket.try(nreqt.host and nreqt.host ~= "",
-        "invalid host '" .. base.tostring(nreqt.host) .. "'")
-      -- compute uri if user hasn't overriden
-      nreqt.uri = reqt.uri or adjusturi(nreqt)
-      -- ajust host and port if there is a proxy
-      nreqt.host, nreqt.port = adjustproxy(nreqt)
-      -- adjust headers in request
-      nreqt.headers = adjustheaders(nreqt)
-      return nreqt
-    end
-
-    local function shouldredirect(reqt, code, headers)
-      return headers.location and
-      string.gsub(headers.location, "%s", "") ~= "" and
-      (reqt.redirect ~= false) and
-      (code == 301 or code == 302 or code == 303 or code == 307) and
-      (not reqt.method or reqt.method == "GET" or reqt.method == "HEAD")
-      and (not reqt.nredirects or reqt.nredirects < 5)
-    end
-
-    local function shouldreceivebody(reqt, code)
-      if reqt.method == "HEAD" then return nil end
-      if code == 204 or code == 304 then return nil end
-      if code >= 100 and code < 200 then return nil end
-      return 1
-    end
-
--- forward declarations
-    local trequest, tredirect
-
---[[local]] function tredirect(reqt, location)
-      local result, code, headers, status = trequest {
-        -- the RFC says the redirect URL has to be absolute, but some
-        -- servers do not respect that
-        url = url.absolute(reqt.url, location),
-        source = reqt.source,
-        sink = reqt.sink,
-        headers = reqt.headers,
-        proxy = reqt.proxy,
-        nredirects = (reqt.nredirects or 0) + 1,
-        create = reqt.create
-      }
-      -- pass location header back as a hint we redirected
-      headers = headers or {}
-      headers.location = headers.location or location
-      return result, code, headers, status
-    end
-
---[[local]] function trequest(reqt)
-      -- we loop until we get what we want, or
-      -- until we are sure there is no way to get it
-      local nreqt = adjustrequest(reqt)
-      local h = _M.open(nreqt)
-      -- send request line and headers
-      h:sendrequestline(nreqt.method, nreqt.uri)
-      h:sendheaders(nreqt.headers)
-      -- if there is a body, send it
-      if nreqt.source then
-        h:sendbody(nreqt.headers, nreqt.source, nreqt.step)
-      end
-      local code, status = h:receivestatusline()
-      -- if it is an HTTP/0.9 server, simply get the body and we are done
-      if not code then
-        h:receive09body(status, nreqt.sink, nreqt.step)
-        return 1, 200
-      end
-      local headers
-      -- ignore any 100-continue messages
-      while code == 100 do
-        h:receiveheaders()
-        code, status = h:receivestatusline()
-      end
-      headers = h:receiveheaders()
-      -- at this point we should have a honest reply from the server
-      -- we can't redirect if we already used the source, so we report the error
-      if shouldredirect(nreqt, code, headers) and not nreqt.source then
-        h:close()
-        return tredirect(reqt, headers.location)
-      end
-      -- here we are finally done
-      if shouldreceivebody(nreqt, code) then
-        h:receivebody(headers, nreqt.sink, nreqt.step)
-      end
-      h:close()
-      return 1, code, headers, status
-    end
-
--- Return a function which performs the SSL/TLS connection.
-    local function tcp(params)
-      params = params or {}
-      -- Default settings
-      params.protocol = params.protocol or _M.SSLPROTOCOL
-      params.options = params.options or _M.SSLOPTIONS
-      params.verify = params.verify or _M.SSLVERIFY
-      params.mode = "client"   -- Force client mode
-      -- upvalue to track https -> http redirection
-      local washttps = false
-      -- 'create' function for LuaSocket
-      return function (reqt)
-        local u = url.parse(reqt.url)
-        if (reqt.scheme or u.scheme) == "https" then
-          -- https, provide an ssl wrapped socket
-          local conn = copas.wrap(socket.tcp(), params)
-          -- insert https default port, overriding http port inserted by LuaSocket
-          if not u.port then
-            u.port = _M.SSLPORT
-            reqt.url = url.build(u)
-            reqt.port = _M.SSLPORT
-          end
-          washttps = true
-          return conn
+      local function adjustproxy(reqt)
+        local proxy = reqt.proxy or _M.PROXY
+        if proxy then
+          proxy = url.parse(proxy)
+          return proxy.host, proxy.port or 3128
         else
-          -- regular http, needs just a socket...
-          if washttps and params.redirect ~= "all" then
-            try(nil, "Unallowed insecure redirect https to http")
-          end
-          return copas.wrap(socket.tcp())
+          return reqt.host, reqt.port
         end
       end
-    end
+
+      local function adjustheaders(reqt)
+        -- default headers
+        local host = string.gsub(reqt.authority, "^.-@", "")
+        local lower = {
+          ["user-agent"] = _M.USERAGENT,
+          ["host"] = host,
+          ["connection"] = "close, TE",
+          ["te"] = "trailers"
+        }
+        -- if we have authentication information, pass it along
+        if reqt.user and reqt.password then
+          lower["authorization"] =
+          "Basic " ..  (mime.b64(reqt.user .. ":" .. reqt.password))
+        end
+        -- override with user headers
+        for i,v in base.pairs(reqt.headers or lower) do
+          lower[string.lower(i)] = v
+        end
+        return lower
+      end
+
+-- default url parts
+      local default = {
+        host = "",
+        port = _M.PORT,
+        path ="/",
+        scheme = "http"
+      }
+
+      local function adjustrequest(reqt)
+        -- parse url if provided
+        local nreqt = reqt.url and url.parse(reqt.url, default) or {}
+        -- explicit components override url
+        for i,v in base.pairs(reqt) do nreqt[i] = v end
+        if nreqt.port == "" then nreqt.port = 80 end
+        socket.try(nreqt.host and nreqt.host ~= "",
+          "invalid host '" .. base.tostring(nreqt.host) .. "'")
+        -- compute uri if user hasn't overriden
+        nreqt.uri = reqt.uri or adjusturi(nreqt)
+        -- ajust host and port if there is a proxy
+        nreqt.host, nreqt.port = adjustproxy(nreqt)
+        -- adjust headers in request
+        nreqt.headers = adjustheaders(nreqt)
+        return nreqt
+      end
+
+      local function shouldredirect(reqt, code, headers)
+        return headers.location and
+        string.gsub(headers.location, "%s", "") ~= "" and
+        (reqt.redirect ~= false) and
+        (code == 301 or code == 302 or code == 303 or code == 307) and
+        (not reqt.method or reqt.method == "GET" or reqt.method == "HEAD")
+        and (not reqt.nredirects or reqt.nredirects < 5)
+      end
+
+      local function shouldreceivebody(reqt, code)
+        if reqt.method == "HEAD" then return nil end
+        if code == 204 or code == 304 then return nil end
+        if code >= 100 and code < 200 then return nil end
+        return 1
+      end
+
+-- forward declarations
+      local trequest, tredirect
+
+--[[local]] function tredirect(reqt, location)
+        local result, code, headers, status = trequest {
+          -- the RFC says the redirect URL has to be absolute, but some
+          -- servers do not respect that
+          url = url.absolute(reqt.url, location),
+          source = reqt.source,
+          sink = reqt.sink,
+          headers = reqt.headers,
+          proxy = reqt.proxy,
+          nredirects = (reqt.nredirects or 0) + 1,
+          create = reqt.create
+        }
+        -- pass location header back as a hint we redirected
+        headers = headers or {}
+        headers.location = headers.location or location
+        return result, code, headers, status
+      end
+
+--[[local]] function trequest(reqt)
+        -- we loop until we get what we want, or
+        -- until we are sure there is no way to get it
+        local nreqt = adjustrequest(reqt)
+        local h = _M.open(nreqt)
+        -- send request line and headers
+        h:sendrequestline(nreqt.method, nreqt.uri)
+        h:sendheaders(nreqt.headers)
+        -- if there is a body, send it
+        if nreqt.source then
+          h:sendbody(nreqt.headers, nreqt.source, nreqt.step)
+        end
+        local code, status = h:receivestatusline()
+        -- if it is an HTTP/0.9 server, simply get the body and we are done
+        if not code then
+          h:receive09body(status, nreqt.sink, nreqt.step)
+          return 1, 200
+        end
+        local headers
+        -- ignore any 100-continue messages
+        while code == 100 do
+          h:receiveheaders()
+          code, status = h:receivestatusline()
+        end
+        headers = h:receiveheaders()
+        -- at this point we should have a honest reply from the server
+        -- we can't redirect if we already used the source, so we report the error
+        if shouldredirect(nreqt, code, headers) and not nreqt.source then
+          h:close()
+          return tredirect(reqt, headers.location)
+        end
+        -- here we are finally done
+        if shouldreceivebody(nreqt, code) then
+          h:receivebody(headers, nreqt.sink, nreqt.step)
+        end
+        h:close()
+        return 1, code, headers, status
+      end
+
+-- Return a function which performs the SSL/TLS connection.
+      local function tcp(params)
+        params = params or {}
+        -- Default settings
+        params.protocol = params.protocol or _M.SSLPROTOCOL
+        params.options = params.options or _M.SSLOPTIONS
+        params.verify = params.verify or _M.SSLVERIFY
+        params.mode = "client"   -- Force client mode
+        -- upvalue to track https -> http redirection
+        local washttps = false
+        -- 'create' function for LuaSocket
+        return function (reqt)
+          local u = url.parse(reqt.url)
+          if (reqt.scheme or u.scheme) == "https" then
+            -- https, provide an ssl wrapped socket
+            local conn = copas.wrap(socket.tcp(), params)
+            -- insert https default port, overriding http port inserted by LuaSocket
+            if not u.port then
+              u.port = _M.SSLPORT
+              reqt.url = url.build(u)
+              reqt.port = _M.SSLPORT
+            end
+            washttps = true
+            return conn
+          else
+            -- regular http, needs just a socket...
+            if washttps and params.redirect ~= "all" then
+              try(nil, "Unallowed insecure redirect https to http")
+            end
+            return copas.wrap(socket.tcp())
+          end
+        end
+      end
 
 -- parses a shorthand form into the advanced table form.
 -- adds field `target` to the table. This will hold the return values.
-    _M.parseRequest = function(u, b)
-      local reqt = {
-        url = u,
-        target = {},
-      }
-      reqt.sink = ltn12.sink.table(reqt.target)
-      if b then
-        reqt.source = ltn12.source.string(b)
-        reqt.headers = {
-          ["content-length"] = string.len(b),
-          ["content-type"] = "application/x-www-form-urlencoded"
+      _M.parseRequest = function(u, b)
+        local reqt = {
+          url = u,
+          target = {},
         }
-        reqt.method = "POST"
-      end
-      return reqt
-    end
-    _M.request = socket.protect(function(reqt, body)
-        if base.type(reqt) == "string" then
-          reqt = _M.parseRequest(reqt, body)
-          local ok, code, headers, status = _M.request(reqt)
-
-          if ok then
-            return table.concat(reqt.target), code, headers, status
-          else
-            return nil, code
-          end
-        else
-          reqt.create = reqt.create or tcp(reqt)
-          return trequest(reqt)
+        reqt.sink = ltn12.sink.table(reqt.target)
+        if b then
+          reqt.source = ltn12.source.string(b)
+          reqt.headers = {
+            ["content-length"] = string.len(b),
+            ["content-type"] = "application/x-www-form-urlencoded"
+          }
+          reqt.method = "POST"
         end
-      end)
+        return reqt
+      end
+      _M.request = socket.protect(function(reqt, body)
+          if base.type(reqt) == "string" then
+            reqt = _M.parseRequest(reqt, body)
+            local ok, code, headers, status = _M.request(reqt)
 
-    http = _M
-  end
+            if ok then
+              return table.concat(reqt.target), code, headers, status
+            else
+              return nil, code
+            end
+          else
+            reqt.create = reqt.create or tcp(reqt)
+            return trequest(reqt)
+          end
+        end)
+
+      http = _M
+    end
 --------- Copas Lock support -------------------------
-  do
-    local DEFAULT_TIMEOUT = 10
-    local gettime = socket.gettime
-    lock = {}
-    lock.__index = lock
+    do
+      local DEFAULT_TIMEOUT = 10
+      local gettime = socket.gettime
+      lock = {}
+      lock.__index = lock
 
 -- registry, locks indexed by the coroutines using them.
-    local registry = setmetatable({}, { __mode="kv" })
+      local registry = setmetatable({}, { __mode="kv" })
 
 --- Creates a new lock.
 -- @param seconds (optional) default timeout in seconds when acquiring the lock (defaults to 10)
 -- @param not_reentrant (optional) if truthy the lock will not allow a coroutine to grab the same lock multiple times
 -- @return the lock object
-    function lock.new(seconds, not_reentrant)
-      local timeout = tonumber(seconds or DEFAULT_TIMEOUT) or -1
-      if timeout < 0 then
-        error("expected timeout (1st argument) to be a number greater than or equal to 0, got: " .. tostring(seconds), 2)
-      end
-      return setmetatable({
-          timeout = timeout,
-          not_reentrant = not_reentrant,
-          queue = {},
-          q_tip = 0,  -- index of the first in line waiting
-          q_tail = 0, -- index where the next one will be inserted
-          owner = nil, -- coroutine holding lock currently
-          call_count = nil, -- recursion call count
-          errors = setmetatable({}, { __mode = "k" }), -- error indexed by coroutine
-          }, lock)
-    end
-
-    do
-      local destroyed_func = function()
-        return nil, "destroyed"
-      end
-
-      local destroyed_lock_mt = {
-        __index = function()
-          return destroyed_func
+      function lock.new(seconds, not_reentrant)
+        local timeout = tonumber(seconds or DEFAULT_TIMEOUT) or -1
+        if timeout < 0 then
+          error("expected timeout (1st argument) to be a number greater than or equal to 0, got: " .. tostring(seconds), 2)
         end
-      }
-      --- destroy a lock.
-      -- Releases all waiting threads with `nil+"destroyed"`
-      function lock:destroy()
-        --print("destroying ",self)
-        for i = self.q_tip, self.q_tail do
-          local co = self.queue[i]
-          if co then
-            self.errors[co] = "destroyed"
+        return setmetatable({
+            timeout = timeout,
+            not_reentrant = not_reentrant,
+            queue = {},
+            q_tip = 0,  -- index of the first in line waiting
+            q_tail = 0, -- index where the next one will be inserted
+            owner = nil, -- coroutine holding lock currently
+            call_count = nil, -- recursion call count
+            errors = setmetatable({}, { __mode = "k" }), -- error indexed by coroutine
+            }, lock)
+      end
+
+      do
+        local destroyed_func = function()
+          return nil, "destroyed"
+        end
+
+        local destroyed_lock_mt = {
+          __index = function()
+            return destroyed_func
+          end
+        }
+        --- destroy a lock.
+        -- Releases all waiting threads with `nil+"destroyed"`
+        function lock:destroy()
+          --print("destroying ",self)
+          for i = self.q_tip, self.q_tail do
+            local co = self.queue[i]
+            if co then
+              self.errors[co] = "destroyed"
+              --print("marked destroyed ", co)
+              copas.wakeup(co)
+            end
+          end
+          if self.owner then
+            self.errors[self.owner] = "destroyed"
             --print("marked destroyed ", co)
+          end
+          self.queue = {}
+          self.q_tip = 0
+          self.q_tail = 0
+          self.destroyed = true
+          setmetatable(self, destroyed_lock_mt)
+          return true
+        end
+      end
+
+      local function timeout_handler(co)
+        local self = registry[co]
+        for i = self.q_tip, self.q_tail do
+          if co == self.queue[i] then
+            self.queue[i] = nil
+            self.errors[co] = "timeout"
+            --print("marked timeout ", co)
             copas.wakeup(co)
+            return
           end
         end
-        if self.owner then
-          self.errors[self.owner] = "destroyed"
-          --print("marked destroyed ", co)
-        end
-        self.queue = {}
-        self.q_tip = 0
-        self.q_tail = 0
-        self.destroyed = true
-        setmetatable(self, destroyed_lock_mt)
-        return true
       end
-    end
-
-    local function timeout_handler(co)
-      local self = registry[co]
-      for i = self.q_tip, self.q_tail do
-        if co == self.queue[i] then
-          self.queue[i] = nil
-          self.errors[co] = "timeout"
-          --print("marked timeout ", co)
-          copas.wakeup(co)
-          return
-        end
-      end
-    end
 
 --- Acquires the lock.
 -- If the lock is owned by another thread, this will yield control, until the
@@ -3099,773 +3103,776 @@ function module.Timer()
 -- If `timeout == 0` then it will immediately return (without yielding).
 -- @param timeout (optional) timeout in seconds, if given overrides the timeout passed to `new`.
 -- @return wait-time on success, or nil+error+wait_time on failure. Errors can be "timeout", "destroyed", or "lock is not re-entrant"
-    function lock:get(timeout)
-      local co = coroutine.running()
-      local start_time
+      function lock:get(timeout)
+        local co = coroutine.running()
+        local start_time
 
-      -- is the lock already taken?
-      if self.owner then
-        -- are we re-entering?
-        if co == self.owner then
-          if self.not_reentrant then
-            return nil, "lock is not re-entrant", 0
-          else
-            self.call_count = self.call_count + 1
-            return 0
+        -- is the lock already taken?
+        if self.owner then
+          -- are we re-entering?
+          if co == self.owner then
+            if self.not_reentrant then
+              return nil, "lock is not re-entrant", 0
+            else
+              self.call_count = self.call_count + 1
+              return 0
+            end
+          end
+
+          self.queue[self.q_tail] = co
+          self.q_tail = self.q_tail + 1
+          timeout = timeout or self.timeout
+          if timeout == 0 then
+            return nil, "timeout", 0
+          end
+
+          registry[co] = self
+          copas.timeout(timeout, timeout_handler)
+          start_time = gettime()
+          copas.sleep(-1)
+          local err = self.errors[co]
+          self.errors[co] = nil
+          if err ~= "timeout" then
+            copas.timeout(0)
+          end
+          if err then
+            self.errors[co] = nil
+            return nil, err, gettime() - start_time
           end
         end
-
-        self.queue[self.q_tail] = co
-        self.q_tail = self.q_tail + 1
-        timeout = timeout or self.timeout
-        if timeout == 0 then
-          return nil, "timeout", 0
-        end
-
-        registry[co] = self
-        copas.timeout(timeout, timeout_handler)
-        start_time = gettime()
-        copas.sleep(-1)
-        local err = self.errors[co]
-        self.errors[co] = nil
-        if err ~= "timeout" then
-          copas.timeout(0)
-        end
-        if err then
-          self.errors[co] = nil
-          return nil, err, gettime() - start_time
-        end
+        self.owner = co
+        self.call_count = 1
+        return start_time and (gettime() - start_time) or 0
       end
-      self.owner = co
-      self.call_count = 1
-      return start_time and (gettime() - start_time) or 0
-    end
 --- Releases the lock currently held.
 -- Releasing a lock that is not owned by the current co-routine will return
 -- an error.
 -- returns true, or nil+err on an error
-    function lock:release()
-      local co = coroutine.running()
-      if co ~= self.owner then
-        return nil, "cannot release a lock not owned"
-      end
-      self.call_count = self.call_count - 1
-      if self.call_count > 0 then
-        -- same coro is still holding it
-        return true
-      end
-      if self.q_tail == self.q_tip then
-        -- queue is empty
-        self.owner = nil
-        return true
-      end
-      while self.q_tip < self.q_tail do
-        local next_up = self.queue[self.q_tip]
-        if next_up then
-          self.owner = next_up
-          self.queue[self.q_tip] = nil
-          self.q_tip = self.q_tip + 1
-          copas.wakeup(next_up)
+      function lock:release()
+        local co = coroutine.running()
+        if co ~= self.owner then
+          return nil, "cannot release a lock not owned"
+        end
+        self.call_count = self.call_count - 1
+        if self.call_count > 0 then
+          -- same coro is still holding it
           return true
         end
-        self.q_tip = self.q_tip + 1
+        if self.q_tail == self.q_tip then
+          -- queue is empty
+          self.owner = nil
+          return true
+        end
+        while self.q_tip < self.q_tail do
+          local next_up = self.queue[self.q_tip]
+          if next_up then
+            self.owner = next_up
+            self.queue[self.q_tip] = nil
+            self.q_tip = self.q_tip + 1
+            copas.wakeup(next_up)
+            return true
+          end
+          self.q_tip = self.q_tip + 1
+        end
+        -- queue is empty, reset pointers
+        self.q_tip = 0
+        self.q_tail = 0
+        return true
       end
-      -- queue is empty, reset pointers
-      self.q_tip = 0
-      self.q_tail = 0
-      return true
     end
-  end
 
 --------- Main HC3 timer support based on  Copas -------------------------
-  local format,colorStr = string.format,Util.colorStr
+    local format,colorStr = string.format,Util.colorStr
 
-  local TimerMetatable = {
-    __tostring = function(self)
-      local extra = self.tag and (" "..self.tag) or ""
-      if self.line then extra = format("%s %s,line:%s",extra,self.source,self.line) end
-      if _debugFlags.timersWarn then
-        local diff = os.milliTime()-self.time
-        return colorStr(diff > _debugFlags.timersWarn and 'red' or 'green',self.tostr..os.milliStr(self.time)..extra..">")
-      else
-        return self.tostr..os.milliStr(self.time)..extra..">"
+    local TimerMetatable = {
+      __tostring = function(self)
+        local extra = self.tag and (" "..self.tag) or ""
+        if self.line then extra = format("%s %s,line:%s",extra,self.source,self.line) end
+        if _debugFlags.timersWarn then
+          local diff = os.milliTime()-self.time
+          return colorStr(diff > _debugFlags.timersWarn and 'red' or 'green',self.tostr..os.milliStr(self.time)..extra..">")
+        else
+          return self.tostr..os.milliStr(self.time)..extra..">"
+        end
       end
+    }
+    -- <Timer:999, fun=0x8888, exp:...>
+    local function ISTIMER(t) return type(t)=='table' and t['%%TIMER%%'] end
+    local TINDEX = 1
+    local function makeTimer(t)
+      t['%%TIMER%%']=true
+      t.tostr = format("<Timer:%04d fun:%s exp:",TINDEX,tostring(t.fun):sub(11))
+      TINDEX=TINDEX+1
+      setmetatable(t,TimerMetatable)
+      return t
     end
-  }
-  -- <Timer:999, fun=0x8888, exp:...>
-  local function ISTIMER(t) return type(t)=='table' and t['%%TIMER%%'] end
-  local TINDEX = 1
-  local function makeTimer(t)
-    t['%%TIMER%%']=true
-    t.tostr = format("<Timer:%04d fun:%s exp:",TINDEX,tostring(t.fun):sub(11))
-    TINDEX=TINDEX+1
-    setmetatable(t,TimerMetatable)
-    return t
-  end
 
-  local SPEED,timeAdjust = false,0
-  local timers = nil
-  local runT,runTimers,maxTime = nil,nil
+    local SPEED,timeAdjust = false,0
+    local timers = nil
+    local runT,runTimers,maxTime = nil,nil
 
-  local _milliTime  -- return time in seconds
-  if _G['ngx'] then _milliTime = _G['ngx'].now
-  else
-    local ok, socket = pcall(require, "socket")
-    if ok then _milliTime = socket.gettime
-    else _milliTime = os.time end
-  end
-
-  local function max(x,y) return x>=y and x or y end
-
-  os._time  = os.time
-  os._clock = os.clock
-  os._date  = os.date
-  os.rt = _milliTime
-  os.speed = function(b) SPEED = b Log(LOG.SYS,"Setting speed to %s",tostring(b)) end
-  os.time = function(t) return t and os._time(t) or math.floor(os.rt() + timeAdjust) end
-  os.milliTime = function() return os.rt() + timeAdjust end
-  os.clock = function() return os._clock() end
-  os.date = function(s,t) return os._date(s,t or os.time()) end
-  os.setTimer2 = function(fun,sec,recurring,params,env)
-    local t =
-    timer.new({
-        delay = sec,
-        recurring = recurring or false,
-        callback = fun,
-        params = params
-      })
-    contexts[t.co]=env or _ENV
-    return t
-  end
-  os.setTimer = function(fun,ms,recurring,params,env) os.setTimer2(fun,ms/1000.0,recurring,params,env) end
-  os.clearTimer = function(t) t:cancel() end
-  os.milliStr = function(t) return os.date("%H:%M:%S",math.floor(t))..format(":%03d",math.floor((t%1)*1000+0.5)) end
-
-  function os.setTime(t)
-    timeAdjust = t-os.time()
-    Log(LOG.SYS,"Setting emulator time to %s",os.date("%c",t))
-    local t0 = timers
-    while t0 do -- update already scheduled timers
-      t0.time = t0.time + timeAdjust
-      t0 = t0.next
-    end
-  end
-
-  local function dumpTimers()
-    local t = timers
-    while t do print(os.date("%c",math.floor(t.time)),t.time,t); t = t.next end
-  end
-
-  local function countTimers() local t,n = timers,0; while t do n=n+1; t=t.next end return  n end
-
-  local function insertTimer(t) -- {fun,time,next}
-    if _debugFlags.timersSched then Log(LOG.LOG,"Inserting timer %s",t) end
-    if timers == nil then
-      timers=t
-    elseif t.time < timers.time then
-      timers,t.next=t,timers
+    local _milliTime  -- return time in seconds
+    if _G['ngx'] then _milliTime = _G['ngx'].now
     else
-      local tp = timers
-      while tp.next and tp.next.time <= t.time do tp=tp.next end
-      t.next,tp.next=tp.next,t
+      local ok, socket = pcall(require, "socket")
+      if ok then _milliTime = socket.gettime
+      else _milliTime = os.time end
     end
-    if timers == t then
-      if _debugFlags.timersSched then
-        Log(LOG.LOG,"Will run next timer at %s in %0.4fs",os.milliStr(timers.time),timers.time-os.milliTime())
-      end
-      if runT then runT:cancel() end
-      runT = os.setTimer2(runTimers,max(timers.time-os.milliTime(),0))
-    end
-    --dumpTimers()
-    return t
-  end
 
-  local function deleteTimer(timer) -- ToDo: delete scheduled timer?
-    if timer==nil then return end
-    timer.expired = true
-    if timers == timer then
-      timers = timers.next
-      if runT then runT:cancel() runT=nil end
-      if timers then runT = os.setTimer2(runTimers,max(timers.time-os.milliTime(),0)) end
-    else
-      local tp = timers
-      while tp and tp.next do
-        if tp.next == timer then tp.next = tp.next.next return end
-        tp = tp.next
+    local function max(x,y) return x>=y and x or y end
+
+    os._time  = os.time
+    os._clock = os.clock
+    os._date  = os.date
+    os.rt = _milliTime
+    os.speed = function(b) SPEED = b Log(LOG.SYS,"Setting speed to %s",tostring(b)) end
+    os.time = function(t) return t and os._time(t) or math.floor(os.rt() + timeAdjust) end
+    os.milliTime = function() return os.rt() + timeAdjust end
+    os.clock = function() return os._clock() end
+    os.date = function(s,t) return os._date(s,t or os.time()) end
+    os.setTimer2 = function(fun,sec,recurring,params,env)
+      local t =
+      timer.new({
+          delay = sec,
+          recurring = recurring or false,
+          callback = fun,
+          params = params
+        })
+      contexts[t.co]=env or _ENV
+      return t
+    end
+    os.setTimer = function(fun,ms,recurring,params,env) os.setTimer2(fun,ms/1000.0,recurring,params,env) end
+    os.clearTimer = function(t) t:cancel() end
+    os.milliStr = function(t) return os.date("%H:%M:%S",math.floor(t))..format(":%03d",math.floor((t%1)*1000+0.5)) end
+
+    function os.setTime(t)
+      timeAdjust = t-os.time()
+      Log(LOG.SYS,"Setting emulator time to %s",os.date("%c",t))
+      local t0 = timers
+      while t0 do -- update already scheduled timers
+        t0.time = t0.time + timeAdjust
+        t0 = t0.next
       end
     end
-  end
 
-  function runTimers()
-    runT = nil
-    ::REDO::
-    local t,now = timers,os.milliTime()
-    if timers then
-      if _debugFlags.timersSched then Log(LOG.LOG,"Running:%s, RT:%s, SPEED:%s",t,os.milliStr(now),SPEED) end
-      if maxTime and timer.time >= maxTime then Log(LOG.SYS,"Max time - exit") osExit() end
-      if SPEED then
-        timers = timers.next
-        timeAdjust = t.time-os.rt()
-        os.setTimer2(t.fun,0,false,t.params,t.env)
-        if timers ~= nil and timers.time == t.time then goto REDO end
+    local function dumpTimers()
+      local t = timers
+      while t do print(os.date("%c",math.floor(t.time)),t.time,t); t = t.next end
+    end
+
+    local function countTimers() local t,n = timers,0; while t do n=n+1; t=t.next end return  n end
+
+    local function insertTimer(t) -- {fun,time,next}
+      if _debugFlags.timersSched then Log(LOG.LOG,"Inserting timer %s",t) end
+      if timers == nil then
+        timers=t
+      elseif t.time < timers.time then
+        timers,t.next=t,timers
       else
-        timers = timers.next
-        os.setTimer2(t.fun,0,false,t.params,t.env)
+        local tp = timers
+        while tp.next and tp.next.time <= t.time do tp=tp.next end
+        t.next,tp.next=tp.next,t
       end
-      if timers then
-        if SPEED then
-          runT = os.setTimer2(runTimers,0.01)
-        elseif not SPEED then
-          local s = max(timers.time-os.milliTime(),0)
-          runT = os.setTimer2(runTimers,s)
+      if timers == t then
+        if _debugFlags.timersSched then
+          Log(LOG.LOG,"Will run next timer at %s in %0.4fs",os.milliStr(timers.time),timers.time-os.milliTime())
+        end
+        if runT then runT:cancel() end
+        runT = os.setTimer2(runTimers,max(timers.time-os.milliTime(),0))
+      end
+      --dumpTimers()
+      return t
+    end
+
+    local function deleteTimer(timer) -- ToDo: delete scheduled timer?
+      if timer==nil then return end
+      timer.expired = true
+      if timers == timer then
+        timers = timers.next
+        if runT then runT:cancel() runT=nil end
+        if timers then runT = os.setTimer2(runTimers,max(timers.time-os.milliTime(),0)) end
+      else
+        local tp = timers
+        while tp and tp.next do
+          if tp.next == timer then tp.next = tp.next.next return end
+          tp = tp.next
         end
       end
     end
-  end
 
-  local function timerWrap(_,params)
-    local t,fun,eh,now = params[2],params[1],params[3]
-    local ctx = getContext()
-    ctx._getLock()
-    if not t.expired then
-      now = os.milliTime()
-      t.expired = true
-      if now-t.time > 0.1 then
-        Log(LOG.WARNING,"Late timer:%0.3fs %s",now-t.time,t)
-      end
-      ctx._lastTimer = t
-      xpcall(fun,eh)
-    end
-    ctx._releaseLock()
-  end
-
-  local function timerErr(err)
-    Log(LOG.ERROR,"Timer %s crashed - %s",_lastTimer,err)
-    print(debug.traceback(err,1))
-    if _debugFlags.breakOnError then mobdebug.pause() end
-  end
-
-  function setTimeout(fun,time,tag,errHandler,env)
-    assert(type(fun)=='function' and type(time)=='number',"Bad arguments to setTimeout")
-    local warn,params = _debugFlags.timersWarn and time<0, {fun,nil,errHandler or timerErr}
-    time = time > 0 and time or 0
-    local t = insertTimer(makeTimer({fun=timerWrap,params=params,time=os.milliTime()+time/1000.0,tag=tag,env=env or getContext()}))
-    if warn then Log(LOG.WARNING,"Negative timer:%s",t) end
-    params[2]=t
-    if  _debugFlags.timersExtra then
-      local l = debug.getinfo(2,"Sl")
-      t.source = l.source
-      t.line = l.currentline
-    end
-    return t
-  end
-
-  function clearTimeout(timer)
-    if ISTIMER(timer) and not timer.expired then
-      deleteTimer(timer)
-    end
-  end
-
-  function self.killTimers(id)
-    local n,killable = 0,function (t) return t and t.env and t.env._ENVID == id end
-    while killable(timers) do deleteTimer(timers) n=n+1 end
-    if timers==nil then return n end
-    local t = timers
-    while t.next do
-      if killable(t.next) then deleteTimer(t.next) n=n+1
-      else t=t.next end
-    end
-    return n
-  end
-
-  function setInterval(fun,ms,tag)
-    local setTimeout = getContext().setTimeout or setTimeout
-    assert(type(fun)=='function' and type(ms)=='number',"Bad argument to setInterval")
-    local ref={}
-    local function loop()
-      if ref[1] then
-        fun()
-        ref[1]=ref[1] and setTimeout(loop,ms,tag)
+    function runTimers()
+      runT = nil
+      ::REDO::
+      local t,now = timers,os.milliTime()
+      if timers then
+        if _debugFlags.timersSched then Log(LOG.LOG,"Running:%s, RT:%s, SPEED:%s",t,os.milliStr(now),SPEED) end
+        if maxTime and timer.time >= maxTime then Log(LOG.SYS,"Max time - exit") osExit() end
+        if SPEED then
+          timers = timers.next
+          timeAdjust = t.time-os.rt()
+          os.setTimer2(t.fun,0,false,t.params,t.env)
+          if timers ~= nil and timers.time == t.time then goto REDO end
+        else
+          timers = timers.next
+          os.setTimer2(t.fun,0,false,t.params,t.env)
+        end
+        if timers then
+          if SPEED then
+            runT = os.setTimer2(runTimers,0.01)
+          elseif not SPEED then
+            local s = max(timers.time-os.milliTime(),0)
+            runT = os.setTimer2(runTimers,s)
+          end
+        end
       end
     end
-    ref[1] = setTimeout(loop,ms,tag)
-    return ref
-  end
 
-  function clearInterval(ref)
-    assert(type(ref)=='table' and ISTIMER(ref[1]),"Bad timer to clearInterval")
-    local r = ref[1]
-    if r then ref[1]=nil; clearTimeout(r) end
-  end
+    local function timerWrap(_,params)
+      local t,fun,eh,now = params[2],params[1],params[3]
+      local ctx = getContext()
+      ctx._getLock()
+      if not t.expired then
+        now = os.milliTime()
+        t.expired = true
+        if _debugFlags.timersWarn  and now-t.time > _debugFlags.timersWarn then
+          Log(LOG.WARNING,"Late timer:%0.3fs %s",now-t.time,t)
+        end
+        ctx._lastTimer = t
+        xpcall(fun,eh)
+      end
+      ctx._releaseLock()
+    end
 
-  function self.speedTime(speedTime) -- seconds
-    maxTime = os.time()+speedTime*60*60
-  end
+    local function timerErr(err)
+      Log(LOG.ERROR,"Timer %s crashed - %s",_lastTimer,err)
+      print(debug.traceback(err,1))
+      if _debugFlags.breakOnError then mobdebug.pause() end
+    end
 
-  function self.start(f)
-    copas.loop(function()
-        timer.new({
-            delay = 0, -- delay in seconds
-            recurring = false,
-            params = "",
-            callback = function(_, _) f() end
-          })
-      end)
-  end
+    function setTimeout(fun,time,tag,errHandler,env,offs)
+      assert(type(fun)=='function' and type(time)=='number',"Bad arguments to setTimeout")
+      local warn,params = _debugFlags.timersWarn and time<0, {fun,nil,errHandler or timerErr}
+      time = time > 0 and time or 0
+      local t = insertTimer(makeTimer({fun=timerWrap,params=params,time=os.milliTime()+time/1000.0,tag=tag,env=env or getContext()}))
+      if warn then Log(LOG.WARNING,"Negative timer:%s",t) end
+      params[2]=t
+      if  _debugFlags.timersExtra then
+        if offs then t.source, t.line = offs.source,offs.linedefined
+        else
+          local l = debug.getinfo(2,"Sl")
+          t.source = l.source
+          t.line = l.currentline
+        end
+      end
+      return t
+    end
 
-  self.copas = copas
-  self.copas.lock = lock
-  self.dumpTimers = dumpTimers
-  self.makeTimer = makeTimer
-  self.inserTimer = insertTimer
-  hc3_emulator.copas = copas
-  return self
-end
+    function clearTimeout(timer)
+      if ISTIMER(timer) and not timer.expired then
+        deleteTimer(timer)
+      end
+    end
+
+    function self.killTimers(id)
+      local n,killable = 0,function (t) return t and t.env and t.env._ENVID == id end
+      while killable(timers) do deleteTimer(timers) n=n+1 end
+      if timers==nil then return n end
+      local t = timers
+      while t.next do
+        if killable(t.next) then deleteTimer(t.next) n=n+1
+        else t=t.next end
+      end
+      return n
+    end
+
+    function setInterval(fun,ms,tag)
+      local setTimeout = getContext().setTimeout or setTimeout
+      assert(type(fun)=='function' and type(ms)=='number',"Bad argument to setInterval")
+      local ref={}
+      local function loop()
+        if ref[1] then
+          fun()
+          ref[1]=ref[1] and setTimeout(loop,ms,tag)
+        end
+      end
+      ref[1] = setTimeout(loop,ms,tag)
+      return ref
+    end
+
+    function clearInterval(ref)
+      assert(type(ref)=='table' and ISTIMER(ref[1]),"Bad timer to clearInterval")
+      local r = ref[1]
+      if r then ref[1]=nil; clearTimeout(r) end
+    end
+
+    function self.speedTime(speedTime) -- seconds
+      maxTime = os.time()+speedTime*60*60
+    end
+
+    function self.start(f)
+      copas.loop(function()
+          timer.new({
+              delay = 0, -- delay in seconds
+              recurring = false,
+              params = "",
+              callback = function(_, _) f() end
+            })
+        end)
+    end
+
+    self.copas = copas
+    self.copas.lock = lock
+    self.dumpTimers = dumpTimers
+    self.makeTimer = makeTimer
+    self.inserTimer = insertTimer
+    hc3_emulator.copas = copas
+    return self
+  end
 
 --------------- QuickApp functions and support -------
-function module.QuickApp()
-  local self = {}
-  plugin = {}
-  plugin.mainDeviceId = 999
-  local function ID() return getContext().plugin.mainDeviceId end
-  function plugin.deleteDevice(deviceId) return api.delete("/devices/"..deviceId) end
-  function plugin.restart(deviceId) return api.post("/plugins/restart",{deviceId=deviceId or ID()}) end
-  function plugin.getProperty(id,prop) return api.get("/devices/"..id.."/property/"..prop) end
-  function plugin.getChildDevices(id) return api.get("/devices?parentId="..(id or ID())) end
-  function plugin.createChildDevice(props) return api.post("/plugins/createChildDevice",props) end
+  function module.QuickApp()
+    local self = {}
+    plugin = {}
+    plugin.mainDeviceId = 999
+    local function ID() return getContext().plugin.mainDeviceId end
+    function plugin.deleteDevice(deviceId) return api.delete("/devices/"..deviceId) end
+    function plugin.restart(deviceId) return api.post("/plugins/restart",{deviceId=deviceId or ID()}) end
+    function plugin.getProperty(id,prop) return api.get("/devices/"..id.."/property/"..prop) end
+    function plugin.getChildDevices(id) return api.get("/devices?parentId="..(id or ID())) end
+    function plugin.createChildDevice(props) return api.post("/plugins/createChildDevice",props) end
 
-  function self.getWebUIValue(id,elm,t)
-    local qa = quickApps[id]
-    if qa and qa._emu.UI then
-      return qa._emu.uiValues[elm][t]
+    function self.getWebUIValue(id,elm,t)
+      local qa = quickApps[id]
+      if qa and qa._emu.UI then
+        return qa._emu.uiValues[elm][t]
+      end
     end
-  end
-  function self.setWebUIValue(id,elm,t,v)
-    local qa = quickApps[id]
-    if qa and qa._emu.UI then
-      qa._emu.uiValues[elm] = qa._emu.uiValues[elm] or {}
-      qa._emu.uiValues[elm][t]=tostring(v)
+    function self.setWebUIValue(id,elm,t,v)
+      local qa = quickApps[id]
+      if qa and qa._emu.UI then
+        qa._emu.uiValues[elm] = qa._emu.uiValues[elm] or {}
+        qa._emu.uiValues[elm][t]=tostring(v)
+      end
     end
-  end
 
-  class 'QuickAppBase'
-  function QuickAppBase:__init(device)
-    if tonumber(device) then device =  api.get("/devices/"..device) end
-    quickApps[device.id] = self
-    self.deviceStruct = device
-    self.name = device.name
-    self.id = device.id
-    self.type = device.type
-    self.properties = device.properties
-    self._emu = device._emu
-    device._emu = nil
-    local cbs = {}
-    for _,cb in ipairs(self.properties.uiCallbacks or {}) do
-      cbs[cb.name]=cbs[cb.name] or {}
-      cbs[cb.name][cb.eventType] = cb.callback
-    end
-    self.uiCallbacks = cbs
-    if self._emu.UI then
-      for _,row in ipairs(self._emu.UI) do
-        row = row[1] and row or {row}
-        for _,e in ipairs(row) do
-          QA.setWebUIValue(self.id,e.name,"value","0")
-          QA.setWebUIValue(self.id,e.name,"text",e.text or "")
+    class 'QuickAppBase'
+    function QuickAppBase:__init(device)
+      if tonumber(device) then device =  api.get("/devices/"..device) end
+      quickApps[device.id] = self
+      self.deviceStruct = device
+      self.name = device.name
+      self.id = device.id
+      self.type = device.type
+      self.properties = device.properties
+      self._emu = device._emu
+      device._emu = nil
+      local cbs = {}
+      for _,cb in ipairs(self.properties.uiCallbacks or {}) do
+        cbs[cb.name]=cbs[cb.name] or {}
+        cbs[cb.name][cb.eventType] = cb.callback
+      end
+      self.uiCallbacks = cbs
+      if self._emu.UI then
+        for _,row in ipairs(self._emu.UI) do
+          row = row[1] and row or {row}
+          for _,e in ipairs(row) do
+            QA.setWebUIValue(self.id,e.name,"value","0")
+            QA.setWebUIValue(self.id,e.name,"text",e.text or "")
+          end
         end
       end
     end
-  end
 
-  function QuickAppBase:debug(...) fibaro.debug(self._emu.env.__TAG,d2str(...)) end
-  function QuickAppBase:trace(...) fibaro.trace(self._emu.env.__TAG,d2str(...)) end
-  function QuickAppBase:warning(...) fibaro.warning(self._emu.env.__TAG,d2str(...)) end
-  function QuickAppBase:error(...) fibaro.error(self._emu.env.__TAG,d2str(...)) end
+    function QuickAppBase:debug(...) fibaro.debug(self._emu.env.__TAG,d2str(...)) end
+    function QuickAppBase:trace(...) fibaro.trace(self._emu.env.__TAG,d2str(...)) end
+    function QuickAppBase:warning(...) fibaro.warning(self._emu.env.__TAG,d2str(...)) end
+    function QuickAppBase:error(...) fibaro.error(self._emu.env.__TAG,d2str(...)) end
 
-  function QuickAppBase:getVariable(name)
-    __assert_type(name,'string')
-    if self._emu.proxy then
-      local d = api.get("/devices/"..self.id) or {properties={}}
-      for _,v in ipairs(d.properties.quickAppVariables or {}) do
+    function QuickAppBase:getVariable(name)
+      __assert_type(name,'string')
+      if self._emu.proxy then
+        local d = api.get("/devices/"..self.id) or {properties={}}
+        for _,v in ipairs(d.properties.quickAppVariables or {}) do
+          if v.name==name then return v.value end
+        end
+      end
+      for _,v in ipairs(self.properties.quickAppVariables or {}) do
         if v.name==name then return v.value end
       end
+      return ""
     end
-    for _,v in ipairs(self.properties.quickAppVariables or {}) do
-      if v.name==name then return v.value end
+
+    function QuickAppBase:setVariable(name,value)
+      __assert_type(name,'string')
+      local vs,flag = self.properties.quickAppVariables or {},false
+      for _,v in ipairs(vs) do
+        if v.name==name then v.value=value; flag=true; break end
+      end
+      if not flag then -- variable not found, add it
+        vs[#vs+1]={name=name,value=value}
+        self.properties.quickAppVariables = vs
+      end
+      if self._emu.proxy then  -- update HC3 proxy if it exist
+        self:updateProperty('quickAppVariables', vs)
+      end
     end
-    return ""
-  end
 
-  function QuickAppBase:setVariable(name,value)
-    __assert_type(name,'string')
-    local vs,flag = self.properties.quickAppVariables or {},false
-    for _,v in ipairs(vs) do
-      if v.name==name then v.value=value; flag=true; break end
+    function QuickAppBase:updateView(elm,t,value)
+      if self._emu.proxy then
+        api.post("/plugins/updateView",{
+            deviceId=self.id,
+            componentName =  elm,
+            propertyName = t,
+            newValue = value
+          })
+        --fibaro.call(self.id,"updateView",elm,t,value)
+      end
+      QA.setWebUIValue(self.id,elm,t,value)
     end
-    if not flag then -- variable not found, add it
-      vs[#vs+1]={name=name,value=value}
-      self.properties.quickAppVariables = vs
-    end
-    if self._emu.proxy then  -- update HC3 proxy if it exist
-      self:updateProperty('quickAppVariables', vs)
-    end
-  end
 
-  function QuickAppBase:updateView(elm,t,value)
-    if self._emu.proxy then
-      api.post("/plugins/updateView",{
-          deviceId=self.id,
-          componentName =  elm,
-          propertyName = t,
-          newValue = value
-        })
-      --fibaro.call(self.id,"updateView",elm,t,value)
-    end
-    QA.setWebUIValue(self.id,elm,t,value)
-  end
-
-  function QuickAppBase:updateProperty(prop,value)
-    __assert_type(prop,'string')
-    if self.properties[prop] == value then return end
-    if self._emu.proxy then
-      local a,b = api.post("/plugins/updateProperty",{deviceId = self.id, propertyName = prop, value = value})
-      -- local stat,res=api.put("/devices/"..self.id,{properties = {[prop]=value}},true) -- Let HC3 generate trigger
-    else
-      --- ToDo. generate offline trigger if we are not connected - move from OffLineDevice etc.
-    end
-    self.properties[prop]=value
-  end
-
-  function QuickAppBase:callAction(fun, ...)
-    local args = {...}
-    if type(self[fun])=='function' then 
-      self._emu.env.setTimeout(function()
-          pcall(self[fun],self,table.unpack(args))
-        end,0)
-    else
-      error("Class does not have "..fun.." function defined - action ignored")
-    end
-  end
-
-  function QuickAppBase:addInterfaces(interfaces)
-    if self._emu.proxy then
-      api.post("/devices/addInterface",{deviceID={self.id},interfaces=interfaces})
-    end
-  end
-
-  Util.class2 'QuickApp'(QuickAppBase) -- Special form of class easier to step through...
-  function QuickApp:__init(device)
-    QuickAppBase.__init(self,device)
-    self.childDevices = {}
-    if self.onInit then if getContext().BREAKONINIT then mobdebug.pause() end 
-    self:onInit() 
-  end --breakOnInit
-  if not self._childsInited then self:initChildDevices() end
-end
-
-function QuickApp:createChildDevice(props,device)
-  assert(self._emu.proxy,"Can only create child device when using proxy")
-  props.parentId = self.id
-  props.initialInterfaces = props.initialInterfaces or {}
-  props.initialInterfaces[#props.initialInterfaces+1]='quickAppChild'
-
-  local d,res = api.post("/plugins/createChildDevice",props)
-  assert(res==200,"Can't create child device "..json.encode(props))
-  --fibaro.call(self.id,"CREATECHILD",d.id)
-  device = device or QuickAppChild
-  local cd = device(d)
-  cd.parent = self
-  self.childDevices[d.id]=cd
-  return cd
-end
-
-function QuickApp:removeChildDevice(id)
-  __assert_type(id,'number')
-  if self.childDevices[id] then
-    api.delete("/plugins/removeChildDevice/" .. id)
-    self.childDevices[id] = nil
-    quickApps[id]=nil
-  end
-end
-
-function QuickApp:initChildDevices(map)
-  local echilds = plugin.getChildDevices() 
-  local childs = self.childDevices
-  for _,d in pairs(echilds or {}) do
-    if (not childs[d.id]) and map[d.type] then
-      childs[d.id]=map[d.type](d)
-    elseif not childs[d.id] then
-      Log(LOG.ERROR,"Class for the child device: %s, with type: %s not found. Using base class: QuickAppChild",d.id,d.type)
-      childs[d.id]=QuickAppChild(d)
-      --quickApps[d.id]=childs[d.id]
-    end
-    childs[d.id].parent = self
-  end
-  self._childsInited = true
-end
-
-class 'QuickAppChild'(QuickAppBase)
-function QuickAppChild:__init(device)
-  assert(type(device)=='number' or type(device)=='table',"QuickAppChild:__init needs number/table")
-  local function copy(d) local res={} for k,v in pairs(d) do res[k]=v end return res end
-  device._emu = copy(device._emu or getContext().quickApp._emu or {})
-  device._emu.UI,device._emu.slideCache = {},{}
-  QuickAppBase.__init(self,device)
-  self._emu.proxy=true
-  quickApps[device.id]=self
-end
-
-local function traverse(o,f)
-  if type(o) == 'table' and o[1] then
-    for _,e in ipairs(o) do traverse(e,f) end
-  else f(o) end
-end
-local map = Util.mapf
-
-local function collectViewLayoutRow(u,map)
-  local row = {}
-  local function conv(u)
-    if type(u) == 'table' then
-      if u.name then
-        if u.type=='label' then
-          row[#row+1]={label=u.name, text=u.text}
-        elseif u.type=='button'  then
-          local cb = map["button"..u.name]
-          if cb == u.name.."Clicked" then cb = nil end
-          row[#row+1]={button=u.name, text=u.text, onReleased=cb}
-        elseif u.type=='slider' then
-          local cb = map["slider"..u.name]
-          if cb == u.name.."Clicked" then cb = nil end
-          row[#row+1]={slider=u.name, text=u.text, onChanged=cb}
-        end
+    function QuickAppBase:updateProperty(prop,value)
+      __assert_type(prop,'string')
+      if self.properties[prop] == value then return end
+      if self._emu.proxy then
+        local a,b = api.post("/plugins/updateProperty",{deviceId = self.id, propertyName = prop, value = value})
+        -- local stat,res=api.put("/devices/"..self.id,{properties = {[prop]=value}},true) -- Let HC3 generate trigger
       else
-        for _,v in pairs(u) do conv(v) end
+        --- ToDo. generate offline trigger if we are not connected - move from OffLineDevice etc.
+      end
+      self.properties[prop]=value
+    end
+
+    function QuickAppBase:callAction(fun, ...)
+      local args = {...}
+      if type(self[fun])=='function' then 
+        self._emu.env.setTimeout(function()
+            pcall(self[fun],self,table.unpack(args))
+          end,0)
+      else
+        error("Class does not have "..fun.." function defined - action ignored")
       end
     end
-  end
-  conv(u)
-  return row
-end
 
-local function viewLayout2UI(u,map)
-  local function conv(u)
-    local rows = {}
-    for _,j in pairs(u.items) do
-      local row = collectViewLayoutRow(j.components,map)
-      if #row > 0 then
-        if #row == 1 then row=row[1] end
-        rows[#rows+1]=row
+    function QuickAppBase:addInterfaces(interfaces)
+      if self._emu.proxy then
+        api.post("/devices/addInterface",{deviceID={self.id},interfaces=interfaces})
       end
     end
-    return rows
+
+    Util.class2 'QuickApp'(QuickAppBase) -- Special form of class easier to step through...
+    function QuickApp:__init(device)
+      QuickAppBase.__init(self,device)
+      self.childDevices = {}
+      if self.onInit then if getContext().BREAKONINIT then mobdebug.pause() end 
+      self:onInit() 
+    end --breakOnInit
+    if not self._childsInited then self:initChildDevices() end
   end
-  return conv(u['$jason'].body.sections)
-end
 
-function self.view2UI(view,callbacks)
-  local map = {}
-  traverse(callbacks,function(e)
-      if e.eventType=='onChanged' then map["slider"..e.name]=e.callback
-      elseif e.eventType=='onReleased' then map["button"..e.name]=e.callback end
-    end)
-  local UI = viewLayout2UI(view,map)
-  return UI
-end
+  function QuickApp:createChildDevice(props,device)
+    assert(self._emu.proxy,"Can only create child device when using proxy")
+    props.parentId = self.id
+    props.initialInterfaces = props.initialInterfaces or {}
+    props.initialInterfaces[#props.initialInterfaces+1]='quickAppChild'
 
-function self.getQAUI(id)
-  local d = api.get("/devices/"..id)
-  local UI = self.view2UI(d.properties.viewLayout,d.properties.uiCallbacks)
-  return UI
-end
-
-local ELMS = {
-  button = function(d,w)
-    return {name=d.name,style={weight=d.weight or w or "0.50"},text=d.text,type="button"}
-  end,
-  select = function(d,w)
-    if d.options then map(function(e) e.type='option' end,d.options) end
-    return {name=d.name,style={weight=d.weight or w or "0.50"},text=d.text,type="select", selectionType='single',
-      options = d.options or {{value="1", type="option", text="option1"}, {value = "2", type="option", text="option2"}},
-      values = d.values or { "option1" }
-    }
-  end,
-  multi = function(d,w)
-    if d.options then map(function(e) e.type='option' end,d.options) end
-    return {name=d.name,style={weight=d.weight or w or "0.50"},text=d.text,type="select", selectionType='multi',
-      options = d.options or {{value="1", type="option", text="option2"}, {value = "2", type="option", text="option3"}},
-      values = d.values or { "option3" }
-    }
-  end,
-  image = function(d,w)
-    return {name=d.name,style={dynamic="1"},type="image", url=d.url}
-  end,
-  switch = function(d,w)
-    return {name=d.name,style={weight=w or d.weight or "0.50"},type="switch", value=d.value or "true"}
-  end,
-  option = function(d,w)
-    return {name=d.name, type="option", value=d.value or "Hupp"}
-  end,
-  slider = function(d,w)
-    return {name=d.name,step=tostring(d.step),value=tostring(d.value),max=tostring(d.max),min=tostring(d.min),style={weight=d.weight or w or "1.2"},text=d.text,type="slider"}
-  end,
-  label = function(d,w)
-    return {name=d.name,style={weight=d.weight or w or "1.2"},text=d.text,type="label"}
-  end,
-  space = function(d,w)
-    return {style={weight=w or "0.50"},type="space"}
+    local d,res = api.post("/plugins/createChildDevice",props)
+    assert(res==200,"Can't create child device "..json.encode(props))
+    --fibaro.call(self.id,"CREATECHILD",d.id)
+    device = device or QuickAppChild
+    local cd = device(d)
+    cd.parent = self
+    self.childDevices[d.id]=cd
+    return cd
   end
-}
 
-local function mkRow(elms,weight)
-  local comp = {}
-  if elms[1] then
-    local c = {}
-    local width = format("%.2f",1/#elms)
-    if width:match("%.00") then width=width:match("^(%d+)") end
-    for _,e in ipairs(elms) do c[#c+1]=ELMS[e.type](e,width) end
-    if #elms > 1 then comp[#comp+1]={components=c,style={weight="1.2"},type='horizontal'}
-    else comp[#comp+1]=c[1] end
-    comp[#comp+1]=ELMS['space']({},"0.5")
-  else
-    comp[#comp+1]=ELMS[elms.type](elms,"1.2")
-    comp[#comp+1]=ELMS['space']({},"0.5")
+  function QuickApp:removeChildDevice(id)
+    __assert_type(id,'number')
+    if self.childDevices[id] then
+      api.delete("/plugins/removeChildDevice/" .. id)
+      self.childDevices[id] = nil
+      quickApps[id]=nil
+    end
   end
-  return {components=comp,style={weight=weight or "1.2"},type="vertical"}
-end
 
-local function mkViewLayout(list,height)
-  local items = {}
-  for _,i in ipairs(list) do items[#items+1]=mkRow(i) end
+  function QuickApp:initChildDevices(map)
+    local echilds = plugin.getChildDevices() 
+    local childs = self.childDevices
+    for _,d in pairs(echilds or {}) do
+      if (not childs[d.id]) and map[d.type] then
+        childs[d.id]=map[d.type](d)
+      elseif not childs[d.id] then
+        Log(LOG.ERROR,"Class for the child device: %s, with type: %s not found. Using base class: QuickAppChild",d.id,d.type)
+        childs[d.id]=QuickAppChild(d)
+        --quickApps[d.id]=childs[d.id]
+      end
+      childs[d.id].parent = self
+    end
+    self._childsInited = true
+  end
+
+  class 'QuickAppChild'(QuickAppBase)
+  function QuickAppChild:__init(device)
+    assert(type(device)=='number' or type(device)=='table',"QuickAppChild:__init needs number/table")
+    local function copy(d) local res={} for k,v in pairs(d) do res[k]=v end return res end
+    device._emu = copy(device._emu or getContext().quickApp._emu or {})
+    device._emu.UI,device._emu.slideCache = {},{}
+    QuickAppBase.__init(self,device)
+    self._emu.proxy=true
+    quickApps[device.id]=self
+  end
+
+  local function traverse(o,f)
+    if type(o) == 'table' and o[1] then
+      for _,e in ipairs(o) do traverse(e,f) end
+    else f(o) end
+  end
+  local map = Util.mapf
+
+  local function collectViewLayoutRow(u,map)
+    local row = {}
+    local function conv(u)
+      if type(u) == 'table' then
+        if u.name then
+          if u.type=='label' then
+            row[#row+1]={label=u.name, text=u.text}
+          elseif u.type=='button'  then
+            local cb = map["button"..u.name]
+            if cb == u.name.."Clicked" then cb = nil end
+            row[#row+1]={button=u.name, text=u.text, onReleased=cb}
+          elseif u.type=='slider' then
+            local cb = map["slider"..u.name]
+            if cb == u.name.."Clicked" then cb = nil end
+            row[#row+1]={slider=u.name, text=u.text, onChanged=cb}
+          end
+        else
+          for _,v in pairs(u) do conv(v) end
+        end
+      end
+    end
+    conv(u)
+    return row
+  end
+
+  local function viewLayout2UI(u,map)
+    local function conv(u)
+      local rows = {}
+      for _,j in pairs(u.items) do
+        local row = collectViewLayoutRow(j.components,map)
+        if #row > 0 then
+          if #row == 1 then row=row[1] end
+          rows[#rows+1]=row
+        end
+      end
+      return rows
+    end
+    return conv(u['$jason'].body.sections)
+  end
+
+  function self.view2UI(view,callbacks)
+    local map = {}
+    traverse(callbacks,function(e)
+        if e.eventType=='onChanged' then map["slider"..e.name]=e.callback
+        elseif e.eventType=='onReleased' then map["button"..e.name]=e.callback end
+      end)
+    local UI = viewLayout2UI(view,map)
+    return UI
+  end
+
+  function self.getQAUI(id)
+    local d = api.get("/devices/"..id)
+    local UI = self.view2UI(d.properties.viewLayout,d.properties.uiCallbacks)
+    return UI
+  end
+
+  local ELMS = {
+    button = function(d,w)
+      return {name=d.name,style={weight=d.weight or w or "0.50"},text=d.text,type="button"}
+    end,
+    select = function(d,w)
+      if d.options then map(function(e) e.type='option' end,d.options) end
+      return {name=d.name,style={weight=d.weight or w or "0.50"},text=d.text,type="select", selectionType='single',
+        options = d.options or {{value="1", type="option", text="option1"}, {value = "2", type="option", text="option2"}},
+        values = d.values or { "option1" }
+      }
+    end,
+    multi = function(d,w)
+      if d.options then map(function(e) e.type='option' end,d.options) end
+      return {name=d.name,style={weight=d.weight or w or "0.50"},text=d.text,type="select", selectionType='multi',
+        options = d.options or {{value="1", type="option", text="option2"}, {value = "2", type="option", text="option3"}},
+        values = d.values or { "option3" }
+      }
+    end,
+    image = function(d,w)
+      return {name=d.name,style={dynamic="1"},type="image", url=d.url}
+    end,
+    switch = function(d,w)
+      return {name=d.name,style={weight=w or d.weight or "0.50"},type="switch", value=d.value or "true"}
+    end,
+    option = function(d,w)
+      return {name=d.name, type="option", value=d.value or "Hupp"}
+    end,
+    slider = function(d,w)
+      return {name=d.name,step=tostring(d.step),value=tostring(d.value),max=tostring(d.max),min=tostring(d.min),style={weight=d.weight or w or "1.2"},text=d.text,type="slider"}
+    end,
+    label = function(d,w)
+      return {name=d.name,style={weight=d.weight or w or "1.2"},text=d.text,type="label"}
+    end,
+    space = function(d,w)
+      return {style={weight=w or "0.50"},type="space"}
+    end
+  }
+
+  local function mkRow(elms,weight)
+    local comp = {}
+    if elms[1] then
+      local c = {}
+      local width = format("%.2f",1/#elms)
+      if width:match("%.00") then width=width:match("^(%d+)") end
+      for _,e in ipairs(elms) do c[#c+1]=ELMS[e.type](e,width) end
+      if #elms > 1 then comp[#comp+1]={components=c,style={weight="1.2"},type='horizontal'}
+      else comp[#comp+1]=c[1] end
+      comp[#comp+1]=ELMS['space']({},"0.5")
+    else
+      comp[#comp+1]=ELMS[elms.type](elms,"1.2")
+      comp[#comp+1]=ELMS['space']({},"0.5")
+    end
+    return {components=comp,style={weight=weight or "1.2"},type="vertical"}
+  end
+
+  local function mkViewLayout(list,height)
+    local items = {}
+    for _,i in ipairs(list) do items[#items+1]=mkRow(i) end
 --    if #items == 0 then  return nil end
-  return
-  { ['$jason'] = {
-      body = {
-        header = {
-          style = {height = tostring(height or #list*50)},
-          title = "quickApp_device_23"
+    return
+    { ['$jason'] = {
+        body = {
+          header = {
+            style = {height = tostring(height or #list*50)},
+            title = "quickApp_device_23"
+          },
+          sections = {
+            items = items
+          }
         },
-        sections = {
-          items = items
+        head = {
+          title = "quickApp_device_23"
         }
-      },
-      head = {
-        title = "quickApp_device_23"
       }
     }
-  }
-end
-
-self.mkViewLayout = mkViewLayout
-local function transformUI(UI) -- { button=<text> } => {type="button", name=<text>}
-  traverse(UI,
-    function(e)
-      if e.button then e.name,e.type=e.button,'button'
-      elseif e.slider then e.name,e.type=e.slider,'slider'
-      elseif e.select then e.name,e.type=e.select,'select'
-      elseif e.switch then e.name,e.type=e.switch,'switch'
-      elseif e.multi then e.name,e.type=e.multi,'multi'
-      elseif e.option then e.name,e.type=e.option,'option'
-      elseif e.image then e.name,e.type=e.image,'image'
-      elseif e.label then e.name,e.type=e.label,'label'
-      elseif e.space then e.weight,e.type=e.space,'space' end
-    end)
-  return UI
-end
-
-local function uiStruct2uiCallbacks(UI)
-  local cb = {}
-  --- "callback": "self:button1Clicked()",
-  traverse(UI,
-    function(e)
-      if e.name then
-        -- {callback="foo",name="foo",eventType="onReleased"}
-        local defu = e.button and "Clicked" or e.slider and "Change" or (e.switch or e.select) and "Toggle" or ""
-        local deff = e.button and "onReleased" or e.slider and "onChanged" or (e.switch or e.select) and "onToggled" or ""
-        local cbt = e.name..defu
-        if e.onReleased then
-          cbt = e.onReleased
-        elseif e.onChanged then
-          cbt = e.onChanged
-        elseif e.onToggled then
-          cbt = e.onToggled
-        end
-        if e.button or e.slider or e.switch or e.select then
-          cb[#cb+1]={callback=cbt,eventType=deff,name=e.name}
-        end
-      end
-    end)
-  return cb
-end
-
-local function updateViewLayout(id,UI,forceUpdate) --- This may not work anymore....
-  transformUI(UI)
-  local cb = api.get("/devices/"..id).properties.uiCallbacks or {}
-  local viewLayout = mkViewLayout(UI)
-  local newcb = uiStruct2uiCallbacks(UI)
-  if forceUpdate then
-    cb = newcb -- just replace uiCallbacks with new elements callbacks
-  else
-    local mapOrg = {}
-    for _,c in ipairs(cb) do mapOrg[c.name]=c.callback end -- existing callbacks, map name->callback
-    for _,c in ipairs(newcb) do if mapOrg[c.name] then c.callback=mapOrg[c.name] end end
-    cb = newcb -- save exiting elemens callbacks
   end
-  if not cb[1] then cb = nil end
-  return api.put("/devices/"..id,{
-      properties = {
-        viewLayout = viewLayout,
-        uiCallbacks = cb},
-    })
-end
 
-local function makeInitialProperties(UI,vars,height)
-  local ip = {}
-  vars = vars or {}
-  transformUI(UI)
-  ip.viewLayout = mkViewLayout(UI,height)
-  ip.uiCallbacks = uiStruct2uiCallbacks(UI)
-  ip.apiVersion = "1.2"
-  local varList = {}
-  for n,v in pairs(vars) do varList[#varList+1]={name=n,value=v} end
-  ip.quickAppVariables = varList
-  ip.typeTemplateInitialized=true
-  return ip
-end
+  self.mkViewLayout = mkViewLayout
+  local function transformUI(UI) -- { button=<text> } => {type="button", name=<text>}
+    traverse(UI,
+      function(e)
+        if e.button then e.name,e.type=e.button,'button'
+        elseif e.slider then e.name,e.type=e.slider,'slider'
+        elseif e.select then e.name,e.type=e.select,'select'
+        elseif e.switch then e.name,e.type=e.switch,'switch'
+        elseif e.multi then e.name,e.type=e.multi,'multi'
+        elseif e.option then e.name,e.type=e.option,'option'
+        elseif e.image then e.name,e.type=e.image,'image'
+        elseif e.label then e.name,e.type=e.label,'label'
+        elseif e.space then e.weight,e.type=e.space,'space' end
+      end)
+    return UI
+  end
+
+  local function uiStruct2uiCallbacks(UI)
+    local cb = {}
+    --- "callback": "self:button1Clicked()",
+    traverse(UI,
+      function(e)
+        if e.name then
+          -- {callback="foo",name="foo",eventType="onReleased"}
+          local defu = e.button and "Clicked" or e.slider and "Change" or (e.switch or e.select) and "Toggle" or ""
+          local deff = e.button and "onReleased" or e.slider and "onChanged" or (e.switch or e.select) and "onToggled" or ""
+          local cbt = e.name..defu
+          if e.onReleased then
+            cbt = e.onReleased
+          elseif e.onChanged then
+            cbt = e.onChanged
+          elseif e.onToggled then
+            cbt = e.onToggled
+          end
+          if e.button or e.slider or e.switch or e.select then
+            cb[#cb+1]={callback=cbt,eventType=deff,name=e.name}
+          end
+        end
+      end)
+    return cb
+  end
+
+  local function updateViewLayout(id,UI,forceUpdate) --- This may not work anymore....
+    transformUI(UI)
+    local cb = api.get("/devices/"..id).properties.uiCallbacks or {}
+    local viewLayout = mkViewLayout(UI)
+    local newcb = uiStruct2uiCallbacks(UI)
+    if forceUpdate then
+      cb = newcb -- just replace uiCallbacks with new elements callbacks
+    else
+      local mapOrg = {}
+      for _,c in ipairs(cb) do mapOrg[c.name]=c.callback end -- existing callbacks, map name->callback
+      for _,c in ipairs(newcb) do if mapOrg[c.name] then c.callback=mapOrg[c.name] end end
+      cb = newcb -- save exiting elemens callbacks
+    end
+    if not cb[1] then cb = nil end
+    return api.put("/devices/"..id,{
+        properties = {
+          viewLayout = viewLayout,
+          uiCallbacks = cb},
+      })
+  end
+
+  local function makeInitialProperties(UI,vars,height)
+    local ip = {}
+    vars = vars or {}
+    transformUI(UI)
+    ip.viewLayout = mkViewLayout(UI,height)
+    ip.uiCallbacks = uiStruct2uiCallbacks(UI)
+    ip.apiVersion = "1.2"
+    local varList = {}
+    for n,v in pairs(vars) do varList[#varList+1]={name=n,value=v} end
+    ip.quickAppVariables = varList
+    ip.typeTemplateInitialized=true
+    return ip
+  end
 
 --  local function pruneCode(code)
 --    local c = code:match("%-%-%-%-%-%-%-%-%-%-%- Code.-\n(.*)")
 --    return c or code
 --  end
 
-local ff = Files.file
+  local ff = Files.file
 
-function hc3_emulator.dofile(file)
-  local ctx = getContext()
-  return loadfile(file,"bt",ctx)()
-end
-
-function hc3_emulator.FILE(_,_) end -- Nop. For backward compatibility
-
-local function createFilesFromSource(source,mainFileName)
-  local files,paths = {},{}
-  local function gf(pattern)
-    source = source:gsub(pattern,
-      function(file,name)
-        local stat,res = pcall(function() return ff.read(file) end)
-        if not stat then Log(LOG.ERROR,"%s",res)
-        else
-          files[#files+1]={name=name,content=res,isMain=false,type="lua",isOpen=false}
-          paths[name]=file
-        end
-        return ""
-      end)
+  function hc3_emulator.dofile(file)
+    local ctx = getContext()
+    return loadfile(file,"bt",ctx)()
   end
-  pcall(gf,[[[^%-]hc3_emulator%s*.%s*FILE%s*%(%s*[%"%'](.-)[%"%']%s*,%s*[%"%'](.-)[%"%']%s*%)]])
-  pcall(gf,[[%-%-FILE:%s*(.-)%s*,%s*(.-);]])
-  table.insert(files,1,{name="main",content=source,isMain=true,type='lua',isOpen=false})
-  paths['main']=mainFileName
-  return files,paths
-end
-self.createFilesFromSource = createFilesFromSource
+
+  function hc3_emulator.FILE(_,_) end -- Nop. For backward compatibility
+
+  local function createFilesFromSource(source,mainFileName)
+    local files,paths = {},{}
+    local function gf(pattern)
+      source = source:gsub(pattern,
+        function(file,name)
+          local stat,res = pcall(function() return ff.read(file) end)
+          if not stat then Log(LOG.ERROR,"%s",res)
+          else
+            files[#files+1]={name=name,content=res,isMain=false,type="lua",isOpen=false}
+            paths[name]=file
+          end
+          return ""
+        end)
+    end
+    pcall(gf,[[[^%-]hc3_emulator%s*.%s*FILE%s*%(%s*[%"%'](.-)[%"%']%s*,%s*[%"%'](.-)[%"%']%s*%)]])
+    pcall(gf,[[%-%-FILE:%s*(.-)%s*,%s*(.-);]])
+    table.insert(files,1,{name="main",content=source,isMain=true,type='lua',isOpen=false})
+    paths['main']=mainFileName
+    return files,paths
+  end
+  self.createFilesFromSource = createFilesFromSource
 
 -- name of device - string
 -- type of device - string, default "com.fibaro.binarySwitch"
@@ -3877,80 +3884,80 @@ self.createFilesFromSource = createFilesFromSource
 -- quickVars - quickAppVariables, {<var1>=<value1>,<var2>=<value2>,...}
 -- dryrun - if true only returns the quickapp without deploying
 
-local function createQuickApp(args)
-  if (hc3_emulator.HC3version or "5.040.37") < "5.040.37" then
-    error("Sorry, QuickApp creation need HC3 version >= 5.040.37")
-  end
-  local d = {} -- Our device
-  d.name = args.name or "QuickApp"
-  d.type = args.type or "com.fibaro.binarySensor"
-  local files = args.code or ""
-  --body = replaceRequires(body)
-  local UI = args.UI or {}
-  local variables = args.quickVars or {}
-  local interfaces = args.interfaces
-  local dryRun = args.dryrun or false
-  d.apiVersion = "1.2"
-  if not args.initialProperties then
-    d.initialProperties = makeInitialProperties(UI,variables,args.height)
-  else
-    d.initialProperties = args.initialProperties
-  end
-  if not d.initialProperties.uiCallbacks[1] then
-    d.initialProperties.uiCallbacks = nil
-  end
-
-  if type(files)=='string' then files = {{name='main',type='lua',isMain=true,isOpen=false,content=files}} end
-  d.files  = {}
-
-  for _,f in ipairs(files) do f.isOpen=false; d.files[#d.files+1]=f end
-
-  if dryRun then return d end
-
-  local what,d1,res="updated"
-  if args.id and api.get("/devices/"..args.id,true) then
-    d1,res = api.put("/devices/"..args.id,{
-        properties={
-          quickAppVariables = d.initialProperties.quickAppVariables,
-          viewLayout= d.initialProperties.viewLayout,
-          uiCallbacks = d.initialProperties.uiCallbacks,
-        }
-      })
-    if res <= 201 then
-      local a,b = Files.file.updateFiles(files,args.id)
+  local function createQuickApp(args)
+    if (hc3_emulator.HC3version or "5.040.37") < "5.040.37" then
+      error("Sorry, QuickApp creation need HC3 version >= 5.040.37")
     end
-  else
-    d1,res = api.post("/quickApp/",d)
-    what = "created"
-  end
+    local d = {} -- Our device
+    d.name = args.name or "QuickApp"
+    d.type = args.type or "com.fibaro.binarySensor"
+    local files = args.code or ""
+    --body = replaceRequires(body)
+    local UI = args.UI or {}
+    local variables = args.quickVars or {}
+    local interfaces = args.interfaces
+    local dryRun = args.dryrun or false
+    d.apiVersion = "1.2"
+    if not args.initialProperties then
+      d.initialProperties = makeInitialProperties(UI,variables,args.height)
+    else
+      d.initialProperties = args.initialProperties
+    end
+    if not d.initialProperties.uiCallbacks[1] then
+      d.initialProperties.uiCallbacks = nil
+    end
 
-  if type(res)=='string' or res > 201 then
-    Log(LOG.ERROR,"D:%s,RES:%s",json.encode(d1),json.encode(res))
-    return nil
-  else
-    Log(LOG.SYS,"Device %s %s",d1.id or "",what)
-    return d1
+    if type(files)=='string' then files = {{name='main',type='lua',isMain=true,isOpen=false,content=files}} end
+    d.files  = {}
+
+    for _,f in ipairs(files) do f.isOpen=false; d.files[#d.files+1]=f end
+
+    if dryRun then return d end
+
+    local what,d1,res="updated"
+    if args.id and api.get("/devices/"..args.id,true) then
+      d1,res = api.put("/devices/"..args.id,{
+          properties={
+            quickAppVariables = d.initialProperties.quickAppVariables,
+            viewLayout= d.initialProperties.viewLayout,
+            uiCallbacks = d.initialProperties.uiCallbacks,
+          }
+        })
+      if res <= 201 then
+        local a,b = Files.file.updateFiles(files,args.id)
+      end
+    else
+      d1,res = api.post("/quickApp/",d)
+      what = "created"
+    end
+
+    if type(res)=='string' or res > 201 then
+      Log(LOG.ERROR,"D:%s,RES:%s",json.encode(d1),json.encode(res))
+      return nil
+    else
+      Log(LOG.SYS,"Device %s %s",d1.id or "",what)
+      return d1
+    end
   end
-end
 
 -- Create a Proxy device - will be named "Proxy "..name, returns deviceID if successful
-local function createProxy(name,tp,ips,interfaces)
-  local pdevice,id
-  name = "Proxy "..name
-  local d,res = api.get("/devices/?name="..name)
-  if d and #d>0 then
-    table.sort(d,function(a,b) return a.id >= b.id end)
-    pdevice = d[1]
-    Log(LOG.SYS,"Proxy: '%s' found, ID:%s",name,pdevice.id)
-    if pdevice.type ~= tp then
-      Log(LOG.SYS,"Proxy: Type changed from '%s' to %s",tp,pdevice.type)
-      api.delete("/devices/"..pdevice.id)
-      pdevice = nil
-    else id = pdevice.id end
-  end
+  local function createProxy(name,tp,ips,interfaces)
+    local pdevice,id
+    name = "Proxy "..name
+    local d,res = api.get("/devices/?name="..name)
+    if d and #d>0 then
+      table.sort(d,function(a,b) return a.id >= b.id end)
+      pdevice = d[1]
+      Log(LOG.SYS,"Proxy: '%s' found, ID:%s",name,pdevice.id)
+      if pdevice.type ~= tp then
+        Log(LOG.SYS,"Proxy: Type changed from '%s' to %s",tp,pdevice.type)
+        api.delete("/devices/"..pdevice.id)
+        pdevice = nil
+      else id = pdevice.id end
+    end
 
-  local code = {}
-  code[#code+1] = [[
+    local code = {}
+    code[#code+1] = [[
   local function urlencode (str)
   return str and string.gsub(str ,"([^% w])",function(c) return string.format("%%% 02X",string.byte(c))  end)
 end
@@ -3971,474 +3978,475 @@ function QuickApp:APIGET(url) api.get(url) end
 function QuickApp:APIPOST(url,data) api.post(url,data) end -- to get around some access restrictions
 function QuickApp:APIPUT(url,data) api.put(url,data) end
 ]]
-  code[#code+1]= "function QuickApp:onInit()"
-  code[#code+1]= " self:debug('"..name.."',' deviceId:',self.id)"
-  code[#code+1]= " IP = self:getVariable('PROXYIP')"
-  code[#code+1]= " function QuickApp:initChildDevices() end"
-  code[#code+1]= "end"
+    code[#code+1]= "function QuickApp:onInit()"
+    code[#code+1]= " self:debug('"..name.."',' deviceId:',self.id)"
+    code[#code+1]= " IP = self:getVariable('PROXYIP')"
+    code[#code+1]= " function QuickApp:initChildDevices() end"
+    code[#code+1]= "end"
 
-  code = table.concat(code,"\n")
+    code = table.concat(code,"\n")
 
-  Log(LOG.SYS,id and "Proxy: Reusing QuickApp proxy" or "Proxy: Creating new proxy")
+    Log(LOG.SYS,id and "Proxy: Reusing QuickApp proxy" or "Proxy: Creating new proxy")
 
-  table.insert(ips.quickAppVariables,{name="PROXYIP", value = Util.getIPaddress()..":"..hc3_emulator.webPort})
-  return createQuickApp{id=id,name=name,type=tp,code=code,initialProperties=ips,interfaces=interfaces}
-end
+    table.insert(ips.quickAppVariables,{name="PROXYIP", value = Util.getIPaddress()..":"..hc3_emulator.webPort})
+    return createQuickApp{id=id,name=name,type=tp,code=code,initialProperties=ips,interfaces=interfaces}
+  end
 
-function onAction(event)
-  Debug(_debugFlags.onAction,"onAction: %s",json.encode(event))
-  local self = quickApps[event.deviceId]
-  if self.parentId then self = quickApps[self.parentId] end
-  assert(self,"Unknown deviceID for onAction:"..event.deviceId)
-  if self.actionHandler then self:actionHandler(event)
-  else
-    local id = event.deviceId
-    if id == self.id then
-      self:callAction(event.actionName, table.unpack(event.args))
+  function onAction(event)
+    Debug(_debugFlags.onAction,"onAction: %s",json.encode(event))
+    local self = quickApps[event.deviceId]
+    if self.parentId then self = quickApps[self.parentId] end
+    assert(self,"Unknown deviceID for onAction:"..event.deviceId)
+    if self.actionHandler then self:actionHandler(event)
     else
-      local child = self.childDevices[id]
-      if child then child:callAction(event.actionName, table.unpack(event.args))
+      local id = event.deviceId
+      if id == self.id then
+        self:callAction(event.actionName, table.unpack(event.args))
       else
-        error(format("Child with id:%s not found.", id))
+        local child = self.childDevices[id]
+        if child then child:callAction(event.actionName, table.unpack(event.args))
+        else
+          error(format("Child with id:%s not found.", id))
+        end
       end
     end
   end
-end
 
 --"{\"eventType\":\"onReleased\",\"values\":[null],\"elementName\":\"bt\",\"deviceId\":726}"
 --"{\"eventType\":\"onChanged\",\"values\":[80],\"elementName\":\"sl\",\"deviceId\":726}"
-function onUIEvent(event)
-  Debug(_debugFlags.UIEvent,"UIEvent: %s",json.encode(event))
-  local self = quickApps[event.deviceId]
-  if self.parentId then self = quickApps[self.parentId] end
-  assert(self,"Unknown deviceID for UIEvent:"..event.deviceId)
-  if self.UIHandler then self:UIHandler(event)
-  else
-    local elm,etyp = event.elementName, event.eventType
-    local cb = self.uiCallbacks
-    if cb[elm] and cb[elm][etyp] then
-      if etyp=='onChanged' then
-        QA.setWebUIValue(event.deviceId,elm,'value',event.values[1])
+  function onUIEvent(event)
+    Debug(_debugFlags.UIEvent,"UIEvent: %s",json.encode(event))
+    local self = quickApps[event.deviceId]
+    if self.parentId then self = quickApps[self.parentId] end
+    assert(self,"Unknown deviceID for UIEvent:"..event.deviceId)
+    if self.UIHandler then self:UIHandler(event)
+    else
+      local elm,etyp = event.elementName, event.eventType
+      local cb = self.uiCallbacks
+      if cb[elm] and cb[elm][etyp] then
+        if etyp=='onChanged' then
+          QA.setWebUIValue(event.deviceId,elm,'value',event.values[1])
+        end
+        return self:callAction(cb[elm][etyp], event)
+      elseif self[elm] then
+        return self:callAction(elm, event)
       end
-      return self:callAction(cb[elm][etyp], event)
-    elseif self[elm] then
-      return self:callAction(elm, event)
-    end
-    error(format("UI callback for element:%s not found.", elm))
-  end
-end
-
-
-local function vars2keymap(vars)
-  local vs = {}
-  for _,v in ipairs(vars) do vs[v.name]=v.value end
-  return vs
-end
-
-local function vars2list(vars)
-  local vs = {}
-  for n,v in pairs(vars) do vs[#vs+1]={name=n,value=v} end
-  return vs
-end
-
-local resources = {}
-local function loadResourceFromQA(id)
-  if resources[id] then return resources[id].properties end
-  resources[id] = api.get("/devices/"..id)
-  assert(resources[id],"No such  QA, deviceId:"..id)
-  return resources[id].properties   
-end
-
-local function loadResources(self) -- quickVars, UI
-  if not self.resources then return end
-  assert(type(self.resources)=='table',"resources need to be a table")
-  for p,v0 in pairs(self.resources) do
-    local v = tonumber(v0) and loadResourceFromQA(tonumber(v0)) or v0
-    if p=='quickVars' then
-      self.quickVars = self.quickVars or {}
-      for n,v in pairs(vars2keymap(v.quickAppVariables or {})) do self.quickVars[n]=v end
-    elseif p == 'UI' then
-      self.viewLayout = v.viewLayout
-      self.uiCallbacks = v.uiCallbacks
+      error(format("UI callback for element:%s not found.", elm))
     end
   end
-end
 
-local function resolveCREDS(quickVars)
-  for k,v in pairs(quickVars) do
-    assertf(type(k)=='string',"Corrupt quickVars table, key=%s, value=%s",k,json.encode(v))
-    if type(v)=='string' and v:match("^%$CREDS") then
-      local p = "return hc3_emulator.credentials"..v:match("^%$CREDS(.*)")
-      v=load(p)()
-    end
-    quickVars[k]=v
+
+  local function vars2keymap(vars)
+    local vs = {}
+    for _,v in ipairs(vars) do vs[v.name]=v.value end
+    return vs
   end
-end
 
-local QA_ID = 998
--- 2 types of QuickApps, fqa based and emu based
-local function loadQA(arg)
-  local ff = hc3_emulator.file
-  assert(type(arg)=='number' or type(arg)=='string',"Bad argument  to loadQA")
-
-  local self = {}
-  if tonumber(arg) then                                        -- Download QA from HC3 (fqa)
-    self.fqa = api.get("/quickApp/export/"..arg)
-    assert(self.fqa,"QA "..arg.." does not exists on HC3")
-    self.id = arg
+  local function vars2list(vars)
+    local vs = {}
+    for n,v in pairs(vars) do vs[#vs+1]={name=n,value=v} end
+    return vs
   end
-  if type(arg)=='string' and arg:match("%.[Ff][Qq][Aa]$") then  -- Read in .fqa  file
-    local c = ff.read(arg)
-    self.fname = arg
-    self.fqa = json.decode(c)
-    self.file_fqa = arg
-  end
-  if self.fqa then
-    local fqa = self.fqa
-    assert(fqa.apiVersion == "1.2","Bad FQA api version")
-    self.type = fqa.type
-    self.name = fqa.name
-    self.viewLayout = fqa.initialProperties.viewLayout
-    self.uiCallbacks = fqa.initialProperties.uiCallbacks
-    self.quickVars = vars2keymap(fqa.initialProperties.quickAppVariables or {})
-    self.interfaces = fqa.initialInterfaces
-    loadResources(self)
-  elseif arg:match("%.[Jj][Ss][Oo][Nn]$") then                 -- Read in unpacked file(s)
-    self.fname = arg
-    self.file_unpacked = arg
-    local name = ff.extract_name(arg)
-    local dir = arg:sub(1,-(name:len()+1))
-    local files,paths = {},{}
-    local prefix = "^"..name:match("(.*)%.[Jj][Ss][Oo][Nn]$").."_(%d+)_(.-)%.lua"
-    assert(ff.dir(dir),"Not a directory: "..tostring(dir))
-    for d,n in ff.dir(dir) do -- read unpacked files
-      if d:match(prefix) then
-        local id,name = d:match("(%d+)_([^_]+)%.lua")
-        assert(name,"Bad unpacked file "..d)
-        local content  = ff.read(dir..d)
-        files[tonumber(id)]={name=name, content=content, type="lua", isMain=name == 'main', isOpen=false}
-        paths[name]=dir..d
-      end
-    end
-    local fqa = ff.read(arg) -- read main json files
-    fqa = json.decode(fqa)
-    self.name = fqa.name
-    self.type = fqa.type
-    self.viewLayout = fqa.initialProperties.viewLayout
-    self.uiCallbacks = fqa.initialProperties.uiCallbacks
-    self.quickVars = vars2keymap(fqa.initialProperties.quickAppVariables or {})
-    self.interfaces = fqa.initialInterfaces
-    self.fqa = fqa
-    self.fqa.files = files
-    self.paths = paths
-    loadResources(self)
-  elseif arg:match("%.[Ll][Uu][Aa]$") then                     -- Read in "emulator" file
-    self.fname = arg
-    self.file_emu = arg
-    local code = hc3_emulator._code or ff.read(arg) -- hack, code is already loaded by caller, should be arg?
-    hc3_emulator._code = nil
-    local header,env1 = code:match("(if%s+dofile.-[\n\r]end)"),{
-      dofile=function() end,
-    }
-    assert(header and header~="","Malformed emulator header")
-    local e1,msg = load(header,nil,nil,env1)
-    if msg then error(msg) end
-    local stat,res = pcall(e1)
-    if not stat then error(res) end
-    self.name = env1.hc3_emulator.name or arg:match("(.-)%.[Ll][Uu][Aa]$")
-    self.type = env1.hc3_emulator.type or "com.fibaro.binarySwitch"
-    self.id = env1.hc3_emulator.id
-    self.interfaces = env1.hc3_emulator.interfaces
-    self.resources = env1.hc3_emulator.resources
-    self.proxy = env1.hc3_emulator.proxy or false
-    loadResources(self)
-    self.quickVars = self.quickVars or {}
-    for n,v in pairs(env1.hc3_emulator.quickVars or {}) do
-      self.quickVars[n]=v
-    end
-    self.UI = env1.hc3_emulator.UI
-    if type(self.UI) == 'string' then self.UI = json.decode(self.UI) end
-    self.files,self.paths = QA.createFilesFromSource(code,self.fname)
-  else error("Bad argument to loadQA") end
 
-  --  Inject args -- overwriting existing args
-  function self:args(args) 
-    for k,v in pairs(args) do
-      if k=='quickVars' then
+  local resources = {}
+  local function loadResourceFromQA(id)
+    if resources[id] then return resources[id].properties end
+    resources[id] = api.get("/devices/"..id)
+    assert(resources[id],"No such  QA, deviceId:"..id)
+    return resources[id].properties   
+  end
+
+  local function loadResources(self) -- quickVars, UI
+    if not self.resources then return end
+    assert(type(self.resources)=='table',"resources need to be a table")
+    for p,v0 in pairs(self.resources) do
+      local v = tonumber(v0) and loadResourceFromQA(tonumber(v0)) or v0
+      if p=='quickVars' then
         self.quickVars = self.quickVars or {}
-        for m,n in pairs(v) do self.quickVars[m]=n end
-      else self[k]=v end
-    end 
-    return self 
+        for n,v in pairs(vars2keymap(v.quickAppVariables or {})) do self.quickVars[n]=v end
+      elseif p == 'UI' then
+        self.viewLayout = v.viewLayout
+        self.uiCallbacks = v.uiCallbacks
+      end
+    end
   end
 
-  -- Saving file in filesystem. We can save in .fqa or "unpacked" format
-  function self:save(fm,path,overwrite)
-    assert(({fqa=true,unpacked=true})[fm or ""],"Bad format for save")
-    path = path or ""
-    local fqa = self.fqa
-    if fm == "fqa" then        -- Save as .fqa
-      if not(fqa or (self.viewLayout and self.uiCallbacks)) then
-        fqa = QA.createQuickApp{
-          name=self.name,type=self.type,UI=self.UI,
-          quickVars=self.quickVars,code=self.files,dryrun=true
+  local function resolveCREDS(quickVars)
+    for k,v in pairs(quickVars) do
+      assertf(type(k)=='string',"Corrupt quickVars table, key=%s, value=%s",k,json.encode(v))
+      if type(v)=='string' and v:match("^%$CREDS") then
+        local p = "return hc3_emulator.credentials"..v:match("^%$CREDS(.*)")
+        v=load(p)()
+      end
+      quickVars[k]=v
+    end
+  end
+
+  local QA_ID = 998
+-- 2 types of QuickApps, fqa based and emu based
+  local function loadQA(arg)
+    local ff = hc3_emulator.file
+    assert(type(arg)=='number' or type(arg)=='string',"Bad argument  to loadQA")
+
+    local self = {}
+    if tonumber(arg) then                                        -- Download QA from HC3 (fqa)
+      self.fqa = api.get("/quickApp/export/"..arg)
+      assert(self.fqa,"QA "..arg.." does not exists on HC3")
+      self.id = arg
+    end
+    if type(arg)=='string' and arg:match("%.[Ff][Qq][Aa]$") then  -- Read in .fqa  file
+      local c = ff.read(arg)
+      self.fname = arg
+      self.fqa = json.decode(c)
+      self.file_fqa = arg
+    end
+    if self.fqa then
+      local fqa = self.fqa
+      assert(fqa.apiVersion == "1.2","Bad FQA api version")
+      self.type = fqa.type
+      self.name = fqa.name
+      self.viewLayout = fqa.initialProperties.viewLayout
+      self.uiCallbacks = fqa.initialProperties.uiCallbacks
+      self.quickVars = vars2keymap(fqa.initialProperties.quickAppVariables or {})
+      self.interfaces = fqa.initialInterfaces
+      loadResources(self)
+    elseif arg:match("%.[Jj][Ss][Oo][Nn]$") then                 -- Read in unpacked file(s)
+      self.fname = arg
+      self.file_unpacked = arg
+      local name = ff.extract_name(arg)
+      local dir = arg:sub(1,-(name:len()+1))
+      local files,paths = {},{}
+      local prefix = "^"..name:match("(.*)%.[Jj][Ss][Oo][Nn]$").."_(%d+)_(.-)%.lua"
+      assert(ff.dir(dir),"Not a directory: "..tostring(dir))
+      for d,n in ff.dir(dir) do -- read unpacked files
+        if d:match(prefix) then
+          local id,name = d:match("(%d+)_([^_]+)%.lua")
+          assert(name,"Bad unpacked file "..d)
+          local content  = ff.read(dir..d)
+          files[tonumber(id)]={name=name, content=content, type="lua", isMain=name == 'main', isOpen=false}
+          paths[name]=dir..d
+        end
+      end
+      assert(files[1],"No code files belonging to "..name)
+      local fqa = ff.read(arg) -- read main json files
+      fqa = json.decode(fqa)
+      self.name = fqa.name
+      self.type = fqa.type
+      self.viewLayout = fqa.initialProperties.viewLayout
+      self.uiCallbacks = fqa.initialProperties.uiCallbacks
+      self.quickVars = vars2keymap(fqa.initialProperties.quickAppVariables or {})
+      self.interfaces = fqa.initialInterfaces
+      self.fqa = fqa
+      self.fqa.files = files
+      self.paths = paths
+      loadResources(self)
+    elseif arg:match("%.[Ll][Uu][Aa]$") then                     -- Read in "emulator" file
+      self.fname = arg
+      self.file_emu = arg
+      local code = hc3_emulator._code or ff.read(arg) -- hack, code is already loaded by caller, should be arg?
+      hc3_emulator._code = nil
+      local header,env1 = code:match("(if%s+dofile.-[\n\r]end)"),{
+        dofile=function() end,
+      }
+      assert(header and header~="","Malformed emulator header")
+      local e1,msg = load(header,nil,nil,env1)
+      if msg then error(msg) end
+      local stat,res = pcall(e1)
+      if not stat then error(res) end
+      self.name = env1.hc3_emulator.name or arg:match("(.-)%.[Ll][Uu][Aa]$")
+      self.type = env1.hc3_emulator.type or "com.fibaro.binarySwitch"
+      self.id = env1.hc3_emulator.id
+      self.interfaces = env1.hc3_emulator.interfaces
+      self.resources = env1.hc3_emulator.resources
+      self.proxy = env1.hc3_emulator.proxy or false
+      loadResources(self)
+      self.quickVars = self.quickVars or {}
+      for n,v in pairs(env1.hc3_emulator.quickVars or {}) do
+        self.quickVars[n]=v
+      end
+      self.UI = env1.hc3_emulator.UI
+      if type(self.UI) == 'string' then self.UI = json.decode(self.UI) end
+      self.files,self.paths = QA.createFilesFromSource(code,self.fname)
+    else error("Bad argument to loadQA") end
+
+    --  Inject args -- overwriting existing args
+    function self:args(args) 
+      for k,v in pairs(args) do
+        if k=='quickVars' then
+          self.quickVars = self.quickVars or {}
+          for m,n in pairs(v) do self.quickVars[m]=n end
+        else self[k]=v end
+      end 
+      return self 
+    end
+
+    -- Saving file in filesystem. We can save in .fqa or "unpacked" format
+    function self:save(fm,path,overwrite)
+      assert(({fqa=true,unpacked=true})[fm or ""],"Bad format for save")
+      path = path or ""
+      local fqa = self.fqa
+      if fm == "fqa" then        -- Save as .fqa
+        if not(fqa or (self.viewLayout and self.uiCallbacks)) then
+          fqa = QA.createQuickApp{
+            name=self.name,type=self.type,UI=self.UI,
+            quickVars=self.quickVars,code=self.files,dryrun=true
+          }
+        end
+        if fqa then
+          fqa.name = self.name
+          fqa.type = self.type
+          fqa.initialProperties.viewLayout = self.viewLayout or fqa.initialProperties.viewLayout
+          fqa.initialProperties.uiCallbacks = self.uiCallbacks or fqa.initialProperties.uiCallbacks
+          if self.quickVars then
+            fqa.initialProperties.quickAppVariables = vars2list(self.quickVars or {})
+          end
+          local fn = self.fname
+          if fn then fn = fn:match("(.+)%.")..".fqa" end
+          fn =  (fn or fqa.name ..".fqa"):gsub("(%/)","_")
+          path  = path or ""
+          if path ~= "" and path:sub(-1) ~= ff.path_separator() then
+            fn = ff.extract_name(path)
+            path = path:sub(1,-(fn:len()+1))
+          end
+          self.file_fqa = fn
+          ff.write(path..fn,json.encode(fqa),overwrite)
+        else
+          error("Can't save fqa")
+        end
+      else                      -- Save in unpacked format (files separatly)
+        if path:sub(-1) == ff.path_separator() then
+          path = path.."QA_"..(self.id or "999").."_"..self.name:gsub("(%/)","_")
+        elseif path:match("%.[Jj][Ss][Oo][Nn]$") then
+          path = path:match("(.*)%.")
+        end
+        local paths = {}
+        for i,f in ipairs(self.files or self.fqa.files or {}) do
+          local name = path.."_"..i.."_"..f.name:gsub("(%/)","_")..".lua"
+          ff.write(name,f.content,overwrite)
+          paths[f.name]=name
+        end
+        self.paths = paths
+        local fqa = Util.copy(self.fqa)
+        fqa.files = nil
+        self.file_unpacked = ff.extract_name(path..".json")
+        ff.write(path..".json",Util.prettyJsonStruct(fqa),overwrite)
+      end
+      return self
+    end -- save
+
+    --  Upload QuickApp to HC3
+    function self:upload(name,id)
+      -- Resolve $CREDS
+      resolveCREDS(self.quickVars)
+      if self.fqa or (self.viewLayout and self.uiCallbacks) then
+        QA.createQuickApp{
+          name=name or self.name,type=self.type, id = id or self.id,
+          initialProperties = {
+            viewLayout=self.viewLayout, 
+            uiCallbacks = self.uiCallbacks, 
+            quickAppVariables = vars2list(self.quickVars or {}),
+          },
+          interfaces = self.interfaces,
+          code=self.files or self.fqa.files
+        }
+      else
+        QA.createQuickApp{
+          name=name or self.name,type=self.type,UI=self.UI, id = id or self.id,
+          quickVars=self.quickVars,code=self.files, interfaces = self.interfaces,
         }
       end
-      if fqa then
-        fqa.name = self.name
-        fqa.type = self.type
-        fqa.initialProperties.viewLayout = self.viewLayout or fqa.initialProperties.viewLayout
-        fqa.initialProperties.uiCallbacks = self.uiCallbacks or fqa.initialProperties.uiCallbacks
-        if self.quickVars then
-          fqa.initialProperties.quickAppVariables = vars2list(self.quickVars or {})
-        end
-        local fn = self.fname
-        if fn then fn = fn:match("(.+)%.")..".fqa" end
-        fn =  (fn or fqa.name ..".fqa"):gsub("(%/)","_")
-        path  = path or ""
-        if path ~= "" and path:sub(-1) ~= ff.path_separator() then
-          fn = ff.extract_name(path)
-          path = path:sub(1,-(fn:len()+1))
-        end
-        self.file_fqa = fn
-        ff.write(path..fn,json.encode(fqa),overwrite)
-      else
-        error("Can't save fqa")
-      end
-    else                      -- Save in unpacked format (files separatly)
-      if path:sub(-1) == ff.path_separator() then
-        path = path.."QA_"..(self.id or "999").."_"..self.name:gsub("(%/)","_")
-      elseif path:match("%.[Jj][Ss][Oo][Nn]$") then
-        path = path:match("(.*)%.")
-      end
-      local paths = {}
-      for i,f in ipairs(self.files or self.fqa.files or {}) do
-        local name = path.."_"..i.."_"..f.name:gsub("(%/)","_")..".lua"
-        ff.write(name,f.content,overwrite)
-        paths[f.name]=name
-      end
-      self.paths = paths
-      local fqa = Util.copy(self.fqa)
-      fqa.files = nil
-      self.file_unpacked = ff.extract_name(path..".json")
-      ff.write(path..".json",Util.prettyJsonStruct(fqa),overwrite)
+      return self
     end
-    return self
-  end -- save
 
-  --  Upload QuickApp to HC3
-  function self:upload(name,id)
-    -- Resolve $CREDS
-    resolveCREDS(self.quickVars)
-    if self.fqa or (self.viewLayout and self.uiCallbacks) then
-      QA.createQuickApp{
-        name=name or self.name,type=self.type, id = id or self.id,
-        initialProperties = {
-          viewLayout=self.viewLayout, 
-          uiCallbacks = self.uiCallbacks, 
-          quickAppVariables = vars2list(self.quickVars or {}),
-        },
-        interfaces = self.interfaces,
-        code=self.files or self.fqa.files
-      }
+    -- Install QuickApp in the emulator
+    function self:install(args)
+
+      -- A QA is a 7 step process
+      -- 0. Initialization
+      -- 1. Create proxy if wanted
+      -- 2. Create environment
+      -- 3. Load the files (not executing them)
+      -- 4. Build device struct
+      -- 5. Run the QA files, main last (execute them)
+      --    The loading of files/users are expected to define the QuickApp methods incl. QuickApp:onInit()
+      -- 6. We create an instance of QuickApp and call the :onInit method if it exists
+      -- Restarting QA means kill timers and go back to 2
+
+      os.setTimer(function()
+          Log(LOG.HEADER,"Loading QuickApp '%s'...",self.name)
+
+          -- step 0. initialization, fix missing structures etc.
+          local pdevice
+
+          local fl = false
+          local interfaces = self.interfaces or {'quickApp'}
+          for _,i in ipairs(interfaces) do if i=='quickApp' then fl=true; break end end
+          if not fl then interfaces[#self.interfaces+1]='quickApp' end
+
+          -- Initialize quickAppVariables and load resources
+          -- Logic:
+          --- First variables from fqa if they exists
+          --- Then variables from loaded hc3_emulator.resources = {quickVars = ...
+          --- Then variables from hc3_emulator.quickVars
+          local quickVars = self.quickVars
+          -- Resolve $CREDS
+          resolveCREDS(quickVars)
+
+          if self.UI then
+            local ip = makeInitialProperties(self.UI)
+            self.viewLayout,self.uiCallbacks = ip.viewLayout,ip.uiCallbacks
+          elseif self.viewLayout then
+            self.UI=QA.view2UI(self.viewLayout,self.uiCallbacks)
+          else self.UI = {} end
+
+          -- step 1. create proxy
+          if self.proxy and not self.offline then
+            pdevice = createProxy(self.name,self.type,
+              {
+                viewLayout=self.viewLayout,
+                uiCallbacks = self.uiCallbacks, 
+                quickAppVariables = vars2list(quickVars)
+              },
+              interfaces)
+          end
+
+          if pdevice then self.id = pdevice.id else 
+            while self.id == nil or quickApps[self.id] do -- find free id
+              QA_ID = QA_ID+1
+              self.id = QA_ID
+            end
+          end
+
+          local runQA,codeEnv
+          local function restartQA()
+            collectgarbage("collect")
+            Log(LOG.SYS,"Restarting QA %s, timers=%s, memory used %.1fkB",
+              self.id,Timer.killTimers("QUICKAPP"..self.id),collectgarbage("count")
+            ) 
+            codeEnv.setTimeout(function() runQA() end,2)
+          end
+
+          function runQA() -- rest of the steps in a function that can be called
+
+            -- step 2. create the environment
+            codeEnv = Util.createEnvironment("QA",false)
+            setContext(codeEnv)
+            local QAlock = hc3_emulator.copas.lock.new(60*60*30)
+            function codeEnv._getLock() QAlock:get(60*60*30) end
+            function codeEnv._releaseLock() QAlock:release() end
+            codeEnv.BREAKONINIT = hc3_emulator.breakOnInit
+            codeEnv._ENVID = "QUICKAPP"..self.id -- used to find timers beloning to this QA
+            codeEnv.plugin.mainDeviceId = self.id
+
+            local st = codeEnv.setTimeout
+            local function errHandler(err)
+              Log(LOG.ERROR,"QuickApp timer %s for '%s', deviceId:%s, crashed - %s",codeEnv._lastTimer,self.name,self.id,err)
+            end
+            codeEnv.setTimeout = function(fun,ms,tag,eh,env,off) return st(fun,ms,tag,errHandler,codeEnv,off) end
+            local st2 = codeEnv.setTimeout
+            codeEnv.fibaro.setTimeout = function(a,b,...) return st2(b,a,...) end
+            codeEnv.print = function(...) codeEnv.fibaro.debug(codeEnv.__TAG,...) end
+            codeEnv.__TAG = "QuickApp"..self.id
+
+            -- Step 3. load the files (we don't run them yet)
+            local loadedFiles = {}
+            local ost,ostf,jsenc,jsdec = codeEnv.setTimeout, codeEnv.fibaro.setTimeout,codeEnv.json.encode,codeEnv.json.decode
+            for _,f in ipairs(self.files or self.fqa and self.fqa.files) do 
+              local path = self.paths and self.paths[f.name] or f.name
+              if _debugFlags.files then Log(LOG.LOG,"Loading file '%s'",f.name) end
+              local code,msg=load(f.content,path,"bt",codeEnv)
+              assert(code,msg)
+              if f.isMain then table.insert(loadedFiles,{code=code,name=f.name}) -- 'main' last
+              else  table.insert(loadedFiles,math.max(#loadedFiles,1),{code=code,name=f.name}) end
+            end
+
+            -- Step 4. build device struct
+            -- Add 'quickApp' to interfaces if not existing
+
+            local device = pdevice or {}
+            device.id = device.id or self.id
+            device.name = self.name or "QuickApp"..self.id
+            device.interfaces = device.interfaces or interfaces
+            device.enabled = true
+            device.visible = true
+            device.type = device.type or self.type
+            device.roomID = device.roomID or 219
+            device._emu = {
+              proxy = self.proxy or false, UI = QA.transformUI(self.UI), env = codeEnv, uiValues={}, slideCache={},
+              files = self.files or self.fqa and self.fqa.files -- if someone asks for them with /api/quickApp/...
+            }
+            device.properties = device.properties or {}
+            device.properties.uiCallbacks = self.uiCallbacks
+            device.properties.viewLayout = self.viewLayout
+            device.properties.quickAppVariables = vars2list(quickVars)
+
+            quickApps[self.id]={ deviceStruct = device } -- Just so we have somethimng there if someone asks...
+
+            -- step 5. run the files
+            for _,f in ipairs(loadedFiles) do
+              if _debugFlags.breakOnLoad then mobdebug.setbreakpoint(path,1) end
+              if _debugFlags.files then Log(LOG.LOG,"Running file '%s'",f.name) end
+              _,msg=f.code()
+              assert(msg==nil,string.format("Running %s - %s",path,msg))
+            end
+            if not _debugFlags.patchSetTimeout then -- restore setTimeout etc if pacthed by user
+              codeEnv.setTimeout,codeEnv.fibaro.setTimeout,codeEnv.json.encode,codeEnv.json.decode =  ost,ostf,jsenc,jsdec
+            end
+
+            -- step 6. instantiate QA
+            codeEnv._getLock()
+            local status, err, ret = xpcall(
+              function() codeEnv.quickApp = codeEnv.QuickApp(device) end,
+              function(err)
+                Log(LOG.ERROR,"QuickApp '%s', deviceId:%s, crashed (%s) at %s",self.name,self.id,err,os.date("%c"))
+                print(debug.traceback(err,1))
+                if _debugFlags.breakOnError then mobdebug.pause() end
+              end)
+            codeEnv._releaseLock()
+            if status then
+              Log(LOG.HEADER,"QuickApp '%s', deviceID:%s started at %s",device.name,device.id,os.date("%c"))
+              codeEnv.quickApp.restartQA = restartQA
+              codeEnv.quickApp.runQA = runQA
+            end
+          end
+
+          runQA()
+
+        end,0) -- os.setTimer
+      return self
+    end -- install
+
+    return self
+  end
+
+  function hc3_emulator.loadQAorScene(file)
+    local code,done = Files.file.read(file),nil
+    hc3_emulator._code = code
+    if code:match("hc3_emulator%.actions") then
+      Scene.loadScene(file):upload()
+    elseif code:match("QuickApp:") then
+      QA.loadQA(file):upload()
     else
-      QA.createQuickApp{
-        name=name or self.name,type=self.type,UI=self.UI, id = id or self.id,
-        quickVars=self.quickVars,code=self.files, interfaces = self.interfaces,
-      }
+      Log(LOG.LOG,"Unrecognized file")
     end
-    return self
+    hc3_emulator._code = nil
   end
 
-  -- Install QuickApp in the emulator
-  function self:install(args)
-
-    -- A QA is a 7 step process
-    -- 0. Initialization
-    -- 1. Create proxy if wanted
-    -- 2. Create environment
-    -- 3. Load the files (not executing them)
-    -- 4. Build device struct
-    -- 5. Run the QA files, main last (execute them)
-    --    The loading of files/users are expected to define the QuickApp methods incl. QuickApp:onInit()
-    -- 6. We create an instance of QuickApp and call the :onInit method if it exists
-    -- Restarting QA means kill timers and go back to 2
-
-    os.setTimer(function()
-        Log(LOG.HEADER,"Loading QuickApp '%s'...",self.name)
-
-        -- step 0. initialization, fix missing structures etc.
-        local pdevice
-
-        local fl = false
-        local interfaces = self.interfaces or {'quickApp'}
-        for _,i in ipairs(interfaces) do if i=='quickApp' then fl=true; break end end
-        if not fl then interfaces[#self.interfaces+1]='quickApp' end
-
-        -- Initialize quickAppVariables and load resources
-        -- Logic:
-        --- First variables from fqa if they exists
-        --- Then variables from loaded hc3_emulator.resources = {quickVars = ...
-        --- Then variables from hc3_emulator.quickVars
-        local quickVars = self.quickVars
-        -- Resolve $CREDS
-        resolveCREDS(quickVars)
-
-        if self.UI then
-          local ip = makeInitialProperties(self.UI)
-          self.viewLayout,self.uiCallbacks = ip.viewLayout,ip.uiCallbacks
-        elseif self.viewLayout then
-          self.UI=QA.view2UI(self.viewLayout,self.uiCallbacks)
-        else self.UI = {} end
-
-        -- step 1. create proxy
-        if self.proxy and not self.offline then
-          pdevice = createProxy(self.name,self.type,
-            {
-              viewLayout=self.viewLayout,
-              uiCallbacks = self.uiCallbacks, 
-              quickAppVariables = vars2list(quickVars)
-            },
-            interfaces)
-        end
-
-        if pdevice then self.id = pdevice.id else 
-          while self.id == nil or quickApps[self.id] do -- find free id
-            QA_ID = QA_ID+1
-            self.id = QA_ID
-          end
-        end
-
-        local runQA,codeEnv
-        local function restartQA()
-          collectgarbage("collect")
-          Log(LOG.SYS,"Restarting QA %s, timers=%s, memory used %.1fkB",
-            self.id,Timer.killTimers("QUICKAPP"..self.id),collectgarbage("count")
-          ) 
-          codeEnv.setTimeout(function() runQA() end,2)
-        end
-
-        function runQA() -- rest of the steps in a function that can be called
-
-          -- step 2. create the environment
-          codeEnv = Util.createEnvironment("QA",false)
-          setContext(codeEnv)
-          local QAlock = hc3_emulator.copas.lock.new(60*60*30)
-          function codeEnv._getLock() QAlock:get(60*60*30) end
-          function codeEnv._releaseLock() QAlock:release() end
-          codeEnv.BREAKONINIT = hc3_emulator.breakOnInit
-          codeEnv._ENVID = "QUICKAPP"..self.id -- used to find timers beloning to this QA
-          codeEnv.plugin.mainDeviceId = self.id
-
-          local st = codeEnv.setTimeout
-          local function errHandler(err)
-            Log(LOG.ERROR,"QuickApp timer %s for '%s', deviceId:%s, crashed - %s",codeEnv._lastTimer,self.name,self.id,err)
-          end
-          codeEnv.setTimeout = function(fun,ms,tag) return st(fun,ms,tag,errHandler,codeEnv) end
-          local st2 = codeEnv.setTimeout
-          codeEnv.fibaro.setTimeout = function(a,b,...) return st2(b,a,...) end
-          codeEnv.print = function(...) codeEnv.fibaro.debug(codeEnv.__TAG,...) end
-          codeEnv.__TAG = "QuickApp"..self.id
-
-          -- Step 3. load the files (we don't run them yet)
-          local loadedFiles = {}
-          local ost,ostf,jsenc,jsdec = codeEnv.setTimeout, codeEnv.fibaro.setTimeout,codeEnv.json.encode,codeEnv.json.decode
-          for _,f in ipairs(self.files or self.fqa and self.fqa.files) do 
-            local path = self.paths and self.paths[f.name] or f.name
-            if _debugFlags.files then Log(LOG.LOG,"Loading file '%s'",f.name) end
-            local code,msg=load(f.content,path,"bt",codeEnv)
-            assert(code,msg)
-            if f.isMain then table.insert(loadedFiles,{code=code,name=f.name}) -- 'main' last
-            else  table.insert(loadedFiles,math.max(#loadedFiles,1),{code=code,name=f.name}) end
-          end
-
-          -- Step 4. build device struct
-          -- Add 'quickApp' to interfaces if not existing
-
-          local device = pdevice or {}
-          device.id = device.id or self.id
-          device.name = self.name or "QuickApp"..self.id
-          device.interfaces = device.interfaces or interfaces
-          device.enabled = true
-          device.visible = true
-          device.type = device.type or self.type
-          device.roomID = device.roomID or 219
-          device._emu = {
-            proxy = self.proxy or false, UI = QA.transformUI(self.UI), env = codeEnv, uiValues={}, slideCache={},
-            files = self.files or self.fqa and self.fqa.files -- if someone asks for them with /api/quickApp/...
-          }
-          device.properties = device.properties or {}
-          device.properties.uiCallbacks = self.uiCallbacks
-          device.properties.viewLayout = self.viewLayout
-          device.properties.quickAppVariables = vars2list(quickVars)
-
-          quickApps[self.id]={ deviceStruct = device } -- Just so we have somethimng there if someone asks...
-
-          -- step 5. run the files
-          for _,f in ipairs(loadedFiles) do
-            if _debugFlags.breakOnLoad then mobdebug.setbreakpoint(path,1) end
-            if _debugFlags.files then Log(LOG.LOG,"Running file '%s'",f.name) end
-            _,msg=f.code()
-            assert(msg==nil,string.format("Running %s - %s",path,msg))
-          end
-          if not _debugFlags.patchSetTimeout then -- restore setTimeout etc if pacthed by user
-            codeEnv.setTimeout,codeEnv.fibaro.setTimeout,codeEnv.json.encode,codeEnv.json.decode =  ost,ostf,jsenc,jsdec
-          end
-
-          -- step 6. instantiate QA
-          codeEnv._getLock()
-          local status, err, ret = xpcall(
-            function() codeEnv.quickApp = codeEnv.QuickApp(device) end,
-            function(err)
-              Log(LOG.ERROR,"QuickApp '%s', deviceId:%s, crashed (%s) at %s",self.name,self.id,err,os.date("%c"))
-              print(debug.traceback(err,1))
-              if _debugFlags.breakOnError then mobdebug.pause() end
-            end)
-          codeEnv._releaseLock()
-          if status then
-            Log(LOG.HEADER,"QuickApp '%s', deviceID:%s started at %s",device.name,device.id,os.date("%c"))
-            codeEnv.quickApp.restartQA = restartQA
-            codeEnv.quickApp.runQA = runQA
-          end
-        end
-
-        runQA()
-
-      end,0) -- os.setTimer
-    return self
-  end -- install
-
-  return self
-end
-
-function hc3_emulator.loadQAorScene(file)
-  local code,done = Files.file.read(file),nil
-  hc3_emulator._code = code
-  if code:match("hc3_emulator%.actions") then
-    Scene.loadScene(file):upload()
-  elseif code:match("QuickApp:") then
-    QA.loadQA(file):upload()
-  else
-    Log(LOG.LOG,"Unrecognized file")
+  commandLines['pullqatobuffer']=self.copyQA
+  commandLines['deploy']=function(file)
+    hc3_emulator.loadQAorScene(file)
+    fibaro.sleep(2000)
+    os.exit()
   end
-  hc3_emulator._code = nil
-end
-
-commandLines['pullqatobuffer']=self.copyQA
-commandLines['deploy']=function(file)
-  hc3_emulator.loadQAorScene(file)
-  fibaro.sleep(2000)
-  os.exit()
-end
 
 -- Export functions
-self.transformUI = transformUI
-self.uiStruct2uiCallbacks = uiStruct2uiCallbacks
-self.updateViewLayout     = updateViewLayout
-self.createQuickApp       = createQuickApp
-self.createProxy          = createProxy
-self.loadQA               = loadQA
-return self
+  self.transformUI = transformUI
+  self.uiStruct2uiCallbacks = uiStruct2uiCallbacks
+  self.updateViewLayout     = updateViewLayout
+  self.createQuickApp       = createQuickApp
+  self.createProxy          = createProxy
+  self.loadQA               = loadQA
+  return self
 end
 
 --------------- Scene functions and support ----------
