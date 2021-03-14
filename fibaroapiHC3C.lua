@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.183"
+local FIBAROAPIHC3_VERSION = "0.184"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -221,7 +221,6 @@ hc3_emulator.actions           = false
 hc3_emulator.offline           = DEF(hc3_emulator.offline,false)
 hc3_emulator.emulated          = true
 hc3_emulator.debug             = merge(hc3_emulator.debug  or {},_debugFlags)
-_debugFlags  = hc3_emulator.debug
 hc3_emulator.runSceneAtStart   = false
 hc3_emulator.webPort           = hc3_emulator.webPort or 6872
 hc3_emulator.terminalPort      = hc3_emulator.terminalPort or 6972
@@ -232,6 +231,7 @@ hc3_emulator.supressTrigger    = {["PluginChangedViewEvent"] = true} -- Ignore n
 hc3_emulator.negativeTimeout   = DEF(hc3_emulator.negativeTimeout,true)
 hc3_emulator.strictClass       = true
 hc3_emulator.HC3_logmessages   = DEF(hc3_emulator.HC3_logmessages,false)
+_debugFlags  = hc3_emulator.debug
 
 local cr = loadfile(hc3_emulator.credentialsFile)
 if cr then hc3_emulator.credentials = merge(hc3_emulator.credentials or {},cr() or {}) end
@@ -409,6 +409,8 @@ function module.FibaroAPI()
       for _,d in ipairs(deviceID) do fibaro.call(d, actionName, ...) end
     else
       __assert_type(deviceID ,"number")
+      local  hc3=false
+      if  deviceID < 0 then hc3=true; deviceID=-deviceID end
       if actionName == "toggle" then
         local val = fibaro.getValue(deviceID,'value')
         if tonumber(val) then val=val> 0 end
@@ -416,7 +418,7 @@ function module.FibaroAPI()
       end
       local a = {args={},delay=0}
       for i,v in ipairs({...}) do a.args[i]=v end
-      local res,stat = api.post("/devices/"..deviceID.."/action/"..actionName,a)
+      local res,stat = api.post("/devices/"..deviceID.."/action/"..actionName,a,hc3)
       if stat==404 then Log(LOG.ERROR,"Device %s does not exists",deviceID) end
       return res
     end
@@ -685,6 +687,7 @@ function module.FibaroAPI()
         return api.delete('/notificationCenter/'..id)
       end
     },
+
   }
 
   unpack = table.unpack
@@ -3992,6 +3995,48 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
     return createQuickApp{id=id,name=name,type=tp,code=code,initialProperties=ips,interfaces=interfaces}
   end
 
+  local function injectProxy(id)
+    local code = [[
+local actionH,UIh = nil,nil
+function QuickApp:PROXY(enable,ip)
+   local function urlencode (str)
+     return str and string.gsub(str ,"([^% w])",function(c) return string.format("%%% 02X",string.byte(c))  end)
+   end
+   local IGNORE={updateView=true,setVariable=true,updateProperty=true,APIPOST=true,APIPUT=true,APIGET=true} -- Rewrite!!!!
+   
+   if enable then
+     actionH,UIh = self.actionHandler,self.UIHandler
+    local function POST2IDE(path,payload)
+       url = "http://"..ip..path
+       net.HTTPClient():request(url,{options={method='POST',data=json.encode(payload)}})
+     end
+     function self:actionHandler(action)
+        if IGNORE[action.actionName] then 
+          return self:callAction(action.actionName, table.unpack(action.args))
+        end
+        POST2IDE("/fibaroapiHC3/action/"..self.id,action)
+      end
+      function self:UIHandler(UIEvent) POST2IDE("/fibaroapiHC3/ui/"..self.id,UIEvent) end
+      function self:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) end
+      function self:APIGET(url) api.get(url) end
+      function self:APIPOST(url,data) api.post(url,data) end -- to get around some access restrictions
+      function self:APIPUT(url,data) api.put(url,data) end
+      self:debug("Events intercepted by emulator at "..ip)
+   else
+     if actionH then self.actionHandler = actionH end
+     if UIh then self.UIHandler = UIh end
+     self:debug("Events restored by emulator at "..ip)
+   end
+end
+]]
+    local dev = api.get("/devices/"..id)
+    assert(dev,"No such device "..id)
+    if not api.get("/quickApp/"..id.."/files/PROXY") then
+      Files:createFile(id,"PROXY",code)
+    end
+    return dev
+  end
+
   function onAction(event)
     Debug(_debugFlags.onAction,"onAction: %s",json.encode(event))
     local self = quickApps[event.deviceId]
@@ -4301,13 +4346,20 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
 
           -- step 1. create proxy
           if self.proxy and not self.offline then
-            pdevice = createProxy(self.name,self.type,
-              {
-                viewLayout=self.viewLayout,
-                uiCallbacks = self.uiCallbacks, 
-                quickAppVariables = vars2list(quickVars)
-              },
-              interfaces)
+            if tonumber(self.proxy) then
+              pdevice = injectProxy(self.proxy)
+              os.setTimer(function() 
+                  fibaro.call(-self.proxy,"PROXY",true,hc3_emulator.IPaddress..":"..hc3_emulator.webPort) 
+                end,1000)
+            else
+              pdevice = createProxy(self.name,self.type,
+                {
+                  viewLayout=self.viewLayout,
+                  uiCallbacks = self.uiCallbacks, 
+                  quickAppVariables = vars2list(quickVars)
+                },
+                interfaces)
+            end
           end
 
           if pdevice then self.id = pdevice.id else 
@@ -6253,11 +6305,13 @@ function module.WebAPI()
       end,
       ["/fibaroapiHC3/action/(.+)$"] = function(client,_,body,_) 
         local stat,res = pcall(onAction,(json.decode(body)))
+        if not  stat then Log(LOG.ERROR,res) end
         client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n\n")
         return true
       end,
       ["/fibaroapiHC3/ui/(.+)$"] = function(client,_,body,_) 
         local stat,res = pcall(onUIEvent,(json.decode(body)))
+        if not  stat then Log(LOG.ERROR,res) end
         client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n\n")
         return true
       end,
@@ -7033,6 +7087,14 @@ function module.Files()
 
   function self:updateFiles(deviceId,list)
     return api.put("/quickApp/"..deviceId.."/files",list)
+  end
+
+  function self:createFile(deviceId,file,content)
+    if type(file)=='string' then
+      file = {isMain=false,type='lua',isOpen=false,name=file,content=""}
+    end
+    file.content = type(content)=='string' and content or file.content
+    return api.post("/quickApp/"..deviceId.."/files",file) 
   end
 
   function self:deleteFile(deviceId,file)
