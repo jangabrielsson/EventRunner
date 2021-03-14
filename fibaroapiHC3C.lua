@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.184"
+local FIBAROAPIHC3_VERSION = "0.185"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -3228,6 +3228,7 @@ function module.HTTP()
     os._clock = os.clock
     os._date  = os.date
     os.rt = _milliTime
+    os._exit = os.exit
     os.speed = function(b) SPEED = b Log(LOG.SYS,"Setting speed to %s",tostring(b)) end
     os.time = function(t) return t and os._time(t) or math.floor(os.rt() + timeAdjust) end
     os.milliTime = function() return os.rt() + timeAdjust end
@@ -3247,7 +3248,6 @@ function module.HTTP()
     os.setTimer = function(fun,ms,recurring,params,env) os.setTimer2(fun,ms/1000.0,recurring,params,env) end
     os.clearTimer = function(t) t:cancel() end
     os.milliStr = function(t) return os.date("%H:%M:%S",math.floor(t))..format(":%03d",math.floor((t%1)*1000+0.5)) end
-
     function os.setTime(t)
       timeAdjust = t-os.time()
       Log(LOG.SYS,"Setting emulator time to %s",os.date("%c",t))
@@ -3997,24 +3997,32 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
 
   local function injectProxy(id)
     local code = [[
-local actionH,UIh = nil,nil
+local actionH,UIh,pingRef = nil,nil,nil
 function QuickApp:PROXY(enable,ip)
    local function urlencode (str)
      return str and string.gsub(str ,"([^% w])",function(c) return string.format("%%% 02X",string.byte(c))  end)
    end
-   local IGNORE={updateView=true,setVariable=true,updateProperty=true,APIPOST=true,APIPUT=true,APIGET=true} -- Rewrite!!!!
+   local IGNORE={updateView=true,setVariable=true,updateProperty=true,PROXY=true,APIPOST=true,APIPUT=true,APIGET=true} -- Rewrite!!!!
    
-   if enable then
+   if enable and actionH==nil and UIh==nil then
      actionH,UIh = self.actionHandler,self.UIHandler
-    local function POST2IDE(path,payload)
+     local function POST2IDE(path,payload)
        url = "http://"..ip..path
        net.HTTPClient():request(url,{options={method='POST',data=json.encode(payload)}})
+     end
+     local pingURL = "http://"..ip.."/fibaroapiHC3/ping"
+     local function pinger()
+       net.HTTPClient():request(pingURL,{
+       options={method='GET' ,timeout=3000, headers={['content-type']='text/html'}}, 
+       success = function(resp) end,
+       error = function(err) setTimeout(function() self:PROXY(false) end,0) end
+       })
      end
      function self:actionHandler(action)
         if IGNORE[action.actionName] then 
           return self:callAction(action.actionName, table.unpack(action.args))
         end
-        POST2IDE("/fibaroapiHC3/action/"..self.id,action)
+        POST2IDE("/fibaroapiHC3/action/"..self.id,action)   
       end
       function self:UIHandler(UIEvent) POST2IDE("/fibaroapiHC3/ui/"..self.id,UIEvent) end
       function self:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) end
@@ -4022,10 +4030,13 @@ function QuickApp:PROXY(enable,ip)
       function self:APIPOST(url,data) api.post(url,data) end -- to get around some access restrictions
       function self:APIPUT(url,data) api.put(url,data) end
       self:debug("Events intercepted by emulator at "..ip)
+      pingRef = setInterval(pinger,4000)
    else
-     if actionH then self.actionHandler = actionH end
-     if UIh then self.UIHandler = UIh end
-     self:debug("Events restored by emulator at "..ip)
+    if pingRef then clearInterval(pingRef); pingRef = nil end
+    if actionH then self.actionHandler = actionH end
+    if UIh then self.UIHandler = UIh end 
+    actionH,UIh=nil,nil
+    self:debug("Events restored by emulator")
    end
 end
 ]]
@@ -4350,6 +4361,7 @@ end
               pdevice = injectProxy(self.proxy)
               os.setTimer(function() 
                   fibaro.call(-self.proxy,"PROXY",true,hc3_emulator.IPaddress..":"..hc3_emulator.webPort) 
+                  Log(LOG.LOG,"Intercepting events from QA:%s",self.proxy)
                 end,1000)
             else
               pdevice = createProxy(self.name,self.type,
@@ -6171,7 +6183,7 @@ function module.WebAPI()
             end
           end
           if header=="" then
-            if headers['content-length'] then
+            if headers['content-length'] and tonumber(headers['content-length'])>0 then
               body = client:receive(tonumber(headers['content-length']))
               if _debugFlags.webServer then Log(LOG.SYS,"WS: Body:%s",body) end
             end
@@ -6210,6 +6222,16 @@ function module.WebAPI()
         local page = Pages.getPath(call,qp,quickApps[qp])
         if page~=nil then client:send(page) return true
         else return false end
+      end,
+      ["/fibaroapiHC3/ping"] = function(client,_,_,call)
+        client:send((
+[[HTTP/1.1 200 OK
+Content-Length: 0
+Content-Type: text/html
+Connection: Closed
+
+]]):gsub("\n","\r\n"))
+        return true
       end,
       ["/fibaroapiHC3/webQA2/(%d+)%?(.*)"] = function(client,headers,_,id,args)
         local res = {}
@@ -6306,13 +6328,13 @@ function module.WebAPI()
       ["/fibaroapiHC3/action/(.+)$"] = function(client,_,body,_) 
         local stat,res = pcall(onAction,(json.decode(body)))
         if not  stat then Log(LOG.ERROR,res) end
-        client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n\n")
+        client:send("HTTP/1.1 201 Created\r\nETag: \"c180de84f991g8\"\r\n\r\n")
         return true
       end,
       ["/fibaroapiHC3/ui/(.+)$"] = function(client,_,body,_) 
         local stat,res = pcall(onUIEvent,(json.decode(body)))
         if not  stat then Log(LOG.ERROR,res) end
-        client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n\n")
+        client:send("HTTP/1.1 201 Created\r\nETag: \"c180de84f991g8\"\r\n\r\n")
         return true
       end,
       ["/devices/(%d+)/action/(.+)$"] = function(client,_,body,id,action) 
@@ -6320,7 +6342,7 @@ function module.WebAPI()
         local event = {actionName=action,deviceId=tonumber(id),args=data.args}
         local stat,err=pcall(onAction,event)
         if not stat then error(format("Bad fibaro.call(%s,'%s',%s) - %s",id,action,json.encode(data.args):sub(2,-2),err),4) end
-        client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n\n")
+        client:send("HTTP/1.1 201 Created\r\nETag: \"c180de84f991g8\"\r\n\r\n")
         return true
       end,
     }
