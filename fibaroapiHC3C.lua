@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.186"
+local FIBAROAPIHC3_VERSION = "0.187"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -3485,6 +3485,7 @@ function module.HTTP()
       self.type = device.type
       self.properties = device.properties
       self._emu = device._emu
+      self.parentId = device.parentId > 0 and device.parentId
       device._emu = nil
       local cbs = {}
       for _,cb in ipairs(self.properties.uiCallbacks or {}) do
@@ -3583,317 +3584,315 @@ function module.HTTP()
     function QuickApp:__init(device)
       QuickAppBase.__init(self,device)
       self.childDevices = {}
-      if self.onInit then if getContext().BREAKONINIT then mobdebug.pause() end 
       self:onInit() 
-    end --breakOnInit
-    if not self._childsInited then self:initChildDevices() end
-  end
-
-  function QuickApp:createChildDevice(props,device)
-    assert(self._emu.proxy,"Can only create child device when using proxy")
-    props.parentId = self.id
-    props.initialInterfaces = props.initialInterfaces or {}
-    props.initialInterfaces[#props.initialInterfaces+1]='quickAppChild'
-
-    local d,res = api.post("/plugins/createChildDevice",props)
-    assert(res==200,"Can't create child device "..json.encode(props))
-    --fibaro.call(self.id,"CREATECHILD",d.id)
-    device = device or QuickAppChild
-    local cd = device(d)
-    cd.parent = self
-    self.childDevices[d.id]=cd
-    return cd
-  end
-
-  function QuickApp:removeChildDevice(id)
-    __assert_type(id,'number')
-    if self.childDevices[id] then
-      api.delete("/plugins/removeChildDevice/" .. id)
-      self.childDevices[id] = nil
-      quickApps[id]=nil
+      if not self._childsInited then self:initChildDevices() end
     end
-  end
 
-  function QuickApp:initChildDevices(map)
-    local echilds = plugin.getChildDevices() 
-    local childs = self.childDevices
-    for _,d in pairs(echilds or {}) do
-      if (not childs[d.id]) and map[d.type] then
-        childs[d.id]=map[d.type](d)
-      elseif not childs[d.id] then
-        Log(LOG.ERROR,"Class for the child device: %s, with type: %s not found. Using base class: QuickAppChild",d.id,d.type)
-        childs[d.id]=QuickAppChild(d)
-        --quickApps[d.id]=childs[d.id]
+    function QuickApp:createChildDevice(props,device)
+      assert(self._emu.proxy,"Can only create child device when using proxy")
+      props.parentId = self.id
+      props.initialInterfaces = props.initialInterfaces or {}
+      props.initialInterfaces[#props.initialInterfaces+1]='quickAppChild'
+
+      local d,res = api.post("/plugins/createChildDevice",props)
+      assert(res==200,"Can't create child device "..json.encode(props))
+      --fibaro.call(self.id,"CREATECHILD",d.id)
+      device = device or QuickAppChild
+      local cd = device(d)
+      cd.parent = self
+      self.childDevices[d.id]=cd
+      return cd
+    end
+
+    function QuickApp:removeChildDevice(id)
+      __assert_type(id,'number')
+      if self.childDevices[id] then
+        api.delete("/plugins/removeChildDevice/" .. id)
+        self.childDevices[id] = nil
+        quickApps[id]=nil
       end
-      childs[d.id].parent = self
     end
-    self._childsInited = true
-  end
 
-  class 'QuickAppChild'(QuickAppBase)
-  function QuickAppChild:__init(device)
-    assert(type(device)=='number' or type(device)=='table',"QuickAppChild:__init needs number/table")
-    local function copy(d) local res={} for k,v in pairs(d) do res[k]=v end return res end
-    local emu = device.parentId and quickApps[device.parentId]._emu
-    device._emu = copy(device._emu or emu or getContext().quickApp._emu or {})
-    device._emu.UI,device._emu.slideCache = {},{}
-    QuickAppBase.__init(self,device)
-    self._emu.proxy=true
-    quickApps[device.id]=self
-  end
+    function QuickApp:initChildDevices(map)
+      local echilds = plugin.getChildDevices() 
+      local childs = self.childDevices
+      for _,d in pairs(echilds or {}) do
+        if (not childs[d.id]) and map[d.type] then
+          childs[d.id]=map[d.type](d)
+        elseif not childs[d.id] then
+          Log(LOG.ERROR,"Class for the child device: %s, with type: %s not found. Using base class: QuickAppChild",d.id,d.type)
+          childs[d.id]=QuickAppChild(d)
+          --quickApps[d.id]=childs[d.id]
+        end
+        childs[d.id].parent = self
+      end
+      self._childsInited = true
+    end
 
-  local function traverse(o,f)
-    if type(o) == 'table' and o[1] then
-      for _,e in ipairs(o) do traverse(e,f) end
-    else f(o) end
-  end
-  local map = Util.mapf
+    class 'QuickAppChild'(QuickAppBase)
+    function QuickAppChild:__init(device)
+      assert(type(device)=='number' or type(device)=='table',"QuickAppChild:__init needs number/table")
+      local function copy(d) local res={} for k,v in pairs(d) do res[k]=v end return res end
+      local emu = device.parentId and quickApps[device.parentId]._emu
+      device._emu = copy(device._emu or emu or getContext().quickApp._emu or {})
+      device._emu.UI,device._emu.slideCache = {},{}
+      QuickAppBase.__init(self,device)
+      self._emu.proxy=true
+      quickApps[device.id]=self
+    end
 
-  local function collectViewLayoutRow(u,map)
-    local row = {}
-    local function conv(u)
-      if type(u) == 'table' then
-        if u.name then
-          if u.type=='label' then
-            row[#row+1]={label=u.name, text=u.text}
-          elseif u.type=='button'  then
-            local cb = map["button"..u.name]
-            if cb == u.name.."Clicked" then cb = nil end
-            row[#row+1]={button=u.name, text=u.text, onReleased=cb}
-          elseif u.type=='slider' then
-            local cb = map["slider"..u.name]
-            if cb == u.name.."Clicked" then cb = nil end
-            row[#row+1]={slider=u.name, text=u.text, onChanged=cb}
+    local function traverse(o,f)
+      if type(o) == 'table' and o[1] then
+        for _,e in ipairs(o) do traverse(e,f) end
+      else f(o) end
+    end
+    local map = Util.mapf
+
+    local function collectViewLayoutRow(u,map)
+      local row = {}
+      local function conv(u)
+        if type(u) == 'table' then
+          if u.name then
+            if u.type=='label' then
+              row[#row+1]={label=u.name, text=u.text}
+            elseif u.type=='button'  then
+              local cb = map["button"..u.name]
+              if cb == u.name.."Clicked" then cb = nil end
+              row[#row+1]={button=u.name, text=u.text, onReleased=cb}
+            elseif u.type=='slider' then
+              local cb = map["slider"..u.name]
+              if cb == u.name.."Clicked" then cb = nil end
+              row[#row+1]={slider=u.name, text=u.text, onChanged=cb}
+            end
+          else
+            for _,v in pairs(u) do conv(v) end
           end
-        else
-          for _,v in pairs(u) do conv(v) end
         end
       end
+      conv(u)
+      return row
     end
-    conv(u)
-    return row
-  end
 
-  local function viewLayout2UI(u,map)
-    local function conv(u)
-      local rows = {}
-      for _,j in pairs(u.items) do
-        local row = collectViewLayoutRow(j.components,map)
-        if #row > 0 then
-          if #row == 1 then row=row[1] end
-          rows[#rows+1]=row
+    local function viewLayout2UI(u,map)
+      local function conv(u)
+        local rows = {}
+        for _,j in pairs(u.items) do
+          local row = collectViewLayoutRow(j.components,map)
+          if #row > 0 then
+            if #row == 1 then row=row[1] end
+            rows[#rows+1]=row
+          end
         end
+        return rows
       end
-      return rows
+      return conv(u['$jason'].body.sections)
     end
-    return conv(u['$jason'].body.sections)
-  end
 
-  function self.view2UI(view,callbacks)
-    local map = {}
-    traverse(callbacks,function(e)
-        if e.eventType=='onChanged' then map["slider"..e.name]=e.callback
-        elseif e.eventType=='onReleased' then map["button"..e.name]=e.callback end
-      end)
-    local UI = viewLayout2UI(view,map)
-    return UI
-  end
-
-  function self.getQAUI(id)
-    local d = api.get("/devices/"..id)
-    local UI = self.view2UI(d.properties.viewLayout,d.properties.uiCallbacks)
-    return UI
-  end
-
-  local ELMS = {
-    button = function(d,w)
-      return {name=d.name,style={weight=d.weight or w or "0.50"},text=d.text,type="button"}
-    end,
-    select = function(d,w)
-      if d.options then map(function(e) e.type='option' end,d.options) end
-      return {name=d.name,style={weight=d.weight or w or "0.50"},text=d.text,type="select", selectionType='single',
-        options = d.options or {{value="1", type="option", text="option1"}, {value = "2", type="option", text="option2"}},
-        values = d.values or { "option1" }
-      }
-    end,
-    multi = function(d,w)
-      if d.options then map(function(e) e.type='option' end,d.options) end
-      return {name=d.name,style={weight=d.weight or w or "0.50"},text=d.text,type="select", selectionType='multi',
-        options = d.options or {{value="1", type="option", text="option2"}, {value = "2", type="option", text="option3"}},
-        values = d.values or { "option3" }
-      }
-    end,
-    image = function(d,w)
-      return {name=d.name,style={dynamic="1"},type="image", url=d.url}
-    end,
-    switch = function(d,w)
-      return {name=d.name,style={weight=w or d.weight or "0.50"},type="switch", value=d.value or "true"}
-    end,
-    option = function(d,w)
-      return {name=d.name, type="option", value=d.value or "Hupp"}
-    end,
-    slider = function(d,w)
-      return {name=d.name,step=tostring(d.step),value=tostring(d.value),max=tostring(d.max),min=tostring(d.min),style={weight=d.weight or w or "1.2"},text=d.text,type="slider"}
-    end,
-    label = function(d,w)
-      return {name=d.name,style={weight=d.weight or w or "1.2"},text=d.text,type="label"}
-    end,
-    space = function(d,w)
-      return {style={weight=w or "0.50"},type="space"}
+    function self.view2UI(view,callbacks)
+      local map = {}
+      traverse(callbacks,function(e)
+          if e.eventType=='onChanged' then map["slider"..e.name]=e.callback
+          elseif e.eventType=='onReleased' then map["button"..e.name]=e.callback end
+        end)
+      local UI = viewLayout2UI(view,map)
+      return UI
     end
-  }
 
-  local function mkRow(elms,weight)
-    local comp = {}
-    if elms[1] then
-      local c = {}
-      local width = format("%.2f",1/#elms)
-      if width:match("%.00") then width=width:match("^(%d+)") end
-      for _,e in ipairs(elms) do c[#c+1]=ELMS[e.type](e,width) end
-      if #elms > 1 then comp[#comp+1]={components=c,style={weight="1.2"},type='horizontal'}
-      else comp[#comp+1]=c[1] end
-      comp[#comp+1]=ELMS['space']({},"0.5")
-    else
-      comp[#comp+1]=ELMS[elms.type](elms,"1.2")
-      comp[#comp+1]=ELMS['space']({},"0.5")
+    function self.getQAUI(id)
+      local d = api.get("/devices/"..id)
+      local UI = self.view2UI(d.properties.viewLayout,d.properties.uiCallbacks)
+      return UI
     end
-    return {components=comp,style={weight=weight or "1.2"},type="vertical"}
-  end
 
-  local function mkViewLayout(list,height)
-    local items = {}
-    for _,i in ipairs(list) do items[#items+1]=mkRow(i) end
+    local ELMS = {
+      button = function(d,w)
+        return {name=d.name,style={weight=d.weight or w or "0.50"},text=d.text,type="button"}
+      end,
+      select = function(d,w)
+        if d.options then map(function(e) e.type='option' end,d.options) end
+        return {name=d.name,style={weight=d.weight or w or "0.50"},text=d.text,type="select", selectionType='single',
+          options = d.options or {{value="1", type="option", text="option1"}, {value = "2", type="option", text="option2"}},
+          values = d.values or { "option1" }
+        }
+      end,
+      multi = function(d,w)
+        if d.options then map(function(e) e.type='option' end,d.options) end
+        return {name=d.name,style={weight=d.weight or w or "0.50"},text=d.text,type="select", selectionType='multi',
+          options = d.options or {{value="1", type="option", text="option2"}, {value = "2", type="option", text="option3"}},
+          values = d.values or { "option3" }
+        }
+      end,
+      image = function(d,w)
+        return {name=d.name,style={dynamic="1"},type="image", url=d.url}
+      end,
+      switch = function(d,w)
+        return {name=d.name,style={weight=w or d.weight or "0.50"},type="switch", value=d.value or "true"}
+      end,
+      option = function(d,w)
+        return {name=d.name, type="option", value=d.value or "Hupp"}
+      end,
+      slider = function(d,w)
+        return {name=d.name,step=tostring(d.step),value=tostring(d.value),max=tostring(d.max),min=tostring(d.min),style={weight=d.weight or w or "1.2"},text=d.text,type="slider"}
+      end,
+      label = function(d,w)
+        return {name=d.name,style={weight=d.weight or w or "1.2"},text=d.text,type="label"}
+      end,
+      space = function(d,w)
+        return {style={weight=w or "0.50"},type="space"}
+      end
+    }
+
+    local function mkRow(elms,weight)
+      local comp = {}
+      if elms[1] then
+        local c = {}
+        local width = format("%.2f",1/#elms)
+        if width:match("%.00") then width=width:match("^(%d+)") end
+        for _,e in ipairs(elms) do c[#c+1]=ELMS[e.type](e,width) end
+        if #elms > 1 then comp[#comp+1]={components=c,style={weight="1.2"},type='horizontal'}
+        else comp[#comp+1]=c[1] end
+        comp[#comp+1]=ELMS['space']({},"0.5")
+      else
+        comp[#comp+1]=ELMS[elms.type](elms,"1.2")
+        comp[#comp+1]=ELMS['space']({},"0.5")
+      end
+      return {components=comp,style={weight=weight or "1.2"},type="vertical"}
+    end
+
+    local function mkViewLayout(list,height)
+      local items = {}
+      for _,i in ipairs(list) do items[#items+1]=mkRow(i) end
 --    if #items == 0 then  return nil end
-    return
-    { ['$jason'] = {
-        body = {
-          header = {
-            style = {height = tostring(height or #list*50)},
-            title = "quickApp_device_23"
+      return
+      { ['$jason'] = {
+          body = {
+            header = {
+              style = {height = tostring(height or #list*50)},
+              title = "quickApp_device_23"
+            },
+            sections = {
+              items = items
+            }
           },
-          sections = {
-            items = items
+          head = {
+            title = "quickApp_device_23"
           }
-        },
-        head = {
-          title = "quickApp_device_23"
         }
       }
-    }
-  end
-
-  self.mkViewLayout = mkViewLayout
-  local function transformUI(UI) -- { button=<text> } => {type="button", name=<text>}
-    traverse(UI,
-      function(e)
-        if e.button then e.name,e.type=e.button,'button'
-        elseif e.slider then e.name,e.type=e.slider,'slider'
-        elseif e.select then e.name,e.type=e.select,'select'
-        elseif e.switch then e.name,e.type=e.switch,'switch'
-        elseif e.multi then e.name,e.type=e.multi,'multi'
-        elseif e.option then e.name,e.type=e.option,'option'
-        elseif e.image then e.name,e.type=e.image,'image'
-        elseif e.label then e.name,e.type=e.label,'label'
-        elseif e.space then e.weight,e.type=e.space,'space' end
-      end)
-    return UI
-  end
-
-  local function uiStruct2uiCallbacks(UI)
-    local cb = {}
-    --- "callback": "self:button1Clicked()",
-    traverse(UI,
-      function(e)
-        if e.name then
-          -- {callback="foo",name="foo",eventType="onReleased"}
-          local defu = e.button and "Clicked" or e.slider and "Change" or (e.switch or e.select) and "Toggle" or ""
-          local deff = e.button and "onReleased" or e.slider and "onChanged" or (e.switch or e.select) and "onToggled" or ""
-          local cbt = e.name..defu
-          if e.onReleased then
-            cbt = e.onReleased
-          elseif e.onChanged then
-            cbt = e.onChanged
-          elseif e.onToggled then
-            cbt = e.onToggled
-          end
-          if e.button or e.slider or e.switch or e.select then
-            cb[#cb+1]={callback=cbt,eventType=deff,name=e.name}
-          end
-        end
-      end)
-    return cb
-  end
-
-  local function updateViewLayout(id,UI,forceUpdate) --- This may not work anymore....
-    transformUI(UI)
-    local cb = api.get("/devices/"..id).properties.uiCallbacks or {}
-    local viewLayout = mkViewLayout(UI)
-    local newcb = uiStruct2uiCallbacks(UI)
-    if forceUpdate then
-      cb = newcb -- just replace uiCallbacks with new elements callbacks
-    else
-      local mapOrg = {}
-      for _,c in ipairs(cb) do mapOrg[c.name]=c.callback end -- existing callbacks, map name->callback
-      for _,c in ipairs(newcb) do if mapOrg[c.name] then c.callback=mapOrg[c.name] end end
-      cb = newcb -- save exiting elemens callbacks
     end
-    if not cb[1] then cb = nil end
-    return api.put("/devices/"..id,{
-        properties = {
-          viewLayout = viewLayout,
-          uiCallbacks = cb},
-      })
-  end
 
-  local function makeInitialProperties(UI,vars,height)
-    local ip = {}
-    vars = vars or {}
-    transformUI(UI)
-    ip.viewLayout = mkViewLayout(UI,height)
-    ip.uiCallbacks = uiStruct2uiCallbacks(UI)
-    ip.apiVersion = "1.2"
-    local varList = {}
-    for n,v in pairs(vars) do varList[#varList+1]={name=n,value=v} end
-    ip.quickAppVariables = varList
-    ip.typeTemplateInitialized=true
-    return ip
-  end
+    self.mkViewLayout = mkViewLayout
+    local function transformUI(UI) -- { button=<text> } => {type="button", name=<text>}
+      traverse(UI,
+        function(e)
+          if e.button then e.name,e.type=e.button,'button'
+          elseif e.slider then e.name,e.type=e.slider,'slider'
+          elseif e.select then e.name,e.type=e.select,'select'
+          elseif e.switch then e.name,e.type=e.switch,'switch'
+          elseif e.multi then e.name,e.type=e.multi,'multi'
+          elseif e.option then e.name,e.type=e.option,'option'
+          elseif e.image then e.name,e.type=e.image,'image'
+          elseif e.label then e.name,e.type=e.label,'label'
+          elseif e.space then e.weight,e.type=e.space,'space' end
+        end)
+      return UI
+    end
+
+    local function uiStruct2uiCallbacks(UI)
+      local cb = {}
+      --- "callback": "self:button1Clicked()",
+      traverse(UI,
+        function(e)
+          if e.name then
+            -- {callback="foo",name="foo",eventType="onReleased"}
+            local defu = e.button and "Clicked" or e.slider and "Change" or (e.switch or e.select) and "Toggle" or ""
+            local deff = e.button and "onReleased" or e.slider and "onChanged" or (e.switch or e.select) and "onToggled" or ""
+            local cbt = e.name..defu
+            if e.onReleased then
+              cbt = e.onReleased
+            elseif e.onChanged then
+              cbt = e.onChanged
+            elseif e.onToggled then
+              cbt = e.onToggled
+            end
+            if e.button or e.slider or e.switch or e.select then
+              cb[#cb+1]={callback=cbt,eventType=deff,name=e.name}
+            end
+          end
+        end)
+      return cb
+    end
+
+    local function updateViewLayout(id,UI,forceUpdate) --- This may not work anymore....
+      transformUI(UI)
+      local cb = api.get("/devices/"..id).properties.uiCallbacks or {}
+      local viewLayout = mkViewLayout(UI)
+      local newcb = uiStruct2uiCallbacks(UI)
+      if forceUpdate then
+        cb = newcb -- just replace uiCallbacks with new elements callbacks
+      else
+        local mapOrg = {}
+        for _,c in ipairs(cb) do mapOrg[c.name]=c.callback end -- existing callbacks, map name->callback
+        for _,c in ipairs(newcb) do if mapOrg[c.name] then c.callback=mapOrg[c.name] end end
+        cb = newcb -- save exiting elemens callbacks
+      end
+      if not cb[1] then cb = nil end
+      return api.put("/devices/"..id,{
+          properties = {
+            viewLayout = viewLayout,
+            uiCallbacks = cb},
+        })
+    end
+
+    local function makeInitialProperties(UI,vars,height)
+      local ip = {}
+      vars = vars or {}
+      transformUI(UI)
+      ip.viewLayout = mkViewLayout(UI,height)
+      ip.uiCallbacks = uiStruct2uiCallbacks(UI)
+      ip.apiVersion = "1.2"
+      local varList = {}
+      for n,v in pairs(vars) do varList[#varList+1]={name=n,value=v} end
+      ip.quickAppVariables = varList
+      ip.typeTemplateInitialized=true
+      return ip
+    end
 
 --  local function pruneCode(code)
 --    local c = code:match("%-%-%-%-%-%-%-%-%-%-%- Code.-\n(.*)")
 --    return c or code
 --  end
 
-  local ff = Files.file
+    local ff = Files.file
 
-  function hc3_emulator.dofile(file)
-    local ctx = getContext()
-    return loadfile(file,"bt",ctx)()
-  end
-
-  function hc3_emulator.FILE(_,_) end -- Nop. For backward compatibility
-
-  local function createFilesFromSource(source,mainFileName)
-    local files,paths = {},{}
-    local function gf(pattern)
-      source = source:gsub(pattern,
-        function(file,name)
-          local stat,res = pcall(function() return ff.read(file) end)
-          if not stat then Log(LOG.ERROR,"%s",res)
-          else
-            files[#files+1]={name=name,content=res,isMain=false,type="lua",isOpen=false}
-            paths[name]=file
-          end
-          return ""
-        end)
+    function hc3_emulator.dofile(file)
+      local ctx = getContext()
+      return loadfile(file,"bt",ctx)()
     end
-    pcall(gf,[[[^%-]hc3_emulator%s*.%s*FILE%s*%(%s*[%"%'](.-)[%"%']%s*,%s*[%"%'](.-)[%"%']%s*%)]])
-    pcall(gf,[[%-%-FILE:%s*(.-)%s*,%s*(.-);]])
-    table.insert(files,1,{name="main",content=source,isMain=true,type='lua',isOpen=false})
-    paths['main']=mainFileName
-    return files,paths
-  end
-  self.createFilesFromSource = createFilesFromSource
+
+    function hc3_emulator.FILE(_,_) end -- Nop. For backward compatibility
+
+    local function createFilesFromSource(source,mainFileName)
+      local files,paths = {},{}
+      local function gf(pattern)
+        source = source:gsub(pattern,
+          function(file,name)
+            local stat,res = pcall(function() return ff.read(file) end)
+            if not stat then Log(LOG.ERROR,"%s",res)
+            else
+              files[#files+1]={name=name,content=res,isMain=false,type="lua",isOpen=false}
+              paths[name]=file
+            end
+            return ""
+          end)
+      end
+      pcall(gf,[[[^%-]hc3_emulator%s*.%s*FILE%s*%(%s*[%"%'](.-)[%"%']%s*,%s*[%"%'](.-)[%"%']%s*%)]])
+      pcall(gf,[[%-%-FILE:%s*(.-)%s*,%s*(.-);]])
+      table.insert(files,1,{name="main",content=source,isMain=true,type='lua',isOpen=false})
+      paths['main']=mainFileName
+      return files,paths
+    end
+    self.createFilesFromSource = createFilesFromSource
 
 -- name of device - string
 -- type of device - string, default "com.fibaro.binarySwitch"
@@ -3905,80 +3904,80 @@ function module.HTTP()
 -- quickVars - quickAppVariables, {<var1>=<value1>,<var2>=<value2>,...}
 -- dryrun - if true only returns the quickapp without deploying
 
-  local function createQuickApp(args)
-    if (hc3_emulator.HC3version or "5.040.37") < "5.040.37" then
-      error("Sorry, QuickApp creation need HC3 version >= 5.040.37")
-    end
-    local d = {} -- Our device
-    d.name = args.name or "QuickApp"
-    d.type = args.type or "com.fibaro.binarySensor"
-    local files = args.code or ""
-    --body = replaceRequires(body)
-    local UI = args.UI or {}
-    local variables = args.quickVars or {}
-    local interfaces = args.interfaces
-    local dryRun = args.dryrun or false
-    d.apiVersion = "1.2"
-    if not args.initialProperties then
-      d.initialProperties = makeInitialProperties(UI,variables,args.height)
-    else
-      d.initialProperties = args.initialProperties
-    end
-    if not d.initialProperties.uiCallbacks[1] then
-      d.initialProperties.uiCallbacks = nil
-    end
-
-    if type(files)=='string' then files = {{name='main',type='lua',isMain=true,isOpen=false,content=files}} end
-    d.files  = {}
-
-    for _,f in ipairs(files) do f.isOpen=false; d.files[#d.files+1]=f end
-
-    if dryRun then return d end
-
-    local what,d1,res="updated"
-    if args.id and api.get("/devices/"..args.id,true) then
-      d1,res = api.put("/devices/"..args.id,{
-          properties={
-            quickAppVariables = d.initialProperties.quickAppVariables,
-            viewLayout= d.initialProperties.viewLayout,
-            uiCallbacks = d.initialProperties.uiCallbacks,
-          }
-        })
-      if res <= 201 then
-        local a,b = Files.file.updateFiles(files,args.id)
+    local function createQuickApp(args)
+      if (hc3_emulator.HC3version or "5.040.37") < "5.040.37" then
+        error("Sorry, QuickApp creation need HC3 version >= 5.040.37")
       end
-    else
-      d1,res = api.post("/quickApp/",d)
-      what = "created"
-    end
+      local d = {} -- Our device
+      d.name = args.name or "QuickApp"
+      d.type = args.type or "com.fibaro.binarySensor"
+      local files = args.code or ""
+      --body = replaceRequires(body)
+      local UI = args.UI or {}
+      local variables = args.quickVars or {}
+      local interfaces = args.interfaces
+      local dryRun = args.dryrun or false
+      d.apiVersion = "1.2"
+      if not args.initialProperties then
+        d.initialProperties = makeInitialProperties(UI,variables,args.height)
+      else
+        d.initialProperties = args.initialProperties
+      end
+      if not d.initialProperties.uiCallbacks[1] then
+        d.initialProperties.uiCallbacks = nil
+      end
 
-    if type(res)=='string' or res > 201 then
-      Log(LOG.ERROR,"D:%s,RES:%s",json.encode(d1),json.encode(res))
-      return nil
-    else
-      Log(LOG.SYS,"Device %s %s",d1.id or "",what)
-      return d1
+      if type(files)=='string' then files = {{name='main',type='lua',isMain=true,isOpen=false,content=files}} end
+      d.files  = {}
+
+      for _,f in ipairs(files) do f.isOpen=false; d.files[#d.files+1]=f end
+
+      if dryRun then return d end
+
+      local what,d1,res="updated"
+      if args.id and api.get("/devices/"..args.id,true) then
+        d1,res = api.put("/devices/"..args.id,{
+            properties={
+              quickAppVariables = d.initialProperties.quickAppVariables,
+              viewLayout= d.initialProperties.viewLayout,
+              uiCallbacks = d.initialProperties.uiCallbacks,
+            }
+          })
+        if res <= 201 then
+          local a,b = Files.file.updateFiles(files,args.id)
+        end
+      else
+        d1,res = api.post("/quickApp/",d)
+        what = "created"
+      end
+
+      if type(res)=='string' or res > 201 then
+        Log(LOG.ERROR,"D:%s,RES:%s",json.encode(d1),json.encode(res))
+        return nil
+      else
+        Log(LOG.SYS,"Device %s %s",d1.id or "",what)
+        return d1
+      end
     end
-  end
 
 -- Create a Proxy device - will be named "Proxy "..name, returns deviceID if successful
-  local function createProxy(name,tp,ips,interfaces)
-    local pdevice,id
-    name = "Proxy "..name
-    local d,res = api.get("/devices/?name="..name)
-    if d and #d>0 then
-      table.sort(d,function(a,b) return a.id >= b.id end)
-      pdevice = d[1]
-      Log(LOG.SYS,"Proxy: '%s' found, ID:%s",name,pdevice.id)
-      if pdevice.type ~= tp then
-        Log(LOG.SYS,"Proxy: Type changed from '%s' to %s",tp,pdevice.type)
-        api.delete("/devices/"..pdevice.id)
-        pdevice = nil
-      else id = pdevice.id end
-    end
+    local function createProxy(name,tp,ips,interfaces)
+      local pdevice,id
+      name = "Proxy "..name
+      local d,res = api.get("/devices/?name="..name)
+      if d and #d>0 then
+        table.sort(d,function(a,b) return a.id >= b.id end)
+        pdevice = d[1]
+        Log(LOG.SYS,"Proxy: '%s' found, ID:%s",name,pdevice.id)
+        if pdevice.type ~= tp then
+          Log(LOG.SYS,"Proxy: Type changed from '%s' to %s",tp,pdevice.type)
+          api.delete("/devices/"..pdevice.id)
+          pdevice = nil
+        else id = pdevice.id end
+      end
 
-    local code = {}
-    code[#code+1] = [[
+      local code = {}
+      code[#code+1] = [[
   local function urlencode (str)
   return str and string.gsub(str ,"([^% w])",function(c) return string.format("%%% 02X",string.byte(c))  end)
 end
@@ -3999,22 +3998,22 @@ function QuickApp:APIGET(url) api.get(url) end
 function QuickApp:APIPOST(url,data) api.post(url,data) end -- to get around some access restrictions
 function QuickApp:APIPUT(url,data) api.put(url,data) end
 ]]
-    code[#code+1]= "function QuickApp:onInit()"
-    code[#code+1]= " self:debug('"..name.."',' deviceId:',self.id)"
-    code[#code+1]= " IP = self:getVariable('PROXYIP')"
-    code[#code+1]= " function QuickApp:initChildDevices() end"
-    code[#code+1]= "end"
+      code[#code+1]= "function QuickApp:onInit()"
+      code[#code+1]= " self:debug('"..name.."',' deviceId:',self.id)"
+      code[#code+1]= " IP = self:getVariable('PROXYIP')"
+      code[#code+1]= " function QuickApp:initChildDevices() end"
+      code[#code+1]= "end"
 
-    code = table.concat(code,"\n")
+      code = table.concat(code,"\n")
 
-    Log(LOG.SYS,id and "Proxy: Reusing QuickApp proxy" or "Proxy: Creating new proxy")
+      Log(LOG.SYS,id and "Proxy: Reusing QuickApp proxy" or "Proxy: Creating new proxy")
 
-    table.insert(ips.quickAppVariables,{name="PROXYIP", value = Util.getIPaddress()..":"..hc3_emulator.webPort})
-    return createQuickApp{id=id,name=name,type=tp,code=code,initialProperties=ips,interfaces=interfaces}
-  end
+      table.insert(ips.quickAppVariables,{name="PROXYIP", value = Util.getIPaddress()..":"..hc3_emulator.webPort})
+      return createQuickApp{id=id,name=name,type=tp,code=code,initialProperties=ips,interfaces=interfaces}
+    end
 
-  local function injectProxy(id)
-    local code = [[
+    local function injectProxy(id)
+      local code = [[
 local actionH,UIh,pingRef = nil,nil,nil
 function QuickApp:PROXY(enable,ip)
    local function urlencode (str)
@@ -4058,484 +4057,510 @@ function QuickApp:PROXY(enable,ip)
    end
 end
 ]]
-    local dev = api.get("/devices/"..id)
-    assert(dev,"No such device "..id)
-    if not api.get("/quickApp/"..id.."/files/PROXY") then
-      Files:createFile(id,"PROXY",code)
+      local dev = api.get("/devices/"..id)
+      assert(dev,"No such device "..id)
+      if not api.get("/quickApp/"..id.."/files/PROXY") then
+        Files:createFile(id,"PROXY",code)
+      end
+      return dev
     end
-    return dev
-  end
 
-  function onAction(event)
-    Debug(_debugFlags.onAction,"onAction: %s",json.encode(event))
-    local self = quickApps[event.deviceId]
-    if self.parentId then self = quickApps[self.parentId] end
-    assert(self,"Unknown deviceID for onAction:"..event.deviceId)
-    if self.actionHandler then self:actionHandler(event)
-    else
-      local id = event.deviceId
-      if id == self.id then
-        self:callAction(event.actionName, table.unpack(event.args))
+    function onAction(event)
+      Debug(_debugFlags.onAction,"onAction: %s",json.encode(event))
+      local self = quickApps[event.deviceId]
+      if self.parentId then self = quickApps[self.parentId] end
+      assert(self,"Unknown deviceID for onAction:"..event.deviceId)
+      if self.actionHandler then self:actionHandler(event)
       else
-        local child = self.childDevices[id]
-        if child then child:callAction(event.actionName, table.unpack(event.args))
+        local id = event.deviceId
+        if id == self.id then
+          self:callAction(event.actionName, table.unpack(event.args))
         else
-          error(format("Child with id:%s not found.", id))
+          local child = self.childDevices[id]
+          if child then child:callAction(event.actionName, table.unpack(event.args))
+          else
+            error(format("Child with id:%s not found.", id))
+          end
         end
       end
     end
-  end
 
 --"{\"eventType\":\"onReleased\",\"values\":[null],\"elementName\":\"bt\",\"deviceId\":726}"
 --"{\"eventType\":\"onChanged\",\"values\":[80],\"elementName\":\"sl\",\"deviceId\":726}"
-  function onUIEvent(event)
-    Debug(_debugFlags.UIEvent,"UIEvent: %s",json.encode(event))
-    local self = quickApps[event.deviceId]
-    if self.parentId then self = quickApps[self.parentId] end
-    assert(self,"Unknown deviceID for UIEvent:"..event.deviceId)
-    if self.UIHandler then self:UIHandler(event)
-    else
-      local elm,etyp = event.elementName, event.eventType
-      local cb = self.uiCallbacks
-      if cb[elm] and cb[elm][etyp] then
-        if etyp=='onChanged' then
-          QA.setWebUIValue(event.deviceId,elm,'value',event.values[1])
+    function onUIEvent(event)
+      Debug(_debugFlags.UIEvent,"UIEvent: %s",json.encode(event))
+      local self = quickApps[event.deviceId]
+      if self.parentId then self = quickApps[self.parentId] end
+      assert(self,"Unknown deviceID for UIEvent:"..event.deviceId)
+      if self.UIHandler then self:UIHandler(event)
+      else
+        local elm,etyp = event.elementName, event.eventType
+        local cb = self.uiCallbacks
+        if cb[elm] and cb[elm][etyp] then
+          if etyp=='onChanged' then
+            QA.setWebUIValue(event.deviceId,elm,'value',event.values[1])
+          end
+          return self:callAction(cb[elm][etyp], event)
+        elseif self[elm] then
+          return self:callAction(elm, event)
         end
-        return self:callAction(cb[elm][etyp], event)
-      elseif self[elm] then
-        return self:callAction(elm, event)
-      end
-      error(format("UI callback for element:%s not found.", elm))
-    end
-  end
-
-
-  local function vars2keymap(vars)
-    local vs = {}
-    for _,v in ipairs(vars) do vs[v.name]=v.value end
-    return vs
-  end
-
-  local function vars2list(vars)
-    local vs = {}
-    for n,v in pairs(vars) do vs[#vs+1]={name=n,value=v} end
-    return vs
-  end
-
-  local resources = {}
-  local function loadResourceFromQA(id)
-    if resources[id] then return resources[id].properties end
-    resources[id] = api.get("/devices/"..id)
-    assert(resources[id],"No such  QA, deviceId:"..id)
-    return resources[id].properties   
-  end
-
-  local function loadResources(self) -- quickVars, UI
-    if not self.resources then return end
-    assert(type(self.resources)=='table',"resources need to be a table")
-    for p,v0 in pairs(self.resources) do
-      local v = tonumber(v0) and loadResourceFromQA(tonumber(v0)) or v0
-      if p=='quickVars' then
-        self.quickVars = self.quickVars or {}
-        for n,v in pairs(vars2keymap(v.quickAppVariables or {})) do self.quickVars[n]=v end
-      elseif p == 'UI' then
-        self.viewLayout = v.viewLayout
-        self.uiCallbacks = v.uiCallbacks
+        error(format("UI callback for element:%s not found.", elm))
       end
     end
-  end
 
-  local function resolveCREDS(quickVars)
-    for k,v in pairs(quickVars) do
-      assertf(type(k)=='string',"Corrupt quickVars table, key=%s, value=%s",k,json.encode(v))
-      if type(v)=='string' and v:match("^%$CREDS") then
-        local p = "return hc3_emulator.credentials"..v:match("^%$CREDS(.*)")
-        v=load(p)()
-      end
-      quickVars[k]=v
+
+    local function vars2keymap(vars)
+      local vs = {}
+      for _,v in ipairs(vars) do vs[v.name]=v.value end
+      return vs
     end
-  end
 
-  local QA_ID = 998
--- 2 types of QuickApps, fqa based and emu based
-  local function loadQA(arg)
-    local ff = hc3_emulator.file
-    assert(type(arg)=='number' or type(arg)=='string',"Bad argument  to loadQA")
-
-    local self = {}
-    if tonumber(arg) then                                        -- Download QA from HC3 (fqa)
-      self.fqa = api.get("/quickApp/export/"..arg)
-      assert(self.fqa,"QA "..arg.." does not exists on HC3")
-      self.id = arg
+    local function vars2list(vars)
+      local vs = {}
+      for n,v in pairs(vars) do vs[#vs+1]={name=n,value=v} end
+      return vs
     end
-    if type(arg)=='string' and arg:match("%.[Ff][Qq][Aa]$") then  -- Read in .fqa  file
-      local c = ff.read(arg)
-      self.fname = arg
-      self.fqa = json.decode(c)
-      self.file_fqa = arg
-    end
-    if self.fqa then
-      local fqa = self.fqa
-      assert(fqa.apiVersion == "1.2","Bad FQA api version")
-      self.type = fqa.type
-      self.name = fqa.name
-      self.viewLayout = fqa.initialProperties.viewLayout
-      self.uiCallbacks = fqa.initialProperties.uiCallbacks
-      self.quickVars = vars2keymap(fqa.initialProperties.quickAppVariables or {})
-      self.interfaces = fqa.initialInterfaces
-      loadResources(self)
-    elseif arg:match("%.[Jj][Ss][Oo][Nn]$") then                 -- Read in unpacked file(s)
-      self.fname = arg
-      self.file_unpacked = arg
-      local name = ff.extract_name(arg)
-      local dir = arg:sub(1,-(name:len()+1))
-      local files,paths = {},{}
-      local prefix = "^"..name:match("(.*)%.[Jj][Ss][Oo][Nn]$").."_(%d+)_(.-)%.lua"
-      assert(ff.dir(dir),"Not a directory: "..tostring(dir))
-      for d,n in ff.dir(dir) do -- read unpacked files
-        if d:match(prefix) then
-          local id,name = d:match("(%d+)_([^_]+)%.lua")
-          assert(name,"Bad unpacked file "..d)
-          local content  = ff.read(dir..d)
-          files[tonumber(id)]={name=name, content=content, type="lua", isMain=name == 'main', isOpen=false}
-          paths[name]=dir..d
-        end
-      end
-      assert(files[1],"No code files belonging to "..name)
-      local fqa = ff.read(arg) -- read main json files
-      fqa = json.decode(fqa)
-      self.name = fqa.name
-      self.type = fqa.type
-      self.viewLayout = fqa.initialProperties.viewLayout
-      self.uiCallbacks = fqa.initialProperties.uiCallbacks
-      self.quickVars = vars2keymap(fqa.initialProperties.quickAppVariables or {})
-      self.interfaces = fqa.initialInterfaces
-      self.fqa = fqa
-      self.fqa.files = files
-      self.paths = paths
-      loadResources(self)
-    elseif arg:match("%.[Ll][Uu][Aa]$") then                     -- Read in "emulator" file
-      self.fname = arg
-      self.file_emu = arg
-      local code = hc3_emulator._code or ff.read(arg) -- hack, code is already loaded by caller, should be arg?
-      hc3_emulator._code = nil
-      local header,env1 = code:match("(if%s+dofile.-[\n\r]end)"),{
-        dofile=function() end,
-      }
-      assert(header and header~="","Malformed emulator header")
-      local e1,msg = load(header,nil,nil,env1)
-      if msg then error(msg) end
-      local stat,res = pcall(e1)
-      if not stat then error(res) end
-      self.name = env1.hc3_emulator.name or arg:match("(.-)%.[Ll][Uu][Aa]$")
-      self.type = env1.hc3_emulator.type or "com.fibaro.binarySwitch"
-      self.id = env1.hc3_emulator.id
-      self.interfaces = env1.hc3_emulator.interfaces
-      self.resources = env1.hc3_emulator.resources
-      self.proxy = env1.hc3_emulator.proxy or false
-      loadResources(self)
-      self.quickVars = self.quickVars or {}
-      for n,v in pairs(env1.hc3_emulator.quickVars or {}) do
-        self.quickVars[n]=v
-      end
-      self.UI = env1.hc3_emulator.UI
-      if type(self.UI) == 'string' then self.UI = json.decode(self.UI) end
-      self.files,self.paths = QA.createFilesFromSource(code,self.fname)
-    else error("Bad argument to loadQA") end
 
-    --  Inject args -- overwriting existing args
-    function self:args(args) 
-      for k,v in pairs(args) do
-        if k=='quickVars' then
+    local resources = {}
+    local function loadResourceFromQA(id)
+      if resources[id] then return resources[id].properties end
+      resources[id] = api.get("/devices/"..id)
+      assert(resources[id],"No such  QA, deviceId:"..id)
+      return resources[id].properties   
+    end
+
+    local function loadResources(self) -- quickVars, UI
+      if not self.resources then return end
+      assert(type(self.resources)=='table',"resources need to be a table")
+      for p,v0 in pairs(self.resources) do
+        local v = tonumber(v0) and loadResourceFromQA(tonumber(v0)) or v0
+        if p=='quickVars' then
           self.quickVars = self.quickVars or {}
-          for m,n in pairs(v) do self.quickVars[m]=n end
-        else self[k]=v end
-      end 
-      return self 
+          for n,v in pairs(vars2keymap(v.quickAppVariables or {})) do self.quickVars[n]=v end
+        elseif p == 'UI' then
+          self.viewLayout = v.viewLayout
+          self.uiCallbacks = v.uiCallbacks
+        end
+      end
     end
 
-    -- Saving file in filesystem. We can save in .fqa or "unpacked" format
-    function self:save(fm,path,overwrite)
-      assert(({fqa=true,unpacked=true})[fm or ""],"Bad format for save")
-      path = path or ""
-      local fqa = self.fqa
-      if fm == "fqa" then        -- Save as .fqa
-        if not(fqa or (self.viewLayout and self.uiCallbacks)) then
-          fqa = QA.createQuickApp{
-            name=self.name,type=self.type,UI=self.UI,
-            quickVars=self.quickVars,code=self.files,dryrun=true
+    local function resolveCREDS(quickVars)
+      for k,v in pairs(quickVars) do
+        assertf(type(k)=='string',"Corrupt quickVars table, key=%s, value=%s",k,json.encode(v))
+        if type(v)=='string' and v:match("^%$CREDS") then
+          local p = "return hc3_emulator.credentials"..v:match("^%$CREDS(.*)")
+          v=load(p)()
+        end
+        quickVars[k]=v
+      end
+    end
+
+    local function findFirstCodeLine(code,name)  -- Try to find first code line
+      local n,first,init = 1
+      for line in string.gmatch(code,"([^\r\n]*)[\r\n]?") do
+        if not (line=="" or line:match("^[%-%s]+")) then 
+          if not first then first = n end
+        end
+        if line:match("%s*QuickApp%s*:%s*onInit%s*%(") then
+          if not init then init = n end
+        end
+        n=n+1
+      end
+      --print(name,tostring(first),tostring(init))
+      return first or 1,init
+    end
+
+    local QA_ID = 998
+-- 2 types of QuickApps, fqa based and emu based
+    local function loadQA(arg)
+      local ff = hc3_emulator.file
+      assert(type(arg)=='number' or type(arg)=='string',"Bad argument  to loadQA")
+
+      local self = {}
+      if tonumber(arg) then                                        -- Download QA from HC3 (fqa)
+        self.fqa = api.get("/quickApp/export/"..arg)
+        assert(self.fqa,"QA "..arg.." does not exists on HC3")
+        self.id = arg
+      end
+      if type(arg)=='string' and arg:match("%.[Ff][Qq][Aa]$") then  -- Read in .fqa  file
+        local c = ff.read(arg)
+        self.fname = arg
+        self.fqa = json.decode(c)
+        self.file_fqa = arg
+      end
+      if self.fqa then
+        local fqa = self.fqa
+        assert(fqa.apiVersion == "1.2","Bad FQA api version")
+        self.type = fqa.type
+        self.name = fqa.name
+        self.viewLayout = fqa.initialProperties.viewLayout
+        self.uiCallbacks = fqa.initialProperties.uiCallbacks
+        self.quickVars = vars2keymap(fqa.initialProperties.quickAppVariables or {})
+        self.interfaces = fqa.initialInterfaces
+        loadResources(self)
+      elseif arg:match("%.[Jj][Ss][Oo][Nn]$") then                 -- Read in unpacked file(s)
+        self.fname = arg
+        self.file_unpacked = arg
+        local name = ff.extract_name(arg)
+        local dir = arg:sub(1,-(name:len()+1))
+        local files,paths = {},{}
+        local prefix = "^"..name:match("(.*)%.[Jj][Ss][Oo][Nn]$").."_(%d+)_(.-)%.lua"
+        assert(ff.dir(dir),"Not a directory: "..tostring(dir))
+        for d,n in ff.dir(dir) do -- read unpacked files
+          if d:match(prefix) then
+            local id,name = d:match("(%d+)_([^_]+)%.lua")
+            assert(name,"Bad unpacked file "..d)
+            local content  = ff.read(dir..d)
+            files[tonumber(id)]={name=name, content=content, type="lua", isMain=name == 'main', isOpen=false}
+            paths[name]=dir..d
+          end
+        end
+        assert(files[1],"No code files belonging to "..name)
+        local fqa = ff.read(arg) -- read main json files
+        fqa = json.decode(fqa)
+        self.name = fqa.name
+        self.type = fqa.type
+        self.viewLayout = fqa.initialProperties.viewLayout
+        self.uiCallbacks = fqa.initialProperties.uiCallbacks
+        self.quickVars = vars2keymap(fqa.initialProperties.quickAppVariables or {})
+        self.interfaces = fqa.initialInterfaces
+        self.fqa = fqa
+        self.fqa.files = files
+        self.paths = paths
+        loadResources(self)
+      elseif arg:match("%.[Ll][Uu][Aa]$") then                     -- Read in "emulator" file
+        self.fname = arg
+        self.file_emu = arg
+        local code = hc3_emulator._code or ff.read(arg) -- hack, code is already loaded by caller, should be arg?
+        hc3_emulator._code = nil
+        local header,env1 = code:match("(if%s+dofile.-[\n\r]end)"),{
+          dofile=function() end,
+        }
+        assert(header and header~="","Malformed emulator header")
+        local e1,msg = load(header,nil,nil,env1)
+        if msg then error(msg) end
+        local stat,res = pcall(e1)
+        if not stat then error(res) end
+        self.name = env1.hc3_emulator.name or arg:match("(.-)%.[Ll][Uu][Aa]$")
+        self.type = env1.hc3_emulator.type or "com.fibaro.binarySwitch"
+        self.id = env1.hc3_emulator.id
+        self.interfaces = env1.hc3_emulator.interfaces
+        self.resources = env1.hc3_emulator.resources
+        self.proxy = env1.hc3_emulator.proxy or false
+        loadResources(self)
+        self.quickVars = self.quickVars or {}
+        for n,v in pairs(env1.hc3_emulator.quickVars or {}) do
+          self.quickVars[n]=v
+        end
+        self.UI = env1.hc3_emulator.UI
+        if type(self.UI) == 'string' then self.UI = json.decode(self.UI) end
+        self.files,self.paths = QA.createFilesFromSource(code,self.fname)
+      else error("Bad argument to loadQA") end
+
+      --  Inject args -- overwriting existing args
+      function self:args(args) 
+        for k,v in pairs(args) do
+          if k=='quickVars' then
+            self.quickVars = self.quickVars or {}
+            for m,n in pairs(v) do self.quickVars[m]=n end
+          else self[k]=v end
+        end 
+        return self 
+      end
+
+      -- Saving file in filesystem. We can save in .fqa or "unpacked" format
+      function self:save(fm,path,overwrite)
+        assert(({fqa=true,unpacked=true})[fm or ""],"Bad format for save")
+        path = path or ""
+        local fqa = self.fqa
+        if fm == "fqa" then        -- Save as .fqa
+          if not(fqa or (self.viewLayout and self.uiCallbacks)) then
+            fqa = QA.createQuickApp{
+              name=self.name,type=self.type,UI=self.UI,
+              quickVars=self.quickVars,code=self.files,dryrun=true
+            }
+          end
+          if fqa then
+            fqa.name = self.name
+            fqa.type = self.type
+            fqa.initialProperties.viewLayout = self.viewLayout or fqa.initialProperties.viewLayout
+            fqa.initialProperties.uiCallbacks = self.uiCallbacks or fqa.initialProperties.uiCallbacks
+            if self.quickVars then
+              fqa.initialProperties.quickAppVariables = vars2list(self.quickVars or {})
+            end
+            local fn = self.fname
+            if fn then fn = fn:match("(.+)%.")..".fqa" end
+            fn =  (fn or fqa.name ..".fqa"):gsub("(%/)","_")
+            path  = path or ""
+            if path ~= "" and path:sub(-1) ~= ff.path_separator() then
+              fn = ff.extract_name(path)
+              path = path:sub(1,-(fn:len()+1))
+            end
+            self.file_fqa = fn
+            ff.write(path..fn,json.encode(fqa),overwrite)
+          else
+            error("Can't save fqa")
+          end
+        else                      -- Save in unpacked format (files separatly)
+          if path:sub(-1) == ff.path_separator() then
+            path = path.."QA_"..(self.id or "999").."_"..self.name:gsub("(%/)","_")
+          elseif path:match("%.[Jj][Ss][Oo][Nn]$") then
+            path = path:match("(.*)%.")
+          end
+          local paths = {}
+          for i,f in ipairs(self.files or self.fqa.files or {}) do
+            local name = path.."_"..i.."_"..f.name:gsub("(%/)","_")..".lua"
+            ff.write(name,f.content,overwrite)
+            paths[f.name]=name
+          end
+          self.paths = paths
+          local fqa = Util.copy(self.fqa)
+          fqa.files = nil
+          self.file_unpacked = ff.extract_name(path..".json")
+          ff.write(path..".json",Util.prettyJsonStruct(fqa),overwrite)
+        end
+        return self
+      end -- save
+
+      --  Upload QuickApp to HC3
+      function self:upload(name,id)
+        -- Resolve $CREDS
+        resolveCREDS(self.quickVars)
+        if self.fqa or (self.viewLayout and self.uiCallbacks) then
+          QA.createQuickApp{
+            name=name or self.name,type=self.type, id = id or self.id,
+            initialProperties = {
+              viewLayout=self.viewLayout, 
+              uiCallbacks = self.uiCallbacks, 
+              quickAppVariables = vars2list(self.quickVars or {}),
+            },
+            interfaces = self.interfaces,
+            code=self.files or self.fqa.files
+          }
+        else
+          QA.createQuickApp{
+            name=name or self.name,type=self.type,UI=self.UI, id = id or self.id,
+            quickVars=self.quickVars,code=self.files, interfaces = self.interfaces,
           }
         end
-        if fqa then
-          fqa.name = self.name
-          fqa.type = self.type
-          fqa.initialProperties.viewLayout = self.viewLayout or fqa.initialProperties.viewLayout
-          fqa.initialProperties.uiCallbacks = self.uiCallbacks or fqa.initialProperties.uiCallbacks
-          if self.quickVars then
-            fqa.initialProperties.quickAppVariables = vars2list(self.quickVars or {})
-          end
-          local fn = self.fname
-          if fn then fn = fn:match("(.+)%.")..".fqa" end
-          fn =  (fn or fqa.name ..".fqa"):gsub("(%/)","_")
-          path  = path or ""
-          if path ~= "" and path:sub(-1) ~= ff.path_separator() then
-            fn = ff.extract_name(path)
-            path = path:sub(1,-(fn:len()+1))
-          end
-          self.file_fqa = fn
-          ff.write(path..fn,json.encode(fqa),overwrite)
-        else
-          error("Can't save fqa")
-        end
-      else                      -- Save in unpacked format (files separatly)
-        if path:sub(-1) == ff.path_separator() then
-          path = path.."QA_"..(self.id or "999").."_"..self.name:gsub("(%/)","_")
-        elseif path:match("%.[Jj][Ss][Oo][Nn]$") then
-          path = path:match("(.*)%.")
-        end
-        local paths = {}
-        for i,f in ipairs(self.files or self.fqa.files or {}) do
-          local name = path.."_"..i.."_"..f.name:gsub("(%/)","_")..".lua"
-          ff.write(name,f.content,overwrite)
-          paths[f.name]=name
-        end
-        self.paths = paths
-        local fqa = Util.copy(self.fqa)
-        fqa.files = nil
-        self.file_unpacked = ff.extract_name(path..".json")
-        ff.write(path..".json",Util.prettyJsonStruct(fqa),overwrite)
+        return self
       end
-      return self
-    end -- save
 
-    --  Upload QuickApp to HC3
-    function self:upload(name,id)
-      -- Resolve $CREDS
-      resolveCREDS(self.quickVars)
-      if self.fqa or (self.viewLayout and self.uiCallbacks) then
-        QA.createQuickApp{
-          name=name or self.name,type=self.type, id = id or self.id,
-          initialProperties = {
-            viewLayout=self.viewLayout, 
-            uiCallbacks = self.uiCallbacks, 
-            quickAppVariables = vars2list(self.quickVars or {}),
-          },
-          interfaces = self.interfaces,
-          code=self.files or self.fqa.files
-        }
+      -- Install QuickApp in the emulator
+      function self:install(args)
+
+        -- A QA is a 7 step process
+        -- 0. Initialization
+        -- 1. Create proxy if wanted
+        -- 2. Create environment
+        -- 3. Load the files (not executing them)
+        -- 4. Build device struct
+        -- 5. Run the QA files, main last (execute them)
+        --    The loading of files/users are expected to define the QuickApp methods incl. QuickApp:onInit()
+        -- 6. We create an instance of QuickApp and call the :onInit method if it exists
+        -- Restarting QA means kill timers and go back to 2
+
+        os.setTimer(function()
+            Log(LOG.HEADER,"Loading QuickApp '%s'...",self.name)
+
+            -- step 0. initialization, fix missing structures etc.
+            local pdevice
+
+            local fl = false
+            local interfaces = self.interfaces or {'quickApp'}
+            for _,i in ipairs(interfaces) do if i=='quickApp' then fl=true; break end end
+            if not fl then interfaces[#self.interfaces+1]='quickApp' end
+
+            -- Initialize quickAppVariables and load resources
+            -- Logic:
+            --- First variables from fqa if they exists
+            --- Then variables from loaded hc3_emulator.resources = {quickVars = ...
+            --- Then variables from hc3_emulator.quickVars
+            local quickVars = self.quickVars
+            -- Resolve $CREDS
+            resolveCREDS(quickVars)
+
+            if self.UI then
+              local ip = makeInitialProperties(self.UI)
+              self.viewLayout,self.uiCallbacks = ip.viewLayout,ip.uiCallbacks
+            elseif self.viewLayout then
+              self.UI=QA.view2UI(self.viewLayout,self.uiCallbacks)
+            else self.UI = {} end
+
+            -- step 1. create proxy
+            if self.proxy and not self.offline then
+              if tonumber(self.proxy) then
+                pdevice = injectProxy(self.proxy)
+                os.setTimer(function() 
+                    fibaro.call(-self.proxy,"PROXY",true,hc3_emulator.IPaddress..":"..hc3_emulator.webPort) 
+                    Log(LOG.LOG,"Intercepting events from QA:%s",self.proxy)
+                  end,1000)
+              else
+                pdevice = createProxy(self.name,self.type,
+                  {
+                    viewLayout=self.viewLayout,
+                    uiCallbacks = self.uiCallbacks, 
+                    quickAppVariables = vars2list(quickVars)
+                  },
+                  interfaces)
+              end
+            end
+
+            if pdevice then self.id = pdevice.id else 
+              while self.id == nil or quickApps[self.id] do -- find free id
+                QA_ID = QA_ID+1
+                self.id = QA_ID
+              end
+            end
+
+            local runQA,codeEnv
+            local function restartQA()
+              collectgarbage("collect")
+              Log(LOG.SYS,"Restarting QA %s, timers=%s, memory used %.1fkB",
+                self.id,Timer.killTimers("QUICKAPP"..self.id),collectgarbage("count")
+              ) 
+              codeEnv.setTimeout(function() runQA() end,2)
+            end
+
+            function runQA() -- rest of the steps in a function that can be called
+
+              -- step 2. create the environment
+              codeEnv = Util.createEnvironment("QA",false)
+              setContext(codeEnv)
+              local QAlock = hc3_emulator.copas.lock.new(60*60*30)
+              function codeEnv._getLock() QAlock:get(60*60*30) end
+              function codeEnv._releaseLock() QAlock:release() end
+              codeEnv._ENVID = "QUICKAPP"..self.id -- used to find timers beloning to this QA
+              codeEnv.plugin.mainDeviceId = self.id
+
+              local st = codeEnv.setTimeout
+              local function errHandler(err)
+                Log(LOG.ERROR,"QuickApp timer %s for '%s', deviceId:%s, crashed - %s",codeEnv._lastTimer,self.name,self.id,err)
+              end
+              codeEnv.setTimeout = function(fun,ms,tag,eh,env,off) return st(fun,ms,tag,errHandler,codeEnv,off) end
+              local st2 = codeEnv.setTimeout
+              codeEnv.fibaro.setTimeout = function(a,b,...) return st2(b,a,...) end
+              codeEnv.print = function(...) codeEnv.fibaro.debug(codeEnv.__TAG,...) end
+              codeEnv.__TAG = "QuickApp"..self.id
+
+              -- Step 3. load the files (we don't run them yet)
+              local loadedFiles = {}
+              self.paths = self.paths or {}
+              local ost,ostf,jsenc,jsdec = codeEnv.setTimeout, codeEnv.fibaro.setTimeout,codeEnv.json.encode,codeEnv.json.decode
+              for _,f in ipairs(self.files or self.fqa and self.fqa.files) do
+                if f.name ~= 'PROXY' then
+                  if self.paths[f.name] == nil then -- Store code without files in  tmp/...
+                    local p = ff.tmp_name(f.name)
+                    if pcall(function() ff.write(p,f.content,true,true) end) then
+                      self.paths[f.name]=p
+                    end
+                  end
+                  local path = self.paths[f.name] or f.name
+                  if _debugFlags.files then Log(LOG.LOG,"Loading file '%s'",f.name) end
+                  local code,msg=load(f.content,path,"bt",codeEnv)
+                  assert(code,msg)
+                  if f.isMain then table.insert(loadedFiles,{code=code,content=f.content,name=f.name}) -- 'main' last
+                  else  table.insert(loadedFiles,math.max(#loadedFiles,1),{code=code,content=f.content,name=f.name}) end
+                end
+              end
+              
+              -- Step 4. build device struct
+              -- Add 'quickApp' to interfaces if not existing
+
+              local device = pdevice or {}
+              device.id = device.id or self.id
+              device.name = self.name or "QuickApp"..self.id
+              device.interfaces = device.interfaces or interfaces
+              device.enabled = true
+              device.visible = true
+              device.type = device.type or self.type
+              device.roomID = device.roomID or 219
+              device._emu = {
+                proxy = self.proxy or false, UI = QA.transformUI(self.UI), env = codeEnv, uiValues={}, slideCache={},
+                files = self.files or self.fqa and self.fqa.files -- if someone asks for them with /api/quickApp/...
+              }
+              device.properties = device.properties or {}
+              device.properties.uiCallbacks = self.uiCallbacks
+              device.properties.viewLayout = self.viewLayout
+              device.properties.quickAppVariables = vars2list(quickVars)
+
+              quickApps[self.id]={ deviceStruct = device } -- Just so we have somethimng there if someone asks...
+
+              -- step 5. run the files
+              for _,f in ipairs(loadedFiles) do
+                local path = self.paths[f.name] or f.name
+                if (_debugFlags.breakOnLoad or _debugFlags.breakOnInit) and self.paths[f.name] then 
+                  local first,init = findFirstCodeLine(f.content,f.name)
+                  if _debugFlags.breakOnLoad then mobdebug.setbreakpoint(path,first) end
+                  if _debugFlags.breakOnInit and init then mobdebug.setbreakpoint(path,init) end
+                end
+                if _debugFlags.files then Log(LOG.LOG,"Running file '%s'",f.name) end
+                _,msg=f.code()
+                assert(msg==nil,string.format("Running %s - %s",path,msg))
+              end
+              if not _debugFlags.patchSetTimeout then -- restore setTimeout etc if pacthed by user
+                codeEnv.setTimeout,codeEnv.fibaro.setTimeout,codeEnv.json.encode,codeEnv.json.decode =  ost,ostf,jsenc,jsdec
+              end
+
+              -- step 6. instantiate QA
+              codeEnv._getLock()
+              local status, err, ret = xpcall(
+                function() codeEnv.quickApp = codeEnv.QuickApp(device) end,
+                function(err)
+                  Log(LOG.ERROR,"QuickApp '%s', deviceId:%s, crashed (%s) at %s",self.name,self.id,err,os.date("%c"))
+                  print(debug.traceback(err,1))
+                  if _debugFlags.breakOnError then mobdebug.pause() end
+                end)
+              codeEnv._releaseLock()
+              if status then
+                Log(LOG.HEADER,"QuickApp '%s', deviceID:%s started at %s",device.name,device.id,os.date("%c"))
+                codeEnv.quickApp.restartQA = restartQA
+                codeEnv.quickApp.runQA = runQA
+              end
+            end
+
+            runQA()
+
+          end,0) -- os.setTimer
+        return self
+      end -- install
+
+      return self
+    end
+
+    function hc3_emulator.loadQAorScene(file)
+      local code,done = Files.file.read(file),nil
+      hc3_emulator._code = code
+      if code:match("hc3_emulator%.actions") then
+        Scene.loadScene(file):upload()
+      elseif code:match("QuickApp:") then
+        QA.loadQA(file):upload()
       else
-        QA.createQuickApp{
-          name=name or self.name,type=self.type,UI=self.UI, id = id or self.id,
-          quickVars=self.quickVars,code=self.files, interfaces = self.interfaces,
-        }
+        Log(LOG.LOG,"Unrecognized file")
       end
-      return self
+      hc3_emulator._code = nil
     end
 
-    -- Install QuickApp in the emulator
-    function self:install(args)
-
-      -- A QA is a 7 step process
-      -- 0. Initialization
-      -- 1. Create proxy if wanted
-      -- 2. Create environment
-      -- 3. Load the files (not executing them)
-      -- 4. Build device struct
-      -- 5. Run the QA files, main last (execute them)
-      --    The loading of files/users are expected to define the QuickApp methods incl. QuickApp:onInit()
-      -- 6. We create an instance of QuickApp and call the :onInit method if it exists
-      -- Restarting QA means kill timers and go back to 2
-
-      os.setTimer(function()
-          Log(LOG.HEADER,"Loading QuickApp '%s'...",self.name)
-
-          -- step 0. initialization, fix missing structures etc.
-          local pdevice
-
-          local fl = false
-          local interfaces = self.interfaces or {'quickApp'}
-          for _,i in ipairs(interfaces) do if i=='quickApp' then fl=true; break end end
-          if not fl then interfaces[#self.interfaces+1]='quickApp' end
-
-          -- Initialize quickAppVariables and load resources
-          -- Logic:
-          --- First variables from fqa if they exists
-          --- Then variables from loaded hc3_emulator.resources = {quickVars = ...
-          --- Then variables from hc3_emulator.quickVars
-          local quickVars = self.quickVars
-          -- Resolve $CREDS
-          resolveCREDS(quickVars)
-
-          if self.UI then
-            local ip = makeInitialProperties(self.UI)
-            self.viewLayout,self.uiCallbacks = ip.viewLayout,ip.uiCallbacks
-          elseif self.viewLayout then
-            self.UI=QA.view2UI(self.viewLayout,self.uiCallbacks)
-          else self.UI = {} end
-
-          -- step 1. create proxy
-          if self.proxy and not self.offline then
-            if tonumber(self.proxy) then
-              pdevice = injectProxy(self.proxy)
-              os.setTimer(function() 
-                  fibaro.call(-self.proxy,"PROXY",true,hc3_emulator.IPaddress..":"..hc3_emulator.webPort) 
-                  Log(LOG.LOG,"Intercepting events from QA:%s",self.proxy)
-                end,1000)
-            else
-              pdevice = createProxy(self.name,self.type,
-                {
-                  viewLayout=self.viewLayout,
-                  uiCallbacks = self.uiCallbacks, 
-                  quickAppVariables = vars2list(quickVars)
-                },
-                interfaces)
-            end
-          end
-
-          if pdevice then self.id = pdevice.id else 
-            while self.id == nil or quickApps[self.id] do -- find free id
-              QA_ID = QA_ID+1
-              self.id = QA_ID
-            end
-          end
-
-          local runQA,codeEnv
-          local function restartQA()
-            collectgarbage("collect")
-            Log(LOG.SYS,"Restarting QA %s, timers=%s, memory used %.1fkB",
-              self.id,Timer.killTimers("QUICKAPP"..self.id),collectgarbage("count")
-            ) 
-            codeEnv.setTimeout(function() runQA() end,2)
-          end
-
-          function runQA() -- rest of the steps in a function that can be called
-
-            -- step 2. create the environment
-            codeEnv = Util.createEnvironment("QA",false)
-            setContext(codeEnv)
-            local QAlock = hc3_emulator.copas.lock.new(60*60*30)
-            function codeEnv._getLock() QAlock:get(60*60*30) end
-            function codeEnv._releaseLock() QAlock:release() end
-            codeEnv.BREAKONINIT = hc3_emulator.breakOnInit
-            codeEnv._ENVID = "QUICKAPP"..self.id -- used to find timers beloning to this QA
-            codeEnv.plugin.mainDeviceId = self.id
-
-            local st = codeEnv.setTimeout
-            local function errHandler(err)
-              Log(LOG.ERROR,"QuickApp timer %s for '%s', deviceId:%s, crashed - %s",codeEnv._lastTimer,self.name,self.id,err)
-            end
-            codeEnv.setTimeout = function(fun,ms,tag,eh,env,off) return st(fun,ms,tag,errHandler,codeEnv,off) end
-            local st2 = codeEnv.setTimeout
-            codeEnv.fibaro.setTimeout = function(a,b,...) return st2(b,a,...) end
-            codeEnv.print = function(...) codeEnv.fibaro.debug(codeEnv.__TAG,...) end
-            codeEnv.__TAG = "QuickApp"..self.id
-
-            -- Step 3. load the files (we don't run them yet)
-            local loadedFiles = {}
-            local ost,ostf,jsenc,jsdec = codeEnv.setTimeout, codeEnv.fibaro.setTimeout,codeEnv.json.encode,codeEnv.json.decode
-            for _,f in ipairs(self.files or self.fqa and self.fqa.files) do 
-              local path = self.paths and self.paths[f.name] or f.name
-              if _debugFlags.files then Log(LOG.LOG,"Loading file '%s'",f.name) end
-              local code,msg=load(f.content,path,"bt",codeEnv)
-              assert(code,msg)
-              if f.isMain then table.insert(loadedFiles,{code=code,name=f.name}) -- 'main' last
-              else  table.insert(loadedFiles,math.max(#loadedFiles,1),{code=code,name=f.name}) end
-            end
-
-            -- Step 4. build device struct
-            -- Add 'quickApp' to interfaces if not existing
-
-            local device = pdevice or {}
-            device.id = device.id or self.id
-            device.name = self.name or "QuickApp"..self.id
-            device.interfaces = device.interfaces or interfaces
-            device.enabled = true
-            device.visible = true
-            device.type = device.type or self.type
-            device.roomID = device.roomID or 219
-            device._emu = {
-              proxy = self.proxy or false, UI = QA.transformUI(self.UI), env = codeEnv, uiValues={}, slideCache={},
-              files = self.files or self.fqa and self.fqa.files -- if someone asks for them with /api/quickApp/...
-            }
-            device.properties = device.properties or {}
-            device.properties.uiCallbacks = self.uiCallbacks
-            device.properties.viewLayout = self.viewLayout
-            device.properties.quickAppVariables = vars2list(quickVars)
-
-            quickApps[self.id]={ deviceStruct = device } -- Just so we have somethimng there if someone asks...
-
-            -- step 5. run the files
-            for _,f in ipairs(loadedFiles) do
-              local path = self.paths and self.paths[f.name] or f.name
-              if _debugFlags.breakOnLoad then mobdebug.setbreakpoint(path,1) end
-              if _debugFlags.files then Log(LOG.LOG,"Running file '%s'",f.name) end
-              _,msg=f.code()
-              assert(msg==nil,string.format("Running %s - %s",path,msg))
-            end
-            if not _debugFlags.patchSetTimeout then -- restore setTimeout etc if pacthed by user
-              codeEnv.setTimeout,codeEnv.fibaro.setTimeout,codeEnv.json.encode,codeEnv.json.decode =  ost,ostf,jsenc,jsdec
-            end
-
-            -- step 6. instantiate QA
-            codeEnv._getLock()
-            local status, err, ret = xpcall(
-              function() codeEnv.quickApp = codeEnv.QuickApp(device) end,
-              function(err)
-                Log(LOG.ERROR,"QuickApp '%s', deviceId:%s, crashed (%s) at %s",self.name,self.id,err,os.date("%c"))
-                print(debug.traceback(err,1))
-                if _debugFlags.breakOnError then mobdebug.pause() end
-              end)
-            codeEnv._releaseLock()
-            if status then
-              Log(LOG.HEADER,"QuickApp '%s', deviceID:%s started at %s",device.name,device.id,os.date("%c"))
-              codeEnv.quickApp.restartQA = restartQA
-              codeEnv.quickApp.runQA = runQA
-            end
-          end
-
-          runQA()
-
-        end,0) -- os.setTimer
-      return self
-    end -- install
-
-    return self
-  end
-
-  function hc3_emulator.loadQAorScene(file)
-    local code,done = Files.file.read(file),nil
-    hc3_emulator._code = code
-    if code:match("hc3_emulator%.actions") then
-      Scene.loadScene(file):upload()
-    elseif code:match("QuickApp:") then
-      QA.loadQA(file):upload()
-    else
-      Log(LOG.LOG,"Unrecognized file")
+    commandLines['pullqatobuffer']=self.copyQA
+    commandLines['deploy']=function(file)
+      hc3_emulator.loadQAorScene(file)
+      fibaro.sleep(2000)
+      os.exit()
     end
-    hc3_emulator._code = nil
-  end
-
-  commandLines['pullqatobuffer']=self.copyQA
-  commandLines['deploy']=function(file)
-    hc3_emulator.loadQAorScene(file)
-    fibaro.sleep(2000)
-    os.exit()
-  end
 
 -- Export functions
-  self.transformUI = transformUI
-  self.uiStruct2uiCallbacks = uiStruct2uiCallbacks
-  self.updateViewLayout     = updateViewLayout
-  self.createQuickApp       = createQuickApp
-  self.createProxy          = createProxy
-  self.loadQA               = loadQA
-  return self
-end
-
+    self.transformUI = transformUI
+    self.uiStruct2uiCallbacks = uiStruct2uiCallbacks
+    self.updateViewLayout     = updateViewLayout
+    self.createQuickApp       = createQuickApp
+    self.createProxy          = createProxy
+    self.loadQA               = loadQA
+    return self
+  end
 --------------- Scene functions and support ----------
-function module.Scene()
-  local self = {}
-  local printf,split = Util.printf,Util.split
+  function module.Scene()
+    local self = {}
+    local printf,split = Util.printf,Util.split
 --[[
 {
   conditions = { {
@@ -4580,194 +4605,194 @@ function module.Scene()
 }
 --]]
 
-  local function cronTest(dateStr) -- code for creating cron date test to use in scene condition
-    local days = {sun=1,mon=2,tue=3,wed=4,thu=5,fri=6,sat=7}
-    local months = {jan=1,feb=2,mar=3,apr=4,may=5,jun=6,jul=7,aug=8,sep=9,oct=10,nov=11,dec=12}
-    local last,month = {31,28,31,30,31,30,31,31,30,31,30,31},nil
+    local function cronTest(dateStr) -- code for creating cron date test to use in scene condition
+      local days = {sun=1,mon=2,tue=3,wed=4,thu=5,fri=6,sat=7}
+      local months = {jan=1,feb=2,mar=3,apr=4,may=5,jun=6,jul=7,aug=8,sep=9,oct=10,nov=11,dec=12}
+      local last,month = {31,28,31,30,31,30,31,31,30,31,30,31},nil
 
-    local function seq2map(seq) local s = {} for _,v in ipairs(seq) do s[v] = true end return s; end
+      local function seq2map(seq) local s = {} for _,v in ipairs(seq) do s[v] = true end return s; end
 
-    local function flatten(seq,res) -- flattens a table of tables
-      res = res or {}
-      if type(seq) == 'table' then for _,v1 in ipairs(seq) do flatten(v1,res) end else res[#res+1] = seq end
-      return res
-    end
-
-    local function expandDate(w1,md)
-      local function resolve(id)
-        local res
-        if id == 'last' then month = md res=last[md]
-        elseif id == 'lastw' then month = md res=last[md]-6
-        else res= type(id) == 'number' and id or days[id] or months[id] or tonumber(id) end
-        assertf(res,"Bad date specifier '%s'",id) return res
+      local function flatten(seq,res) -- flattens a table of tables
+        res = res or {}
+        if type(seq) == 'table' then for _,v1 in ipairs(seq) do flatten(v1,res) end else res[#res+1] = seq end
+        return res
       end
-      local w,m,step= w1[1],w1[2],1
-      local start,stop = w:match("(%w+)%p(%w+)")
-      if (start == nil) then return resolve(w) end
-      start,stop = resolve(start), resolve(stop)
-      local res,res2 = {},{}
-      if w:find("/") then
-        if not w:find("-") then -- 10/2
-          step=stop; stop = m.max
-        else step=w:match("/(%d+)") end
-      end
-      step = tonumber(step)
-      assert(start>=m.min and start<=m.max and stop>=m.min and stop<=m.max,"illegal date interval")
-      while (start ~= stop) do -- 10-2
-        res[#res+1] = start
-        start = start+1; if start>m.max then start=m.min end
-      end
-      res[#res+1] = stop
-      if step > 1 then for i=1,#res,step do res2[#res2+1]=res[i] end; res=res2 end
-      return res
-    end
 
-    table.maxn = table.maxn or function(t) return #t end
-
-    local function map(f,l,s) s = s or 1; local r={} for i=s,table.maxn(l) do r[#r+1] = f(l[i]) end return r end
-    local function parseDateStr(dateStr,last)
-      local seq = split(dateStr," ")   -- min,hour,day,month,wday
-      local lim = {{min=0,max=59},{min=0,max=23},{min=1,max=31},{min=1,max=12},{min=1,max=7},{min=2019,max=2030}}
-      for i=1,6 do if seq[i]=='*' or seq[i]==nil then seq[i]=tostring(lim[i].min).."-"..lim[i].max end end
-      seq = map(function(w) return split(w,",") end, seq)   -- split sequences "3,4"
-      local month = os.date("*t",os.time()).month
-      seq = map(function(t) local m = table.remove(lim,1);
-          return flatten(map(function (g) return expandDate({g,m},month) end, t))
-        end, seq) -- expand intervals "3-5"
-      return map(seq2map,seq)
-    end
-    local sun,offs,day,sunPatch = dateStr:match("^(sun%a+) ([%+%-]?%d+)")
-    if sun then
-      sun = sun.."Hour"
-      dateStr=dateStr:gsub("sun%a+ [%+%-]?%d+","0 0")
-      sunPatch=function(dateSeq)
-        local h,m = (fibaro:getValue(1,sun)):match("(%d%d):(%d%d)")
-        dateSeq[1]={[(h*60+m+offs)%60]=true}
-        dateSeq[2]={[math.floor((h*60+m+offs)/60)]=true}
-      end
-    end
-    local dateSeq = parseDateStr(dateStr)
-    return function(ctx) -- Pretty efficient way of testing dates...
-      local t = ctx or os.date("*t",os.time())
-      if month and month~=t.month then parseDateStr(dateStr) end -- Recalculate 'last' every month
-      if sunPatch and (month and month~=t.month or day~=t.day) then sunPatch(dateSeq) day=t.day end -- Recalculate 'last' every month
-      return
-      dateSeq[1][t.min] and    -- min     0-59
-      dateSeq[2][t.hour] and   -- hour    0-23
-      dateSeq[3][t.day] and    -- day     1-31
-      dateSeq[4][t.month] and  -- month   1-12
-      dateSeq[5][t.wday] or false      -- weekday 1-7, 1=sun, 7=sat
-    end
-  end
-
-  local function midnight() local d = os.date("*t") d.min,d.hour,d.sec=0,0,0; return os.time(d) end
-  local function pd(s,op,t1,t2)
-    local m = midnight()
-    printf("%s %s %s %s",s,os.date("%H:%M",m+60*t1),op,os.date("%H:%M",m+60*t2))
-  end
-
-  local function compileCondition(cf)
-    local triggers,dates = {},{}
-    local compile
-
-    local stdProps = {value=true,battery=true, ['global']=true}
-
-    local condCompFuns = {
-      ['=='] = function(a,b) return tostring(a) == tostring(b) end,
-      ['>='] = function(a,b) return tostring(a) >= tostring(b) end,
-      ['<'] = function(a,b) return tostring(a) < tostring(b) end,
-      ['>'] = function(a,b) return tostring(a) > tostring(b) end,
-      ['<='] = function(a,b) return tostring(a) <= tostring(b) end,
-      ['!='] = function(a,b) return tostring(a) ~= tostring(b) end,
-      ['n=='] = function(a,b) return a==b end,
-      ['n>='] = function(a,b) return a>=b end,
-      ['n<'] = function(a,b) return a<b end,
-      ['n>'] = function(a,b) return a>b end,
-      ['n<='] = function(a,b) return a<=b end,
-      ['n!='] = function(a,b) return a~=b end,
-      ['match'] = function(a,b) return a==b end,
-      ['match=='] = function(a,b) return a==b end,
-      ['match>='] = function(a,b) return a>=b end,
-      ['match<'] = function(a,b) return a<b end,
-      ['match>'] = function(a,b) return a>b end,
-      ['match<='] = function(a,b) return a<=b end,
-      ['match!='] = function(a,b) return a~=b end,
-    }
-
-    local compileCF = {
-      ['all'] = function(e,all)
-        local c,allt,cs = e.conditions,{},{}; for _,c0 in ipairs(c) do cs[#cs+1]=compile(c0,allt) end
-        local test = function(ctx) if e.log then print(e.log) end for _,c in ipairs(cs) do if not c(ctx) then return false end end return true end
-        if all and all[1] then allt[1]=all[1] else allt[1]=test end
-        return test
-      end,
-      ['any'] = function(e)
-        local c,cs = e.conditions,{}; for _,c0 in ipairs(c) do cs[#cs+1]=compile(c0,nil) end
-        return function(ctx) if e.log then print(e.log) end  for _,c in ipairs(cs) do if c(ctx) then return true end end return false end
-      end,
-      ['device:*'] = function(c,all)
-        local id,property,value,comp,tkey = c.id,c.property,c.value,condCompFuns[c.operator],c.property..c.id
-        if c.isTrigger then triggers[id] = property end
-        return function(ctx)
-          local cv = __fibaro_get_device_property(id,property)
-          return comp(cv and cv.value,value)
+      local function expandDate(w1,md)
+        local function resolve(id)
+          local res
+          if id == 'last' then month = md res=last[md]
+          elseif id == 'lastw' then month = md res=last[md]-6
+          else res= type(id) == 'number' and id or days[id] or months[id] or tonumber(id) end
+          assertf(res,"Bad date specifier '%s'",id) return res
         end
-      end,
-      ['device:centralSceneEvent'] = function(c,_)
-        local id,keyAttribute,keyId = c.id,c.value.keyAttribute,c.value.keyId
-        if c.isTrigger then triggers[id] = c.property end
-        return function(ctx)
-          ctx=ctx.centralSceneEvent or {}
-          return id == ctx.id and ctx.value.keyId == keyId and ctx.value.keyAttribute == keyAttribute
+        local w,m,step= w1[1],w1[2],1
+        local start,stop = w:match("(%w+)%p(%w+)")
+        if (start == nil) then return resolve(w) end
+        start,stop = resolve(start), resolve(stop)
+        local res,res2 = {},{}
+        if w:find("/") then
+          if not w:find("-") then -- 10/2
+            step=stop; stop = m.max
+          else step=w:match("/(%d+)") end
         end
-      end,
-      ['global-variable:*'] = function(c,_)
-        local name,value,comp = c.property,c.value,condCompFuns[c.operator]
-        if c.isTrigger then triggers[name] = true end
-        return function(_)
-          local cv = fibaro.getGlobalVariable(name)
-          return comp(cv,value)
+        step = tonumber(step)
+        assert(start>=m.min and start<=m.max and stop>=m.min and stop<=m.max,"illegal date interval")
+        while (start ~= stop) do -- 10-2
+          res[#res+1] = start
+          start = start+1; if start>m.max then start=m.min end
         end
-      end,
-      ['date:sunset'] = function(c,all)
-        local comp,offset = condCompFuns["n"..c.operator],c.value
-        local function mkRes(_) return {type='date', property='sunset', value=offset} end
-        local test = function(ctx) if comp(ctx.hour*60+ctx.min,ctx.sunset+offset) then return mkRes(ctx) end end
-        if c.isTrigger then dates[#dates+1]=function(ctx) if all[1] then return all[1](ctx) and mkRes(ctx) else return test(ctx) end end end
-        return test
-      end,
-      ['date:sunrise'] = function(c,all)
-        local comp,offset = condCompFuns["n"..c.operator],c.value
-        local function mkRes(_) return {type='date', property='sunrise', value=offset} end
-        local test = function(ctx) if comp(ctx.hour*60+ctx.min,ctx.sunrise+offset) then return mkRes() end end
-        if c.isTrigger then dates[#dates+1]=function(ctx) if all[1] then return all[1](ctx) and mkRes(ctx) else return test(ctx) end end end
-        return test
-      end,
-      ['date:cron'] = function(c,all)
-        local test,_ = cronTest(table.concat(c.value," ")),condCompFuns[c.operator]
-        local function mkRes(ctx) return {type='date', property='cron', value={ctx.min, ctx.hour, ctx.day, ctx.month, ctx.wday, ctx.year}} end
-        local cronFun = function(ctx) if test(ctx) then return mkRes(ctx) end end
-        if c.isTrigger then
-          dates[#dates+1] = function(ctx) if all and all[1] then return all[1](ctx) and mkRes(ctx) else return cronFun(ctx) end end
-        end
-        return function(ctx) return cronFun(ctx) end
-      end,
-    }
-
-    function compile(c,all)
-      if c.conditions and c.operator then return compileCF[c.operator](c,all)
-      elseif c.type then
-        local prop = c.property
-        prop = c.type == 'global-variable' and "global" or prop
-        local tp = c.type..":"..(stdProps[prop] and "*" or prop)
-        if compileCF[tp] then return compileCF[tp](c,all) end
+        res[#res+1] = stop
+        if step > 1 then for i=1,#res,step do res2[#res2+1]=res[i] end; res=res2 end
+        return res
       end
-      error(format("Bad condition:%s (%s)",json.encode(c),json.encode(cf)))
+
+      table.maxn = table.maxn or function(t) return #t end
+
+      local function map(f,l,s) s = s or 1; local r={} for i=s,table.maxn(l) do r[#r+1] = f(l[i]) end return r end
+      local function parseDateStr(dateStr,last)
+        local seq = split(dateStr," ")   -- min,hour,day,month,wday
+        local lim = {{min=0,max=59},{min=0,max=23},{min=1,max=31},{min=1,max=12},{min=1,max=7},{min=2019,max=2030}}
+        for i=1,6 do if seq[i]=='*' or seq[i]==nil then seq[i]=tostring(lim[i].min).."-"..lim[i].max end end
+        seq = map(function(w) return split(w,",") end, seq)   -- split sequences "3,4"
+        local month = os.date("*t",os.time()).month
+        seq = map(function(t) local m = table.remove(lim,1);
+            return flatten(map(function (g) return expandDate({g,m},month) end, t))
+          end, seq) -- expand intervals "3-5"
+        return map(seq2map,seq)
+      end
+      local sun,offs,day,sunPatch = dateStr:match("^(sun%a+) ([%+%-]?%d+)")
+      if sun then
+        sun = sun.."Hour"
+        dateStr=dateStr:gsub("sun%a+ [%+%-]?%d+","0 0")
+        sunPatch=function(dateSeq)
+          local h,m = (fibaro:getValue(1,sun)):match("(%d%d):(%d%d)")
+          dateSeq[1]={[(h*60+m+offs)%60]=true}
+          dateSeq[2]={[math.floor((h*60+m+offs)/60)]=true}
+        end
+      end
+      local dateSeq = parseDateStr(dateStr)
+      return function(ctx) -- Pretty efficient way of testing dates...
+        local t = ctx or os.date("*t",os.time())
+        if month and month~=t.month then parseDateStr(dateStr) end -- Recalculate 'last' every month
+        if sunPatch and (month and month~=t.month or day~=t.day) then sunPatch(dateSeq) day=t.day end -- Recalculate 'last' every month
+        return
+        dateSeq[1][t.min] and    -- min     0-59
+        dateSeq[2][t.hour] and   -- hour    0-23
+        dateSeq[3][t.day] and    -- day     1-31
+        dateSeq[4][t.month] and  -- month   1-12
+        dateSeq[5][t.wday] or false      -- weekday 1-7, 1=sun, 7=sat
+      end
     end
 
-    if not next(cf) then return function() return true end,triggers,dates end
-    return compile(cf),triggers,dates
-  end
+    local function midnight() local d = os.date("*t") d.min,d.hour,d.sec=0,0,0; return os.time(d) end
+    local function pd(s,op,t1,t2)
+      local m = midnight()
+      printf("%s %s %s %s",s,os.date("%H:%M",m+60*t1),op,os.date("%H:%M",m+60*t2))
+    end
+
+    local function compileCondition(cf)
+      local triggers,dates = {},{}
+      local compile
+
+      local stdProps = {value=true,battery=true, ['global']=true}
+
+      local condCompFuns = {
+        ['=='] = function(a,b) return tostring(a) == tostring(b) end,
+        ['>='] = function(a,b) return tostring(a) >= tostring(b) end,
+        ['<'] = function(a,b) return tostring(a) < tostring(b) end,
+        ['>'] = function(a,b) return tostring(a) > tostring(b) end,
+        ['<='] = function(a,b) return tostring(a) <= tostring(b) end,
+        ['!='] = function(a,b) return tostring(a) ~= tostring(b) end,
+        ['n=='] = function(a,b) return a==b end,
+        ['n>='] = function(a,b) return a>=b end,
+        ['n<'] = function(a,b) return a<b end,
+        ['n>'] = function(a,b) return a>b end,
+        ['n<='] = function(a,b) return a<=b end,
+        ['n!='] = function(a,b) return a~=b end,
+        ['match'] = function(a,b) return a==b end,
+        ['match=='] = function(a,b) return a==b end,
+        ['match>='] = function(a,b) return a>=b end,
+        ['match<'] = function(a,b) return a<b end,
+        ['match>'] = function(a,b) return a>b end,
+        ['match<='] = function(a,b) return a<=b end,
+        ['match!='] = function(a,b) return a~=b end,
+      }
+
+      local compileCF = {
+        ['all'] = function(e,all)
+          local c,allt,cs = e.conditions,{},{}; for _,c0 in ipairs(c) do cs[#cs+1]=compile(c0,allt) end
+          local test = function(ctx) if e.log then print(e.log) end for _,c in ipairs(cs) do if not c(ctx) then return false end end return true end
+          if all and all[1] then allt[1]=all[1] else allt[1]=test end
+          return test
+        end,
+        ['any'] = function(e)
+          local c,cs = e.conditions,{}; for _,c0 in ipairs(c) do cs[#cs+1]=compile(c0,nil) end
+          return function(ctx) if e.log then print(e.log) end  for _,c in ipairs(cs) do if c(ctx) then return true end end return false end
+        end,
+        ['device:*'] = function(c,all)
+          local id,property,value,comp,tkey = c.id,c.property,c.value,condCompFuns[c.operator],c.property..c.id
+          if c.isTrigger then triggers[id] = property end
+          return function(ctx)
+            local cv = __fibaro_get_device_property(id,property)
+            return comp(cv and cv.value,value)
+          end
+        end,
+        ['device:centralSceneEvent'] = function(c,_)
+          local id,keyAttribute,keyId = c.id,c.value.keyAttribute,c.value.keyId
+          if c.isTrigger then triggers[id] = c.property end
+          return function(ctx)
+            ctx=ctx.centralSceneEvent or {}
+            return id == ctx.id and ctx.value.keyId == keyId and ctx.value.keyAttribute == keyAttribute
+          end
+        end,
+        ['global-variable:*'] = function(c,_)
+          local name,value,comp = c.property,c.value,condCompFuns[c.operator]
+          if c.isTrigger then triggers[name] = true end
+          return function(_)
+            local cv = fibaro.getGlobalVariable(name)
+            return comp(cv,value)
+          end
+        end,
+        ['date:sunset'] = function(c,all)
+          local comp,offset = condCompFuns["n"..c.operator],c.value
+          local function mkRes(_) return {type='date', property='sunset', value=offset} end
+          local test = function(ctx) if comp(ctx.hour*60+ctx.min,ctx.sunset+offset) then return mkRes(ctx) end end
+          if c.isTrigger then dates[#dates+1]=function(ctx) if all[1] then return all[1](ctx) and mkRes(ctx) else return test(ctx) end end end
+          return test
+        end,
+        ['date:sunrise'] = function(c,all)
+          local comp,offset = condCompFuns["n"..c.operator],c.value
+          local function mkRes(_) return {type='date', property='sunrise', value=offset} end
+          local test = function(ctx) if comp(ctx.hour*60+ctx.min,ctx.sunrise+offset) then return mkRes() end end
+          if c.isTrigger then dates[#dates+1]=function(ctx) if all[1] then return all[1](ctx) and mkRes(ctx) else return test(ctx) end end end
+          return test
+        end,
+        ['date:cron'] = function(c,all)
+          local test,_ = cronTest(table.concat(c.value," ")),condCompFuns[c.operator]
+          local function mkRes(ctx) return {type='date', property='cron', value={ctx.min, ctx.hour, ctx.day, ctx.month, ctx.wday, ctx.year}} end
+          local cronFun = function(ctx) if test(ctx) then return mkRes(ctx) end end
+          if c.isTrigger then
+            dates[#dates+1] = function(ctx) if all and all[1] then return all[1](ctx) and mkRes(ctx) else return cronFun(ctx) end end
+          end
+          return function(ctx) return cronFun(ctx) end
+        end,
+      }
+
+      function compile(c,all)
+        if c.conditions and c.operator then return compileCF[c.operator](c,all)
+        elseif c.type then
+          local prop = c.property
+          prop = c.type == 'global-variable' and "global" or prop
+          local tp = c.type..":"..(stdProps[prop] and "*" or prop)
+          if compileCF[tp] then return compileCF[tp](c,all) end
+        end
+        error(format("Bad condition:%s (%s)",json.encode(c),json.encode(cf)))
+      end
+
+      if not next(cf) then return function() return true end,triggers,dates end
+      return compile(cf),triggers,dates
+    end
 
 --[[
 manual
@@ -4784,1003 +4809,1002 @@ weather
 climate
 --]]
 
-  local function toTime(str) local h,m=str:match("(%d+):(%d+)") return 60*h+m end
-  local SUN = {}
-  local function createCTX()
-    local ctx = os.date("*t")
-    if SUN.last ~= ctx.day then
-      SUN.last,SUN.sunrise,SUN.sunset=ctx.day,toTime(fibaro.getValue(1,"sunriseHour")),toTime(fibaro.getValue(1,"sunsetHour"))
+    local function toTime(str) local h,m=str:match("(%d+):(%d+)") return 60*h+m end
+    local SUN = {}
+    local function createCTX()
+      local ctx = os.date("*t")
+      if SUN.last ~= ctx.day then
+        SUN.last,SUN.sunrise,SUN.sunset=ctx.day,toTime(fibaro.getValue(1,"sunriseHour")),toTime(fibaro.getValue(1,"sunsetHour"))
+      end
+      ctx.sunrise,ctx.sunset=SUN.sunrise,SUN.sunset
+      return ctx
     end
-    ctx.sunrise,ctx.sunset=SUN.sunrise,SUN.sunset
-    return ctx
-  end
 
-  local SceneID = 800
+    local SceneID = 800
 
-  local function loadScene(arg)
-    assert(type(arg)=='number' or type(arg)=='string',"Bad argument  to loadScene")
-    local self,ff = {},Files.file
-    if tonumber(arg) then                          -- Download from HC3
-      self._scene = api.get("/scenes/"..arg)
-      assert(self._scene,"Scene ID "..arg.."  does not exist on HC3")
-      self.id = arg
-    elseif type(arg)=='string' and arg:match("%.[Ff][Ss][Cc]$") then       -- Read .fsc file
-      local s = ff.read(arg)
-      self._scene = json.decode(s)
-      self.fname = arg
-      self.file_scene = arg
-    end
-    if self._scene then 
-      self.name = self._scene.name
-    elseif arg:match("%.[Ll][Uu][Aa]$") then       -- Read emulator file
-      self.fname = arg
-      self.file_emu = arg
-      local code = hc3_emulator._code or ff.read(arg)
-      hc3_emulator._code = nil
-      local header,env1 = code:match("^if(.-)[\n\r]end"),{dofile=function() end}
-      print(header)
-      local e1,msg = load("if "..header.." end",nil,nil,env1)
-      if msg then error(msg) end
-      local stat,res = pcall(e1)
-      if not stat then error(res) end
-      self.name = env1.hc3_emulator.name or arg:match("(.-)%.[Ll][Uu][Aa]$")
-      self.id = env1.hc3_emulator.id
-      self.runAtStart = env1.hc3_emulator.runAtStart
-      self.code = code
-      local conditions = code:match("hc3_emulator%.conditions%s*=%s*(%b{})")
-      local actions = code:match("hc3_emulator%.actions%s*%(%s*%)(.*)end")
-      self.content=json.encode({conditions=json.encode(conditions),actions=actions})
-    elseif arg:match("%.[Jj][Ss][Oo][Nn]$") then   -- Read in unpacked file(s)
-      self.fname = arg
-      self.file_unpacked = arg
-      local name = ff.extract_name(arg)
-      --local dir = arg:sub(1,-(name:len()+1))
+    local function loadScene(arg)
+      assert(type(arg)=='number' or type(arg)=='string',"Bad argument  to loadScene")
+      local self,ff = {},Files.file
+      if tonumber(arg) then                          -- Download from HC3
+        self._scene = api.get("/scenes/"..arg)
+        assert(self._scene,"Scene ID "..arg.."  does not exist on HC3")
+        self.id = arg
+      elseif type(arg)=='string' and arg:match("%.[Ff][Ss][Cc]$") then       -- Read .fsc file
+        local s = ff.read(arg)
+        self._scene = json.decode(s)
+        self.fname = arg
+        self.file_scene = arg
+      end
+      if self._scene then 
+        self.name = self._scene.name
+      elseif arg:match("%.[Ll][Uu][Aa]$") then       -- Read emulator file
+        self.fname = arg
+        self.file_emu = arg
+        local code = hc3_emulator._code or ff.read(arg)
+        hc3_emulator._code = nil
+        local header,env1 = code:match("^if(.-)[\n\r]end"),{dofile=function() end}
+        print(header)
+        local e1,msg = load("if "..header.." end",nil,nil,env1)
+        if msg then error(msg) end
+        local stat,res = pcall(e1)
+        if not stat then error(res) end
+        self.name = env1.hc3_emulator.name or arg:match("(.-)%.[Ll][Uu][Aa]$")
+        self.id = env1.hc3_emulator.id
+        self.runAtStart = env1.hc3_emulator.runAtStart
+        self.code = code
+        local conditions = code:match("hc3_emulator%.conditions%s*=%s*(%b{})")
+        local actions = code:match("hc3_emulator%.actions%s*%(%s*%)(.*)end")
+        self.content=json.encode({conditions=json.encode(conditions),actions=actions})
+      elseif arg:match("%.[Jj][Ss][Oo][Nn]$") then   -- Read in unpacked file(s)
+        self.fname = arg
+        self.file_unpacked = arg
+        local name = ff.extract_name(arg)
+        --local dir = arg:sub(1,-(name:len()+1))
 -----
-      local j = f.read(arg)
-      j = json.decode(j)
-      self.name = j.name
-      ----
-    else error("Bad argument to loadScene") end
+        local j = f.read(arg)
+        j = json.decode(j)
+        self.name = j.name
+        ----
+      else error("Bad argument to loadScene") end
 
-    -- Saving file in filesystem. We can save in .fsc or "unpacked" format
-    function self:save(fm,path,overwrite)
-      assert(({fsc=true,unpacked=true})[fm or ""],"Bad format for save")
-      if fm == 'fsc' then
+      -- Saving file in filesystem. We can save in .fsc or "unpacked" format
+      function self:save(fm,path,overwrite)
+        assert(({fsc=true,unpacked=true})[fm or ""],"Bad format for save")
+        if fm == 'fsc' then
+          if not self._scene then
+            local scene = {
+              id = self.id, name = self.name, type =  "lua", mode = "automatic", maxRunningInstances = 2,
+              icon = "scene_lua", hidden = false, protectedByPin= false, stopOnAlarm= false,
+              restart= true, enabled = true, created = os.time(), updated = os.time(),
+              isRunning = false, started = os.time(), categories = {1}
+            }
+            scene.content = self.content
+            self._scene = scene
+          end
+          local fn = self.fname
+          if fn then fn = fn:match("(.+)%.")..".fsc" end
+          fn =  (fn or self._scene.name ..".fsc"):gsub("(%/)","_")
+          path  = path or ""
+          if path~="" and path:sub(-1) ~= ff.path_separator() then
+            fn = ff.extract_name(path)
+            path = path:sub(1,-(fn:len()+1))
+          end
+          self.file_fsc = fn
+          ff.write(path..fn,json.encode(self._scene),overwrite)
+        elseif fm == 'unpacked' then
+          error("Saving unpacked scenes not implemented yet")
+        end
+      end
+
+      --  Inject args
+      function self:args(args) for k,v in pairs(args) do self[k]=v end return self end
+
+      --  Upload Scene to HC3
+      function self:upload(name,id)
         if not self._scene then
-          local scene = {
-            id = self.id, name = self.name, type =  "lua", mode = "automatic", maxRunningInstances = 2,
-            icon = "scene_lua", hidden = false, protectedByPin= false, stopOnAlarm= false,
-            restart= true, enabled = true, created = os.time(), updated = os.time(),
-            isRunning = false, started = os.time(), categories = {1}
-          }
-          scene.content = self.content
-          self._scene = scene
+          error("Not yet implemented")
         end
-        local fn = self.fname
-        if fn then fn = fn:match("(.+)%.")..".fsc" end
-        fn =  (fn or self._scene.name ..".fsc"):gsub("(%/)","_")
-        path  = path or ""
-        if path~="" and path:sub(-1) ~= ff.path_separator() then
-          fn = ff.extract_name(path)
-          path = path:sub(1,-(fn:len()+1))
-        end
-        self.file_fsc = fn
-        ff.write(path..fn,json.encode(self._scene),overwrite)
-      elseif fm == 'unpacked' then
-        error("Saving unpacked scenes not implemented yet")
-      end
-    end
-
-    --  Inject args
-    function self:args(args) for k,v in pairs(args) do self[k]=v end return self end
-
-    --  Upload Scene to HC3
-    function self:upload(name,id)
-      if not self._scene then
-        error("Not yet implemented")
-      end
-      self.id = id or self.id
-      self._scene.name = name or self._scene.name
-      if self.id and tonumber(self.id) then
-        local s = Util.copy(self._scene)
-        s.id,s.created,s.updated,s.isRunning=nil,nil,nil,nil
-        local _,res = api.put("/scenes/"..self.id,s)
-        if res == 204 then
-          Log(LOG.LOG,"Scene '%s', ID:%s updated",self._scene.name,self.id)
+        self.id = id or self.id
+        self._scene.name = name or self._scene.name
+        if self.id and tonumber(self.id) then
+          local s = Util.copy(self._scene)
+          s.id,s.created,s.updated,s.isRunning=nil,nil,nil,nil
+          local _,res = api.put("/scenes/"..self.id,s)
+          if res == 204 then
+            Log(LOG.LOG,"Scene '%s', ID:%s updated",self._scene.name,self.id)
+          else
+            Log(LOG.LOG,"Error updating scene '%s', %s",self._scene.name,res)
+          end
         else
-          Log(LOG.LOG,"Error updating scene '%s', %s",self._scene.name,res)
+          local stat,res = api.post("/scenes",self._scene)
+          if res == 201 then
+            Log(LOG.LOG,"Scene '%s', ID:%s uploaded",self._scene.name,stat.id)
+          else
+            Log(LOG.LOG,"Error uploading scene '%s', %s",self._scene.name,res)
+          end
         end
-      else
-        local stat,res = api.post("/scenes",self._scene)
-        if res == 201 then
-          Log(LOG.LOG,"Scene '%s', ID:%s uploaded",self._scene.name,stat.id)
-        else
-          Log(LOG.LOG,"Error uploading scene '%s', %s",self._scene.name,res)
-        end
+        return self
       end
-      return self
-    end
 
-    --  Install Scene in emulator
-    function self:install()
+      --  Install Scene in emulator
+      function self:install()
 
-      local codeEnv = Util.createEnvironment("Scene",false)
+        local codeEnv = Util.createEnvironment("Scene",false)
 
-      os.setTimer(function()
+        os.setTimer(function()
 
-          if self.code then -- emu
-            if _debugFlags.breakOnLoad then mobdebug.setbreakpoint(self.fname,1) end
-            local _,msg=load(self.code,self.fname,"bt",codeEnv)()
-            assert(msg==nil,string.format("Loading %s - %s",self.fname,msg))
-            self.conditions = codeEnv.hc3_emulator.conditions
-            self.actions = codeEnv.hc3_emulator.actions
-          elseif self._scene then
-            local c = json.decode(self._scene.content)
-            self.conditions = load("return "..c.conditions)()
-            self.actions = load(c.actions,self.fname,"bt",codeEnv)
-          end
+            if self.code then -- emu
+              if _debugFlags.breakOnLoad then mobdebug.setbreakpoint(self.fname,1) end
+              local _,msg=load(self.code,self.fname,"bt",codeEnv)()
+              assert(msg==nil,string.format("Loading %s - %s",self.fname,msg))
+              self.conditions = codeEnv.hc3_emulator.conditions
+              self.actions = codeEnv.hc3_emulator.actions
+            elseif self._scene then
+              local c = json.decode(self._scene.content)
+              self.conditions = load("return "..c.conditions)()
+              self.actions = load(c.actions,self.fname,"bt",codeEnv)
+            end
 
-          local condition,triggers,dates = compileCondition(self.conditions)
+            local condition,triggers,dates = compileCondition(self.conditions)
 
-          setContext(codeEnv)
-          Log(LOG.HEADER,"Loading Scene '%s'...",self.name)
+            setContext(codeEnv)
+            Log(LOG.HEADER,"Loading Scene '%s'...",self.name)
 
-          if self.id == nil then
-            self.id = SceneID; SceneID=SceneID+1
-          end
+            if self.id == nil then
+              self.id = SceneID; SceneID=SceneID+1
+            end
 
-          codeEnv.sceneId = self.id
+            codeEnv.sceneId = self.id
 
-          codeEnv._ENVID='SCENE'..self.id
-          codeEnv.tag = "Scene"..self.id
-          self.timers = 0
-          self.content = json.encode({
-              conditions = json.encode(self.conditions),
-              actions = "..."
-            })
+            codeEnv._ENVID='SCENE'..self.id
+            codeEnv.tag = "Scene"..self.id
+            self.timers = 0
+            self.content = json.encode({
+                conditions = json.encode(self.conditions),
+                actions = "..."
+              })
 
-          local SceneLock = hc3_emulator.copas.lock.new(60*60*30)
-          function codeEnv._getLock() SceneLock:get(60*60*30) end
-          function codeEnv._releaseLock() SceneLock:release() end
-          codeEnv.BREAKONINIT = hc3_emulator.breakOnInit
-          codeEnv.print = function(...) codeEnv.fibaro.debug(codeEnv.tag:upper(),...) end
+            local SceneLock = hc3_emulator.copas.lock.new(60*60*30)
+            function codeEnv._getLock() SceneLock:get(60*60*30) end
+            function codeEnv._releaseLock() SceneLock:release() end
+            codeEnv.print = function(...) codeEnv.fibaro.debug(codeEnv.tag:upper(),...) end
 
-          local st = setTimeout
-          local function errHandler(err)
-            Log(LOG.ERROR,"Scene timer %s for '%s', sceneId:%s, crashed - %s",codeEnv._lastTimer,self.name,self.id,err)
-          end
-          codeEnv.setTimeout = function(fun,ms,tag)
-            self.timers = self.timers+1
-            local function f(...)
-              local stat,res = pcall(fun)
-              self.timers = self.timers-1
-              if self.timers <= 0 then
-                self.struct.isRunning = false
-                Log(LOG.HEADER,"Scene '%s', sceneId:%s, terminated at %s",self.name,self.id,os.date("%c"))
+            local st = setTimeout
+            local function errHandler(err)
+              Log(LOG.ERROR,"Scene timer %s for '%s', sceneId:%s, crashed - %s",codeEnv._lastTimer,self.name,self.id,err)
+            end
+            codeEnv.setTimeout = function(fun,ms,tag)
+              self.timers = self.timers+1
+              local function f(...)
+                local stat,res = pcall(fun)
+                self.timers = self.timers-1
+                if self.timers <= 0 then
+                  self.struct.isRunning = false
+                  Log(LOG.HEADER,"Scene '%s', sceneId:%s, terminated at %s",self.name,self.id,os.date("%c"))
+                end
+                if not stat then error(res,2) end
               end
-              if not stat then error(res,2) end
+              return st(f,ms,tag,errHandler,codeEnv)
             end
-            return st(f,ms,tag,errHandler,codeEnv)
-          end
 
-          local ct1 = codeEnv.fibaro.clearTimeout
-          codeEnv.fibaro.setTimeout = function(a,b,...) return codeEnv.setTimeout(b,a,...) end
-          function codeEnv.fibaro.clearTimeout(ref)
-            self.timers = self.timers-1
-            return ct1(ref)
-          end
-
-          scenes[self.id] = self
-          self.struct = {
-            id = self.id, name = self.name, type =  "lua", mode = "automatic", maxRunningInstances = 2,
-            icon = "scene_lua", hidden = false, protectedByPin= false, stopOnAlarm= false,
-            restart= true, enabled = true, created = os.time(), updated = os.time(),
-            isRunning = false, started = os.time(), categories = {1}, content = self.content
-          }
-
-          function self.run() -- A scene runs as long as it has timers
-            Log(LOG.HEADER,"Scene '%s', sceneId:%s, started at %s",self.name,self.id,os.date("%c"))
-            self.struct.isRunning = true
-            codeEnv.fibaro.setTimeout(0,
-              function() 
-                codeEnv._getLock()
-                local status, err, ret = xpcall(self.actions,function(err)
-                    Log(LOG.ERROR,"Scene '%s', sceneId:%s, crashed (%s) at %s",self.name,self.id,err,os.date("%c"))
-                    print(debug.traceback(err,1))
-                    if _debugFlags.breakOnError then mobdebug.pause() end
-                  end)
-                codeEnv._releaseLock()
-              end)
-          end
-
-          function self.killScene() 
-            Log(LOG.SYS,"Killing scene %s, timers=%s",self.id,Timer.killTimers("SCENE"..self.id)) 
-            self.struct.isRunning = false
-            Log(LOG.HEADER,"Scene '%s', sceneId:%s, terminated at %s",self.name,self.id,os.date("%c"))
-          end
-
-          function self.eventHandler(e)
-            local ctx = createCTX()
-            codeEnv.sourceTrigger = nil
-            if e.type=='device' and e.property=='centralSceneEvent' then
-              ctx.centralSceneEvent = e
+            local ct1 = codeEnv.fibaro.clearTimeout
+            codeEnv.fibaro.setTimeout = function(a,b,...) return codeEnv.setTimeout(b,a,...) end
+            function codeEnv.fibaro.clearTimeout(ref)
+              self.timers = self.timers-1
+              return ct1(ref)
             end
-            if (e.type=='user' or e.type=='manual') and e.property=='execute' then
-              codeEnv.sourceTrigger = e
-              self.run()
-            elseif e.type=='device' and triggers[e.id]==e.property or
-            e.type=='global-variable' and triggers[e.property] or
-            e.type=='date'
-            then
-              Log(LOG.DEBUG,"Scene trigger:%s",json.encode(e))
-              if condition(ctx) then
+
+            scenes[self.id] = self
+            self.struct = {
+              id = self.id, name = self.name, type =  "lua", mode = "automatic", maxRunningInstances = 2,
+              icon = "scene_lua", hidden = false, protectedByPin= false, stopOnAlarm= false,
+              restart= true, enabled = true, created = os.time(), updated = os.time(),
+              isRunning = false, started = os.time(), categories = {1}, content = self.content
+            }
+
+            function self.run() -- A scene runs as long as it has timers
+              Log(LOG.HEADER,"Scene '%s', sceneId:%s, started at %s",self.name,self.id,os.date("%c"))
+              self.struct.isRunning = true
+              codeEnv.fibaro.setTimeout(0,
+                function() 
+                  codeEnv._getLock()
+                  local status, err, ret = xpcall(self.actions,function(err)
+                      Log(LOG.ERROR,"Scene '%s', sceneId:%s, crashed (%s) at %s",self.name,self.id,err,os.date("%c"))
+                      print(debug.traceback(err,1))
+                      if _debugFlags.breakOnError then mobdebug.pause() end
+                    end)
+                  codeEnv._releaseLock()
+                end)
+            end
+
+            function self.killScene() 
+              Log(LOG.SYS,"Killing scene %s, timers=%s",self.id,Timer.killTimers("SCENE"..self.id)) 
+              self.struct.isRunning = false
+              Log(LOG.HEADER,"Scene '%s', sceneId:%s, terminated at %s",self.name,self.id,os.date("%c"))
+            end
+
+            function self.eventHandler(e)
+              local ctx = createCTX()
+              codeEnv.sourceTrigger = nil
+              if e.type=='device' and e.property=='centralSceneEvent' then
+                ctx.centralSceneEvent = e
+              end
+              if (e.type=='user' or e.type=='manual') and e.property=='execute' then
                 codeEnv.sourceTrigger = e
                 self.run()
-              end
-            end
-          end -- end handleEvent
-
-          if #dates>0 then --- Check cron expressions every minute
-            local nxt = os.time()
-            local function loop()
-              local ctx = createCTX()
-              for _,c in ipairs(dates) do
-                local e = c(ctx)
-                if e then
-                  self.eventHandler(e); break
+              elseif e.type=='device' and triggers[e.id]==e.property or
+              e.type=='global-variable' and triggers[e.property] or
+              e.type=='date'
+              then
+                Log(LOG.DEBUG,"Scene trigger:%s",json.encode(e))
+                if condition(ctx) then
+                  codeEnv.sourceTrigger = e
+                  self.run()
                 end
               end
-              nxt = nxt+60
-              setTimeout(loop,1000*(nxt-os.time()),"Cron"..self.id)
+            end -- end handleEvent
+
+            if #dates>0 then --- Check cron expressions every minute
+              local nxt = os.time()
+              local function loop()
+                local ctx = createCTX()
+                for _,c in ipairs(dates) do
+                  local e = c(ctx)
+                  if e then
+                    self.eventHandler(e); break
+                  end
+                end
+                nxt = nxt+60
+                setTimeout(loop,1000*(nxt-os.time()),"Cron"..self.id)
+              end
+              loop()
             end
-            loop()
-          end
 
-          if self.runAtStart then
-            os.setTimer(function() self.eventHandler({type = "user", property = "execute", id=2}) end,0)
-          end
+            if self.runAtStart then
+              os.setTimer(function() self.eventHandler({type = "user", property = "execute", id=2}) end,0)
+            end
 
-        end,0)
-    end
+          end,0)
+      end
 
+      return self
+    end -- loadScene
+
+    self.loadScene = loadScene
     return self
-  end -- loadScene
-
-  self.loadScene = loadScene
-  return self
-end
+  end
 
 
 --------------- Trigger functions and support --------
-function module.Trigger()
-  local self = {}
-  local tickEvent = "ERTICK"
+  function module.Trigger()
+    local self = {}
+    local tickEvent = "ERTICK"
 
-  local cache = { polling=false, devices={}, globals={}, 
-    centralSceneEvents={},accessControlEvents={},sceneActivationEvents={}} -- Caching values when we poll to reduce traffic to HC3...
-  self.cacheStore=cache
-  function cache.write(type,id,prop,value)
-    cache[type][id] = cache[type][id] or {}
-    cache[type][id][prop]=value
-  end
-  function cache.read(type,id,prop) 
-    return hc3_emulator.speeding and hc3_emulator.polling and cache[type][id] and cache[type][id][prop]
-  end
-
-  local function post(event) 
-    if hc3_emulator.supressTrigger[event.type] then return end
-    if _debugFlags.trigger then Log(LOG.DEBUG,"Incoming trigger:%s",Util.prettyJson(event)) end
-    for _,s in pairs(scenes) do
-      if s.eventHandler then os.setTimer(function() s.eventHandler(event) end,0) end
+    local cache = { polling=false, devices={}, globals={}, 
+      centralSceneEvents={},accessControlEvents={},sceneActivationEvents={}} -- Caching values when we poll to reduce traffic to HC3...
+    self.cacheStore=cache
+    function cache.write(type,id,prop,value)
+      cache[type][id] = cache[type][id] or {}
+      cache[type][id][prop]=value
     end
-  end
+    function cache.read(type,id,prop) 
+      return hc3_emulator.speeding and hc3_emulator.polling and cache[type][id] and cache[type][id][prop]
+    end
 
-  local ignoreProperties = {icon=true, mainFunction=true,uiCallbacks = true}
-  local EventTypes = { -- There are more, but these are what I seen so far...
-    AlarmPartitionArmedEvent = function(d) post({type='alarm', property='armed', id = d.partitionId, value=d.armed}) end,
-    AlarmPartitionBreachedEvent = function(d) post({type='alarm', property='breached', id = d.partitionId, value=d.breached}) end,
-    HomeArmStateChangedEvent = function(d) post({type='alarm', property='homeArmed', value=d.newValue}) end,
-    HomeBreachedEvent = function(d) post({type='alarm', property='homeBreached', value=d.breached}) end,
-    WeatherChangedEvent = function(d) post({type='weather',property=d.change, value=d.newValue, old=d.oldValue}) end,
-    GlobalVariableChangedEvent = function(d)
-      cache.write('globals',0,d.variableName,{name=d.variableName, value = d.newValue, modified=os.time()})
-      if d.variableName == tickEvent then return end
-      post({type='global-variable', property=d.variableName, value=d.newValue, old=d.oldValue})
-    end,
-    DevicePropertyUpdatedEvent = function(d)
-      if d.property=='quickAppVariables' then
-        local old={}; for _,v in ipairs(d.oldValue) do old[v.name] = v.value end -- Todo: optimize
-        for _,v in ipairs(d.newValue) do
-          if v.value ~= old[v.name] then
-            post({type='quickvar', name=v.name, value=v.value, old=old[v.name]})
+    local function post(event) 
+      if hc3_emulator.supressTrigger[event.type] then return end
+      if _debugFlags.trigger then Log(LOG.DEBUG,"Incoming trigger:%s",Util.prettyJson(event)) end
+      for _,s in pairs(scenes) do
+        if s.eventHandler then os.setTimer(function() s.eventHandler(event) end,0) end
+      end
+    end
+
+    local ignoreProperties = {icon=true, mainFunction=true,uiCallbacks = true}
+    local EventTypes = { -- There are more, but these are what I seen so far...
+      AlarmPartitionArmedEvent = function(d) post({type='alarm', property='armed', id = d.partitionId, value=d.armed}) end,
+      AlarmPartitionBreachedEvent = function(d) post({type='alarm', property='breached', id = d.partitionId, value=d.breached}) end,
+      HomeArmStateChangedEvent = function(d) post({type='alarm', property='homeArmed', value=d.newValue}) end,
+      HomeBreachedEvent = function(d) post({type='alarm', property='homeBreached', value=d.breached}) end,
+      WeatherChangedEvent = function(d) post({type='weather',property=d.change, value=d.newValue, old=d.oldValue}) end,
+      GlobalVariableChangedEvent = function(d)
+        cache.write('globals',0,d.variableName,{name=d.variableName, value = d.newValue, modified=os.time()})
+        if d.variableName == tickEvent then return end
+        post({type='global-variable', property=d.variableName, value=d.newValue, old=d.oldValue})
+      end,
+      DevicePropertyUpdatedEvent = function(d)
+        if d.property=='quickAppVariables' then
+          local old={}; for _,v in ipairs(d.oldValue) do old[v.name] = v.value end -- Todo: optimize
+          for _,v in ipairs(d.newValue) do
+            if v.value ~= old[v.name] then
+              post({type='quickvar', name=v.name, value=v.value, old=old[v.name]})
+            end
+          end
+        else
+          --if d.property:match("^ui%.") then return end
+          if ignoreProperties[d.property] then return end
+          cache.write('devices',d.id,d.property,{value=d.newValue, modified=os.time()})
+          post({type='device', id=d.id, property=d.property, value=d.newValue, old=d.oldValue})
+        end
+      end,
+      CentralSceneEvent = function(d)
+        d.id = d.id or  d.deviceId
+        cache.write('centralSceneEvents',d.id,"",d)
+        post({type='device', property='centralSceneEvent', id=d.id, value = {keyId=d.keyId, keyAttribute=d.keyAttribute}}) 
+      end,
+      SceneActivationEvent = function(d) 
+        d.id = d.id or  d.deviceId
+        cache.write('sceneActivationEvents',d.id,"",d)
+        post({type='device', property='sceneActivationEvent', id=d.id, value = {sceneId=d.sceneId, name=d.name}}) 
+      end,
+      AccessControlEvent = function(d) 
+        cache.write('accessControlEvents',d.id,"",d)
+        post({type='device', property='accessControlEvent', id = d.deviceID, value=d}) 
+      end,
+      GeofenceEvent = function(d)
+        post({type='location',id=d.userId,property=d.locationId,value=d.geofenceAction,timestamp=d.timestamp})
+      end,
+      ActiveProfileChangedEvent = function(d)
+        post({type='profile',property='activeProfile',value=d.newActiveProfile, old=d.oldActiveProfile}) 
+      end,
+      CustomEvent = function(d) if d.name == tickEvent then return else post({type='custom-event', name=d.name}) end end,
+      PluginChangedViewEvent = function() end,
+      WizardStepStateChangedEvent = function() end,
+      UpdateReadyEvent = function() end,
+      SceneRunningInstancesEvent = function() end,
+      DeviceRemovedEvent = function() end,
+      DeviceChangedRoomEvent = function() end,
+      DeviceCreatedEvent = function() end,
+      DeviceModifiedEvent = function() end,
+      SceneStartedEvent = function() end,
+      SceneFinishedEvent = function() end,
+      SceneCreatedEvent = function() end,
+      SceneRemovedEvent = function() end,
+      SceneModifiedEvent = function() end,
+      PluginProcessCrashedEvent = function()  end,
+      onUIEvent = function() end,
+      OnlineStatusUpdatedEvent = function() end,
+      NotificationCreatedEvent = function() end,
+      NotificationRemovedEvent = function() end,
+      NotificationUpdatedEvent = function() end,
+      RoomCreatedEvent = function() end,
+      RoomRemovedEvent = function() end,
+      RoomModifiedEvent = function() end,
+      SectionCreatedEvent = function() end,
+      SectionRemovedEvent = function() end,
+      SectionModifiedEvent = function() end,
+      DeviceActionRanEvent = function() end,
+      DeviceFirmwareUpdateEvent = function(_) end,
+      QuickAppFilesChangedEvent = function() end,
+      ZwaveDeviceParametersChangedEvent = function() end,
+      ZwaveNodeAddedEvent = function() end,
+      RefreshRequiredEvent = function() end,
+    }
+
+    local function checkEvents(events)
+      if not events[1] then events={events} end
+      if _debugFlags.refreshloop then Log(LOG.LOG,"/refresh #%s",#events) end
+      for _,e in ipairs(events) do
+        local eh = EventTypes[e.type]
+        if eh then eh(e.data)
+        elseif eh==nil then Log(LOG.WARNING,"Unhandled event:%s -- please report",json.encode(e)) end
+      end
+      self.refreshStates.addEvents(events)
+    end
+
+    local copas = hc3_emulator.copas
+    local lastRefresh = 0
+
+    local function pollOnce() -- Doesn't work, we need predictable returns
+      if hc3_emulator.offline then return Offline.api("GET","/refreshStates?last=" .. lastRefresh) end
+      local resp = {}
+      local req={
+        method="GET",
+        url = "http://"..hc3_emulator.credentials.ip.."/api/refreshStates?last=" .. lastRefresh.."&lang=en&rand=0.09580020181569104&logs=false",
+        sink = ltn12.sink.table(resp),
+        user=hc3_emulator.credentials.user,
+        password=hc3_emulator.credentials.pwd,
+        headers={}
+      }
+      req.headers["Accept"] = '*/*'
+      req.headers["X-Fibaro-Version"] = 2
+      local r, c, h = copas.http.request(req)       -- ToDo https
+      if not r then return nil,c, h end
+      if c>=200 and c<300 then
+        local states = resp[1] and json.decode(table.concat(resp))
+        if states then
+          lastRefresh=states.last
+          if states.events and #states.events>0 then checkEvents(states.events) end
+          if  states.alarmChanges then
+            print(json.encode(states.alarmChanges))
           end
         end
-      else
-        --if d.property:match("^ui%.") then return end
-        if ignoreProperties[d.property] then return end
-        cache.write('devices',d.id,d.property,{value=d.newValue, modified=os.time()})
-        post({type='device', id=d.id, property=d.property, value=d.newValue, old=d.oldValue})
       end
-    end,
-    CentralSceneEvent = function(d)
-      d.id = d.id or  d.deviceId
-      cache.write('centralSceneEvents',d.id,"",d)
-      post({type='device', property='centralSceneEvent', id=d.id, value = {keyId=d.keyId, keyAttribute=d.keyAttribute}}) 
-    end,
-    SceneActivationEvent = function(d) 
-      d.id = d.id or  d.deviceId
-      cache.write('sceneActivationEvents',d.id,"",d)
-      post({type='device', property='sceneActivationEvent', id=d.id, value = {sceneId=d.sceneId, name=d.name}}) 
-    end,
-    AccessControlEvent = function(d) 
-      cache.write('accessControlEvents',d.id,"",d)
-      post({type='device', property='accessControlEvent', id = d.deviceID, value=d}) 
-    end,
-    GeofenceEvent = function(d)
-      post({type='location',id=d.userId,property=d.locationId,value=d.geofenceAction,timestamp=d.timestamp})
-    end,
-    ActiveProfileChangedEvent = function(d)
-      post({type='profile',property='activeProfile',value=d.newActiveProfile, old=d.oldActiveProfile}) 
-    end,
-    CustomEvent = function(d) if d.name == tickEvent then return else post({type='custom-event', name=d.name}) end end,
-    PluginChangedViewEvent = function() end,
-    WizardStepStateChangedEvent = function() end,
-    UpdateReadyEvent = function() end,
-    SceneRunningInstancesEvent = function() end,
-    DeviceRemovedEvent = function() end,
-    DeviceChangedRoomEvent = function() end,
-    DeviceCreatedEvent = function() end,
-    DeviceModifiedEvent = function() end,
-    SceneStartedEvent = function() end,
-    SceneFinishedEvent = function() end,
-    SceneCreatedEvent = function() end,
-    SceneRemovedEvent = function() end,
-    SceneModifiedEvent = function() end,
-    PluginProcessCrashedEvent = function()  end,
-    onUIEvent = function() end,
-    OnlineStatusUpdatedEvent = function() end,
-    NotificationCreatedEvent = function() end,
-    NotificationRemovedEvent = function() end,
-    NotificationUpdatedEvent = function() end,
-    RoomCreatedEvent = function() end,
-    RoomRemovedEvent = function() end,
-    RoomModifiedEvent = function() end,
-    SectionCreatedEvent = function() end,
-    SectionRemovedEvent = function() end,
-    SectionModifiedEvent = function() end,
-    DeviceActionRanEvent = function() end,
-    DeviceFirmwareUpdateEvent = function(_) end,
-    QuickAppFilesChangedEvent = function() end,
-    ZwaveDeviceParametersChangedEvent = function() end,
-    ZwaveNodeAddedEvent = function() end,
-    RefreshRequiredEvent = function() end,
-  }
-
-  local function checkEvents(events)
-    if not events[1] then events={events} end
-    if _debugFlags.refreshloop then Log(LOG.LOG,"/refresh #%s",#events) end
-    for _,e in ipairs(events) do
-      local eh = EventTypes[e.type]
-      if eh then eh(e.data)
-      elseif eh==nil then Log(LOG.WARNING,"Unhandled event:%s -- please report",json.encode(e)) end
+      --   end,0)
+      return nil,c, h
     end
-    self.refreshStates.addEvents(events)
-  end
 
-  local copas = hc3_emulator.copas
-  local lastRefresh = 0
-
-  local function pollOnce() -- Doesn't work, we need predictable returns
-    if hc3_emulator.offline then return Offline.api("GET","/refreshStates?last=" .. lastRefresh) end
-    local resp = {}
-    local req={
-      method="GET",
-      url = "http://"..hc3_emulator.credentials.ip.."/api/refreshStates?last=" .. lastRefresh.."&lang=en&rand=0.09580020181569104&logs=false",
-      sink = ltn12.sink.table(resp),
-      user=hc3_emulator.credentials.user,
-      password=hc3_emulator.credentials.pwd,
-      headers={}
-    }
-    req.headers["Accept"] = '*/*'
-    req.headers["X-Fibaro-Version"] = 2
-    local r, c, h = copas.http.request(req)       -- ToDo https
-    if not r then return nil,c, h end
-    if c>=200 and c<300 then
-      local states = resp[1] and json.decode(table.concat(resp))
-      if states then
-        lastRefresh=states.last
-        if states.events and #states.events>0 then checkEvents(states.events) end
-        if  states.alarmChanges then
-          print(json.encode(states.alarmChanges))
-        end
+    local function pollEvents(interval)
+      local INTERVAL = interval or 0 -- every second, could do more often...
+      cache.polling = true -- Our loop will populate cache with values - no need to fetch from HC3
+      local function pollRefresh()
+        pollOnce()
+        os.setTimer(pollRefresh,INTERVAL)--,"RefreshState")
       end
+      os.setTimer(pollRefresh,0)
     end
-    --   end,0)
-    return nil,c, h
-  end
 
-  local function pollEvents(interval)
-    local INTERVAL = interval or 0 -- every second, could do more often...
-    cache.polling = true -- Our loop will populate cache with values - no need to fetch from HC3
-    local function pollRefresh()
-      pollOnce()
-      os.setTimer(pollRefresh,INTERVAL)--,"RefreshState")
+    function self.postTrigger(ev,t)
+      assert(type(ev)=='table' and ev.type,"Bad event format:"..json.encode(ev))
+      t = t or 0
+      setTimeout(function() post(ev) end,t)
     end
-    os.setTimer(pollRefresh,0)
-  end
-
-  function self.postTrigger(ev,t)
-    assert(type(ev)=='table' and ev.type,"Bad event format:"..json.encode(ev))
-    t = t or 0
-    setTimeout(function() post(ev) end,t)
-  end
 
 --------------- refreshState handling ---------------
-  local function createRefreshStateQueue(size)
-    local self = {}
+    local function createRefreshStateQueue(size)
+      local self = {}
 
-    function mkQueue(size)
-      local queue,dump,pop = {}
-      local tail,head = 301,301
-      local function empty() return tail==head end
-      local function filled() return head-tail >= size end
-      local function push(e)
-        if filled() then pop() end
-        head=head+1
-        local key = tostring(head)
-        queue[key]=e
-        --print(e,dump(),head,tail)
+      function mkQueue(size)
+        local queue,dump,pop = {}
+        local tail,head = 301,301
+        local function empty() return tail==head end
+        local function filled() return head-tail >= size end
+        local function push(e)
+          if filled() then pop() end
+          head=head+1
+          local key = tostring(head)
+          queue[key]=e
+          --print(e,dump(),head,tail)
+        end
+        local function tailp() return tail end
+        local function headp() return head end
+        function pop()
+          if empty() then return nil end
+          tail=tail+1
+          local key = tostring(tail)
+          local v = queue[key]
+          queue[key]=nil
+          return v
+        end
+        local function peek(n) return queue[tostring(head-n)] end
+        local function get(n) return queue[tostring(n)] end
+        function dump()
+          local res={}
+          for i=0,size-1 do res[#res+1]=tostring(peek(i)) end
+          return table.concat(res,",")
+        end
+        return { pop = pop, push = push, tailp=tailp, headp=headp, empty=empty, peek = peek, get=get, dump=dump }
       end
-      local function tailp() return tail end
-      local function headp() return head end
-      function pop()
-        if empty() then return nil end
-        tail=tail+1
-        local key = tostring(tail)
-        local v = queue[key]
-        queue[key]=nil
-        return v
+
+      self.eventQueue=mkQueue(size) --- 1..QUEUELENGTH
+      local eventQueue = self.eventQueue
+
+      local function filter(events)
+        local res = {}
+        for _,e in ipairs(events) do res[#res+1]=e.type end
+        return res
       end
-      local function peek(n) return queue[tostring(head-n)] end
-      local function get(n) return queue[tostring(n)] end
-      function dump()
-        local res={}
-        for i=0,size-1 do res[#res+1]=tostring(peek(i)) end
-        return table.concat(res,",")
+
+      function self.addEvents(events) -- {last=num,events={}}
+        --print("ADD:"..json.encode(filter(events)))
+        events = events[1] and events or {events}
+        local index = eventQueue.headp()
+        eventQueue.push({last=index, events=events})
       end
-      return { pop = pop, push = push, tailp=tailp, headp=headp, empty=empty, peek = peek, get=get, dump=dump }
+
+      function self.getEvents(last)
+        --print(format("Top:%s, Bottom:%s Last:%s",eventQueue.top().last or 0,eventQueue.bottom().last or 0,last))
+        if eventQueue.empty() then return {last = last } end
+        local res1,res2,i = {},{},0
+        while true do
+          local e = eventQueue.peek(i)     ----    5,6,7,8    6
+          if e and e.last > last then
+            res1[#res1+1]=e
+          else break end
+          i=i+1
+        end
+        if #res1==0 then return { last=last } end
+        last = res1[#res1].last   ----  { 1, 2, 3, 4, 5}
+        for i=1,#res1 do
+          local es = res1[i].events
+          if es then for j=1,#es do res2[#res2+1]=es[j] end end
+        end
+        --print("RET:"..json.encode(filter(res2)))
+        return {last = last, events = res2}
+      end
+      self.dump = eventQueue.dump
+      return self
     end
 
-    self.eventQueue=mkQueue(size) --- 1..QUEUELENGTH
-    local eventQueue = self.eventQueue
+    self.refreshStates = createRefreshStateQueue(200)
 
-    local function filter(events)
-      local res = {}
-      for _,e in ipairs(events) do res[#res+1]=e.type end
-      return res
-    end
-
-    function self.addEvents(events) -- {last=num,events={}}
-      --print("ADD:"..json.encode(filter(events)))
-      events = events[1] and events or {events}
-      local index = eventQueue.headp()
-      eventQueue.push({last=index, events=events})
-    end
-
-    function self.getEvents(last)
-      --print(format("Top:%s, Bottom:%s Last:%s",eventQueue.top().last or 0,eventQueue.bottom().last or 0,last))
-      if eventQueue.empty() then return {last = last } end
-      local res1,res2,i = {},{},0
-      while true do
-        local e = eventQueue.peek(i)     ----    5,6,7,8    6
-        if e and e.last > last then
-          res1[#res1+1]=e
-        else break end
-        i=i+1
-      end
-      if #res1==0 then return { last=last } end
-      last = res1[#res1].last   ----  { 1, 2, 3, 4, 5}
-      for i=1,#res1 do
-        local es = res1[i].events
-        if es then for j=1,#es do res2[#res2+1]=es[j] end end
-      end
-      --print("RET:"..json.encode(filter(res2)))
-      return {last = last, events = res2}
-    end
-    self.dump = eventQueue.dump
+    self.eventTypes = EventTypes
+    self.startPolling = pollEvents
+    self.pollOneEvent = pollOnce
+    self.checkEvents = checkEvents
+    self.cache = cache
     return self
   end
 
-  self.refreshStates = createRefreshStateQueue(200)
-
-  self.eventTypes = EventTypes
-  self.startPolling = pollEvents
-  self.pollOneEvent = pollOnce
-  self.checkEvents = checkEvents
-  self.cache = cache
-  return self
-end
-
 -------------- Utilities -----------------------------
-function module.Utilities()
-  local self = {}
+  function module.Utilities()
+    local self = {}
 
-  function self.property(getter,setter)
-    return {['%CLASSPROPERTY%']=true,get=getter,set=setter}
-  end
+    function self.property(getter,setter)
+      return {['%CLASSPROPERTY%']=true,get=getter,set=setter}
+    end
 
-  local function isProp(x) return type(x)=='table' and x['%CLASSPROPERTY%']  end
+    local function isProp(x) return type(x)=='table' and x['%CLASSPROPERTY%']  end
 
-  function self.class(name)
-    local c = {}    -- a new class instance
-    local mt = {}
+    function self.class(name)
+      local c = {}    -- a new class instance
+      local mt = {}
 --  mt.__index = function(tab,key) return rawget(c,key) end
 --  mt.__newindex = function(tab,key,value) rawset(c,key,value) end
-    mt.__call = function(class_tbl, ...)
-      local obj = {_USERDATA=true}
-      setmetatable(obj,class_tbl)
+      mt.__call = function(class_tbl, ...)
+        local obj = {_USERDATA=true}
+        setmetatable(obj,class_tbl)
 
-      if hc3_emulator.noClassProps then
+        if hc3_emulator.noClassProps then
+          for i,v in pairs(class_tbl) do
+            if not ({__index=true,__newindex=true,__base=true})[i] then
+              rawset(obj,i,v)
+            end
+          end
+        end
+
+        if hc3_emulator.strictClass then
+          if not rawget(class_tbl,'__init') then error("Class "..name.." missing constructor") end
+          class_tbl.__init(obj,...) 
+        else
+          if class_tbl.__init then
+            class_tbl.__init(obj,...) 
+          else
+            if class_tbl.__base and class_tbl.__base.__init then
+              class_tbl.__base.__init(obj, ...) 
+            end
+          end
+        end
+        return obj
+      end
+
+      if not hc3_emulator.noClassProps then
+        c.__index = function(tab,key)
+          local v = rawget(tab,key) or rawget(c,key)-- OOOPS
+          if v==nil then
+            local p = rawget(tab,'__props')
+            if p and p[key] then return p[key].get(tab) end
+          end
+          return v --c[key]
+        end
+
+        c.__newindex = function(tab,key,value)
+          local p = rawget(tab,'__props')
+          if isProp(value) then
+            if not p then
+              p = {}
+              rawset(tab,'__props',p)
+            end
+            p[key]=value
+          elseif p and p[key] then p[key].set(tab,value)
+          else rawset(tab,key,value) end
+        end
+      end
+
+      setmetatable(c, mt)
+      getContext()[name] = c
+
+      return function(base)
+        local mb = getmetatable(base)
+        setmetatable(base,nil)
+        for i,v in pairs(base) do
+          if not ({__index=true,__newindex=true,__base=true,__init=true})[i] then
+            rawset(c,i,v)
+          end
+        end
+        rawset(c,'__base',base)
+        setmetatable(base,mb)
+        return c
+      end
+    end
+
+    function self.class2(name)
+      local c = {}    -- a new class instance
+      local mt = {}
+      mt.__call = function(class_tbl, ...)
+        local obj = {_USERDATA=true}
+        setmetatable(obj,class_tbl)
         for i,v in pairs(class_tbl) do
-          if not ({__index=true,__newindex=true,__base=true})[i] then
+          if not ({__index=true,__newindex=true,__base=true,__init=true})[i] then
             rawset(obj,i,v)
           end
         end
-      end
 
-      if hc3_emulator.strictClass then
-        if not rawget(class_tbl,'__init') then error("Class "..name.." missing constructor") end
-        class_tbl.__init(obj,...) 
-      else
-        if class_tbl.__init then
+        if hc3_emulator.strictClass then
+          if not rawget(class_tbl,'__init') then error("Class "..name.." missing constructor") end
           class_tbl.__init(obj,...) 
         else
-          if class_tbl.__base and class_tbl.__base.__init then
-            class_tbl.__base.__init(obj, ...) 
-          end
-        end
-      end
-      return obj
-    end
-
-    if not hc3_emulator.noClassProps then
-      c.__index = function(tab,key)
-        local v = rawget(tab,key) or rawget(c,key)-- OOOPS
-        if v==nil then
-          local p = rawget(tab,'__props')
-          if p and p[key] then return p[key].get(tab) end
-        end
-        return v --c[key]
-      end
-
-      c.__newindex = function(tab,key,value)
-        local p = rawget(tab,'__props')
-        if isProp(value) then
-          if not p then
-            p = {}
-            rawset(tab,'__props',p)
-          end
-          p[key]=value
-        elseif p and p[key] then p[key].set(tab,value)
-        else rawset(tab,key,value) end
-      end
-    end
-
-    setmetatable(c, mt)
-    getContext()[name] = c
-
-    return function(base)
-      local mb = getmetatable(base)
-      setmetatable(base,nil)
-      for i,v in pairs(base) do
-        if not ({__index=true,__newindex=true,__base=true,__init=true})[i] then
-          rawset(c,i,v)
-        end
-      end
-      rawset(c,'__base',base)
-      setmetatable(base,mb)
-      return c
-    end
-  end
-
-  function self.class2(name)
-    local c = {}    -- a new class instance
-    local mt = {}
-    mt.__call = function(class_tbl, ...)
-      local obj = {_USERDATA=true}
-      setmetatable(obj,class_tbl)
-      for i,v in pairs(class_tbl) do
-        if not ({__index=true,__newindex=true,__base=true,__init=true})[i] then
-          rawset(obj,i,v)
-        end
-      end
-
-      if hc3_emulator.strictClass then
-        if not rawget(class_tbl,'__init') then error("Class "..name.." missing constructor") end
-        class_tbl.__init(obj,...) 
-      else
-        if class_tbl.__init then
-          class_tbl.__init(obj,...)
-        else
-          if class_tbl.__base and class_tbl.__base.__init then
-            class_tbl.__base.__init(obj, ...)
-          end
-        end
-      end
-      return obj
-    end
-
-    setmetatable(c, mt)
-    getContext()[name] = c
-
-    return function(base)
-      local mb = getmetatable(base)
-      setmetatable(base,nil)
-      for i,v in pairs(base) do
-        if not ({__index=true,__newindex=true,__base=true,__init=true})[i] then
-          rawset(c,i,v)
-        end
-      end
-      rawset(c,'__base',base)
-      setmetatable(base,mb)
-      return c
-    end
-  end
-
-  if not class then     -- If we already have 'class' from Luabind - let's hope it works as a substitute....
-    class=self.class
-    property=self.property
-  end
-
-  function self.urlencode (str)
-    local s = str and string.gsub(str ,"([^% w])",function(c) return format("%%% 02X",string.byte(c))  end)
-    return s
-  end
-  function self.urldecode(str) return str:gsub('%%(%x%x)',function (x) return string.char(tonumber(x,16)) end) end
-  function self.safeDecode(x) local stat,res = pcall(function() return json.decode(x) end) return stat and res end
-
-  local function logHeader(len,str)
-    if #str % 2 == 1 then str=str.." " end
-    local n = #str+2
-    return string.rep("-",len/2-n/2).." "..str.." "..string.rep("-",len/2-n/2)
-  end
-
-  local ZBCOLORMAP = {
-    black="\027[30m",brown="\027[31m",green="\027[32m",orange="\027[33m",
-    navy="\027[34m",purple="\027[35m",teal="\027[36m",grey="\027[37m",
-    red="\027[31;1m",tomato="\027[31;1m",neon="\027[32;1m",yellow="\027[33;1m",
-    blue="\027[34;1m",magenta="\027[35;1m",cyan="\027[36;1m",white="\027[37;1m",
-    darkgrey="\027[30;1m",
-  }
-
-  self.ZBCOLORMAP = ZBCOLORMAP
-  LOG = { LOG="LOG  ", WARNING="WARN ", SYS="SYS  ", DEBUG="SDBG ", ERROR='ERROR', HEADER='HEADER'}
-  local DEBUGCOLORS = {
-    [LOG.LOG]='navy', [LOG.WARNING]='orange', [LOG.DEBUG]='blue',
-    [LOG.SYS]='purple', [LOG.ERROR]='red',[LOG.HEADER]='blue'
-  }
-
-  local function colorStr(color,str)
-    if hc3_emulator.colorDebug then 
-      return (ZBCOLORMAP[color] or ZBCOLORMAP['black'])..str.."\027[0m"
-    else return str end
-  end
-  self.colorStr = colorStr
-
-  function Debug(flag,...) if flag then Log(LOG.DEBUG,...) end end
-  function Log(flag,arg1,...)
-    local args={...}
-    local stat,res = pcall(function()
-        local str = #args==0 and arg1 or format(arg1,table.unpack(args))
-        local color = "black"
-        if flag == LOG.HEADER  then
-          print(format("%s |%s|: %s",os.date("[%d.%m.%Y] [%X]"),"-----",colorStr(DEBUGCOLORS[flag],logHeader(100,str))))
-          return str
-        end
-        print(format("%s |%s|: %s",os.date("[%d.%m.%Y] [%X]"),colorStr(DEBUGCOLORS[flag],flag),str))
-        return str
-      end)
-    if not stat then error(res) end
-  end
-
-  function self.parseDate(dateStr) --- Format 10:00:00 5/12/2020
-    local h,m,s = dateStr:match("(%d+):(%d+):?(%d*)")
-    local d,mon,y = dateStr:match("(%d+)/(%d+)/?(%d*)")
-    s = s~="" and s or 0
-    local t = os.date("*t")
-    t.hour = tonumber(h) or t.hour
-    t.min = tonumber(m) or t.min
-    t.sec = tonumber(s) or t.sec
-    t.day = tonumber(d) or t.day
-    t.month = tonumber(mon) or t.month
-    t.year = tonumber(y) or t.year
-    local t1 = os.time(t)
-    local t2 = os.date("*t",t1)
-    if t.isdst ~= t2.isdst then t.isdst = t2.isdst t1 = os.time(t) end
-    return t1
-  end
-
-  function self.printf(arg1,...) local args={...} if #args==0 then print(arg1) else print(format(arg1,...)) end end
-  function self.split(str, sep)
-    local fields,s = {},sep or "%s"
-    str:gsub("([^"..s.."]+)", function(c) fields[#fields + 1] = c end)
-    return fields
-  end
-  string.split = self.split
-  string.starts = function(str,pat) return str:sub(1,#pat)==pat end
-
-  function self.map(f,l) local r={}; for _,e in ipairs(l) do r[#r+1]=f(e) end; return r end
-  function self.mapf(f,l) for _,e in ipairs(l) do f(e) end; end
-  function self.mapk(f,l) local r={}; for k,v in pairs(l) do r[k]=f(v) end; return r end
-  function self.mapkv(f,l) local r={}; for k,v in pairs(l) do k,v=f(k,v) r[k]=v end; return r end
-  local function transform(obj,tf)
-    if type(obj) == 'table' then
-      local res = {} for l,v in pairs(obj) do res[l] = transform(v,tf) end 
-      return res
-    else return tf(obj) end
-  end
-  function self.copy(obj) return transform(obj, function(o) return o end) end
-  local function equal(e1,e2)
-    if e1==e2 then return true
-    else
-      if type(e1) ~= 'table' or type(e2) ~= 'table' then return false
-      else 
-        for k1,v1 in pairs(e1) do if e2[k1] == nil or not equal(v1,e2[k1]) then return false end end
-        for k2,_  in pairs(e2) do if e1[k2] == nil then return false end end
-        return true
-      end
-    end
-  end
-  function self.member(k,tab) for _,v in ipairs(tab) do if v==k then return true end end return false end
-
-  do
-    local sortKeys = {"type","device","deviceID","value","oldValue","val","key","arg","event","events","msg","res"}
-    local sortOrder={}
-    for i,s in ipairs(sortKeys) do sortOrder[s]="\n"..string.char(i+64).." "..s end
-    local function keyCompare(a,b)
-      local av,bv = sortOrder[a] or a, sortOrder[b] or b
-      return av < bv
-    end
-
-    function self.prettyJsonFlat(e) -- our own json encode, as we don't have 'pure' json structs, and sorts keys in order (i.e. "stable" output)
-      local res,seen = {},{}
-      local function pretty(e)
-        local t = type(e)
-        if t == 'string' then res[#res+1] = '"' res[#res+1] = e res[#res+1] = '"'
-        elseif t == 'number' then res[#res+1] = e
-        elseif t == 'boolean' or t == 'function' or t=='thread' or t=='userdata' then res[#res+1] = tostring(e)
-        elseif t == 'table' then
-          if next(e)==nil then res[#res+1]='{}'
-          elseif seen[e] then res[#res+1]="..rec.."
-          elseif e[1] or #e>0 then
-            seen[e]=true
-            res[#res+1] = "[" pretty(e[1])
-            for i=2,#e do res[#res+1] = "," pretty(e[i]) end
-            res[#res+1] = "]"
+          if class_tbl.__init then
+            class_tbl.__init(obj,...)
           else
-            seen[e]=true
-            if e._var_  then res[#res+1] = format('"%s"',e._str) return end
-            local k = {} for key,_ in pairs(e) do k[#k+1] = key end 
-            table.sort(k,keyCompare)
-            if #k == 0 then res[#res+1] = "[]" return end
-            res[#res+1] = '{'; res[#res+1] = '"' res[#res+1] = k[1]; res[#res+1] = '":' t = k[1] pretty(e[t])
-            for i=2,#k do 
-              res[#res+1] = ',"' res[#res+1] = k[i]; res[#res+1] = '":' t = k[i] pretty(e[t]) 
+            if class_tbl.__base and class_tbl.__base.__init then
+              class_tbl.__base.__init(obj, ...)
             end
-            res[#res+1] = '}'
           end
-        elseif e == nil then res[#res+1]='null'
-        else error("bad json expr:"..tostring(e)) end
+        end
+        return obj
       end
-      pretty(e)
-      return table.concat(res)
-    end
-  end
-  self.prettyJson = self.prettyJsonFlat
 
-  do -- Used for print device table structs - sortorder for device structs
-    local sortKeys = {
-      'id','name','roomID','type','baseType','enabled','visible','isPlugin','parentId','viewXml','configXml',
-      'interfaces','properties','view', 'actions','created','modified','sortOrder'
+      setmetatable(c, mt)
+      getContext()[name] = c
+
+      return function(base)
+        local mb = getmetatable(base)
+        setmetatable(base,nil)
+        for i,v in pairs(base) do
+          if not ({__index=true,__newindex=true,__base=true,__init=true})[i] then
+            rawset(c,i,v)
+          end
+        end
+        rawset(c,'__base',base)
+        setmetatable(base,mb)
+        return c
+      end
+    end
+
+    if not class then     -- If we already have 'class' from Luabind - let's hope it works as a substitute....
+      class=self.class
+      property=self.property
+    end
+
+    function self.urlencode (str)
+      local s = str and string.gsub(str ,"([^% w])",function(c) return format("%%% 02X",string.byte(c))  end)
+      return s
+    end
+    function self.urldecode(str) return str:gsub('%%(%x%x)',function (x) return string.char(tonumber(x,16)) end) end
+    function self.safeDecode(x) local stat,res = pcall(function() return json.decode(x) end) return stat and res end
+
+    local function logHeader(len,str)
+      if #str % 2 == 1 then str=str.." " end
+      local n = #str+2
+      return string.rep("-",len/2-n/2).." "..str.." "..string.rep("-",len/2-n/2)
+    end
+
+    local ZBCOLORMAP = {
+      black="\027[30m",brown="\027[31m",green="\027[32m",orange="\027[33m",
+      navy="\027[34m",purple="\027[35m",teal="\027[36m",grey="\027[37m",
+      red="\027[31;1m",tomato="\027[31;1m",neon="\027[32;1m",yellow="\027[33;1m",
+      blue="\027[34;1m",magenta="\027[35;1m",cyan="\027[36;1m",white="\027[37;1m",
+      darkgrey="\027[30;1m",
     }
-    local sortOrder={}
-    for i,s in ipairs(sortKeys) do sortOrder[s]="\n"..string.char(i+64).." "..s end
-    local function keyCompare(a,b)
-      local av,bv = sortOrder[a] or a, sortOrder[b] or b
-      return av < bv
+
+    self.ZBCOLORMAP = ZBCOLORMAP
+    LOG = { LOG="LOG  ", WARNING="WARN ", SYS="SYS  ", DEBUG="SDBG ", ERROR='ERROR', HEADER='HEADER'}
+    local DEBUGCOLORS = {
+      [LOG.LOG]='navy', [LOG.WARNING]='orange', [LOG.DEBUG]='blue',
+      [LOG.SYS]='purple', [LOG.ERROR]='red',[LOG.HEADER]='blue'
+    }
+
+    local function colorStr(color,str)
+      if hc3_emulator.colorDebug then 
+        return (ZBCOLORMAP[color] or ZBCOLORMAP['black'])..str.."\027[0m"
+      else return str end
+    end
+    self.colorStr = colorStr
+
+    function Debug(flag,...) if flag then Log(LOG.DEBUG,...) end end
+    function Log(flag,arg1,...)
+      local args={...}
+      local stat,res = pcall(function()
+          local str = #args==0 and arg1 or format(arg1,table.unpack(args))
+          local color = "black"
+          if flag == LOG.HEADER  then
+            print(format("%s |%s|: %s",os.date("[%d.%m.%Y] [%X]"),"-----",colorStr(DEBUGCOLORS[flag],logHeader(100,str))))
+            return str
+          end
+          print(format("%s |%s|: %s",os.date("[%d.%m.%Y] [%X]"),colorStr(DEBUGCOLORS[flag],flag),str))
+          return str
+        end)
+      if not stat then error(res) end
     end
 
-    function self.prettyJsonStruct(t)
-      local res = {}
-      local function isArray(t) return type(t)=='table' and t[1] end
-      local function isEmpty(t) return type(t)=='table' and next(t)==nil end
-      local function isKeyVal(t) return type(t)=='table' and t[1]==nil and next(t)~=nil end
-      local function printf(tab,fmt,...) res[#res+1] = string.rep(' ',tab)..string.format(fmt,...) end
-      local function pretty(tab,t,key)
-        if type(t)=='table' then
-          if isEmpty(t) then printf(0,"[]") return end
-          if isArray(t) then
-            printf(key and tab or 0,"[\n")
-            for i,k in ipairs(t) do
-              local _ = pretty(tab+1,k,true)
-              if i ~= #t then printf(0,',') end
+    function self.parseDate(dateStr) --- Format 10:00:00 5/12/2020
+      local h,m,s = dateStr:match("(%d+):(%d+):?(%d*)")
+      local d,mon,y = dateStr:match("(%d+)/(%d+)/?(%d*)")
+      s = s~="" and s or 0
+      local t = os.date("*t")
+      t.hour = tonumber(h) or t.hour
+      t.min = tonumber(m) or t.min
+      t.sec = tonumber(s) or t.sec
+      t.day = tonumber(d) or t.day
+      t.month = tonumber(mon) or t.month
+      t.year = tonumber(y) or t.year
+      local t1 = os.time(t)
+      local t2 = os.date("*t",t1)
+      if t.isdst ~= t2.isdst then t.isdst = t2.isdst t1 = os.time(t) end
+      return t1
+    end
+
+    function self.printf(arg1,...) local args={...} if #args==0 then print(arg1) else print(format(arg1,...)) end end
+    function self.split(str, sep)
+      local fields,s = {},sep or "%s"
+      str:gsub("([^"..s.."]+)", function(c) fields[#fields + 1] = c end)
+      return fields
+    end
+    string.split = self.split
+    string.starts = function(str,pat) return str:sub(1,#pat)==pat end
+
+    function self.map(f,l) local r={}; for _,e in ipairs(l) do r[#r+1]=f(e) end; return r end
+    function self.mapf(f,l) for _,e in ipairs(l) do f(e) end; end
+    function self.mapk(f,l) local r={}; for k,v in pairs(l) do r[k]=f(v) end; return r end
+    function self.mapkv(f,l) local r={}; for k,v in pairs(l) do k,v=f(k,v) r[k]=v end; return r end
+    local function transform(obj,tf)
+      if type(obj) == 'table' then
+        local res = {} for l,v in pairs(obj) do res[l] = transform(v,tf) end 
+        return res
+      else return tf(obj) end
+    end
+    function self.copy(obj) return transform(obj, function(o) return o end) end
+    local function equal(e1,e2)
+      if e1==e2 then return true
+      else
+        if type(e1) ~= 'table' or type(e2) ~= 'table' then return false
+        else 
+          for k1,v1 in pairs(e1) do if e2[k1] == nil or not equal(v1,e2[k1]) then return false end end
+          for k2,_  in pairs(e2) do if e1[k2] == nil then return false end end
+          return true
+        end
+      end
+    end
+    function self.member(k,tab) for _,v in ipairs(tab) do if v==k then return true end end return false end
+
+    do
+      local sortKeys = {"type","device","deviceID","value","oldValue","val","key","arg","event","events","msg","res"}
+      local sortOrder={}
+      for i,s in ipairs(sortKeys) do sortOrder[s]="\n"..string.char(i+64).." "..s end
+      local function keyCompare(a,b)
+        local av,bv = sortOrder[a] or a, sortOrder[b] or b
+        return av < bv
+      end
+
+      function self.prettyJsonFlat(e) -- our own json encode, as we don't have 'pure' json structs, and sorts keys in order (i.e. "stable" output)
+        local res,seen = {},{}
+        local function pretty(e)
+          local t = type(e)
+          if t == 'string' then res[#res+1] = '"' res[#res+1] = e res[#res+1] = '"'
+          elseif t == 'number' then res[#res+1] = e
+          elseif t == 'boolean' or t == 'function' or t=='thread' or t=='userdata' then res[#res+1] = tostring(e)
+          elseif t == 'table' then
+            if next(e)==nil then res[#res+1]='{}'
+            elseif seen[e] then res[#res+1]="..rec.."
+            elseif e[1] or #e>0 then
+              seen[e]=true
+              res[#res+1] = "[" pretty(e[1])
+              for i=2,#e do res[#res+1] = "," pretty(e[i]) end
+              res[#res+1] = "]"
+            else
+              seen[e]=true
+              if e._var_  then res[#res+1] = format('"%s"',e._str) return end
+              local k = {} for key,_ in pairs(e) do k[#k+1] = key end 
+              table.sort(k,keyCompare)
+              if #k == 0 then res[#res+1] = "[]" return end
+              res[#res+1] = '{'; res[#res+1] = '"' res[#res+1] = k[1]; res[#res+1] = '":' t = k[1] pretty(e[t])
+              for i=2,#k do 
+                res[#res+1] = ',"' res[#res+1] = k[i]; res[#res+1] = '":' t = k[i] pretty(e[t]) 
+              end
+              res[#res+1] = '}'
+            end
+          elseif e == nil then res[#res+1]='null'
+          else error("bad json expr:"..tostring(e)) end
+        end
+        pretty(e)
+        return table.concat(res)
+      end
+    end
+    self.prettyJson = self.prettyJsonFlat
+
+    do -- Used for print device table structs - sortorder for device structs
+      local sortKeys = {
+        'id','name','roomID','type','baseType','enabled','visible','isPlugin','parentId','viewXml','configXml',
+        'interfaces','properties','view', 'actions','created','modified','sortOrder'
+      }
+      local sortOrder={}
+      for i,s in ipairs(sortKeys) do sortOrder[s]="\n"..string.char(i+64).." "..s end
+      local function keyCompare(a,b)
+        local av,bv = sortOrder[a] or a, sortOrder[b] or b
+        return av < bv
+      end
+
+      function self.prettyJsonStruct(t)
+        local res = {}
+        local function isArray(t) return type(t)=='table' and t[1] end
+        local function isEmpty(t) return type(t)=='table' and next(t)==nil end
+        local function isKeyVal(t) return type(t)=='table' and t[1]==nil and next(t)~=nil end
+        local function printf(tab,fmt,...) res[#res+1] = string.rep(' ',tab)..string.format(fmt,...) end
+        local function pretty(tab,t,key)
+          if type(t)=='table' then
+            if isEmpty(t) then printf(0,"[]") return end
+            if isArray(t) then
+              printf(key and tab or 0,"[\n")
+              for i,k in ipairs(t) do
+                local _ = pretty(tab+1,k,true)
+                if i ~= #t then printf(0,',') end
+                printf(tab+1,'\n')
+              end
+              printf(tab,"]")
+              return true
+            end
+            local r = {}
+            for k,_ in pairs(t) do r[#r+1]=k end
+            table.sort(r,keyCompare)
+            printf(key and tab or 0,"{\n")
+            for i,k in ipairs(r) do
+              printf(tab+1,'"%s":',k)
+              local _ =  pretty(tab+1,t[k])
+              if i ~= #r then printf(0,',') end
               printf(tab+1,'\n')
             end
-            printf(tab,"]")
+            printf(tab,"}")
             return true
+          elseif type(t)=='number' then
+            printf(key and tab or 0,"%s",t) 
+          elseif type(t)=='boolean' then
+            printf(key and tab or 0,"%s",t and 'true' or 'false') 
+          elseif type(t)=='string' then
+            printf(key and tab or 0,'"%s"',t:gsub('(%")','\\"'))
           end
-          local r = {}
-          for k,_ in pairs(t) do r[#r+1]=k end
-          table.sort(r,keyCompare)
-          printf(key and tab or 0,"{\n")
-          for i,k in ipairs(r) do
-            printf(tab+1,'"%s":',k)
-            local _ =  pretty(tab+1,t[k])
-            if i ~= #r then printf(0,',') end
-            printf(tab+1,'\n')
-          end
-          printf(tab,"}")
-          return true
-        elseif type(t)=='number' then
-          printf(key and tab or 0,"%s",t) 
-        elseif type(t)=='boolean' then
-          printf(key and tab or 0,"%s",t and 'true' or 'false') 
-        elseif type(t)=='string' then
-          printf(key and tab or 0,'"%s"',t:gsub('(%")','\\"'))
+        end
+        pretty(0,t,true)
+        return table.concat(res,"")
+      end
+    end
+
+    local function patchFibaro(name)
+      local oldF,flag = fibaro[name],"f"..name
+      fibaro[name] = function(...)
+        local args = {...}
+        local res = {oldF(...)}
+        if _debugFlags[flag] then
+          args = #args==0 and "" or json.encode(args):sub(2,-2)
+          Log(LOG.LOG,"fibaro.%s(%s) => %s",name,args,#res==0 and "nil" or #res==1 and res[1] or res)
+        end
+        return table.unpack(res)
+      end
+    end
+
+    function self.traceFibaro()
+      patchFibaro("call")
+      -- patchFibaro("get")
+    end
+
+    function self.cleanUpVarsAndEvents()
+      local vs,c1,c2 = api.get("/globalVariables/"),0,0
+      for _,v in ipairs(vs or {}) do
+        if v.name:match("RPC%d+") then
+          api.delete("/globalVariables/"..v.name)
+          c1=c1+1
         end
       end
-      pretty(0,t,true)
-      return table.concat(res,"")
-    end
-  end
-
-  local function patchFibaro(name)
-    local oldF,flag = fibaro[name],"f"..name
-    fibaro[name] = function(...)
-      local args = {...}
-      local res = {oldF(...)}
-      if _debugFlags[flag] then
-        args = #args==0 and "" or json.encode(args):sub(2,-2)
-        Log(LOG.LOG,"fibaro.%s(%s) => %s",name,args,#res==0 and "nil" or #res==1 and res[1] or res)
+      vs = api.get("/customEvents/")
+      for _,v in ipairs(vs or {}) do
+        if v.name:match("PROXY%d+_%d+") then
+          api.delete("/customeEvents/"..v.name)
+          c2=c2+1
+        end
       end
-      return table.unpack(res)
+      Log(LOG.SYS,"Deleted %s RPC variables",c1)
+      Log(LOG.SYS,"Deleted %s PROXY events",c2)
     end
-  end
 
-  function self.traceFibaro()
-    patchFibaro("call")
-    -- patchFibaro("get")
-  end
-
-  function self.cleanUpVarsAndEvents()
-    local vs,c1,c2 = api.get("/globalVariables/"),0,0
-    for _,v in ipairs(vs or {}) do
-      if v.name:match("RPC%d+") then
-        api.delete("/globalVariables/"..v.name)
-        c1=c1+1
-      end
+    function self.base64(data)
+      local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+      return ((data:gsub('.', function(x) 
+              local r,b='',x:byte() for i=8,1,-1 do r=r..(b%2^i-b%2^(i-1)>0 and '1' or '0') end
+              return r;
+            end)..'0000'):gsub('%d%d%d?%d?%d?%d?', function(x)
+            if (#x < 6) then return '' end
+            local c=0
+            for i=1,6 do c=c+(x:sub(i,i)=='1' and 2^(6-i) or 0) end
+            return b:sub(c+1,c+1)
+          end)..({ '', '==', '=' })[#data%3+1])
     end
-    vs = api.get("/customEvents/")
-    for _,v in ipairs(vs or {}) do
-      if v.name:match("PROXY%d+_%d+") then
-        api.delete("/customeEvents/"..v.name)
-        c2=c2+1
-      end
-    end
-    Log(LOG.SYS,"Deleted %s RPC variables",c1)
-    Log(LOG.SYS,"Deleted %s PROXY events",c2)
-  end
 
-  function self.base64(data)
-    local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-    return ((data:gsub('.', function(x) 
-            local r,b='',x:byte() for i=8,1,-1 do r=r..(b%2^i-b%2^(i-1)>0 and '1' or '0') end
-            return r;
-          end)..'0000'):gsub('%d%d%d?%d?%d?%d?', function(x)
-          if (#x < 6) then return '' end
-          local c=0
-          for i=1,6 do c=c+(x:sub(i,i)=='1' and 2^(6-i) or 0) end
-          return b:sub(c+1,c+1)
-        end)..({ '', '==', '=' })[#data%3+1])
-  end
-
-  local IPADDRESS = nil
+    local IPADDRESS = nil
 --  local socket = require('socket')
-  function self.getIPaddress()
-    if IPADDRESS then return IPADDRESS end
-    local someRandomIP = "192.168.1.122" --This address you make up
-    local someRandomPort = "3102" --This port you make up  
-    local mySocket = socket.udp() --Create a UDP socket like normal
-    mySocket:setpeername(someRandomIP,someRandomPort) 
-    local myDevicesIpAddress,_ = mySocket:getsockname()-- returns IP and Port
-    IPADDRESS = myDevicesIpAddress == "0.0.0.0" and "127.0.0.1" or myDevicesIpAddress
-    return IPADDRESS
-  end
+    function self.getIPaddress()
+      if IPADDRESS then return IPADDRESS end
+      local someRandomIP = "192.168.1.122" --This address you make up
+      local someRandomPort = "3102" --This port you make up  
+      local mySocket = socket.udp() --Create a UDP socket like normal
+      mySocket:setpeername(someRandomIP,someRandomPort) 
+      local myDevicesIpAddress,_ = mySocket:getsockname()-- returns IP and Port
+      IPADDRESS = myDevicesIpAddress == "0.0.0.0" and "127.0.0.1" or myDevicesIpAddress
+      return IPADDRESS
+    end
 
 ------------------- Sunset/Sunrise ---------------
 -- \fibaro\usr\share\lua\5.2\common\lustrous.lua ﻿based on the United States Naval Observatory
 
-  local function sunturnTime(date, rising, latitude, longitude, zenith, local_offset)
-    local rad,deg,floor = math.rad,math.deg,math.floor
-    local frac = function(n) return n - floor(n) end
-    local cos = function(d) return math.cos(rad(d)) end
-    local acos = function(d) return deg(math.acos(d)) end
-    local sin = function(d) return math.sin(rad(d)) end
-    local asin = function(d) return deg(math.asin(d)) end
-    local tan = function(d) return math.tan(rad(d)) end
-    local atan = function(d) return deg(math.atan(d)) end
+    local function sunturnTime(date, rising, latitude, longitude, zenith, local_offset)
+      local rad,deg,floor = math.rad,math.deg,math.floor
+      local frac = function(n) return n - floor(n) end
+      local cos = function(d) return math.cos(rad(d)) end
+      local acos = function(d) return deg(math.acos(d)) end
+      local sin = function(d) return math.sin(rad(d)) end
+      local asin = function(d) return deg(math.asin(d)) end
+      local tan = function(d) return math.tan(rad(d)) end
+      local atan = function(d) return deg(math.atan(d)) end
 
-    local function day_of_year(date)
-      local n1 = floor(275 * date.month / 9)
-      local n2 = floor((date.month + 9) / 12)
-      local n3 = (1 + floor((date.year - 4 * floor(date.year / 4) + 2) / 3))
-      return n1 - (n2 * n3) + date.day - 30
+      local function day_of_year(date)
+        local n1 = floor(275 * date.month / 9)
+        local n2 = floor((date.month + 9) / 12)
+        local n3 = (1 + floor((date.year - 4 * floor(date.year / 4) + 2) / 3))
+        return n1 - (n2 * n3) + date.day - 30
+      end
+
+      local function fit_into_range(val, min, max)
+        local range,count = max - min
+        if val < min then count = floor((min - val) / range) + 1; return val + count * range
+        elseif val >= max then count = floor((val - max) / range) + 1; return val - count * range
+        else return val end
+      end
+
+      -- Convert the longitude to hour value and calculate an approximate time
+      local n,lng_hour,t =  day_of_year(date), longitude / 15, nil
+      if rising then t = n + ((6 - lng_hour) / 24) -- Rising time is desired
+      else t = n + ((18 - lng_hour) / 24) end -- Setting time is desired
+      local M = (0.9856 * t) - 3.289 -- Calculate the Sun^s mean anomaly
+      -- Calculate the Sun^s true longitude
+      local L = fit_into_range(M + (1.916 * sin(M)) + (0.020 * sin(2 * M)) + 282.634, 0, 360)
+      -- Calculate the Sun^s right ascension
+      local RA = fit_into_range(atan(0.91764 * tan(L)), 0, 360)
+      -- Right ascension value needs to be in the same quadrant as L
+      local Lquadrant = floor(L / 90) * 90
+      local RAquadrant = floor(RA / 90) * 90
+      RA = RA + Lquadrant - RAquadrant; RA = RA / 15 -- Right ascension value needs to be converted into hours
+      local sinDec = 0.39782 * sin(L) -- Calculate the Sun's declination
+      local cosDec = cos(asin(sinDec))
+      local cosH = (cos(zenith) - (sinDec * sin(latitude))) / (cosDec * cos(latitude)) -- Calculate the Sun^s local hour angle
+      if rising and cosH > 1 then return "N/R" -- The sun never rises on this location on the specified date
+      elseif cosH < -1 then return "N/S" end -- The sun never sets on this location on the specified date
+
+      local H -- Finish calculating H and convert into hours
+      if rising then H = 360 - acos(cosH)
+      else H = acos(cosH) end
+      H = H / 15
+      local T = H + RA - (0.06571 * t) - 6.622 -- Calculate local mean time of rising/setting
+      local UT = fit_into_range(T - lng_hour, 0, 24) -- Adjust back to UTC
+      local LT = UT + local_offset -- Convert UT value to local time zone of latitude/longitude
+      return os.time({day = date.day,month = date.month,year = date.year,hour = floor(LT),min = math.modf(frac(LT) * 60)})
     end
 
-    local function fit_into_range(val, min, max)
-      local range,count = max - min
-      if val < min then count = floor((min - val) / range) + 1; return val + count * range
-      elseif val >= max then count = floor((val - max) / range) + 1; return val - count * range
-      else return val end
+    local function getTimezone() local now = os.time() return os.difftime(now, os.time(os.date("!*t", now))) end
+
+    local function sunCalc(time)
+      local hc3Location = api.get("/settings/location")
+      local lat = hc3Location.latitude or 0
+      local lon = hc3Location.longitude or 0
+      local utc = getTimezone() / 3600
+      local zenith,zenith_twilight = 90.83, 96.0 -- sunset/sunrise 90°50′, civil twilight 96°0′
+
+      local date = os.date("*t",time or os.time())
+      if date.isdst then utc = utc + 1 end
+      local rise_time = os._date("*t", sunturnTime(date, true, lat, lon, zenith, utc))
+      local set_time = os._date("*t", sunturnTime(date, false, lat, lon, zenith, utc))
+      local rise_time_t = os._date("*t", sunturnTime(date, true, lat, lon, zenith_twilight, utc))
+      local set_time_t = os._date("*t", sunturnTime(date, false, lat, lon, zenith_twilight, utc))
+      local sunrise = format("%.2d:%.2d", rise_time.hour, rise_time.min)
+      local sunset = format("%.2d:%.2d", set_time.hour, set_time.min)
+      local sunrise_t = format("%.2d:%.2d", rise_time_t.hour, rise_time_t.min)
+      local sunset_t = format("%.2d:%.2d", set_time_t.hour, set_time_t.min)
+      return sunrise, sunset, sunrise_t, sunset_t
     end
 
-    -- Convert the longitude to hour value and calculate an approximate time
-    local n,lng_hour,t =  day_of_year(date), longitude / 15, nil
-    if rising then t = n + ((6 - lng_hour) / 24) -- Rising time is desired
-    else t = n + ((18 - lng_hour) / 24) end -- Setting time is desired
-    local M = (0.9856 * t) - 3.289 -- Calculate the Sun^s mean anomaly
-    -- Calculate the Sun^s true longitude
-    local L = fit_into_range(M + (1.916 * sin(M)) + (0.020 * sin(2 * M)) + 282.634, 0, 360)
-    -- Calculate the Sun^s right ascension
-    local RA = fit_into_range(atan(0.91764 * tan(L)), 0, 360)
-    -- Right ascension value needs to be in the same quadrant as L
-    local Lquadrant = floor(L / 90) * 90
-    local RAquadrant = floor(RA / 90) * 90
-    RA = RA + Lquadrant - RAquadrant; RA = RA / 15 -- Right ascension value needs to be converted into hours
-    local sinDec = 0.39782 * sin(L) -- Calculate the Sun's declination
-    local cosDec = cos(asin(sinDec))
-    local cosH = (cos(zenith) - (sinDec * sin(latitude))) / (cosDec * cos(latitude)) -- Calculate the Sun^s local hour angle
-    if rising and cosH > 1 then return "N/R" -- The sun never rises on this location on the specified date
-    elseif cosH < -1 then return "N/S" end -- The sun never sets on this location on the specified date
-
-    local H -- Finish calculating H and convert into hours
-    if rising then H = 360 - acos(cosH)
-    else H = acos(cosH) end
-    H = H / 15
-    local T = H + RA - (0.06571 * t) - 6.622 -- Calculate local mean time of rising/setting
-    local UT = fit_into_range(T - lng_hour, 0, 24) -- Adjust back to UTC
-    local LT = UT + local_offset -- Convert UT value to local time zone of latitude/longitude
-    return os.time({day = date.day,month = date.month,year = date.year,hour = floor(LT),min = math.modf(frac(LT) * 60)})
+    self.sunCalc = sunCalc
+    return self
   end
-
-  local function getTimezone() local now = os.time() return os.difftime(now, os.time(os.date("!*t", now))) end
-
-  local function sunCalc(time)
-    local hc3Location = api.get("/settings/location")
-    local lat = hc3Location.latitude or 0
-    local lon = hc3Location.longitude or 0
-    local utc = getTimezone() / 3600
-    local zenith,zenith_twilight = 90.83, 96.0 -- sunset/sunrise 90°50′, civil twilight 96°0′
-
-    local date = os.date("*t",time or os.time())
-    if date.isdst then utc = utc + 1 end
-    local rise_time = os._date("*t", sunturnTime(date, true, lat, lon, zenith, utc))
-    local set_time = os._date("*t", sunturnTime(date, false, lat, lon, zenith, utc))
-    local rise_time_t = os._date("*t", sunturnTime(date, true, lat, lon, zenith_twilight, utc))
-    local set_time_t = os._date("*t", sunturnTime(date, false, lat, lon, zenith_twilight, utc))
-    local sunrise = format("%.2d:%.2d", rise_time.hour, rise_time.min)
-    local sunset = format("%.2d:%.2d", set_time.hour, set_time.min)
-    local sunrise_t = format("%.2d:%.2d", rise_time_t.hour, rise_time_t.min)
-    local sunset_t = format("%.2d:%.2d", set_time_t.hour, set_time_t.min)
-    return sunrise, sunset, sunrise_t, sunset_t
-  end
-
-  self.sunCalc = sunCalc
-  return self
-end
 
 --------------- json functions ------------------------
-function module.Json()
+  function module.Json()
 --
 -- Copyright (c) 2019 rxi
 --
@@ -5803,485 +5827,533 @@ function module.Json()
 -- SOFTWARE.
 --
 
-  local json = { _version = "0.1.2" }
+    local json = { _version = "0.1.2" }
 
 -------------------------------------------------------------------------------
 -- Encode
 -------------------------------------------------------------------------------
 
-  local encode
+    local encode
 
-  local escape_char_map = {
-    [ "\\" ] = "\\\\",
-    [ "\"" ] = "\\\"",
-    [ "\b" ] = "\\b",
-    [ "\f" ] = "\\f",
-    [ "\n" ] = "\\n",
-    [ "\r" ] = "\\r",
-    [ "\t" ] = "\\t",
-  }
+    local escape_char_map = {
+      [ "\\" ] = "\\\\",
+      [ "\"" ] = "\\\"",
+      [ "\b" ] = "\\b",
+      [ "\f" ] = "\\f",
+      [ "\n" ] = "\\n",
+      [ "\r" ] = "\\r",
+      [ "\t" ] = "\\t",
+    }
 
-  local escape_char_map_inv = { [ "\\/" ] = "/" }
-  for k, v in pairs(escape_char_map) do
-    escape_char_map_inv[v] = k
-  end
-
-
-  local function escape_char(c)
-    return escape_char_map[c] or string.format("\\u%04x", c:byte())
-  end
-
-
-  local function encode_nil(_)
-    return "null"
-  end
-
-
-  local function encode_table(val, stack)
-    local res = {}
-    stack = stack or {}
-
-    -- Circular reference?
-    if stack[val] then 
-      error("circular reference") 
+    local escape_char_map_inv = { [ "\\/" ] = "/" }
+    for k, v in pairs(escape_char_map) do
+      escape_char_map_inv[v] = k
     end
 
-    stack[val] = true
 
-    if rawget(val, 1) ~= nil or next(val) == nil then
-      -- Treat as array -- check keys are valid and it is not sparse
-      local n = 0
-      for k in pairs(val) do
-        if type(k) ~= "number" then
-          error("invalid table: mixed or invalid key types")
+    local function escape_char(c)
+      return escape_char_map[c] or string.format("\\u%04x", c:byte())
+    end
+
+
+    local function encode_nil(_)
+      return "null"
+    end
+
+
+    local function encode_table(val, stack)
+      local res = {}
+      stack = stack or {}
+
+      -- Circular reference?
+      if stack[val] then 
+        error("circular reference") 
+      end
+
+      stack[val] = true
+
+      if rawget(val, 1) ~= nil or next(val) == nil then
+        -- Treat as array -- check keys are valid and it is not sparse
+        local n = 0
+        for k in pairs(val) do
+          if type(k) ~= "number" then
+            error("invalid table: mixed or invalid key types")
+          end
+          n = n + 1
         end
-        n = n + 1
-      end
-      if n ~= #val then
-        error("invalid table: sparse array")
-      end
-      -- Encode
-      for _, v in ipairs(val) do
-        table.insert(res, encode(v, stack))
-      end
-      stack[val] = nil
-      return "[" .. table.concat(res, ",") .. "]"
-
-    else
-      -- Treat as an object
-      for k, v in pairs(val) do
-        if type(k) ~= "string" then
-          error("invalid table: mixed or invalid key types")
+        if n ~= #val then
+          error("invalid table: sparse array")
         end
-        table.insert(res, encode(k, stack) .. ":" .. encode(v, stack))
-      end      
-      stack[val] = nil
-      return "{" .. table.concat(res, ",") .. "}"
+        -- Encode
+        for _, v in ipairs(val) do
+          table.insert(res, encode(v, stack))
+        end
+        stack[val] = nil
+        return "[" .. table.concat(res, ",") .. "]"
+
+      else
+        -- Treat as an object
+        for k, v in pairs(val) do
+          if type(k) ~= "string" then
+            error("invalid table: mixed or invalid key types")
+          end
+          table.insert(res, encode(k, stack) .. ":" .. encode(v, stack))
+        end      
+        stack[val] = nil
+        return "{" .. table.concat(res, ",") .. "}"
+      end
     end
-  end
 
 
-  local function encode_string(val)
-    return '"' .. val:gsub('[%z\1-\31\\"]', escape_char) .. '"'
-  end
-
-
-  local function encode_number(val)
-    -- Check for NaN, -inf and inf
-    if val ~= val or val <= -math.huge or val >= math.huge then
-      error("unexpected number value '" .. tostring(val) .. "'")
+    local function encode_string(val)
+      return '"' .. val:gsub('[%z\1-\31\\"]', escape_char) .. '"'
     end
-    return string.format("%.14g", val)
-  end
 
-  local type_func_map = {
-    [ "nil"     ] = encode_nil,
-    [ "table"   ] = encode_table,
-    [ "string"  ] = encode_string,
-    [ "number"  ] = encode_number,
-    [ "boolean" ] = tostring,
-    --   [ "function" ] = tostring,
-  }
 
-  encode = function(val, stack)
-    local t = type(val)
-    local f = type_func_map[t]
-    if f then
-      return f(val, stack)
+    local function encode_number(val)
+      -- Check for NaN, -inf and inf
+      if val ~= val or val <= -math.huge or val >= math.huge then
+        error("unexpected number value '" .. tostring(val) .. "'")
+      end
+      return string.format("%.14g", val)
     end
-    error("unexpected type '" .. t .. "'")
-  end
 
-  function json.encode(val,...)
-    local extras = {...}
-    assert(#extras==0,"Too many arguments to json.encode?")
-    return ( encode(val) )
-  end
+    local type_func_map = {
+      [ "nil"     ] = encode_nil,
+      [ "table"   ] = encode_table,
+      [ "string"  ] = encode_string,
+      [ "number"  ] = encode_number,
+      [ "boolean" ] = tostring,
+      --   [ "function" ] = tostring,
+    }
+
+    encode = function(val, stack)
+      local t = type(val)
+      local f = type_func_map[t]
+      if f then
+        return f(val, stack)
+      end
+      error("unexpected type '" .. t .. "'")
+    end
+
+    function json.encode(val,...)
+      local extras = {...}
+      assert(#extras==0,"Too many arguments to json.encode?")
+      return ( encode(val) )
+    end
 
 -------------------------------------------------------------------------------
 -- Decode
 -------------------------------------------------------------------------------
 
-  local parse
+    local parse
 
-  local function create_set(...)
-    local res = {}
-    for i = 1, select("#", ...) do
-      res[ select(i, ...) ] = true
-    end
-    return res
-  end
-
-  local space_chars   = create_set(" ", "\t", "\r", "\n")
-  local delim_chars   = create_set(" ", "\t", "\r", "\n", "]", "}", ",")
-  local escape_chars  = create_set("\\", "/", '"', "b", "f", "n", "r", "t", "u")
-  local literals      = create_set("true", "false", "null")
-
-  local literal_map = {
-    [ "true"  ] = true,
-    [ "false" ] = false,
-    [ "null"  ] = nil,
-  }
-
-  local function next_char(str, idx, set, negate)
-    for i = idx, #str do
-      if set[str:sub(i, i)] ~= negate then
-        return i
+    local function create_set(...)
+      local res = {}
+      for i = 1, select("#", ...) do
+        res[ select(i, ...) ] = true
       end
+      return res
     end
-    return #str + 1
-  end
 
+    local space_chars   = create_set(" ", "\t", "\r", "\n")
+    local delim_chars   = create_set(" ", "\t", "\r", "\n", "]", "}", ",")
+    local escape_chars  = create_set("\\", "/", '"', "b", "f", "n", "r", "t", "u")
+    local literals      = create_set("true", "false", "null")
 
-  local function decode_error(str, idx, msg)
-    local line_count = 1
-    local col_count = 1
-    for i = 1, idx - 1 do
-      col_count = col_count + 1
-      if str:sub(i, i) == "\n" then
-        line_count = line_count + 1
-        col_count = 1
+    local literal_map = {
+      [ "true"  ] = true,
+      [ "false" ] = false,
+      [ "null"  ] = nil,
+    }
+
+    local function next_char(str, idx, set, negate)
+      for i = idx, #str do
+        if set[str:sub(i, i)] ~= negate then
+          return i
+        end
       end
+      return #str + 1
     end
-    error( string.format("%s at line %d col %d", msg, line_count, col_count) )
-  end
 
 
-  local function codepoint_to_utf8(n)
-    -- http://scripts.sil.org/cms/scripts/page.php?site_id=nrsi&id=iws-appendixa
-    local f = math.floor
-    if n <= 0x7f then
-      return string.char(n)
-    elseif n <= 0x7ff then
-      return string.char(f(n / 64) + 192, n % 64 + 128)
-    elseif n <= 0xffff then
-      return string.char(f(n / 4096) + 224, f(n % 4096 / 64) + 128, n % 64 + 128)
-    elseif n <= 0x10ffff then
-      return string.char(f(n / 262144) + 240, f(n % 262144 / 4096) + 128,
-        f(n % 4096 / 64) + 128, n % 64 + 128)
-    end
-    error( string.format("invalid unicode codepoint '%x'", n) )
-  end
-
-
-  local function parse_unicode_escape(s)
-    local n1 = tonumber( s:sub(3, 6),  16 )
-    local n2 = tonumber( s:sub(9, 12), 16 )
-    -- Surrogate pair?
-    if n2 then
-      return codepoint_to_utf8((n1 - 0xd800) * 0x400 + (n2 - 0xdc00) + 0x10000)
-    else
-      return codepoint_to_utf8(n1)
-    end
-  end
-
-
-  local function parse_string(str, i)
-    local has_unicode_escape = false
-    local has_surrogate_escape = false
-    local has_escape = false
-    local last
-    for j = i + 1, #str do
-      local x = str:byte(j)
-
-      if x < 32 then
-        decode_error(str, j, "control character in string")
+    local function decode_error(str, idx, msg)
+      local line_count = 1
+      local col_count = 1
+      for i = 1, idx - 1 do
+        col_count = col_count + 1
+        if str:sub(i, i) == "\n" then
+          line_count = line_count + 1
+          col_count = 1
+        end
       end
+      error( string.format("%s at line %d col %d", msg, line_count, col_count) )
+    end
 
-      if last == 92 then -- "\\" (escape char)
-        if x == 117 then -- "u" (unicode escape sequence)
-          local hex = str:sub(j + 1, j + 5)
-          if not hex:find("%x%x%x%x") then
-            decode_error(str, j, "invalid unicode escape in string")
-          end
-          if hex:find("^[dD][89aAbB]") then
-            has_surrogate_escape = true
-          else
-            has_unicode_escape = true
-          end
-        else
-          local c = string.char(x)
-          if not escape_chars[c] then
-            decode_error(str, j, "invalid escape char '" .. c .. "' in string")
-          end
-          has_escape = true
-        end
-        last = nil
 
-      elseif x == 34 then -- '"' (end of string)
-        local s = str:sub(i + 1, j - 1)
-        if has_surrogate_escape then
-          s = s:gsub("\\u[dD][89aAbB]..\\u....", parse_unicode_escape)
-        end
-        if has_unicode_escape then
-          s = s:gsub("\\u....", parse_unicode_escape)
-        end
-        if has_escape then
-          s = s:gsub("\\.", escape_char_map_inv)
-        end
-        return s, j + 1
+    local function codepoint_to_utf8(n)
+      -- http://scripts.sil.org/cms/scripts/page.php?site_id=nrsi&id=iws-appendixa
+      local f = math.floor
+      if n <= 0x7f then
+        return string.char(n)
+      elseif n <= 0x7ff then
+        return string.char(f(n / 64) + 192, n % 64 + 128)
+      elseif n <= 0xffff then
+        return string.char(f(n / 4096) + 224, f(n % 4096 / 64) + 128, n % 64 + 128)
+      elseif n <= 0x10ffff then
+        return string.char(f(n / 262144) + 240, f(n % 262144 / 4096) + 128,
+          f(n % 4096 / 64) + 128, n % 64 + 128)
+      end
+      error( string.format("invalid unicode codepoint '%x'", n) )
+    end
 
+
+    local function parse_unicode_escape(s)
+      local n1 = tonumber( s:sub(3, 6),  16 )
+      local n2 = tonumber( s:sub(9, 12), 16 )
+      -- Surrogate pair?
+      if n2 then
+        return codepoint_to_utf8((n1 - 0xd800) * 0x400 + (n2 - 0xdc00) + 0x10000)
       else
-        last = x
+        return codepoint_to_utf8(n1)
       end
     end
-    decode_error(str, i, "expected closing quote for string")
-  end
 
-  local function parse_number(str, i)
-    local x = next_char(str, i, delim_chars)
-    local s = str:sub(i, x - 1)
-    local n = tonumber(s)
-    if not n then
-      decode_error(str, i, "invalid number '" .. s .. "'")
-    end
-    return n, x
-  end
 
-  local function parse_literal(str, i)
-    local x = next_char(str, i, delim_chars)
-    local word = str:sub(i, x - 1)
-    if not literals[word] then
-      decode_error(str, i, "invalid literal '" .. word .. "'")
-    end
-    return literal_map[word], x
-  end
+    local function parse_string(str, i)
+      local has_unicode_escape = false
+      local has_surrogate_escape = false
+      local has_escape = false
+      local last
+      for j = i + 1, #str do
+        local x = str:byte(j)
 
-  local function parse_array(str, i)
-    local res = {}
-    local n = 1
-    i = i + 1
-    while 1 do
-      local x
-      i = next_char(str, i, space_chars, true)
-      -- Empty / end of array?
-      if str:sub(i, i) == "]" then
-        i = i + 1
-        break
+        if x < 32 then
+          decode_error(str, j, "control character in string")
+        end
+
+        if last == 92 then -- "\\" (escape char)
+          if x == 117 then -- "u" (unicode escape sequence)
+            local hex = str:sub(j + 1, j + 5)
+            if not hex:find("%x%x%x%x") then
+              decode_error(str, j, "invalid unicode escape in string")
+            end
+            if hex:find("^[dD][89aAbB]") then
+              has_surrogate_escape = true
+            else
+              has_unicode_escape = true
+            end
+          else
+            local c = string.char(x)
+            if not escape_chars[c] then
+              decode_error(str, j, "invalid escape char '" .. c .. "' in string")
+            end
+            has_escape = true
+          end
+          last = nil
+
+        elseif x == 34 then -- '"' (end of string)
+          local s = str:sub(i + 1, j - 1)
+          if has_surrogate_escape then
+            s = s:gsub("\\u[dD][89aAbB]..\\u....", parse_unicode_escape)
+          end
+          if has_unicode_escape then
+            s = s:gsub("\\u....", parse_unicode_escape)
+          end
+          if has_escape then
+            s = s:gsub("\\.", escape_char_map_inv)
+          end
+          return s, j + 1
+
+        else
+          last = x
+        end
       end
-      -- Read token
-      x, i = parse(str, i)
-      res[n] = x
-      n = n + 1
-      -- Next token
-      i = next_char(str, i, space_chars, true)
-      local chr = str:sub(i, i)
+      decode_error(str, i, "expected closing quote for string")
+    end
+
+    local function parse_number(str, i)
+      local x = next_char(str, i, delim_chars)
+      local s = str:sub(i, x - 1)
+      local n = tonumber(s)
+      if not n then
+        decode_error(str, i, "invalid number '" .. s .. "'")
+      end
+      return n, x
+    end
+
+    local function parse_literal(str, i)
+      local x = next_char(str, i, delim_chars)
+      local word = str:sub(i, x - 1)
+      if not literals[word] then
+        decode_error(str, i, "invalid literal '" .. word .. "'")
+      end
+      return literal_map[word], x
+    end
+
+    local function parse_array(str, i)
+      local res = {}
+      local n = 1
       i = i + 1
-      if chr == "]" then break end
-      if chr ~= "," then decode_error(str, i, "expected ']' or ','") end
-    end
-    return res, i
-  end
-
-  local function parse_object(str, i)
-    local res = {}
-    i = i + 1
-    while 1 do
-      local key, val
-      i = next_char(str, i, space_chars, true)
-      -- Empty / end of object?
-      if str:sub(i, i) == "}" then
+      while 1 do
+        local x
+        i = next_char(str, i, space_chars, true)
+        -- Empty / end of array?
+        if str:sub(i, i) == "]" then
+          i = i + 1
+          break
+        end
+        -- Read token
+        x, i = parse(str, i)
+        res[n] = x
+        n = n + 1
+        -- Next token
+        i = next_char(str, i, space_chars, true)
+        local chr = str:sub(i, i)
         i = i + 1
-        break
+        if chr == "]" then break end
+        if chr ~= "," then decode_error(str, i, "expected ']' or ','") end
       end
-      -- Read key
-      if str:sub(i, i) ~= '"' then
-        decode_error(str, i, "expected string for key")
-      end
-      key, i = parse(str, i)
-      -- Read ':' delimiter
-      i = next_char(str, i, space_chars, true)
-      if str:sub(i, i) ~= ":" then
-        decode_error(str, i, "expected ':' after key")
-      end
-      i = next_char(str, i + 1, space_chars, true)
-      -- Read value
-      val, i = parse(str, i)
-      -- Set
-      res[key] = val
-      -- Next token
-      i = next_char(str, i, space_chars, true)
-      local chr = str:sub(i, i)
+      return res, i
+    end
+
+    local function parse_object(str, i)
+      local res = {}
       i = i + 1
-      if chr == "}" then break end
-      if chr ~= "," then decode_error(str, i, "expected '}' or ','") end
+      while 1 do
+        local key, val
+        i = next_char(str, i, space_chars, true)
+        -- Empty / end of object?
+        if str:sub(i, i) == "}" then
+          i = i + 1
+          break
+        end
+        -- Read key
+        if str:sub(i, i) ~= '"' then
+          decode_error(str, i, "expected string for key")
+        end
+        key, i = parse(str, i)
+        -- Read ':' delimiter
+        i = next_char(str, i, space_chars, true)
+        if str:sub(i, i) ~= ":" then
+          decode_error(str, i, "expected ':' after key")
+        end
+        i = next_char(str, i + 1, space_chars, true)
+        -- Read value
+        val, i = parse(str, i)
+        -- Set
+        res[key] = val
+        -- Next token
+        i = next_char(str, i, space_chars, true)
+        local chr = str:sub(i, i)
+        i = i + 1
+        if chr == "}" then break end
+        if chr ~= "," then decode_error(str, i, "expected '}' or ','") end
+      end
+      return res, i
     end
-    return res, i
-  end
 
-  local char_func_map = {
-    [ '"' ] = parse_string,
-    [ "0" ] = parse_number,
-    [ "1" ] = parse_number,
-    [ "2" ] = parse_number,
-    [ "3" ] = parse_number,
-    [ "4" ] = parse_number,
-    [ "5" ] = parse_number,
-    [ "6" ] = parse_number,
-    [ "7" ] = parse_number,
-    [ "8" ] = parse_number,
-    [ "9" ] = parse_number,
-    [ "-" ] = parse_number,
-    [ "t" ] = parse_literal,
-    [ "f" ] = parse_literal,
-    [ "n" ] = parse_literal,
-    [ "[" ] = parse_array,
-    [ "{" ] = parse_object,
-  }
+    local char_func_map = {
+      [ '"' ] = parse_string,
+      [ "0" ] = parse_number,
+      [ "1" ] = parse_number,
+      [ "2" ] = parse_number,
+      [ "3" ] = parse_number,
+      [ "4" ] = parse_number,
+      [ "5" ] = parse_number,
+      [ "6" ] = parse_number,
+      [ "7" ] = parse_number,
+      [ "8" ] = parse_number,
+      [ "9" ] = parse_number,
+      [ "-" ] = parse_number,
+      [ "t" ] = parse_literal,
+      [ "f" ] = parse_literal,
+      [ "n" ] = parse_literal,
+      [ "[" ] = parse_array,
+      [ "{" ] = parse_object,
+    }
 
-  parse = function(str, idx)
-    local chr = str:sub(idx, idx)
-    local f = char_func_map[chr]
-    if f then
-      return f(str, idx)
+    parse = function(str, idx)
+      local chr = str:sub(idx, idx)
+      local f = char_func_map[chr]
+      if f then
+        return f(str, idx)
+      end
+      decode_error(str, idx, "unexpected character '" .. chr .. "'")
     end
-    decode_error(str, idx, "unexpected character '" .. chr .. "'")
-  end
 
-  function json.decode(str)
-    if type(str) ~= "string" then
-      error("expected argument of type string, got " .. type(str))
+    function json.decode(str)
+      if type(str) ~= "string" then
+        error("expected argument of type string, got " .. type(str))
+      end
+      local res, idx = parse(str, next_char(str, 1, space_chars, true))
+      idx = next_char(str, idx, space_chars, true)
+      if idx <= #str then
+        decode_error(str, idx, "trailing garbage")
+      end
+      return res
     end
-    local res, idx = parse(str, next_char(str, 1, space_chars, true))
-    idx = next_char(str, idx, space_chars, true)
-    if idx <= #str then
-      decode_error(str, idx, "trailing garbage")
-    end
-    return res
-  end
 
-  -- /api/devices/hierarchy 5.031.33
-  typeHierarchy = 
+    -- /api/devices/hierarchy 5.031.33
+    typeHierarchy = 
 [[{"children":[{"children":[],"type":"com.fibaro.zwaveDevice"},{"children":[],"type":"com.fibaro.zwaveController"},{"children":[{"children":[],"type":"com.fibaro.yrWeather"},{"children":[],"type":"com.fibaro.WeatherProvider"}],"type":"com.fibaro.weather"},{"children":[],"type":"com.fibaro.usbPort"},{"children":[],"type":"com.fibaro.setPointForwarder"},{"children":[{"children":[{"children":[],"type":"com.fibaro.windSensor"},{"children":[],"type":"com.fibaro.temperatureSensor"},{"children":[],"type":"com.fibaro.seismometer"},{"children":[],"type":"com.fibaro.rainSensor"},{"children":[],"type":"com.fibaro.powerSensor"},{"children":[],"type":"com.fibaro.lightSensor"},{"children":[],"type":"com.fibaro.humiditySensor"}],"type":"com.fibaro.multilevelSensor"},{"children":[{"children":[{"children":[],"type":"com.fibaro.satelZone"},{"children":[{"children":[{"children":[],"type":"com.fibaro.FGMS001v2"}],"type":"com.fibaro.FGMS001"}],"type":"com.fibaro.motionSensor"},{"children":[],"type":"com.fibaro.envisaLinkZone"},{"children":[],"type":"com.fibaro.dscZone"},{"children":[{"children":[],"type":"com.fibaro.windowSensor"},{"children":[],"type":"com.fibaro.rollerShutterSensor"},{"children":[],"type":"com.fibaro.gateSensor"},{"children":[],"type":"com.fibaro.doorSensor"},{"children":[],"type":"com.fibaro.FGDW002"}],"type":"com.fibaro.doorWindowSensor"}],"type":"com.fibaro.securitySensor"},{"children":[],"type":"com.fibaro.safetySensor"},{"children":[],"type":"com.fibaro.rainDetector"},{"children":[{"children":[],"type":"com.fibaro.heatDetector"},{"children":[{"children":[{"children":[],"type":"com.fibaro.FGSS001"}],"type":"com.fibaro.smokeSensor"},{"children":[{"children":[],"type":"com.fibaro.FGCD001"}],"type":"com.fibaro.coDetector"}],"type":"com.fibaro.gasDetector"},{"children":[{"children":[],"type":"com.fibaro.FGFS101"}],"type":"com.fibaro.floodSensor"},{"children":[],"type":"com.fibaro.fireDetector"}],"type":"com.fibaro.lifeDangerSensor"}],"type":"com.fibaro.binarySensor"},{"children":[],"type":"com.fibaro.accelerometer"}],"type":"com.fibaro.sensor"},{"children":[{"children":[{"children":[],"type":"com.fibaro.mobotix"},{"children":[],"type":"com.fibaro.heliosGold"},{"children":[],"type":"com.fibaro.heliosBasic"},{"children":[],"type":"com.fibaro.alphatechFarfisa"}],"type":"com.fibaro.intercom"},{"children":[{"children":[],"type":"com.fibaro.schlage"},{"children":[],"type":"com.fibaro.polyControl"},{"children":[],"type":"com.fibaro.kwikset"},{"children":[],"type":"com.fibaro.gerda"}],"type":"com.fibaro.doorLock"},{"children":[{"children":[{"children":[{"children":[],"type":"com.fibaro.fibaroIntercom"}],"type":"com.fibaro.videoGate"}],"type":"com.fibaro.ipCamera"}],"type":"com.fibaro.camera"},{"children":[{"children":[],"type":"com.fibaro.satelPartition"},{"children":[],"type":"com.fibaro.envisaLinkPartition"},{"children":[],"type":"com.fibaro.dscPartition"}],"type":"com.fibaro.alarmPartition"}],"type":"com.fibaro.securityMonitoring"},{"children":[],"type":"com.fibaro.samsungWasher"},{"children":[],"type":"com.fibaro.samsungSmartAppliances"},{"children":[],"type":"com.fibaro.samsungRobotCleaner"},{"children":[],"type":"com.fibaro.samsungRefrigerator"},{"children":[],"type":"com.fibaro.samsungOven"},{"children":[],"type":"com.fibaro.samsungDryer"},{"children":[],"type":"com.fibaro.samsungDishwasher"},{"children":[],"type":"com.fibaro.samsungAirPurifier"},{"children":[],"type":"com.fibaro.russoundXZone4"},{"children":[],"type":"com.fibaro.russoundXSource"},{"children":[],"type":"com.fibaro.russoundX5"},{"children":[],"type":"com.fibaro.russoundMCA88X"},{"children":[],"type":"com.fibaro.russoundController"},{"children":[],"type":"com.fibaro.powerMeter"},{"children":[],"type":"com.fibaro.planikaFLA3"},{"children":[],"type":"com.fibaro.philipsHue"},{"children":[{"children":[],"type":"com.fibaro.xbmc"},{"children":[],"type":"com.fibaro.wakeOnLan"},{"children":[],"type":"com.fibaro.sonosSpeaker"},{"children":[],"type":"com.fibaro.russoundXZone4Zone"},{"children":[],"type":"com.fibaro.russoundXSourceZone"},{"children":[],"type":"com.fibaro.russoundX5Zone"},{"children":[],"type":"com.fibaro.russoundMCA88XZone"},{"children":[{"children":[],"type":"com.fibaro.davisVantage"}],"type":"com.fibaro.receiver"},{"children":[],"type":"com.fibaro.philipsTV"},{"children":[],"type":"com.fibaro.nuvoZone"},{"children":[],"type":"com.fibaro.nuvoPlayer"},{"children":[],"type":"com.fibaro.initialstate"},{"children":[],"type":"com.fibaro.denonHeosZone"},{"children":[],"type":"com.fibaro.denonHeosGroup"}],"type":"com.fibaro.multimedia"},{"children":[{"children":[],"type":"com.fibaro.waterMeter"},{"children":[],"type":"com.fibaro.gasMeter"},{"children":[],"type":"com.fibaro.energyMeter"}],"type":"com.fibaro.meter"},{"children":[],"type":"com.fibaro.logitechHarmonyHub"},{"children":[],"type":"com.fibaro.logitechHarmonyActivity"},{"children":[],"type":"com.fibaro.logitechHarmonyAccount"},{"children":[{"children":[{"children":[],"type":"com.fibaro.thermostatHorstmann"}],"type":"com.fibaro.thermostatDanfoss"},{"children":[],"type":"com.fibaro.samsungAirConditioner"},{"children":[],"type":"com.fibaro.operatingModeHorstmann"},{"children":[],"type":"com.fibaro.hvacSystemHeat"},{"children":[],"type":"com.fibaro.hvacSystemCool"},{"children":[],"type":"com.fibaro.hvacSystemAuto"},{"children":[],"type":"com.fibaro.coolAutomationHvac"},{"children":[],"type":"com.fibaro.FGT001"}],"type":"com.fibaro.hvacSystem"},{"children":[],"type":"com.fibaro.hunterDouglasScene"},{"children":[],"type":"com.fibaro.hunterDouglas"},{"children":[],"type":"com.fibaro.humidifier"},{"children":[],"type":"com.fibaro.genericZwaveDevice"},{"children":[],"type":"com.fibaro.genericDevice"},{"children":[],"type":"com.fibaro.deviceController"},{"children":[],"type":"com.fibaro.denonHeos"},{"children":[],"type":"com.fibaro.coolAutomation"},{"children":[{"children":[],"type":"com.fibaro.satelAlarm"},{"children":[],"type":"com.fibaro.envisaLinkAlarm"},{"children":[],"type":"com.fibaro.dscAlarm"}],"type":"com.fibaro.alarm"},{"children":[{"children":[],"type":"com.fibaro.soundSwitch"},{"children":[],"type":"com.fibaro.remoteSwitch"},{"children":[{"children":[{"children":[],"type":"com.fibaro.FGPB101"},{"children":[],"type":"com.fibaro.FGKF601"},{"children":[],"type":"com.fibaro.FGGC001"}],"type":"com.fibaro.remoteSceneController"}],"type":"com.fibaro.remoteController"},{"children":[{"children":[],"type":"com.fibaro.sprinkler"},{"children":[],"type":"com.fibaro.satelOutput"},{"children":[{"children":[{"children":[],"type":"com.fibaro.philipsHueLight"},{"children":[],"type":"com.fibaro.FGRGBW442CC"},{"children":[],"type":"com.fibaro.FGRGBW441M"}],"type":"com.fibaro.colorController"},{"children":[],"type":"com.fibaro.FGWD111"},{"children":[],"type":"com.fibaro.FGD212"}],"type":"com.fibaro.multilevelSwitch"},{"children":[{"children":[],"type":"com.fibaro.FGWPI121"},{"children":[],"type":"com.fibaro.FGWPG121"},{"children":[],"type":"com.fibaro.FGWPG111"},{"children":[],"type":"com.fibaro.FGWPB121"},{"children":[],"type":"com.fibaro.FGWPB111"},{"children":[],"type":"com.fibaro.FGWP102"},{"children":[],"type":"com.fibaro.FGWP101"}],"type":"com.fibaro.FGWP"},{"children":[],"type":"com.fibaro.FGWOEF011"},{"children":[],"type":"com.fibaro.FGWDS221"}],"type":"com.fibaro.binarySwitch"},{"children":[{"children":[{"children":[],"type":"com.fibaro.tubularMotor"},{"children":[],"type":"com.fibaro.FGR221"},{"children":[{"children":[],"type":"com.fibaro.FGWR111"},{"children":[],"type":"com.fibaro.FGRM222"},{"children":[],"type":"com.fibaro.FGR223"}],"type":"com.fibaro.FGR"}],"type":"com.fibaro.rollerShutter"}],"type":"com.fibaro.baseShutter"},{"children":[],"type":"com.fibaro.barrier"}],"type":"com.fibaro.actor"},{"children":[],"type":"com.fibaro.FGRGBW442"},{"children":[],"type":"com.fibaro.FGBS222"}],"type":"com.fibaro.device"}]]
 
-  typeHierarchy = json.decode(typeHierarchy) 
-  return json
-end
-
---------------- Webserver API support  ----------------
-function module.WebAPI()
-  local self,split,urldecode = {},Util.split,Util.urldecode
-  local copas = hc3_emulator.copas
-
-  local function clientHandler(client,handler)
-    local headers = {}
-    while true do
-      local l,_,_ = client:receive()
-      if _debugFlags.webServer or _debugFlags.webServerReq then Log(LOG.SYS,"WS: Request:%s",l) end
-      if l then
-        local body,header,e,b
-        local method,call = l:match("^(%w+) (.*) HTTP/1.1")
-        repeat
-          header,e,b = client:receive()
-          if header then
-            local key,val = header:match("^(.-):%s*(.*)")
-            if key then headers[key:lower()] = val
-              if _debugFlags.webServer then Log(LOG.SYS,"WS: Header:%s",header) end
-            elseif header~="" and _debugFlags.webServer then
-              Log(LOG.SYS,"WS: Unknown request data:%s",header or "nil") 
-            end
-          end
-          if header=="" then
-            if headers['content-length'] and tonumber(headers['content-length'])>0 then
-              body = client:receive(tonumber(headers['content-length']))
-              if _debugFlags.webServer then Log(LOG.SYS,"WS: Body:%s",body) end
-            end
-            header=nil
-          end
-        until header == nil or e == 'closed'
-        if _debugFlags.webServer or _debugFlags.webServerReq then Log(LOG.SYS,"WS: Request served:%s",l) end
-        if handler then handler(method,client,call,body,headers) end
-        client:close()
-        return
-      end
-    end
+    typeHierarchy = json.decode(typeHierarchy) 
+    return json
   end
 
-  local Pages = nil
-  local lastDeviceUpdate = 0
+--------------- Webserver API support  ----------------
+  function module.WebAPI()
+    local self,split,urldecode = {},Util.split,Util.urldecode
+    local copas = hc3_emulator.copas
 
-  local GUI_HANDLERS = {  -- External calls
-    ["GET"] = {
-      ["/api/callAction%?deviceID=(%d+)&name=(%w+)(.*)"] = function(client,_,_,id,action,args)
-        local res = {}
-        args = split(args,"&")
-        for _,a in ipairs(args) do
-          local i,v = a:match("^arg(%d+)=(.*)")
-          res[tonumber(i)]=json.decode(urldecode(v))
+    local function clientHandler(client,handler)
+      local headers = {}
+      while true do
+        local l,_,_ = client:receive()
+        if _debugFlags.webServer or _debugFlags.webServerReq then Log(LOG.SYS,"WS: Request:%s",l) end
+        if l then
+          local body,header,e,b
+          local method,call = l:match("^(%w+) (.*) HTTP/1.1")
+          repeat
+            header,e,b = client:receive()
+            if header then
+              local key,val = header:match("^(.-):%s*(.*)")
+              if key then headers[key:lower()] = val
+                if _debugFlags.webServer then Log(LOG.SYS,"WS: Header:%s",header) end
+              elseif header~="" and _debugFlags.webServer then
+                Log(LOG.SYS,"WS: Unknown request data:%s",header or "nil") 
+              end
+            end
+            if header=="" then
+              if headers['content-length'] and tonumber(headers['content-length'])>0 then
+                body = client:receive(tonumber(headers['content-length']))
+                if _debugFlags.webServer then Log(LOG.SYS,"WS: Body:%s",body) end
+              end
+              header=nil
+            end
+          until header == nil or e == 'closed'
+          if _debugFlags.webServer or _debugFlags.webServerReq then Log(LOG.SYS,"WS: Request served:%s",l) end
+          if handler then handler(method,client,call,body,headers) end
+          client:close()
+          return
         end
-        local stat,res2=pcall(onAction,{actionName=action,deviceId=tonumber(id),args=res})
-        if not stat then Log(LOG.ERROR,"Bad eventCall:%s",res2) end
-        client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n\n")
-        return true
-      end,
-      ["/web/(.*)"] = function(client,_,_,call)
-        if call=="" then call="main" end
-        local qp = call:match("quickApp/(%d+)")
-        if qp then call,qp = "quickApp",tonumber(qp) end
-        local page = Pages.getPath(call,qp,quickApps[qp])
-        if page~=nil then client:send(page) return true
-        else return false end
-      end,
-      ["/fibaroapiHC3/ping"] = function(client,_,_,call)
-        client:send((
+      end
+    end
+
+    local Pages = nil
+    local lastDeviceUpdate = 0
+
+    local GUI_HANDLERS = {  -- External calls
+      ["GET"] = {
+        ["/api/callAction%?deviceID=(%d+)&name=(%w+)(.*)"] = function(client,_,_,id,action,args)
+          local res = {}
+          args = split(args,"&")
+          for _,a in ipairs(args) do
+            local i,v = a:match("^arg(%d+)=(.*)")
+            res[tonumber(i)]=json.decode(urldecode(v))
+          end
+          local stat,res2=pcall(onAction,{actionName=action,deviceId=tonumber(id),args=res})
+          if not stat then Log(LOG.ERROR,"Bad eventCall:%s",res2) end
+          client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n\n")
+          return true
+        end,
+        ["/web/(.*)"] = function(client,_,_,call)
+          if call=="" then call="main" end
+          local qp = call:match("quickApp/(%d+)")
+          if qp then call,qp = "quickApp",tonumber(qp) end
+          local page = Pages.getPath(call,qp,quickApps[qp])
+          if page~=nil then client:send(page) return true
+          else return false end
+        end,
+        ["/fibaroapiHC3/ping"] = function(client,_,_,call)
+          client:send((
 [[HTTP/1.1 200 OK
 Content-Length: 0
 Content-Type: text/html
 Connection: Closed
 
 ]]):gsub("\n","\r\n"))
-        return true
-      end,
-      ["/fibaroapiHC3/webQA2/(%d+)%?(.*)"] = function(client,headers,_,id,args)
-        local res = {}
-        id = tonumber(id)
-        args = split(args,"&")
-        for _,a in ipairs(args) do
-          local i,v = a:match("^(%w+)=(.*)")
-          res[i]=v
-        end
-        local qa = quickApps[id]
-        if not qa then return end
-        local slideCache = qa._emu.slideCache
-        if res.type=='values' then
-          local UI,res = qa._emu.UI or {},{}
-          for _,row in ipairs(UI or {}) do
-            row = row[1] and row or {row}
-            for _,e in ipairs(row) do 
-              if e.type=='button' then 
-                res["#"..e.button]={f="text",v=QA.getWebUIValue(id,e.button,"text")}
-              elseif e.type=="label" then 
-                res["#"..e.label]={f="text",v=QA.getWebUIValue(id,e.label,"text")}
-              elseif e.type =="slider" then
-                local val = QA.getWebUIValue(id,e.slider,"value")
-                if slideCache[e.slider] ~= val then
-                  slideCache[e.slider] = val
-                  res["#"..e.slider]={f="val",v=val}
-                  res["#"..e.slider.."I"]={f="text",v=val}
+          return true
+        end,
+        ["/fibaroapiHC3/webQA2/(%d+)%?(.*)"] = function(client,headers,_,id,args)
+          local res = {}
+          id = tonumber(id)
+          args = split(args,"&")
+          for _,a in ipairs(args) do
+            local i,v = a:match("^(%w+)=(.*)")
+            res[i]=v
+          end
+          local qa = quickApps[id]
+          if not qa then return end
+          local slideCache = qa._emu.slideCache
+          if res.type=='values' then
+            local UI,res = qa._emu.UI or {},{}
+            for _,row in ipairs(UI or {}) do
+              row = row[1] and row or {row}
+              for _,e in ipairs(row) do 
+                if e.type=='button' then 
+                  res["#"..e.button]={f="text",v=QA.getWebUIValue(id,e.button,"text")}
+                elseif e.type=="label" then 
+                  res["#"..e.label]={f="text",v=QA.getWebUIValue(id,e.label,"text")}
+                elseif e.type =="slider" then
+                  local val = QA.getWebUIValue(id,e.slider,"value")
+                  if slideCache[e.slider] ~= val then
+                    slideCache[e.slider] = val
+                    res["#"..e.slider]={f="val",v=val}
+                    res["#"..e.slider.."I"]={f="text",v=val}
+                  end
                 end
               end
             end
+            res = json.encode(res)
+            client:send("HTTP/1.1 200 OK\n")
+            client:send("Access-Control-Allow-Headers: Origin\n")
+            client:send("Access-Control-Allow-Origin: *\n")
+            client:send("Content-Type: application/json; charset=utf-8\n")
+            client:send("Content-Length: "..res:len())
+            client:send("\n\n")
+            client:send(res)    
+          else
+            if res.type=='btn' then
+              onUIEvent({eventType='onReleased',values={},elementName=res.id,deviceId=id})
+            elseif res.type=='slider' then
+              onUIEvent({eventType='onChanged',values={tonumber(res.val)},elementName=res.id,deviceId=id})
+              QA.setWebUIValue(id,res.id,'value',tonumber(res.val))
+            end
+            client:send("HTTP/1.1 302 Found\nLocation: "..(headers['referer'] or "/web/main").."\n")
+            client:send("Access-Control-Allow-Headers: Origin\n")
+            client:send("Access-Control-Allow-Origin: *\n")
           end
+        end,
+        ["/fibaroapiHC3/webCMD%?(.*)"] = function(client,headers,_,args)
+          local res = {}
+          args = split(args,"&")
+          for _,a in ipairs(args) do
+            local i,v = a:match("^(%w+)=(.*)")
+            res[i]=v
+          end
+          fibaro.call(tonumber(res.id),res.cmd,res.cmd=='setValue' and res.value)
+          client:send("HTTP/1.1 302 Found\nLocation: "..(headers['referer'] or "/web/main").."\n")
+          client:send("Access-Control-Allow-Headers: Origin\n")
+          client:send("Access-Control-Allow-Origin: *\n")
+        end,
+        ["/fibaroapiHC3/webDEV"] = function(client,_,_,_)
+          local res = {}
+          for id,str in pairs(Trigger.cacheStore.devices or {}) do
+            if str.value then
+              if str.value.modified >= lastDeviceUpdate then
+                local r = str.value.value
+                if type(r)=='number' then r=r>0 end
+                res["#D"..id] = r and "#00FF00" or "lightgrey"
+                if tonumber(str.value.value) then 
+                  res[tostring(id)] = tostring(str.value.value)
+                end
+                --Log(LOG.LOG,"Update %s, %s",id,str.value.value)
+              end
+            end
+          end
+          lastDeviceUpdate = os.time()
           res = json.encode(res)
           client:send("HTTP/1.1 200 OK\n")
           client:send("Access-Control-Allow-Headers: Origin\n")
@@ -6289,225 +6361,177 @@ Connection: Closed
           client:send("Content-Type: application/json; charset=utf-8\n")
           client:send("Content-Length: "..res:len())
           client:send("\n\n")
-          client:send(res)    
-        else
-          if res.type=='btn' then
-            onUIEvent({eventType='onReleased',values={},elementName=res.id,deviceId=id})
-          elseif res.type=='slider' then
-            onUIEvent({eventType='onChanged',values={tonumber(res.val)},elementName=res.id,deviceId=id})
-            QA.setWebUIValue(id,res.id,'value',tonumber(res.val))
-          end
-          client:send("HTTP/1.1 302 Found\nLocation: "..(headers['referer'] or "/web/main").."\n")
-          client:send("Access-Control-Allow-Headers: Origin\n")
-          client:send("Access-Control-Allow-Origin: *\n")
-        end
-      end,
-      ["/fibaroapiHC3/webCMD%?(.*)"] = function(client,headers,_,args)
-        local res = {}
-        args = split(args,"&")
-        for _,a in ipairs(args) do
-          local i,v = a:match("^(%w+)=(.*)")
-          res[i]=v
-        end
-        fibaro.call(tonumber(res.id),res.cmd,res.cmd=='setValue' and res.value)
-        client:send("HTTP/1.1 302 Found\nLocation: "..(headers['referer'] or "/web/main").."\n")
-        client:send("Access-Control-Allow-Headers: Origin\n")
-        client:send("Access-Control-Allow-Origin: *\n")
-      end,
-      ["/fibaroapiHC3/webDEV"] = function(client,_,_,_)
-        local res = {}
-        for id,str in pairs(Trigger.cacheStore.devices or {}) do
-          if str.value then
-            if str.value.modified >= lastDeviceUpdate then
-              local r = str.value.value
-              if type(r)=='number' then r=r>0 end
-              res["#D"..id] = r and "#00FF00" or "lightgrey"
-              if tonumber(str.value.value) then 
-                res[tostring(id)] = tostring(str.value.value)
-              end
-              --Log(LOG.LOG,"Update %s, %s",id,str.value.value)
+          client:send(res) 
+        end,
+      },
+      ["POST"] = {
+        ["/fibaroapiHC3/event"] = function(_,_,_,_,_,_)
+          --- ToDo
+        end,
+        ["/fibaroapiHC3/action/(.+)$"] = function(client,_,body,_) 
+          local stat,res = pcall(onAction,(json.decode(body)))
+          if not  stat then Log(LOG.ERROR,res) end
+          client:send("HTTP/1.1 201 Created\r\nETag: \"c180de84f991g8\"\r\n\r\n")
+          return true
+        end,
+        ["/fibaroapiHC3/ui/(.+)$"] = function(client,_,body,_) 
+          local stat,res = pcall(onUIEvent,(json.decode(body)))
+          if not  stat then Log(LOG.ERROR,res) end
+          client:send("HTTP/1.1 201 Created\r\nETag: \"c180de84f991g8\"\r\n\r\n")
+          return true
+        end,
+        ["/devices/(%d+)/action/(.+)$"] = function(client,_,body,id,action) 
+          local data = json.decode(body)
+          local event = {actionName=action,deviceId=tonumber(id),args=data.args}
+          local stat,err=pcall(onAction,event)
+          if not stat then error(format("Bad fibaro.call(%s,'%s',%s) - %s",id,action,json.encode(data.args):sub(2,-2),err),4) end
+          client:send("HTTP/1.1 201 Created\r\nETag: \"c180de84f991g8\"\r\n\r\n")
+          return true
+        end,
+      }
+    }
+
+    local function GUIhandler(method,client,call,body,headers) 
+      local stat,res = pcall(function()
+          for p,h in pairs(GUI_HANDLERS[method] or {}) do
+            local match = {call:match(p)}
+            if match and #match>0 then
+              if h(client,headers,body,table.unpack(match)) then return end
             end
           end
-        end
-        lastDeviceUpdate = os.time()
-        res = json.encode(res)
-        client:send("HTTP/1.1 200 OK\n")
-        client:send("Access-Control-Allow-Headers: Origin\n")
-        client:send("Access-Control-Allow-Origin: *\n")
-        client:send("Content-Type: application/json; charset=utf-8\n")
-        client:send("Content-Length: "..res:len())
-        client:send("\n\n")
-        client:send(res) 
-      end,
-    },
-    ["POST"] = {
-      ["/fibaroapiHC3/event"] = function(_,_,_,_,_,_)
-        --- ToDo
-      end,
-      ["/fibaroapiHC3/action/(.+)$"] = function(client,_,body,_) 
-        local stat,res = pcall(onAction,(json.decode(body)))
-        if not  stat then Log(LOG.ERROR,res) end
-        client:send("HTTP/1.1 201 Created\r\nETag: \"c180de84f991g8\"\r\n\r\n")
-        return true
-      end,
-      ["/fibaroapiHC3/ui/(.+)$"] = function(client,_,body,_) 
-        local stat,res = pcall(onUIEvent,(json.decode(body)))
-        if not  stat then Log(LOG.ERROR,res) end
-        client:send("HTTP/1.1 201 Created\r\nETag: \"c180de84f991g8\"\r\n\r\n")
-        return true
-      end,
-      ["/devices/(%d+)/action/(.+)$"] = function(client,_,body,id,action) 
-        local data = json.decode(body)
-        local event = {actionName=action,deviceId=tonumber(id),args=data.args}
-        local stat,err=pcall(onAction,event)
-        if not stat then error(format("Bad fibaro.call(%s,'%s',%s) - %s",id,action,json.encode(data.args):sub(2,-2),err),4) end
-        client:send("HTTP/1.1 201 Created\r\nETag: \"c180de84f991g8\"\r\n\r\n")
-        return true
-      end,
-    }
-  }
-
-  local function GUIhandler(method,client,call,body,headers) 
-    local stat,res = pcall(function()
-        for p,h in pairs(GUI_HANDLERS[method] or {}) do
-          local match = {call:match(p)}
-          if match and #match>0 then
-            if h(client,headers,body,table.unpack(match)) then return end
-          end
-        end
-        client:send("HTTP/1.1 501 Not Implemented\nLocation: "..(headers['referer'] or "/emu/triggers").."\n")
-      end)
-    if not stat then
-      Log(LOG.ERROR,"Bad API call:%s",res)
-      --local p = Pages.renderError(res)
-      --client:send(p)
+          client:send("HTTP/1.1 501 Not Implemented\nLocation: "..(headers['referer'] or "/emu/triggers").."\n")
+        end)
+      if not stat then
+        Log(LOG.ERROR,"Bad API call:%s",res)
+        --local p = Pages.renderError(res)
+        --client:send(p)
+      end
     end
-  end
 
 --  local socket = require'socket'
-  function self.eventServer(port) 
-    local server,msg,i = socket.bind("*", port)
-    assert(server,(msg or "").." ,port "..port)
-    i, msg = server:getsockname()
-    assert(i, msg)
-    copas.addserver(server, 
-      function(sock)
-        clientHandler(copas.wrap(sock),GUIhandler)
-      end)
-    Log(LOG.SYS,"Created Event server at %s:%s",hc3_emulator.IPaddress ,port)
-  end
+    function self.eventServer(port) 
+      local server,msg,i = socket.bind("*", port)
+      assert(server,(msg or "").." ,port "..port)
+      i, msg = server:getsockname()
+      assert(i, msg)
+      copas.addserver(server, 
+        function(sock)
+          clientHandler(copas.wrap(sock),GUIhandler)
+        end)
+      Log(LOG.SYS,"Created Event server at %s:%s",hc3_emulator.IPaddress ,port)
+    end
 
-  local terminalCommands = {
-    log = function(skt,str)
-      local p = str:match("^log (.*)")
-      if not p or p=="" then p = ".*" end
-      local s = terminals[p] or {}
-      s[skt]=true
-      terminals[p] = s
-    end,
-    quit = function(skt,_)
-      for p,s in pairs(terminals) do
-        s[skt] = nil
-        if next(s)==nil then terminals[p]=nil end
-      end
-      return 'break'
-    end,
-    help = function(skt,_)
-      copas.send(skt,
+    local terminalCommands = {
+      log = function(skt,str)
+        local p = str:match("^log (.*)")
+        if not p or p=="" then p = ".*" end
+        local s = terminals[p] or {}
+        s[skt]=true
+        terminals[p] = s
+      end,
+      quit = function(skt,_)
+        for p,s in pairs(terminals) do
+          s[skt] = nil
+          if next(s)==nil then terminals[p]=nil end
+        end
+        return 'break'
+      end,
+      help = function(skt,_)
+        copas.send(skt,
 [[quit - close socket
 log <pattern> - captures log output where tag matches pattern
 help - this text
 <any other string> - interpreted as lua code and is loaded and executed
 ]]) 
-    end
-  }
+      end
+    }
 
-  function self.terminalServer(port)
-    local server,msg,i = socket.bind("*", port)
-    assert(server,(msg or "").." ,port "..port)
-    i, msg = server:getsockname()
-    assert(i, msg)
-    local function echoHandler(skt)
-      while true do
-        local data = copas.receive(skt)
-        local cr = 'lua'
-        for c,f in pairs(terminalCommands) do
-          if data:match("^"..c) then cr = f(skt,data) end
-        end
-        if cr == 'break' then break end
-        if cr == 'lua' then
-          local stat,res = pcall(function()
-              return load("return "..data,"terminal","bt")()
-            end)
-          if stat then copas.send(skt, Util.prettyJson(res).."\n")
-          else copas.send(skt, tostring(res).."\n") end
+    function self.terminalServer(port)
+      local server,msg,i = socket.bind("*", port)
+      assert(server,(msg or "").." ,port "..port)
+      i, msg = server:getsockname()
+      assert(i, msg)
+      local function echoHandler(skt)
+        while true do
+          local data = copas.receive(skt)
+          local cr = 'lua'
+          for c,f in pairs(terminalCommands) do
+            if data:match("^"..c) then cr = f(skt,data) end
+          end
+          if cr == 'break' then break end
+          if cr == 'lua' then
+            local stat,res = pcall(function()
+                return load("return "..data,"terminal","bt")()
+              end)
+            if stat then copas.send(skt, Util.prettyJson(res).."\n")
+            else copas.send(skt, tostring(res).."\n") end
+          end
         end
       end
+      copas.addserver(server,echoHandler)
+      Log(LOG.SYS,"Created Terminal server at %s:%s",hc3_emulator.IPaddress, port)
     end
-    copas.addserver(server,echoHandler)
-    Log(LOG.SYS,"Created Terminal server at %s:%s",hc3_emulator.IPaddress, port)
-  end
 
-  Pages = { pages={} }
+    Pages = { pages={} }
 
-  function Pages.register(path,page)
-    local file = page:match("^file:(.*)")
-    if file then
-      local f = io.open(file)
-      if not f then error("No such file:"..file) end
-      page = f:read("*all")
-      f:close()
+    function Pages.register(path,page)
+      local file = page:match("^file:(.*)")
+      if file then
+        local f = io.open(file)
+        if not f then error("No such file:"..file) end
+        page = f:read("*all")
+        f:close()
+      end
+      Pages.pages[path]={page=page, path=path}
+      return Pages.pages[path]
     end
-    Pages.pages[path]={page=page, path=path}
-    return Pages.pages[path]
-  end
 
-  function Pages.getPath(path,...)
-    local p = Pages.pages[path]
-    if p and not p.cpage then
-      Pages.compile(p)
+    function Pages.getPath(path,...)
+      local p = Pages.pages[path]
+      if p and not p.cpage then
+        Pages.compile(p)
+      end
+      if p then return Pages.render(p,...)
+      else return nil end
     end
-    if p then return Pages.render(p,...)
-    else return nil end
-  end
 
-  function Pages.renderError(msg) return format(Pages.P_ERROR1,msg) end
+    function Pages.renderError(msg) return format(Pages.P_ERROR1,msg) end
 
-  function Pages.render(p,...)
-    if p.static and p.static~=true then return p.static end
-    local args = {...}
-    local stat,res = pcall(function()
-        local fs = {}
-        for i,f in ipairs(p.funs) do fs[i]=f(table.unpack(args)) end -- can't yield across :gsub...
-        return p.cpage:gsub("<<<(%d+)>>>",function(i) return tostring(fs[tonumber(i)]) end)
-      end)
-    if not stat then
-      return Pages.renderError(res)
-    else
-      p.static = p.static and res
-      return res
+    function Pages.render(p,...)
+      if p.static and p.static~=true then return p.static end
+      local args = {...}
+      local stat,res = pcall(function()
+          local fs = {}
+          for i,f in ipairs(p.funs) do fs[i]=f(table.unpack(args)) end -- can't yield across :gsub...
+          return p.cpage:gsub("<<<(%d+)>>>",function(i) return tostring(fs[tonumber(i)]) end)
+        end)
+      if not stat then
+        return Pages.renderError(res)
+      else
+        p.static = p.static and res
+        return res
+      end
     end
-  end
 
-  function Pages.compile(p)
-    local funs={}
-    p.cpage=p.page:gsub("<<<(.-)>>>",
-      function(code)
-        local LENV = {
-          ["Web"]=Web,["Pages"]=Pages,hc3_emulator=hc3_emulator,
-          ["FIBAROAPIHC3_VERSION"] = FIBAROAPIHC3_VERSION,
-          quickApps = quickApps, scenes = scenes
-        }
-        local f = format("return function(a1,a2,a3) %s end",code)
-        f,m = load(f,nil,nil,LENV)()
-        if m then Log(LOG.ERROR,"ERROR RENDERING PAGE %s, %s",p.path,m) end
-        funs[#funs+1]=f
-        return (format("<<<%s>>>",#funs))
-      end)
-    p.funs=funs
-  end
+    function Pages.compile(p)
+      local funs={}
+      p.cpage=p.page:gsub("<<<(.-)>>>",
+        function(code)
+          local LENV = {
+            ["Web"]=Web,["Pages"]=Pages,hc3_emulator=hc3_emulator,
+            ["FIBAROAPIHC3_VERSION"] = FIBAROAPIHC3_VERSION,
+            quickApps = quickApps, scenes = scenes
+          }
+          local f = format("return function(a1,a2,a3) %s end",code)
+          f,m = load(f,nil,nil,LENV)()
+          if m then Log(LOG.ERROR,"ERROR RENDERING PAGE %s, %s",p.path,m) end
+          funs[#funs+1]=f
+          return (format("<<<%s>>>",#funs))
+        end)
+      p.funs=funs
+    end
 
-  Pages.P_ERROR1 =
+    Pages.P_ERROR1 =
 [[HTTP/1.1 200 OK
 Content-Type: text/html
 Cache-Control: no-cache, no-store, must-revalidate
@@ -6524,7 +6548,7 @@ Cache-Control: no-cache, no-store, must-revalidate
 </html>
 ]]
 
-  Pages.P_MAIN =
+    Pages.P_MAIN =
 [[HTTP/1.1 200 OK
 Content-Type: text/html
 
@@ -6553,9 +6577,9 @@ Content-Type: text/html
 </html>
 ]]
 
-  Pages.register("main",Pages.P_MAIN).static=false
+    Pages.register("main",Pages.P_MAIN).static=false
 
-  Pages.P_DEVICES =
+    Pages.P_DEVICES =
 [[HTTP/1.1 200 OK
 Access-Control-Allow-Origin: *
 Access-Control-Allow-Headers: Origin
@@ -6649,8 +6673,8 @@ tr:nth-child(even) {
 </html>
 ]]
 
-  function Pages.renderSwitch(d)
-    local ctrl = 
+    function Pages.renderSwitch(d)
+      local ctrl = 
 [[<tr >
 <td style="width:30px"><label>%s</label></td>
 <td style="width:150px"><label>%s</label></td>
@@ -6659,11 +6683,11 @@ tr:nth-child(even) {
 <td><button type="button" onClick="QAbutton(%s,'turnOff');">Turn Off</button></td>
 </tr>
 ]]
-    return ctrl:format(d.id,d.name,d.id,d.id,d.id)
-  end
+      return ctrl:format(d.id,d.name,d.id,d.id,d.id)
+    end
 
-  function Pages.renderMultilevel(d)
-    local ctrl =
+    function Pages.renderMultilevel(d)
+      local ctrl =
 [[<tr >
 <td style="width:40px"><label>%s</label></td>
 <td style="width:200px"><label>%s</label></td>
@@ -6679,55 +6703,55 @@ tr:nth-child(even) {
 <td><label id="L%s">0</label></td>
 </tr>
 ]]
-    return 
-    ctrl:format(d.id,d.name,d.id,d.id,d.id,fibaro.getValue(d.id,"value"),d.id,d.id,d.id,d.id,d.id)
-  end
-
-
-  local devicesCache = nil
-  local globalsCache = nil
-  function self.invalidateDevicesPage() devicesCache = nil end
-  function self.invalidateGlobalsPage() end-- globalsCache = nil end
-
-  function self.generateDeviceList()
-    if devicesCache then return devicesCache end
-    local code = {}
-    local devs = {}
-    for _,d in ipairs(api.get("/devices") or {}) do
-      local actions = d.actions or {}
-      if actions.turnOn and actions.setValue then
-        devs[#devs+1]={d.id,Pages.renderMultilevel(d)}
-      elseif actions.turnOn then
-        devs[#devs+1]={d.id,Pages.renderSwitch(d)}
-      end
+      return 
+      ctrl:format(d.id,d.name,d.id,d.id,d.id,fibaro.getValue(d.id,"value"),d.id,d.id,d.id,d.id,d.id)
     end
-    table.sort(devs,function(a,b) return a[1] <= b[1] end)
-    for _,d in ipairs(devs) do code[#code+1]=d[2] end
-    devicesCache = table.concat(code,"")
-    return devicesCache
-  end
 
-  Pages.register("devices",Pages.P_DEVICES).static=false
 
-  function self.generateGlobalList()
-    if globalsCache then return globalsCache end
-    local code = {}
-    local glob=
+    local devicesCache = nil
+    local globalsCache = nil
+    function self.invalidateDevicesPage() devicesCache = nil end
+    function self.invalidateGlobalsPage() end-- globalsCache = nil end
+
+    function self.generateDeviceList()
+      if devicesCache then return devicesCache end
+      local code = {}
+      local devs = {}
+      for _,d in ipairs(api.get("/devices") or {}) do
+        local actions = d.actions or {}
+        if actions.turnOn and actions.setValue then
+          devs[#devs+1]={d.id,Pages.renderMultilevel(d)}
+        elseif actions.turnOn then
+          devs[#devs+1]={d.id,Pages.renderSwitch(d)}
+        end
+      end
+      table.sort(devs,function(a,b) return a[1] <= b[1] end)
+      for _,d in ipairs(devs) do code[#code+1]=d[2] end
+      devicesCache = table.concat(code,"")
+      return devicesCache
+    end
+
+    Pages.register("devices",Pages.P_DEVICES).static=false
+
+    function self.generateGlobalList()
+      if globalsCache then return globalsCache end
+      local code = {}
+      local glob=
 [[
 <tr>
 <td style="width:200px"><label>%s</label></td>
 <td><input type="text" class="form-control" placeHolder='%s' id="99"></td>
 </tr>
 ]]
-    for _,g in ipairs(api.get("/globalVariables") or {}) do
-      code[#code+1]=glob:format(g.name,g.value)
+      for _,g in ipairs(api.get("/globalVariables") or {}) do
+        code[#code+1]=glob:format(g.name,g.value)
+      end
+      table.sort(code)
+      globalsCache = table.concat(code,"")
+      return globalsCache
     end
-    table.sort(code)
-    globalsCache = table.concat(code,"")
-    return globalsCache
-  end
 
-  Pages.P_GLOBALS =
+    Pages.P_GLOBALS =
 [[HTTP/1.1 200 OK
 Content-Type: text/html
 
@@ -6772,9 +6796,9 @@ tr:nth-child(even) {
 </html>
 ]]
 
-  Pages.register("globals",Pages.P_GLOBALS).static=false
+    Pages.register("globals",Pages.P_GLOBALS).static=false
 
-  Pages.P_EVENTS =
+    Pages.P_EVENTS =
 [[HTTP/1.1 200 OK
 Content-Type: text/html
 
@@ -6814,9 +6838,9 @@ tr:nth-child(even) {
 </html>
 ]]
 
-  Pages.register("events",Pages.P_EVENTS).static=false
+    Pages.register("events",Pages.P_EVENTS).static=false
 
-  Pages.P_QA =
+    Pages.P_QA =
 [[HTTP/1.1 200 OK
 Content-Type: text/html
 Access-Control-Allow-Origin: *
@@ -6897,44 +6921,44 @@ button.button1 { width: 287px; }
 </html>
 ]]
 
-  Pages.register("quickApp",Pages.P_QA).static=false
+    Pages.register("quickApp",Pages.P_QA).static=false
 
-  function Pages.renderButton(id,name,c)
-    return format([[<button class="button%d" id="%s" onClick="QAbutton('%s');">%s</button>]],c,id,id,name)
-  end
-  function Pages.renderLabel(id,text)
-    return format([[<label class="label" id="%s">%s</label>]],id,text)
-  end
-  function Pages.renderSlider(id,_,value)
-    return format([[<input class="form-control-range" min="0" max="255"
+    function Pages.renderButton(id,name,c)
+      return format([[<button class="button%d" id="%s" onClick="QAbutton('%s');">%s</button>]],c,id,id,name)
+    end
+    function Pages.renderLabel(id,text)
+      return format([[<label class="label" id="%s">%s</label>]],id,text)
+    end
+    function Pages.renderSlider(id,_,value)
+      return format([[<input class="form-control-range" min="0" max="255"
         type="range" id="%s" value="%s" style="width: 287px;"
         onmouseup="QAslider('%s',value);"
         onchange="$('#%sI').text(value);">
         <label class="slider" id="%sI">0</label>]],id,value,id,id,id,id)
-  end
-
-  function self.generateQA_UI(qa)
-    local code = {}
-    local function add(str) code[#code+1]=str end
-    local UI,id = qa._emu.UI,qa.id
-    for _,row in ipairs(UI or {}) do
-      row = row[1] and row or {row}
-      for _,e in ipairs(row) do
-        if e.type=='button' or e.button then
-          add(Pages.renderButton(e.button,QA.getWebUIValue(id,e.button,"text"),#row))
-        elseif e.type=="label" or e.label then
-          add(Pages.renderLabel(e.label,QA.getWebUIValue(id,e.label,"text")))
-        elseif e.type =="slider" or e.slider then
-          add(Pages.renderSlider(e.slider,e.text,QA.getWebUIValue(id,e.slider,"value")))
-        end
-        add("&nbsp;")
-      end
-      add("</p>")
     end
-    return table.concat(code)
-  end
 
-  self._PAGE_HEADER =
+    function self.generateQA_UI(qa)
+      local code = {}
+      local function add(str) code[#code+1]=str end
+      local UI,id = qa._emu.UI,qa.id
+      for _,row in ipairs(UI or {}) do
+        row = row[1] and row or {row}
+        for _,e in ipairs(row) do
+          if e.type=='button' or e.button then
+            add(Pages.renderButton(e.button,QA.getWebUIValue(id,e.button,"text"),#row))
+          elseif e.type=="label" or e.label then
+            add(Pages.renderLabel(e.label,QA.getWebUIValue(id,e.label,"text")))
+          elseif e.type =="slider" or e.slider then
+            add(Pages.renderSlider(e.slider,e.text,QA.getWebUIValue(id,e.slider,"value")))
+          end
+          add("&nbsp;")
+        end
+        add("</p>")
+      end
+      return table.concat(code)
+    end
+
+    self._PAGE_HEADER =
 [[
 <!-- Bootstrap CSS -->
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
@@ -6942,14 +6966,14 @@ button.button1 { width: 287px; }
 <meta name="viewport" content="width=device-width, initial-scale=1">
 ]]
 
-  self._PAGE_FOOTER =
+    self._PAGE_FOOTER =
 [[
 <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.0/dist/umd/popper.min.js" integrity="sha384-Q6E9RHvbIyZFJoft+2mJbHaEWldlvI9IOYy5n3zV9zzTtmI3UksdQRVvoxMfooAo" crossorigin="anonymous"></script>
 <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/js/bootstrap.min.js" integrity="sha384-OgVRvuATP1z7JjHLkuOU7Xw704+h835Lr+6QL9UvYjZE3Ipu6Tp75j7Bh/kR0JKI" crossorigin="anonymous"></script>
 ]]
 
-  function self._PAGE_NAV()
-    local res = {
+    function self._PAGE_NAV()
+      local res = {
 [[<nav class="navbar navbar-expand-sm bg-light navbar-light">
   <ul class="navbar-nav">
     <li class="nav-item" id="mainN">
@@ -6964,1085 +6988,1086 @@ button.button1 { width: 287px; }
     <li class="nav-item" id="eventsN">
       <a class="nav-link" target="_self" href="/web/events">Events</a>
     </li>]]}
-    for _,v in pairs(quickApps) do
-      res[#res+1]=format([[<li class="nav-item" id="quickAppN">
+      for _,v in pairs(quickApps) do
+        res[#res+1]=format([[<li class="nav-item" id="quickAppN">
       <a class="nav-link" target="_self" href="/web/quickApp/%d">QA:%s</a>]],v.id,v.name)
-    end
-    res[#res+1]=[[
+      end
+      res[#res+1]=[[
   </ul>
 </nav>]]
-    return table.concat(res)
+      return table.concat(res)
+    end
+
+
+
+    return self
   end
-
-
-
-  return self
-end
 
 --------------- Offline support ----------------------
-function module.Files()
-  local self = {}
-  local lfs = require("lfs")
+  function module.Files()
+    local self = {}
+    local lfs = require("lfs")
 
-  -- File functions credit pkulchenko - ZeroBraneStudio
-  local win = (os.getenv('WINDIR') or (os.getenv('OS') or ''):match('[Ww]indows'))
-  and not (os.getenv('OSTYPE') or ''):match('cygwin') -- exclude cygwin
-  local arch          = win and "Windows" or "Linux" -- Host architecture
+    -- File functions credit pkulchenko - ZeroBraneStudio
+    local win = (os.getenv('WINDIR') or (os.getenv('OS') or ''):match('[Ww]indows'))
+    and not (os.getenv('OSTYPE') or ''):match('cygwin') -- exclude cygwin
+    local arch          = win and "Windows" or "Linux" -- Host architecture
 
-  local function path_separator() return arch == "Windows" and "\\" or "/" end
+    local function path_separator() return arch == "Windows" and "\\" or "/" end
 
-  local function escape_magic(str)
-    assert(type(str) == "string", "utils.escape: Argument 'str' is not a string.")
-    local escaped = str:gsub('[%-%.%+%[%]%(%)%^%%%?%*%^%$]','%%%1')
-    return escaped
-  end
-
-  local function exists(path)
-    assert(type(path) == "string", "sys.exists: Argument 'path' is not a string.")
-    local attr, err = lfs.attributes(path)
-    return (not not attr), err
-  end
-
-  local function is_root(path)
-    assert(type(path) == "string", "sys.is_root: Argument 'path' is not a string.")
-    return (not not path:find("^[a-zA-Z]:[/\\]$") or path:find("^[/\\]$"))
-  end
-
-  local function is_dir(dir)
-    assert(type(dir) == "string", "sys.is_dir: Argument 'dir' is not a string.")
-    return lfs.attributes(dir, "mode") == "directory"
-  end
-
-  local function current_dir()
-    local dir, err = lfs.currentdir()
-    if not dir then return nil, err end
-    return dir
-  end
-
-  local function get_directory(dir)
-    dir = dir or current_dir()
-    assert(type(dir) == "string", "sys.get_directory: Argument 'dir' is not a string.")
-    if is_dir(dir) then
-      return lfs.dir(dir)
-    else
-      return nil, "Error: '".. dir .. "' is not a directory."
+    local function escape_magic(str)
+      assert(type(str) == "string", "utils.escape: Argument 'str' is not a string.")
+      local escaped = str:gsub('[%-%.%+%[%]%(%)%^%%%?%*%^%$]','%%%1')
+      return escaped
     end
-  end
 
-  local function remove_trailing(path)
-    assert(type(path) == "string", "sys.remove_trailing: Argument 'path' is not a string.")
-    if path:sub(-1) == path_separator() and not is_root(path) then path = path:sub(1,-2) end
-    return path
-  end
-
-  local function remove_curr_dir_dots(path)
-    assert(type(path) == "string", "sys.remove_curr_dir_dots: Argument 'path' is not a string.")
-    while path:match(path_separator() .. "%." .. path_separator()) do                       -- match("/%./")
-      path = path:gsub(path_separator() .. "%." .. path_separator(), path_separator())    -- gsub("/%./", "/")
+    local function exists(path)
+      assert(type(path) == "string", "sys.exists: Argument 'path' is not a string.")
+      local attr, err = lfs.attributes(path)
+      return (not not attr), err
     end
-    return path:gsub(path_separator() .. "%.$", "")                                         -- gsub("/%.$", "")
-  end
 
-  local function extract_name(path)
-    assert(type(path) == "string", "sys.extract_name: Argument 'path' is not a string.")
-    if is_root(path) then return path end
-    path = remove_trailing(path)
-    path = path:gsub("^.*" .. path_separator(), "")
-    return path
-  end
-
-  local function make_path(...)
-    -- arg is deprecated in lua 5.2 in favor of table.pack we mimic here
-    local arg = {n=select('#',...),...}
-    local parts = arg
-    assert(type(parts) == "table", "make_path: Argument 'parts' is not a table.")
-
-    local path, err
-    if parts.n == 0 then
-      path, err = current_dir()
-    else
-      path, err = table.concat(parts, path_separator())
+    local function is_root(path)
+      assert(type(path) == "string", "sys.is_root: Argument 'path' is not a string.")
+      return (not not path:find("^[a-zA-Z]:[/\\]$") or path:find("^[/\\]$"))
     end
-    if not path then return nil, err end
 
-    -- squeeze repeated occurences of a file separator
-    path = path:gsub(path_separator() .. "+", path_separator())
-
-    -- remove unnecessary trailing path separator
-    path = remove_trailing(path)
-
-    return path
-  end
-
-  local function parent_dir(path)
-    assert(type(path) == "string", "sys.parent_dir: Argument 'path' is not a string.")
-    path = remove_curr_dir_dots(path)
-    path = remove_trailing(path)
-
-    local dir = path:gsub(escape_magic(extract_name(path)) .. "$", "")
-    if dir == "" then
-      return nil
-    else
-      return make_path(dir)
+    local function is_dir(dir)
+      assert(type(dir) == "string", "sys.is_dir: Argument 'dir' is not a string.")
+      return lfs.attributes(dir, "mode") == "directory"
     end
-  end
 
-  local function make_dir(dir_name)
-    assert(type(dir_name) == "string", "make_dir: Argument 'dir_name' is not a string.")
-    if exists(dir_name) then
-      return true
-    else
-      local par_dir = parent_dir(dir_name)
-      if par_dir then
-        local ok, err = make_dir(par_dir)
-        if not ok then return nil, err end
+    local function current_dir()
+      local dir, err = lfs.currentdir()
+      if not dir then return nil, err end
+      return dir
+    end
+
+    local function get_directory(dir)
+      dir = dir or current_dir()
+      assert(type(dir) == "string", "sys.get_directory: Argument 'dir' is not a string.")
+      if is_dir(dir) then
+        return lfs.dir(dir)
+      else
+        return nil, "Error: '".. dir .. "' is not a directory."
       end
-      return lfs.mkdir(dir_name)
     end
-  end
 
-  local function tmp_dir()
-    return os.getenv("TMPDIR") or os.getenv("TEMP") or os.getenv("TMP") or "/tmp"
-  end
-
-  local function tmp_name(prefix)
-    prefix = prefix or ""
-    assert(type(prefix) == "string", "sys.tmp_name: Argument 'prefix' is not a string.")
-    return make_path(tmp_dir(), prefix .. "luadist_" .. utils.rand(10000000000))
-  end
-
-  local function read(fn)
-    local f = io.open(fn,"r")
-    assert(f,"File "..fn.." doesn't exists")
-    local c = f:read("*all"); f:close()
-    return c
-  end
-
-  local function write(path,content,overwrite)
-    local n = extract_name(path)
-    local d = path:sub(1,-(n:len()+2))
-    if d:len()>0  then -- We have a dir
-      if not is_dir(d) then make_dir(d) end
+    local function remove_trailing(path)
+      assert(type(path) == "string", "sys.remove_trailing: Argument 'path' is not a string.")
+      if path:sub(-1) == path_separator() and not is_root(path) then path = path:sub(1,-2) end
+      return path
     end
-    local file = io.open(path,"w")
-    assert(file,"Can't openfile "..path)
-    file:write(content)
-    file:close()
-    Log(LOG.SYS,"Wrote file %s",path)
-  end
 
-  function self:getFiles(deviceId)
-    local res,code = api.get("/quickApp/"..deviceId.."/files")
-    return res or {},code
-  end
-
-  function self:updateFiles(deviceId,list)
-    return api.put("/quickApp/"..deviceId.."/files",list)
-  end
-
-  function self:createFile(deviceId,file,content)
-    if type(file)=='string' then
-      file = {isMain=false,type='lua',isOpen=false,name=file,content=""}
+    local function remove_curr_dir_dots(path)
+      assert(type(path) == "string", "sys.remove_curr_dir_dots: Argument 'path' is not a string.")
+      while path:match(path_separator() .. "%." .. path_separator()) do                       -- match("/%./")
+        path = path:gsub(path_separator() .. "%." .. path_separator(), path_separator())    -- gsub("/%./", "/")
+      end
+      return path:gsub(path_separator() .. "%.$", "")                                         -- gsub("/%.$", "")
     end
-    file.content = type(content)=='string' and content or file.content
-    return api.post("/quickApp/"..deviceId.."/files",file) 
-  end
 
-  function self:deleteFile(deviceId,file)
-    local name = type(file)=='table' and file.name or file
-    return api.delete("/quickApp/"..deviceId.."/files/"..name)
-  end
-
-  local function updateFiles(newFiles,id)
-    local oldFiles = self:getFiles(id)
-    local oldFilesMap = {}
-    local updateFiles,createFiles = {},{}
-    for _,f in ipairs(oldFiles) do oldFilesMap[f.name]=f end
-    for _,f in ipairs(newFiles) do
-      if oldFilesMap[f.name] then
-        updateFiles[#updateFiles+1]=f
-        oldFilesMap[f.name] = nil
-      else createFiles[#createFiles+1]=f end
+    local function extract_name(path)
+      assert(type(path) == "string", "sys.extract_name: Argument 'path' is not a string.")
+      if is_root(path) then return path end
+      path = remove_trailing(path)
+      path = path:gsub("^.*" .. path_separator(), "")
+      return path
     end
-    local _,res = self:updateFiles(id,updateFiles)  -- Update existing files
-    if res > 201 then return nil,res end
-    for _,f in ipairs(createFiles) do
-      local _,res = self:createFile(id,f)
+
+    local function make_path(...)
+      -- arg is deprecated in lua 5.2 in favor of table.pack we mimic here
+      local arg = {n=select('#',...),...}
+      local parts = arg
+      assert(type(parts) == "table", "make_path: Argument 'parts' is not a table.")
+
+      local path, err
+      if parts.n == 0 then
+        path, err = current_dir()
+      else
+        path, err = table.concat(parts, path_separator())
+      end
+      if not path then return nil, err end
+
+      -- squeeze repeated occurences of a file separator
+      path = path:gsub(path_separator() .. "+", path_separator())
+
+      -- remove unnecessary trailing path separator
+      path = remove_trailing(path)
+
+      return path
+    end
+
+    local function parent_dir(path)
+      assert(type(path) == "string", "sys.parent_dir: Argument 'path' is not a string.")
+      path = remove_curr_dir_dots(path)
+      path = remove_trailing(path)
+
+      local dir = path:gsub(escape_magic(extract_name(path)) .. "$", "")
+      if dir == "" then
+        return nil
+      else
+        return make_path(dir)
+      end
+    end
+
+    local function make_dir(dir_name)
+      assert(type(dir_name) == "string", "make_dir: Argument 'dir_name' is not a string.")
+      if exists(dir_name) then
+        return true
+      else
+        local par_dir = parent_dir(dir_name)
+        if par_dir then
+          local ok, err = make_dir(par_dir)
+          if not ok then return nil, err end
+        end
+        return lfs.mkdir(dir_name)
+      end
+    end
+
+    local function tmp_dir()
+      return os.getenv("TMPDIR") or os.getenv("TEMP") or os.getenv("TMP") or "/tmp"
+    end
+
+    local function tmp_name(prefix)
+      prefix = prefix or ""
+      assert(type(prefix) == "string", "sys.tmp_name: Argument 'prefix' is not a string.")
+      return make_path(tmp_dir(), prefix .. "_hc3emu_" ..(tostring({}):match("%d.*"))..".lua")
+    end
+
+    local function read(fn)
+      local f = io.open(fn,"r")
+      assert(f,"File "..fn.." doesn't exists")
+      local c = f:read("*all"); f:close()
+      return c
+    end
+
+    local function write(path,content,overwrite,silent)
+      local n = extract_name(path)
+      local d = path:sub(1,-(n:len()+2))
+      if d:len()>0  then -- We have a dir
+        if not is_dir(d) then make_dir(d) end
+      end
+      local file = io.open(path,"w")
+      assert(file,"Can't openfile "..path)
+      file:write(content)
+      file:close()
+      if not silent then Log(LOG.SYS,"Wrote file %s",path) end
+    end
+
+    function self:getFiles(deviceId)
+      local res,code = api.get("/quickApp/"..deviceId.."/files")
+      return res or {},code
+    end
+
+    function self:updateFiles(deviceId,list)
+      return api.put("/quickApp/"..deviceId.."/files",list)
+    end
+
+    function self:createFile(deviceId,file,content)
+      if type(file)=='string' then
+        file = {isMain=false,type='lua',isOpen=false,name=file,content=""}
+      end
+      file.content = type(content)=='string' and content or file.content
+      return api.post("/quickApp/"..deviceId.."/files",file) 
+    end
+
+    function self:deleteFile(deviceId,file)
+      local name = type(file)=='table' and file.name or file
+      return api.delete("/quickApp/"..deviceId.."/files/"..name)
+    end
+
+    local function updateFiles(newFiles,id)
+      local oldFiles = self:getFiles(id)
+      local oldFilesMap = {}
+      local updateFiles,createFiles = {},{}
+      for _,f in ipairs(oldFiles) do oldFilesMap[f.name]=f end
+      for _,f in ipairs(newFiles) do
+        if oldFilesMap[f.name] then
+          updateFiles[#updateFiles+1]=f
+          oldFilesMap[f.name] = nil
+        else createFiles[#createFiles+1]=f end
+      end
+      local _,res = self:updateFiles(id,updateFiles)  -- Update existing files
       if res > 201 then return nil,res end
+      for _,f in ipairs(createFiles) do
+        local _,res = self:createFile(id,f)
+        if res > 201 then return nil,res end
+      end
+      for _,f in pairs(oldFilesMap) do
+        local _,res = self:deleteFile(id,f)
+        if res > 201 then return nil,res end
+      end
+      return newFiles,200
     end
-    for _,f in pairs(oldFilesMap) do
-      local _,res = self:deleteFile(id,f)
-      if res > 201 then return nil,res end
+
+    local function downloadFile(url,path)
+      if hc3_emulator.zbsplug then Log(LOG.DEBUG,"Downloading %s %s",tostring(url),tostring(path)) end
+      net.HTTPClient({sync=true}):request(url,{
+          options={method="GET", checkCertificate = false, timeout=5000},
+          success=function(res)
+            if res.status == 200 then
+              Log(LOG.LOG,"Writing file %s",path)
+              local f = io.open(path,"w")
+              f:write(res.data)
+              f:close()
+            else
+              Log(LOG.ERROR,"Bad file - %s",url)
+            end
+          end,
+          error=function(res) Log(LOG.ERROR,"Reading file %s: %s",path,res) end,
+        })
     end
-    return newFiles,200
+
+    function self.deployQA(sourceFile) hc3_emulator.loadQA(sourceFile):upload() end
+
+    self.file = {
+      arch = arch,
+      escape_magic = escape_magic, --(str)
+      exists = exists, --(path)
+      tmp_name = tmp_name,
+      is_root = is_root, --(path)
+      is_dir = is_dir,
+      remove_trailing = remove_trailing, --(path)
+      remove_curr_dir_dots = remove_curr_dir_dots, --(path)
+      path_separator = path_separator, --()
+      extract_name = extract_name, --(path)
+      make_path = make_path, --(...)
+      parent_dir = parent_dir, --(path)
+      make_dir = make_dir, --(dir_name)
+      dir = get_directory, --(dir)
+      read = read,
+      write = write,
+      downloadFile = downloadFile,
+      updateFiles = updateFiles
+    }
+    return self
   end
 
-  local function downloadFile(url,path)
-    if hc3_emulator.zbsplug then Log(LOG.DEBUG,"Downloading %s %s",tostring(url),tostring(path)) end
-    net.HTTPClient({sync=true}):request(url,{
-        options={method="GET", checkCertificate = false, timeout=5000},
-        success=function(res)
-          if res.status == 200 then
-            Log(LOG.LOG,"Writing file %s",path)
-            local f = io.open(path,"w")
-            f:write(res.data)
-            f:close()
-          else
-            Log(LOG.ERROR,"Bad file - %s",url)
+--------------- Offline support ----------------------
+  function module.Offline(self)
+    local refreshStates,resources,offline = nil,nil,{}
+    local urldecode = Util.urldecode
+
+    local function mergeDeep(to,from)
+      if type(from) == 'table' then
+        if type(to)=='table' then
+          for k,v in pairs(from) do
+            if to[k] then to[k] = mergeDeep(to[k],v)
+            else to[k]=v end
+          end
+          return to
+        else return from end
+      else return from end
+    end
+
+    class 'O_Global'
+    function O_Global:__init(name,g)
+      self.readOnly = false
+      self.isEnum =  false
+      self.enumValues = {}
+      self.created = os.time()
+      self.modified = os.time()
+      self.name = name
+      mergeDeep(self,g or {})
+      if not hc3_emulator.loadingDB then
+        Log(LOG.SYS,"Global %s created",name)
+      end
+      if Web then Web.invalidateGlobalsPage() end
+    end
+
+    function O_Global:modify(data)
+      if self.value ~= data.value then
+        Trigger.checkEvents{
+          type='GlobalVariableChangedEvent',
+          data={variableName=self.name, newValue=data.value, oldValue=self.value}
+        }
+        self.value = data.value
+        self.modified = os.time()
+      end
+    end
+
+    class 'OfflineDevice'
+    function OfflineDevice:__init(id,type,base,data,className)
+      self.id = id
+      self.interfaces = data and data.interfaces or {"quickApp"}
+      self.name = data and data.name or "Device:"..id
+      self.baseType = data and data.baseType or base
+      self.type = data and data.type or type
+      self.properties={}
+      self.created = os.time()
+      self.modified = os.time()
+      if not Util.member("quickApp",self.interfaces) then
+        table.insert(self.interfaces,"quickApp")
+      end
+      mergeDeep(self,data or {})
+      self.propsModified={}
+      self._className=className or "OfflineDevice"
+      if not hc3_emulator.loadingDB then
+        Log(LOG.SYS,"'%s' (%s) created",self.name,self._className)
+      end
+      if Web then Web.invalidateDevicesPage() end
+    end
+
+    function OfflineDevice:updateProperty(prop,value)
+      Trigger.checkEvents{
+        type='DevicePropertyUpdatedEvent', 
+        data={id=self.id, property=prop, newValue=value, oldValue=self.properties[prop]}
+      }
+      self.propsModified[prop]=os.time()
+      self.properties[prop]=value
+    end
+
+    function OfflineDevice:modify(data)
+      for k,v in pairs(data) do
+        if k == 'properties' then
+          for k,v in pairs(v) do self:updateProperty(k,v) end
+        else self[k]=v end
+      end
+    end
+
+    function OfflineDevice:getProperty(prop)
+      return {
+        value=self.properties[prop],modified=self.propsModified[prop] or self.created
+      }
+    end
+
+    class 'BinarySwitch'(OfflineDevice)
+    function BinarySwitch:__init(id,type,base,data,className)
+      OfflineDevice.__init(self,id,type,base,data,className or "BinarySwitch")
+      self.properties.value = false
+      self.actions={turnOn=0,turnOff=0}
+    end
+
+    function BinarySwitch:turnOn()
+      if not self.value then
+        self:updateProperty('value',true)
+        self:updateProperty('state',true)
+      end
+    end
+
+    function BinarySwitch:turnOff()
+      if self.properties.value then
+        self:updateProperty('value',false)
+        self:updateProperty('state',false)
+      end
+    end
+
+    class 'MultilevelSwitch'(OfflineDevice)
+    function MultilevelSwitch:__init(id,type,base,data,className)
+      OfflineDevice.__init(self,id,type,base,data,className or "MultilevelSwitch")
+      self.properties.value = 0
+      self.actions={turnOn=0,turnOff=0,setValue=1}
+    end
+
+    function MultilevelSwitch:setValue(value)
+      if self.properties.value ~= value then
+        if value == 0 then
+          self:updateProperty('value',0)
+          self:updateProperty('state',false)
+        else
+          self:updateProperty('value',value)
+          self:updateProperty('state',false)
+        end
+      end
+    end
+
+    function MultilevelSwitch:turnOn() self:setValue(99) end
+    function MultilevelSwitch:turnOff() self:setValue(0) end
+
+    class 'BinarySensor'(BinarySwitch)
+    function BinarySensor:__init(id,type,base,data,className)
+      BinarySwitch.__init(self,id,type,base,data,className or "BinarySensor")
+    end
+
+    class 'MultilevelSensor'(MultilevelSwitch)
+    function MultilevelSensor:__init(id,type,base,data,className)
+      MultilevelSwitch.__init(self,id,type,base,data,className or "MultilevelSensor")
+    end
+
+    class 'HC_user'(OfflineDevice)
+    function HC_user:__init(id,type,base,data,className)
+      OfflineDevice.__init(self,id,type,base,data,className or "HC_user")
+      self.data.actions={sendPush=1,sendEmail=2}
+    end
+
+    function HC_user:sendPush(msg)
+      Log(LOG.LOG,"Push user:%s - %s",self.id,msg)
+    end
+
+    function HC_user:sendEmail(subject,body)
+      Log(LOG.LOG,"Email user:%s - %s,%s",self.id,subject,body)
+    end
+
+
+    local deviceClassMap = {
+      ["HC_user"]=HC_user,
+      ["com.fibaro.device"]=OfflineDevice,
+      ["com.fibaro.actor"]=OfflineDevice,
+      ["com.fibaro.voipUser"]=OfflineDevice,
+      ["com.fibaro.binarySensor"]=BinarySensor,
+      ["com.fibaro.binarySwitch"]=BinarySwitch,
+      ["com.fibaro.multilevelSensor"]=MultilevelSensor,
+      ["com.fibaro.multilevelSwitch"]=MultilevelSwitch,
+    }
+    local baseMap={}
+    function offline.createBaseMap()
+      local function findBase(h,t)
+        if type(h)=='table' then
+          if deviceClassMap[h.type] then t=h.type end
+          if t then baseMap[h.type]=t end
+          for _,c in ipairs(h.children or {}) do findBase(c,t) end
+        end
+      end
+      findBase(typeHierarchy,nil)
+      baseMap["HC_user"]="HC_user"
+    end
+
+    local function createBestDevice(type,data,force)
+      if hc3_emulator.autocreateDevices or force then
+        local base = baseMap[type] or "com.fibaro.multilevelSwitch"
+        local device = deviceClassMap[base](data.id,type,base,data)
+        return device
+      end
+    end
+
+    function makeRsrcTable(constructor)
+      local tab = {}
+      local mt = {
+        __index = function(_, index) -- get
+          if rawget(tab,index) then return rawget(tab,index)
+          elseif constructor then
+            local value = constructor(index)
+            if value then rawset(tab,index,value) end
+            return value
           end
         end,
-        error=function(res) Log(LOG.ERROR,"Reading file %s: %s",path,res) end,
-      })
-  end
-
-  function self.deployQA(sourceFile) hc3_emulator.loadQA(sourceFile):upload() end
-
-  self.file = {
-    arch = arch,
-    escape_magic = escape_magic, --(str)
-    exists = exists, --(path)
-    is_root = is_root, --(path)
-    is_dir = is_dir,
-    remove_trailing = remove_trailing, --(path)
-    remove_curr_dir_dots = remove_curr_dir_dots, --(path)
-    path_separator = path_separator, --()
-    extract_name = extract_name, --(path)
-    make_path = make_path, --(...)
-    parent_dir = parent_dir, --(path)
-    make_dir = make_dir, --(dir_name)
-    dir = get_directory, --(dir)
-    read = read,
-    write = write,
-    downloadFile = downloadFile,
-    updateFiles = updateFiles
-  }
-  return self
-end
-
---------------- Offline support ----------------------
-function module.Offline(self)
-  local refreshStates,resources,offline = nil,nil,{}
-  local urldecode = Util.urldecode
-
-  local function mergeDeep(to,from)
-    if type(from) == 'table' then
-      if type(to)=='table' then
-        for k,v in pairs(from) do
-          if to[k] then to[k] = mergeDeep(to[k],v)
-          else to[k]=v end
+        __newindex = function(_, index, value)
+          if constructor then
+            value = constructor(index,value)
+          end
+          rawset(tab,index,value)
         end
-        return to
-      else return from end
-    else return from end
-  end
-
-  class 'O_Global'
-  function O_Global:__init(name,g)
-    self.readOnly = false
-    self.isEnum =  false
-    self.enumValues = {}
-    self.created = os.time()
-    self.modified = os.time()
-    self.name = name
-    mergeDeep(self,g or {})
-    if not hc3_emulator.loadingDB then
-      Log(LOG.SYS,"Global %s created",name)
-    end
-    if Web then Web.invalidateGlobalsPage() end
-  end
-
-  function O_Global:modify(data)
-    if self.value ~= data.value then
-      Trigger.checkEvents{
-        type='GlobalVariableChangedEvent',
-        data={variableName=self.name, newValue=data.value, oldValue=self.value}
       }
-      self.value = data.value
-      self.modified = os.time()
+      setmetatable(tab,mt)
+      return tab
     end
-  end
 
-  class 'OfflineDevice'
-  function OfflineDevice:__init(id,type,base,data,className)
-    self.id = id
-    self.interfaces = data and data.interfaces or {"quickApp"}
-    self.name = data and data.name or "Device:"..id
-    self.baseType = data and data.baseType or base
-    self.type = data and data.type or type
-    self.properties={}
-    self.created = os.time()
-    self.modified = os.time()
-    if not Util.member("quickApp",self.interfaces) then
-      table.insert(self.interfaces,"quickApp")
-    end
-    mergeDeep(self,data or {})
-    self.propsModified={}
-    self._className=className or "OfflineDevice"
-    if not hc3_emulator.loadingDB then
-      Log(LOG.SYS,"'%s' (%s) created",self.name,self._className)
-    end
-    if Web then Web.invalidateDevicesPage() end
-  end
+    function globalCreator(name,data) return O_Global(name,data) end
 
-  function OfflineDevice:updateProperty(prop,value)
-    Trigger.checkEvents{
-      type='DevicePropertyUpdatedEvent', 
-      data={id=self.id, property=prop, newValue=value, oldValue=self.properties[prop]}
-    }
-    self.propsModified[prop]=os.time()
-    self.properties[prop]=value
-  end
-
-  function OfflineDevice:modify(data)
-    for k,v in pairs(data) do
-      if k == 'properties' then
-        for k,v in pairs(v) do self:updateProperty(k,v) end
-      else self[k]=v end
-    end
-  end
-
-  function OfflineDevice:getProperty(prop)
-    return {
-      value=self.properties[prop],modified=self.propsModified[prop] or self.created
-    }
-  end
-
-  class 'BinarySwitch'(OfflineDevice)
-  function BinarySwitch:__init(id,type,base,data,className)
-    OfflineDevice.__init(self,id,type,base,data,className or "BinarySwitch")
-    self.properties.value = false
-    self.actions={turnOn=0,turnOff=0}
-  end
-
-  function BinarySwitch:turnOn()
-    if not self.value then
-      self:updateProperty('value',true)
-      self:updateProperty('state',true)
-    end
-  end
-
-  function BinarySwitch:turnOff()
-    if self.properties.value then
-      self:updateProperty('value',false)
-      self:updateProperty('state',false)
-    end
-  end
-
-  class 'MultilevelSwitch'(OfflineDevice)
-  function MultilevelSwitch:__init(id,type,base,data,className)
-    OfflineDevice.__init(self,id,type,base,data,className or "MultilevelSwitch")
-    self.properties.value = 0
-    self.actions={turnOn=0,turnOff=0,setValue=1}
-  end
-
-  function MultilevelSwitch:setValue(value)
-    if self.properties.value ~= value then
-      if value == 0 then
-        self:updateProperty('value',0)
-        self:updateProperty('state',false)
-      else
-        self:updateProperty('value',value)
-        self:updateProperty('state',false)
-      end
-    end
-  end
-
-  function MultilevelSwitch:turnOn() self:setValue(99) end
-  function MultilevelSwitch:turnOff() self:setValue(0) end
-
-  class 'BinarySensor'(BinarySwitch)
-  function BinarySensor:__init(id,type,base,data,className)
-    BinarySwitch.__init(self,id,type,base,data,className or "BinarySensor")
-  end
-
-  class 'MultilevelSensor'(MultilevelSwitch)
-  function MultilevelSensor:__init(id,type,base,data,className)
-    MultilevelSwitch.__init(self,id,type,base,data,className or "MultilevelSensor")
-  end
-
-  class 'HC_user'(OfflineDevice)
-  function HC_user:__init(id,type,base,data,className)
-    OfflineDevice.__init(self,id,type,base,data,className or "HC_user")
-    self.data.actions={sendPush=1,sendEmail=2}
-  end
-
-  function HC_user:sendPush(msg)
-    Log(LOG.LOG,"Push user:%s - %s",self.id,msg)
-  end
-
-  function HC_user:sendEmail(subject,body)
-    Log(LOG.LOG,"Email user:%s - %s,%s",self.id,subject,body)
-  end
-
-
-  local deviceClassMap = {
-    ["HC_user"]=HC_user,
-    ["com.fibaro.device"]=OfflineDevice,
-    ["com.fibaro.actor"]=OfflineDevice,
-    ["com.fibaro.voipUser"]=OfflineDevice,
-    ["com.fibaro.binarySensor"]=BinarySensor,
-    ["com.fibaro.binarySwitch"]=BinarySwitch,
-    ["com.fibaro.multilevelSensor"]=MultilevelSensor,
-    ["com.fibaro.multilevelSwitch"]=MultilevelSwitch,
-  }
-  local baseMap={}
-  function offline.createBaseMap()
-    local function findBase(h,t)
-      if type(h)=='table' then
-        if deviceClassMap[h.type] then t=h.type end
-        if t then baseMap[h.type]=t end
-        for _,c in ipairs(h.children or {}) do findBase(c,t) end
-      end
-    end
-    findBase(typeHierarchy,nil)
-    baseMap["HC_user"]="HC_user"
-  end
-
-  local function createBestDevice(type,data,force)
-    if hc3_emulator.autocreateDevices or force then
-      local base = baseMap[type] or "com.fibaro.multilevelSwitch"
-      local device = deviceClassMap[base](data.id,type,base,data)
+    local function deviceCreator(id,data)
+      local base = baseMap[hc3_emulator.defaultDevice] or "com.fibaro.multilevelSwitch"
+      local device = deviceClassMap[base](id,hc3_emulator.defaultDevice,base,data)
       return device
     end
-  end
 
-  function makeRsrcTable(constructor)
-    local tab = {}
-    local mt = {
-      __index = function(_, index) -- get
-        if rawget(tab,index) then return rawget(tab,index)
-        elseif constructor then
-          local value = constructor(index)
-          if value then rawset(tab,index,value) end
-          return value
-        end
-      end,
-      __newindex = function(_, index, value)
-        if constructor then
-          value = constructor(index,value)
-        end
-        rawset(tab,index,value)
-      end
-    }
-    setmetatable(tab,mt)
-    return tab
-  end
-
-  function globalCreator(name,data) return O_Global(name,data) end
-
-  local function deviceCreator(id,data)
-    local base = baseMap[hc3_emulator.defaultDevice] or "com.fibaro.multilevelSwitch"
-    local device = deviceClassMap[base](id,hc3_emulator.defaultDevice,base,data)
-    return device
-  end
-
-  local function resourceStructure(flag)
-    return {
-      devices = flag and makeRsrcTable(deviceCreator) or {},
-      scenes = {},
-      globalVariables = flag and makeRsrcTable(globalCreator) or {},
-      customEvents = {},
-      rooms = {},
-      sections = {},
-      profiles = {},
-      settings = {
-        info = {},
-        location={},
-        network={},
-        led={}
-      },
-      users={},
-      weather={},
-      iosDevices={},
-      home={},
-      categories={},
-      alarms = {
-        v1 = {
-          devices = {},
-          history = {},
-          partitions = {},
+    local function resourceStructure(flag)
+      return {
+        devices = flag and makeRsrcTable(deviceCreator) or {},
+        scenes = {},
+        globalVariables = flag and makeRsrcTable(globalCreator) or {},
+        customEvents = {},
+        rooms = {},
+        sections = {},
+        profiles = {},
+        settings = {
+          info = {},
+          location={},
+          network={},
+          led={}
+        },
+        users={},
+        weather={},
+        iosDevices={},
+        home={},
+        categories={},
+        alarms = {
+          v1 = {
+            devices = {},
+            history = {},
+            partitions = {},
+          }
+        },
+        panels = {
+          family = {},
+          location = {},
+          notifications = {},
+          sprinkler = {},
+          humidity = {}
         }
-      },
-      panels = {
-        family = {},
-        location = {},
-        notifications = {},
-        sprinkler = {},
-        humidity = {}
       }
-    }
-  end
-
-  resources = resourceStructure(true)
-
-  offline.resources = resources
-
-  local function  readQuickAppFile(fname)
-    if fname==nil then return "" end
-    f = io.open(fname)
-    if f then
-      local c = f:read("*all")
-      f:close()
-      return c
-    else
-      Log(LOG.WARNING,"QuickApp file '%s' not found",fname)
     end
-  end
 
-  local function quickAppApi(id,name)
-    local files = quickApps[tonumber(id)]._emu.files
-    if name=="" then
-      local res = {}
-      for _,f in pairs(files) do
-        --local c = readQuickAppFile(f.fname) 
-        res[#res+1]={name=f.name,isMain=f.name=="main",isOpen=false,content=c}
+    resources = resourceStructure(true)
+
+    offline.resources = resources
+
+    local function  readQuickAppFile(fname)
+      if fname==nil then return "" end
+      f = io.open(fname)
+      if f then
+        local c = f:read("*all")
+        f:close()
+        return c
+      else
+        Log(LOG.WARNING,"QuickApp file '%s' not found",fname)
       end
-      return res
-    elseif name~="" then
-      for _,f in pairs(files) do
-        if f.name==name  then
-          --local c = readQuickAppFile(f.fname)
-          return {name=name,isMain=name=="main",isOpen=false,content=f.content}
-        end
-      end
-      Log(LOG.WARNING,"file '%s' doesn't exist",name)
-      return
     end
-  end
----------------- api.* handlers -- simulated calls to offline version of resources
-  local function arr(tab) local res={} for _,v in pairs(tab) do res[#res+1]=v.data or v end return res,200 end
-  local function get(res,id) local r = res[id] if r then return r.data or r,200 else return nil,404 end end
-  local function copyTo(from,to) for k,v in pairs(to) do if from[k] then from[k]=v end end end
-  local function modify(rsrc,id,data) if rsrc[id].modify then rsrc[id]:modify(data) else copyTo(data,rsrc[id]) end end
-  local function delete(resource,id)
-    if not rawget(resource,id) then return nil,401 end
-    resource[id]=nil
-    return nil,200
-  end
-  local function valueOf(v)
-    if tonumber(v) then return tonumber(v) end
-    if v=="true" then return true elseif v=="false" then return false else return v end
-  end
-  local member = Util.member
-  local notificationsID=1
-  local notifications={}
 
-  local OFFLINE_HANDLERS = {
-    ["GET"] = {
-      ["/callAction%?deviceID=(%d+)&name=(%w+)(.*)"] = function(_,_,_,id,action,args)
-        local res,dev = {}
-        args,id = string.split(args,"&"),tonumber(id)
-        for _,a in ipairs(args) do
-          local i,v = a:match("^arg(%d+)=(.*)")
-          res[tonumber(i)]=urldecode(v)
-        end
-        dev = quickApps[id] or resources.devices[id]
-        if not dev then return nil,404 end
-        local stat,err
-        if quickApps[id] then
-          stat, err = pcall(onAction,{deviceId=id,actionName=action,args=res})
-        else
-          stat,err = pcall(dev[action],dev,table.unpack(res))
-        end
-        if not stat then
-          Log(LOG.ERROR,"Bad fibaro.call(%s,'%s',%s) - %s",id,action,json.encode(res):sub(2,-2),err)
-          return nil,501
-        end
-        return nil,200
-      end,
-      ["/devices/(%d+)/properties/(.+)$"] = function(_,_,_,id,property)
-        id = tonumber(id)
-        local dev = quickApps[id] or resources.devices[id]
-        if not dev then return nil,404 end
-        return dev:getProperty(property),200
-      end,
-      ["/devices/(%d+)$"] = function(_,_,_,id) return quickApps[tonumber(id)].deviceStruct or get(resources.devices,tonumber(id)) end,
-      ["/devices/?$"] = function(_,_,_,_) return arr(resources.devices) end,
-      ["/devices/?%?(.*)"] = function(_,_,_,args)
-        local props = {}
-        if args:sub(1,1)=='%' then args = urldecode(args) end
-        args:gsub("([%w%%]+)=([%w%%%[%]%,]+)",
-          function(k,v) props[k]=v end)
-        local _,_ = next(props)
-        for k,v in pairs(props) do props[k]=valueOf(v) end
-        local ds = arr(resources.devices)
+    local function quickAppApi(id,name)
+      local files = quickApps[tonumber(id)]._emu.files
+      if name=="" then
         local res = {}
-        for _,d in ipairs(ds) do
-          local match = true
-          for k,v in pairs(props) do
-            if k == 'interface' then
-              if not member(v,d.interfaces or {}) then match=false; break end
-            elseif k == 'property' then
-              local prop,val = v:match("%[(.-),(.*)%]")
-              val = valueOf(val)
-              if d.properties[prop]~=val then match=false; break end
-            elseif d[k] ~= v then match=false; break end
+        for _,f in pairs(files) do
+          --local c = readQuickAppFile(f.fname) 
+          res[#res+1]={name=f.name,isMain=f.name=="main",isOpen=false,content=c}
+        end
+        return res
+      elseif name~="" then
+        for _,f in pairs(files) do
+          if f.name==name  then
+            --local c = readQuickAppFile(f.fname)
+            return {name=name,isMain=name=="main",isOpen=false,content=f.content}
           end
-          if match then res[#res+1]=d
+        end
+        Log(LOG.WARNING,"file '%s' doesn't exist",name)
+        return
+      end
+    end
+---------------- api.* handlers -- simulated calls to offline version of resources
+    local function arr(tab) local res={} for _,v in pairs(tab) do res[#res+1]=v.data or v end return res,200 end
+    local function get(res,id) local r = res[id] if r then return r.data or r,200 else return nil,404 end end
+    local function copyTo(from,to) for k,v in pairs(to) do if from[k] then from[k]=v end end end
+    local function modify(rsrc,id,data) if rsrc[id].modify then rsrc[id]:modify(data) else copyTo(data,rsrc[id]) end end
+    local function delete(resource,id)
+      if not rawget(resource,id) then return nil,401 end
+      resource[id]=nil
+      return nil,200
+    end
+    local function valueOf(v)
+      if tonumber(v) then return tonumber(v) end
+      if v=="true" then return true elseif v=="false" then return false else return v end
+    end
+    local member = Util.member
+    local notificationsID=1
+    local notifications={}
+
+    local OFFLINE_HANDLERS = {
+      ["GET"] = {
+        ["/callAction%?deviceID=(%d+)&name=(%w+)(.*)"] = function(_,_,_,id,action,args)
+          local res,dev = {}
+          args,id = string.split(args,"&"),tonumber(id)
+          for _,a in ipairs(args) do
+            local i,v = a:match("^arg(%d+)=(.*)")
+            res[tonumber(i)]=urldecode(v)
+          end
+          dev = quickApps[id] or resources.devices[id]
+          if not dev then return nil,404 end
+          local stat,err
+          if quickApps[id] then
+            stat, err = pcall(onAction,{deviceId=id,actionName=action,args=res})
+          else
+            stat,err = pcall(dev[action],dev,table.unpack(res))
+          end
+          if not stat then
+            Log(LOG.ERROR,"Bad fibaro.call(%s,'%s',%s) - %s",id,action,json.encode(res):sub(2,-2),err)
+            return nil,501
+          end
+          return nil,200
+        end,
+        ["/devices/(%d+)/properties/(.+)$"] = function(_,_,_,id,property)
+          id = tonumber(id)
+          local dev = quickApps[id] or resources.devices[id]
+          if not dev then return nil,404 end
+          return dev:getProperty(property),200
+        end,
+        ["/devices/(%d+)$"] = function(_,_,_,id) return quickApps[tonumber(id)].deviceStruct or get(resources.devices,tonumber(id)) end,
+        ["/devices/?$"] = function(_,_,_,_) return arr(resources.devices) end,
+        ["/devices/?%?(.*)"] = function(_,_,_,args)
+          local props = {}
+          if args:sub(1,1)=='%' then args = urldecode(args) end
+          args:gsub("([%w%%]+)=([%w%%%[%]%,]+)",
+            function(k,v) props[k]=v end)
+          local _,_ = next(props)
+          for k,v in pairs(props) do props[k]=valueOf(v) end
+          local ds = arr(resources.devices)
+          local res = {}
+          for _,d in ipairs(ds) do
+            local match = true
+            for k,v in pairs(props) do
+              if k == 'interface' then
+                if not member(v,d.interfaces or {}) then match=false; break end
+              elseif k == 'property' then
+                local prop,val = v:match("%[(.-),(.*)%]")
+                val = valueOf(val)
+                if d.properties[prop]~=val then match=false; break end
+              elseif d[k] ~= v then match=false; break end
+            end
+            if match then res[#res+1]=d
+            end
+          end
+          return res
+        end,
+        ["/globalVariables/(.+)"] = function(_,_,_,name) return get(resources.globalVariables,name) end,
+        ["/globalVariables/?$"] = function(_,_,_,_) return arr(resources.globalVariables) end,
+        ["/customEvents/(.+)"] = function(_,_,_,name) return get(resources.customEvents,name) end,
+        ["/customEvents/?$"] = function(_,_,_,_) return arr(resources.customEvents) end,
+        ["/scenes/(%d+)"] = function(_,_,_,id) return scenes[tonumber(id)] or get(resources.scenes,tonumber(id)) end,
+        ["/scenes/?$"] = function(_,_,_,_) return arr(resources.scenes) end,
+        ["/rooms/(%d+)"] = function(_,_,_,id) return get(resources.rooms,tonumber(id)) end,
+        ["/rooms/?$"] = function(_,_,_,_) return arr(resources.rooms) end,
+        ["/iosUser/(%d+)"] = function(_,_,_,id) return get(resources.rooms,tonumber(id)) end,
+        ["/sections/(%d+)"] = function(_,_,_,id) return get(resources.sections,tonumber(id)) end,
+        ["/sections/?$"] = function(_,_,_,_) return arr(resources.sections) end,
+        ["/refreshStates%?last=(%d+)"] = function(_,_,_,last) return refreshStates.getEvents(tonumber(last)),200 end,
+        ["/settings/info"] = function(_) return resources.settings.info end,
+        ["/settings/location/?$"] = function(_) return resources.settings.location end,
+        ["/notificationCenter"] = function(_,_,_,_) return {},200 end,
+        ["/quickApp/(%d+)/files/?(.*)"] = function(_,_,_,id,name)
+          return quickAppApi(tonumber(id),name)
+        end,
+      },
+      ["POST"] = {
+        ["/globalVariables/?$"] = function(_,data,_) -- Create variable.
+          data = json.decode(data)
+          --local a = rawget(resources.globalVariables,data.name)
+          if rawget(resources.globalVariables,data.name) then
+            Log(LOG.WARNING,"variable '%s' already exists",tostring(data.name))
+            return nil,409
+          end
+          resources.globalVariables[data.name]=data
+          return resources.globalVariables[data.name],200
+        end,
+        ["/customEvents/?$"] = function(_,data,_) -- Create customEvent.
+          data = json.decode(data)
+          if rawget(resources.customEvents,data.name) then
+            Log(LOG.WARNING,"custom event '%s' already exists",tostring(data.name))
+            return nil,409
+          end
+          resources.customEvents[data.name]=data
+          return resources.customEvents[data.name],200
+        end,
+        ["/scenes/?$"] = function(_,data,_) -- Create scene.
+          data = json.decode(data)
+          if rawget(resources.scenes,data.id) then
+            Log(LOG.WARNING,"scene '%s' already exists",tostring(data.id))
+            return nil,409
+          end
+          resources.scenes[data.id]=data
+          return resources.scenes[data.id],200
+        end,
+        ["/scenes/(%d+)/(%w+)"] = function(_,_,_,id,action)
+          id = tonumber(id)
+          if scenes[id] then
+            if action == 'execute' then
+              Log(LOG.SYS,"Running scene %s",id)
+              local stat,res = pcall(scenes[id].run)
+              if stat then return true,200
+              else
+                Log(LOG.ERROR,"Error executing scene '%s'",res)
+                return nil,500
+              end
+              Log(LOG.WARNING,"Can't run undefined scene '%s'",id)
+              return nil,400
+            elseif action == 'kill' then
+              scenes[id].killScene()
+            end
+          end
+        end,
+        ["/rooms/?$"] = function(_,data,_) -- Create room.
+          data = json.decode(data)
+          if rawget(resources.rooms,data.id) then
+            Log(LOG.WARNING,"room '%s' already exists",tostring(data.id))
+            return nil,409
+          end
+          resources.rooms[data.id]=data
+          return resources.rooms[data.id],200
+        end,
+        ["/sections/?$"] = function(_,data,_) -- Create section.
+          data = json.decode(data)
+          if rawget(resources.sections,data.id) then
+            Log(LOG.WARNING,"section '%s' already exists",tostring(data.id))
+            return nil,409
+          end
+          resources.sections[data.id]=data
+          return resources.sections[data.id],200
+        end,
+        ["/devices/(%d+)/action/(.+)$"] = function(_,data,_,id,action) -- call device action
+          data = json.decode(data)
+          id = tonumber(id)
+          local dev = quickApps[id] or resources.devices[id]
+          if not dev then
+            Log(LOG.WARNING,"Device '%s' don't exists",tostring(id))
+            return dev,404
+          end
+          local stat,err
+          if quickApps[id] then
+            stat,err = pcall(onAction,{deviceId=id,actionName=action,args=data.args})
+          else
+            stat,err = pcall(dev[action],dev,table.unpack(data.args))
+          end
+          if not stat then
+            Log(LOG.ERROR,"Bad fibaro.call(%s,'%s',%s) - %s",id,action,json.encode(data.args):sub(2,-2),err)
+            return nil,501
+          end
+          return nil,200
+        end,
+        ["/notificationCenter"] = function(_,data,_)
+          data = json.decode(data)
+          notificationsID=notificationsID+1
+          notifications[notificationsID]=data
+          data.id=notificationsID
+          Log(LOG.LOG,"InfoCenter(%s):%s, %s - %s",data.priority,data.id,data.data.title,data.data.text)
+          return data,200
+        end,
+        ["/customEvents/(.+)$"] = function(_,_,_,name)
+          if not rawget(resources.customEvents,name) then
+            Log(LOG.WARNING,"custom event '%s' don't exist",tostring(name))
+            return nil,409
+          end
+          Trigger.checkEvents({type='CustomEvent', data={name=name,}})
+        end,
+        ["/plugins/restart$"] = function(_,data,_)
+          if quickApps[data.deviceId] then
+            quickApps[data.deviceId].restartQA()
+            return data,200
+          end
+        end,     
+      },
+      ["PUT"] = {
+        ["/globalVariables/(.+)"] = function(_,data,_,name) -- modify value
+          data = json.decode(data)
+          if rawget(resources.globalVariables,name) == nil then
+            Log(LOG.WARNING,"variable '%s' don't exist",tostring(name))
+            return nil,404
+          end
+          resources.globalVariables[name]:modify(data)
+          return resources.globalVariables[name],200
+        end,
+        ["/customEvents/(.+)"] = function(_,data,_,name) -- modify value
+          data = json.decode(data)
+          if rawget(resources.customEvents,name)==nil then
+            Log(LOG.WARNING,"custom event '%s' don't exist",tostring(name))
+            return nil,404
+          end
+          resources.customEvents[name]:modify(data)
+          return resources.customEvents[name],200
+        end,
+        ["/devices/(%d+)"] = function(_,data,_,id) -- modify value
+          data = json.decode(data)
+          id = tonumber(id)
+          if quickApps[id] then
+            local d = quickApps[id].deviceStruct
+            local function put(source,dest)
+              if type(source)=='table' then
+                if type(dest)~='table' then dest={} end
+                for k,v in pairs(source) do
+                  if dest[k]~=nil then dest[k]=put(v,dest[k])
+                  else dest[k]=v end
+                  return dest
+                end
+              else return source end
+            end
+            d=put(data,d) -- ToDo, reflect back to proxy
+            quickApps[id].name = d.name
+            quickApps[id].enabled = d.enabled
+            return d,200
+          end
+          if rawget(resources.devices,id) == nil then
+            Log(LOG.WARNING,"device '%s' don't exist",tostring(id))
+            return nil,404
+          end
+          resources.devices[id]:modify(data)
+          return resources.devices[id],200
+        end,
+        ["/notificationCenter/(%d+)"] = function(_,data,_,id)
+          data = json.decode(data)
+          id = tonumber(id)
+          if not notifications[id] then return nil,404 end
+          data.id = id
+          notifications[id]=data
+          Log(LOG.LOG,"InfoCenter(%s):%s, %s - %s",data.priority,data.id,data.data.title,data.data.text)
+          return data,200
+        end,
+      },
+      ["DELETE"] = {
+        ["/globalVariables/(.+)"] = function(_,_,_,name)
+          return delete(resources.globalVariables,name)
+        end,
+        ["/customEvents/(.+)"] = function(_,_,_,name)
+          return delete(resources.customEvents,name)
+        end,
+        ["/devices/(%d+)"] = function(_,_,_,id)
+          id = tonumber(id)
+          if quickApps[id] then quickApps[id]=nil return nil,200
+          else return delete(resources.devices,tonumber(id)) end
+        end,
+        ["/rooms/(%d+)"] = function(_,_,_,id)
+          return delete(resources.rooms,tonumber(id))
+        end,
+        ["/sections/(%d+)"] = function(_,_,_,id)
+          return delete(resources.sections,tonumber(id))
+        end,
+        ["/scenes/(%d+)"] = function(_,_,_,id)
+          id = tonumber(id)
+          if scenes[id] then scenes[id]=nil return nil,200
+          else return delete(resources.scenes,id) end
+        end,
+      },
+    }
+
+    local olh = {} -- Factor path one step.
+    for k,v in pairs(OFFLINE_HANDLERS) do
+      olh[k]={}
+      local o = olh[k]
+      for i,j in pairs(v) do
+        local m,r = i:match("(/%w+)(.*)")
+        if not m then
+          o[i]=j
+        else
+          o[m] = o[m] or {}
+          o[m]["^"..r]=j
+        end
+      end
+    end
+    OFFLINE_HANDLERS=olh
+
+    local function offlineApi(method,call,data,cType)
+      local f = OFFLINE_HANDLERS[method]
+      local m,r = call:match("(/%w+)(.*)")
+      if m then
+        local hs = f[m]
+        for p,h in pairs(hs or {}) do
+          local match = {r:match(p)}
+          if match and #match>0 then
+            return h(call,data,cType,table.unpack(match))
+          end
+        end
+      end
+      fibaro.warning("","API not supported yet: "..method..":"..call)
+    end
+
+    local function userDev(d0)
+      local u = {}
+      for k,_ in pairs(d0.data.actions) do u[k]=d0[k] end
+      function u:breach(secRestore)
+        u.turnOn(d0)
+        os.setTimer(function() u.turnOff(d0) end,1000*secRestore)
+      end
+      function u:delay(s)
+        local res = {}
+        for k,v in pairs(u) do
+          res[k]=function(...)
+            local a={...}
+            os.setTimer(function() v(d0,select(2,table.unpack(a))) end,s*1000)
           end
         end
         return res
-      end,
-      ["/globalVariables/(.+)"] = function(_,_,_,name) return get(resources.globalVariables,name) end,
-      ["/globalVariables/?$"] = function(_,_,_,_) return arr(resources.globalVariables) end,
-      ["/customEvents/(.+)"] = function(_,_,_,name) return get(resources.customEvents,name) end,
-      ["/customEvents/?$"] = function(_,_,_,_) return arr(resources.customEvents) end,
-      ["/scenes/(%d+)"] = function(_,_,_,id) return scenes[tonumber(id)] or get(resources.scenes,tonumber(id)) end,
-      ["/scenes/?$"] = function(_,_,_,_) return arr(resources.scenes) end,
-      ["/rooms/(%d+)"] = function(_,_,_,id) return get(resources.rooms,tonumber(id)) end,
-      ["/rooms/?$"] = function(_,_,_,_) return arr(resources.rooms) end,
-      ["/iosUser/(%d+)"] = function(_,_,_,id) return get(resources.rooms,tonumber(id)) end,
-      ["/sections/(%d+)"] = function(_,_,_,id) return get(resources.sections,tonumber(id)) end,
-      ["/sections/?$"] = function(_,_,_,_) return arr(resources.sections) end,
-      ["/refreshStates%?last=(%d+)"] = function(_,_,_,last) return refreshStates.getEvents(tonumber(last)),200 end,
-      ["/settings/info"] = function(_) return resources.settings.info end,
-      ["/settings/location/?$"] = function(_) return resources.settings.location end,
-      ["/notificationCenter"] = function(_,_,_,_) return {},200 end,
-      ["/quickApp/(%d+)/files/?(.*)"] = function(_,_,_,id,name)
-        return quickAppApi(tonumber(id),name)
-      end,
-    },
-    ["POST"] = {
-      ["/globalVariables/?$"] = function(_,data,_) -- Create variable.
-        data = json.decode(data)
-        --local a = rawget(resources.globalVariables,data.name)
-        if rawget(resources.globalVariables,data.name) then
-          Log(LOG.WARNING,"variable '%s' already exists",tostring(data.name))
-          return nil,409
-        end
-        resources.globalVariables[data.name]=data
-        return resources.globalVariables[data.name],200
-      end,
-      ["/customEvents/?$"] = function(_,data,_) -- Create customEvent.
-        data = json.decode(data)
-        if rawget(resources.customEvents,data.name) then
-          Log(LOG.WARNING,"custom event '%s' already exists",tostring(data.name))
-          return nil,409
-        end
-        resources.customEvents[data.name]=data
-        return resources.customEvents[data.name],200
-      end,
-      ["/scenes/?$"] = function(_,data,_) -- Create scene.
-        data = json.decode(data)
-        if rawget(resources.scenes,data.id) then
-          Log(LOG.WARNING,"scene '%s' already exists",tostring(data.id))
-          return nil,409
-        end
-        resources.scenes[data.id]=data
-        return resources.scenes[data.id],200
-      end,
-      ["/scenes/(%d+)/(%w+)"] = function(_,_,_,id,action)
-        id = tonumber(id)
-        if scenes[id] then
-          if action == 'execute' then
-            Log(LOG.SYS,"Running scene %s",id)
-            local stat,res = pcall(scenes[id].run)
-            if stat then return true,200
-            else
-              Log(LOG.ERROR,"Error executing scene '%s'",res)
-              return nil,500
-            end
-            Log(LOG.WARNING,"Can't run undefined scene '%s'",id)
-            return nil,400
-          elseif action == 'kill' then
-            scenes[id].killScene()
-          end
-        end
-      end,
-      ["/rooms/?$"] = function(_,data,_) -- Create room.
-        data = json.decode(data)
-        if rawget(resources.rooms,data.id) then
-          Log(LOG.WARNING,"room '%s' already exists",tostring(data.id))
-          return nil,409
-        end
-        resources.rooms[data.id]=data
-        return resources.rooms[data.id],200
-      end,
-      ["/sections/?$"] = function(_,data,_) -- Create section.
-        data = json.decode(data)
-        if rawget(resources.sections,data.id) then
-          Log(LOG.WARNING,"section '%s' already exists",tostring(data.id))
-          return nil,409
-        end
-        resources.sections[data.id]=data
-        return resources.sections[data.id],200
-      end,
-      ["/devices/(%d+)/action/(.+)$"] = function(_,data,_,id,action) -- call device action
-        data = json.decode(data)
-        id = tonumber(id)
-        local dev = quickApps[id] or resources.devices[id]
-        if not dev then
-          Log(LOG.WARNING,"Device '%s' don't exists",tostring(id))
-          return dev,404
-        end
-        local stat,err
-        if quickApps[id] then
-          stat,err = pcall(onAction,{deviceId=id,actionName=action,args=data.args})
-        else
-          stat,err = pcall(dev[action],dev,table.unpack(data.args))
-        end
-        if not stat then
-          Log(LOG.ERROR,"Bad fibaro.call(%s,'%s',%s) - %s",id,action,json.encode(data.args):sub(2,-2),err)
-          return nil,501
-        end
-        return nil,200
-      end,
-      ["/notificationCenter"] = function(_,data,_)
-        data = json.decode(data)
-        notificationsID=notificationsID+1
-        notifications[notificationsID]=data
-        data.id=notificationsID
-        Log(LOG.LOG,"InfoCenter(%s):%s, %s - %s",data.priority,data.id,data.data.title,data.data.text)
-        return data,200
-      end,
-      ["/customEvents/(.+)$"] = function(_,_,_,name)
-        if not rawget(resources.customEvents,name) then
-          Log(LOG.WARNING,"custom event '%s' don't exist",tostring(name))
-          return nil,409
-        end
-        Trigger.checkEvents({type='CustomEvent', data={name=name,}})
-      end,
-      ["/plugins/restart$"] = function(_,data,_)
-        if quickApps[data.deviceId] then
-          quickApps[data.deviceId].restartQA()
-          return data,200
-        end
-      end,     
-    },
-    ["PUT"] = {
-      ["/globalVariables/(.+)"] = function(_,data,_,name) -- modify value
-        data = json.decode(data)
-        if rawget(resources.globalVariables,name) == nil then
-          Log(LOG.WARNING,"variable '%s' don't exist",tostring(name))
-          return nil,404
-        end
-        resources.globalVariables[name]:modify(data)
-        return resources.globalVariables[name],200
-      end,
-      ["/customEvents/(.+)"] = function(_,data,_,name) -- modify value
-        data = json.decode(data)
-        if rawget(resources.customEvents,name)==nil then
-          Log(LOG.WARNING,"custom event '%s' don't exist",tostring(name))
-          return nil,404
-        end
-        resources.customEvents[name]:modify(data)
-        return resources.customEvents[name],200
-      end,
-      ["/devices/(%d+)"] = function(_,data,_,id) -- modify value
-        data = json.decode(data)
-        id = tonumber(id)
-        if quickApps[id] then
-          local d = quickApps[id].deviceStruct
-          local function put(source,dest)
-            if type(source)=='table' then
-              if type(dest)~='table' then dest={} end
-              for k,v in pairs(source) do
-                if dest[k]~=nil then dest[k]=put(v,dest[k])
-                else dest[k]=v end
-                return dest
-              end
-            else return source end
-          end
-          d=put(data,d) -- ToDo, reflect back to proxy
-          quickApps[id].name = d.name
-          quickApps[id].enabled = d.enabled
-          return d,200
-        end
-        if rawget(resources.devices,id) == nil then
-          Log(LOG.WARNING,"device '%s' don't exist",tostring(id))
-          return nil,404
-        end
-        resources.devices[id]:modify(data)
-        return resources.devices[id],200
-      end,
-      ["/notificationCenter/(%d+)"] = function(_,data,_,id)
-        data = json.decode(data)
-        id = tonumber(id)
-        if not notifications[id] then return nil,404 end
-        data.id = id
-        notifications[id]=data
-        Log(LOG.LOG,"InfoCenter(%s):%s, %s - %s",data.priority,data.id,data.data.title,data.data.text)
-        return data,200
-      end,
-    },
-    ["DELETE"] = {
-      ["/globalVariables/(.+)"] = function(_,_,_,name)
-        return delete(resources.globalVariables,name)
-      end,
-      ["/customEvents/(.+)"] = function(_,_,_,name)
-        return delete(resources.customEvents,name)
-      end,
-      ["/devices/(%d+)"] = function(_,_,_,id)
-        id = tonumber(id)
-        if quickApps[id] then quickApps[id]=nil return nil,200
-        else return delete(resources.devices,tonumber(id)) end
-      end,
-      ["/rooms/(%d+)"] = function(_,_,_,id)
-        return delete(resources.rooms,tonumber(id))
-      end,
-      ["/sections/(%d+)"] = function(_,_,_,id)
-        return delete(resources.sections,tonumber(id))
-      end,
-      ["/scenes/(%d+)"] = function(_,_,_,id)
-        id = tonumber(id)
-        if scenes[id] then scenes[id]=nil return nil,200
-        else return delete(resources.scenes,id) end
-      end,
-    },
-  }
-
-  local olh = {} -- Factor path one step.
-  for k,v in pairs(OFFLINE_HANDLERS) do
-    olh[k]={}
-    local o = olh[k]
-    for i,j in pairs(v) do
-      local m,r = i:match("(/%w+)(.*)")
-      if not m then
-        o[i]=j
-      else
-        o[m] = o[m] or {}
-        o[m]["^"..r]=j
       end
+      --return d0
+      return u
     end
-  end
-  OFFLINE_HANDLERS=olh
 
-  local function offlineApi(method,call,data,cType)
-    local f = OFFLINE_HANDLERS[method]
-    local m,r = call:match("(/%w+)(.*)")
-    if m then
-      local hs = f[m]
-      for p,h in pairs(hs or {}) do
-        local match = {r:match(p)}
-        if match and #match>0 then
-          return h(call,data,cType,table.unpack(match))
-        end
+    hc3_emulator.create = {}
+    function hc3_emulator.create.global(name,value)
+      local g = O_Global(name,{name=name,value=value},true)
+      function g:set(value) self:modify({value=value}) end
+      g.data.actions = {set=1 }
+      return userDev(g)
+    end
+    function hc3_emulator.create.motionSensor(id,name) return userDev(createBestDevice("com.fibaro.motionSensor",{id=id,name=name},true)) end
+    function hc3_emulator.create.tempSensor(id,name)
+      return userDev(createBestDevice("com.fibaro.temperatureSensor",{id=id,name=name},true))
+    end
+    function hc3_emulator.create.doorSensor(id,name) return userDev(createBestDevice("com.fibaro.doorSensor",{id=id,name=name},true)) end
+    function hc3_emulator.create.luxSensor(id,name) return userDev(createBestDevice("com.fibaro.lightSensor",{id=id,name=name},true)) end
+    function hc3_emulator.create.dimmer(id,name) return userDev(createBestDevice("com.fibaro.multilevelSwitch",{id=id,name=name},true)) end
+    function hc3_emulator.create.light(id,name) return userDev(createBestDevice("com.fibaro.binarySwitch",{id=id,name=name},true)) end
+
+    function offline.start()
+      if next(resources.settings.location)==nil then
+        resources.settings.location={latitude=52.520008,longitude=13.404954}-- Berlin
       end
-    end
-    fibaro.warning("","API not supported yet: "..method..":"..call)
-  end
-
-  local function userDev(d0)
-    local u = {}
-    for k,_ in pairs(d0.data.actions) do u[k]=d0[k] end
-    function u:breach(secRestore)
-      u.turnOn(d0)
-      os.setTimer(function() u.turnOff(d0) end,1000*secRestore)
-    end
-    function u:delay(s)
-      local res = {}
-      for k,v in pairs(u) do
-        res[k]=function(...)
-          local a={...}
-          os.setTimer(function() v(d0,select(2,table.unpack(a))) end,s*1000)
-        end
+      if next(resources.rooms)==nil then
+        resources.rooms[219]={
+          id = 219,
+          name = "Default Room",
+          sectionID = 219,
+          isDefault = true,
+          visible = true,
+          icon = "",
+          defaultSensors = {},
+          defaultThermostat = 0,
+        }
       end
-      return res
-    end
-    --return d0
-    return u
-  end
-
-  hc3_emulator.create = {}
-  function hc3_emulator.create.global(name,value)
-    local g = O_Global(name,{name=name,value=value},true)
-    function g:set(value) self:modify({value=value}) end
-    g.data.actions = {set=1 }
-    return userDev(g)
-  end
-  function hc3_emulator.create.motionSensor(id,name) return userDev(createBestDevice("com.fibaro.motionSensor",{id=id,name=name},true)) end
-  function hc3_emulator.create.tempSensor(id,name)
-    return userDev(createBestDevice("com.fibaro.temperatureSensor",{id=id,name=name},true))
-  end
-  function hc3_emulator.create.doorSensor(id,name) return userDev(createBestDevice("com.fibaro.doorSensor",{id=id,name=name},true)) end
-  function hc3_emulator.create.luxSensor(id,name) return userDev(createBestDevice("com.fibaro.lightSensor",{id=id,name=name},true)) end
-  function hc3_emulator.create.dimmer(id,name) return userDev(createBestDevice("com.fibaro.multilevelSwitch",{id=id,name=name},true)) end
-  function hc3_emulator.create.light(id,name) return userDev(createBestDevice("com.fibaro.binarySwitch",{id=id,name=name},true)) end
-
-  function offline.start()
-    if next(resources.settings.location)==nil then
-      resources.settings.location={latitude=52.520008,longitude=13.404954}-- Berlin
-    end
-    if next(resources.rooms)==nil then
-      resources.rooms[219]={
-        id = 219,
-        name = "Default Room",
-        sectionID = 219,
-        isDefault = true,
-        visible = true,
-        icon = "",
-        defaultSensors = {},
-        defaultThermostat = 0,
-      }
-    end
-    local function setupSuntimes()
-      local sunrise,sunset = Util.sunCalc()
-      local d = {properties={sunriseHour=sunrise,sunsetHour=sunset}}
-      function d:getProperty(d) return {value=self.properties[d], modified=os.time()} end
-      function d:setProperty(d,v) self.properties[d] = v end
-      rawset(resources.devices,1,d)
-    end
-    local t = os.date("*t")
-    t.min,t.hour,t.sec=0,0,0
-    t = os.time(t)+24*60*60
-    local function midnight()
-      setupSuntimes()
-      t = t+24*60*60
+      local function setupSuntimes()
+        local sunrise,sunset = Util.sunCalc()
+        local d = {properties={sunriseHour=sunrise,sunsetHour=sunset}}
+        function d:getProperty(d) return {value=self.properties[d], modified=os.time()} end
+        function d:setProperty(d,v) self.properties[d] = v end
+        rawset(resources.devices,1,d)
+      end
+      local t = os.date("*t")
+      t.min,t.hour,t.sec=0,0,0
+      t = os.time(t)+24*60*60
+      local function midnight()
+        setupSuntimes()
+        t = t+24*60*60
+        os.setTimer(midnight,1000*(t-os.time()))
+      end
       os.setTimer(midnight,1000*(t-os.time()))
+      setupSuntimes()
     end
-    os.setTimer(midnight,1000*(t-os.time()))
-    setupSuntimes()
-  end
 
-  refreshStates = Trigger.refreshStates
-  offline.api = offlineApi
+    refreshStates = Trigger.refreshStates
+    offline.api = offlineApi
 
-  local persistence = nil
-  local cr = not hc3_emulator.credentials and loadfile(hc3_emulator.credentialsFile); cr = cr and cr()
+    local persistence = nil
+    local cr = not hc3_emulator.credentials and loadfile(hc3_emulator.credentialsFile); cr = cr and cr()
 
-  local TP = "https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/"
+    local TP = "https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/"
 
-  function offline.downloadGitHubFile(f) Files.file.downloadFile(TP..f,f) end
+    function offline.downloadGitHubFile(f) Files.file.downloadFile(TP..f,f) end
 
-  function offline.downloadToolbox()
-    local function createDir(dir)
-      local r,err = Files.file.make_dir(dir)
-      if not r and err~="File exists" then error(format("Can't create Toolbox directory: %s (%s)",dir,err)) end
-    end
-    createDir("Toolbox")
-
-    for _,f in ipairs(
-      {
-        "Toolbox_basic.lua",
-        "Toolbox_events.lua",
-        "Toolbox_child.lua",
-        "Toolbox_triggers.lua",
-        "Toolbox_files.lua",
-        "Toolbox_rpc.lua",
-        "Toolbox_pubsub.lua",
-      }
-      ) do
-      Files.file.downloadFile(TP.."Toolbox/"..f,"Toolbox/"..f)
-    end
-  end
-
-  function offline.downloadMQTT()
-    local function createDir(dir)
-      local r,err = Files.file.make_dir(dir)
-      if not r and err~="File exists" then error(format("Can't create mqtt directory: %s (%s)",dir,err)) end
-    end
-    createDir("mqtt")
-
-    for _,f in ipairs(
-      {
-        "bit53.lua",
-        "bitwrap.lua",
-        "client.lua",
-        "init.lua",
-        "ioloop.lua",
-        "luasocket_ssl.lua",
-        "luasocket.lua",
-        "ngxsocket.lua",
-        "protocol.lua",
-        "protocol4.lua",
-        "protocol5.lua",
-        "tools.lua",
-      }
-      ) do
-      Files.file.downloadFile(TP.."mqtt/"..f,"mqtt/"..f)
-    end
-  end
-
-  function offline.downloadDB(fname)
-    fname = fname or type(hc3_emulator.db)=='string' and hc3_emulator.db or "HC3sdk.db"
-    local function mapIDS(r)
-      if type(r)~='table' or r[1]==nil then return r end
-      local v = r[1]
-      if not (v.id or v.name or v.partionId) then return end
-      local res={}
-      for _,r0 in ipairs(r) do
-        res[r0.id or r0.name or r0.partionId]=r0
+    function offline.downloadToolbox()
+      local function createDir(dir)
+        local r,err = Files.file.make_dir(dir)
+        if not r and err~="File exists" then error(format("Can't create Toolbox directory: %s (%s)",dir,err)) end
       end
-      return res
-    end
-    local offline = hc3_emulator.offline
-    hc3_emulator.offline = false
-    local rawCall = hc3_emulator.rawCall
-    local resources = resourceStructure(false)
+      createDir("Toolbox")
 
-    Log(LOG.SYS,"Reading devices")
-    local devices = rawCall('GET',"/devices")
-    for _,d in pairs(devices or {}) do
-      rawset(resources.devices,d.id,d)
+      for _,f in ipairs(
+        {
+          "Toolbox_basic.lua",
+          "Toolbox_events.lua",
+          "Toolbox_child.lua",
+          "Toolbox_triggers.lua",
+          "Toolbox_files.lua",
+          "Toolbox_rpc.lua",
+          "Toolbox_pubsub.lua",
+        }
+        ) do
+        Files.file.downloadFile(TP.."Toolbox/"..f,"Toolbox/"..f)
+      end
     end
-    Log(LOG.SYS,"Reading global variables")
-    local globals = rawCall('GET',"/globalVariables")
-    for _,global in pairs(globals or {}) do
-      rawset(resources.globalVariables,global.name,global)
-    end
-    Log(LOG.SYS,"Reading panels")
-    for key,_ in pairs(resources.panels) do
-      local res = rawCall("GET","/panels/"..key) or {}
-      res = mapIDS(res)
-      resources.panels[key] = res
-    end
-    Log(LOG.SYS,"Reading settings")
-    for key,_ in pairs(resources.settings) do
-      local res = rawCall("GET","/settings/"..key) or {}
-      res = mapIDS(res)
-      resources.settings[key] = res
-    end
-    Log(LOG.SYS,"Reading alarms")
-    for key,_ in pairs(resources.alarms.v1) do
-      local res = rawCall("GET","/alarms/v1/"..key) or {}
-      res = mapIDS(res)
-      resources.alarms.v1[key] = res
-    end
-    local keys = {}
-    for k,_ in pairs(resources) do keys[k]=true end
-    keys.devices = nil
-    keys.globalVariables = nil
-    keys.panels = nil
-    keys.settings = nil
-    keys.alarms = nil
-    for key,_ in pairs(keys) do
-      Log(LOG.SYS,"Reading %s",key)
-      local resources = rawCall('GET',"/"..key) or {}
-      resources[key]=mapIDS(resources)
-    end
-    Log(LOG.LOG,"Writing HC3 resources to file (%s)",fname)
-    persistence.store(fname,resources)
-    hc3_emulator.offline = offline
-  end
 
-  function offline.loadDB(fname)
-    fname = fname or type(hc3_emulator.db)=='string' and hc3_emulator.db or "HC3sdk.db"
-    hc3_emulator.loadingDB = true
-    local stat,res = pcall(function()
-        local r = persistence.load(fname)
-        Log(LOG.SYS,"Loading devices")
-        for id,d in pairs(r.devices or {}) do
-          rawset(resources.devices,id,createBestDevice(d.type,d))
+    function offline.downloadMQTT()
+      local function createDir(dir)
+        local r,err = Files.file.make_dir(dir)
+        if not r and err~="File exists" then error(format("Can't create mqtt directory: %s (%s)",dir,err)) end
+      end
+      createDir("mqtt")
+
+      for _,f in ipairs(
+        {
+          "bit53.lua",
+          "bitwrap.lua",
+          "client.lua",
+          "init.lua",
+          "ioloop.lua",
+          "luasocket_ssl.lua",
+          "luasocket.lua",
+          "ngxsocket.lua",
+          "protocol.lua",
+          "protocol4.lua",
+          "protocol5.lua",
+          "tools.lua",
+        }
+        ) do
+        Files.file.downloadFile(TP.."mqtt/"..f,"mqtt/"..f)
+      end
+    end
+
+    function offline.downloadDB(fname)
+      fname = fname or type(hc3_emulator.db)=='string' and hc3_emulator.db or "HC3sdk.db"
+      local function mapIDS(r)
+        if type(r)~='table' or r[1]==nil then return r end
+        local v = r[1]
+        if not (v.id or v.name or v.partionId) then return end
+        local res={}
+        for _,r0 in ipairs(r) do
+          res[r0.id or r0.name or r0.partionId]=r0
         end
-        Log(LOG.SYS,"Loading global variables")
-        for name,g in pairs(r.globalVariables or {}) do
-          rawset(resources.globalVariables,name,O_Global(name,g))
-        end
-        local keys = {}
-        for k,_ in pairs(resources) do keys[k]=true end
-        keys.devices = nil
-        keys.globalVariables = nil
-        for key,_ in pairs(keys) do
-          Log(LOG.SYS,"Loading %s",key)
-          for id,rsrc in pairs(r[key]) do
-            resources[key][id]=rsrc
+        return res
+      end
+      local offline = hc3_emulator.offline
+      hc3_emulator.offline = false
+      local rawCall = hc3_emulator.rawCall
+      local resources = resourceStructure(false)
+
+      Log(LOG.SYS,"Reading devices")
+      local devices = rawCall('GET',"/devices")
+      for _,d in pairs(devices or {}) do
+        rawset(resources.devices,d.id,d)
+      end
+      Log(LOG.SYS,"Reading global variables")
+      local globals = rawCall('GET',"/globalVariables")
+      for _,global in pairs(globals or {}) do
+        rawset(resources.globalVariables,global.name,global)
+      end
+      Log(LOG.SYS,"Reading panels")
+      for key,_ in pairs(resources.panels) do
+        local res = rawCall("GET","/panels/"..key) or {}
+        res = mapIDS(res)
+        resources.panels[key] = res
+      end
+      Log(LOG.SYS,"Reading settings")
+      for key,_ in pairs(resources.settings) do
+        local res = rawCall("GET","/settings/"..key) or {}
+        res = mapIDS(res)
+        resources.settings[key] = res
+      end
+      Log(LOG.SYS,"Reading alarms")
+      for key,_ in pairs(resources.alarms.v1) do
+        local res = rawCall("GET","/alarms/v1/"..key) or {}
+        res = mapIDS(res)
+        resources.alarms.v1[key] = res
+      end
+      local keys = {}
+      for k,_ in pairs(resources) do keys[k]=true end
+      keys.devices = nil
+      keys.globalVariables = nil
+      keys.panels = nil
+      keys.settings = nil
+      keys.alarms = nil
+      for key,_ in pairs(keys) do
+        Log(LOG.SYS,"Reading %s",key)
+        local resources = rawCall('GET',"/"..key) or {}
+        resources[key]=mapIDS(resources)
+      end
+      Log(LOG.LOG,"Writing HC3 resources to file (%s)",fname)
+      persistence.store(fname,resources)
+      hc3_emulator.offline = offline
+    end
+
+    function offline.loadDB(fname)
+      fname = fname or type(hc3_emulator.db)=='string' and hc3_emulator.db or "HC3sdk.db"
+      hc3_emulator.loadingDB = true
+      local stat,res = pcall(function()
+          local r = persistence.load(fname)
+          Log(LOG.SYS,"Loading devices")
+          for id,d in pairs(r.devices or {}) do
+            rawset(resources.devices,id,createBestDevice(d.type,d))
           end
-        end
-        Log(LOG.SYS,"Loaded database '%s'",fname)
-      end)
-    hc3_emulator.loadingDB = false
-    if not stat then Log(LOG.ERROR,"Failed to load database '%s' - %s",fname,res) end
-  end
+          Log(LOG.SYS,"Loading global variables")
+          for name,g in pairs(r.globalVariables or {}) do
+            rawset(resources.globalVariables,name,O_Global(name,g))
+          end
+          local keys = {}
+          for k,_ in pairs(resources) do keys[k]=true end
+          keys.devices = nil
+          keys.globalVariables = nil
+          for key,_ in pairs(keys) do
+            Log(LOG.SYS,"Loading %s",key)
+            for id,rsrc in pairs(r[key]) do
+              resources[key][id]=rsrc
+            end
+          end
+          Log(LOG.SYS,"Loaded database '%s'",fname)
+        end)
+      hc3_emulator.loadingDB = false
+      if not stat then Log(LOG.ERROR,"Failed to load database '%s' - %s",fname,res) end
+    end
 
 -----------------------------
 -- persistence
@@ -8050,321 +8075,321 @@ function module.Offline(self)
 
 --------------------
 -- Private methods
-  local write, writeIndent, writers, refCount;
+    local write, writeIndent, writers, refCount;
 
-  persistence = {
-    store = function (path, ...)
-      local file, e;
-      if type(path) == "string" then
-        -- Path, open a file
-        file, e = io.open(path, "w");
-        if not file then
-          return error(e);
+    persistence = {
+      store = function (path, ...)
+        local file, e;
+        if type(path) == "string" then
+          -- Path, open a file
+          file, e = io.open(path, "w");
+          if not file then
+            return error(e);
+          end
+        else
+          -- Just treat it as file
+          file = path;
         end
-      else
-        -- Just treat it as file
-        file = path;
-      end
-      local n = select("#", ...);
-      -- Count references
-      local objRefCount = {}; -- Stores reference that will be exported
-      for i = 1, n do
-        refCount(objRefCount, (select(i,...)));
-      end;
-      -- Export Objects with more than one ref and assign name
-      -- First, create empty tables for each
-      local objRefNames = {};
-      local objRefIdx = 0;
-      file:write("-- Persistent Data\n");
-      file:write("local multiRefObjects = {\n");
-      for obj, count in pairs(objRefCount) do
-        if count > 1 then
-          objRefIdx = objRefIdx + 1;
-          objRefNames[obj] = objRefIdx;
-          file:write("{};"); -- table objRefIdx
+        local n = select("#", ...);
+        -- Count references
+        local objRefCount = {}; -- Stores reference that will be exported
+        for i = 1, n do
+          refCount(objRefCount, (select(i,...)));
         end;
-      end;
-      file:write("\n} -- multiRefObjects\n");
-      -- Then fill them (this requires all empty multiRefObjects to exist)
-      for obj, idx in pairs(objRefNames) do
-        for k, v in pairs(obj) do
-          file:write("multiRefObjects["..idx.."][");
-          write(file, k, 0, objRefNames);
-          file:write("] = ");
-          write(file, v, 0, objRefNames);
-          file:write(";\n");
+        -- Export Objects with more than one ref and assign name
+        -- First, create empty tables for each
+        local objRefNames = {};
+        local objRefIdx = 0;
+        file:write("-- Persistent Data\n");
+        file:write("local multiRefObjects = {\n");
+        for obj, count in pairs(objRefCount) do
+          if count > 1 then
+            objRefIdx = objRefIdx + 1;
+            objRefNames[obj] = objRefIdx;
+            file:write("{};"); -- table objRefIdx
+          end;
         end;
-      end;
-      -- Create the remaining objects
-      for i = 1, n do
-        file:write("local ".."obj"..i.." = ");
-        write(file, (select(i,...)), 0, objRefNames);
-        file:write("\n");
-      end
-      -- Return them
-      if n > 0 then
-        file:write("return obj1");
-        for i = 2, n do
-          file:write(" ,obj"..i);
+        file:write("\n} -- multiRefObjects\n");
+        -- Then fill them (this requires all empty multiRefObjects to exist)
+        for obj, idx in pairs(objRefNames) do
+          for k, v in pairs(obj) do
+            file:write("multiRefObjects["..idx.."][");
+            write(file, k, 0, objRefNames);
+            file:write("] = ");
+            write(file, v, 0, objRefNames);
+            file:write(";\n");
+          end;
         end;
-        file:write("\n");
-      else
-        file:write("return\n");
+        -- Create the remaining objects
+        for i = 1, n do
+          file:write("local ".."obj"..i.." = ");
+          write(file, (select(i,...)), 0, objRefNames);
+          file:write("\n");
+        end
+        -- Return them
+        if n > 0 then
+          file:write("return obj1");
+          for i = 2, n do
+            file:write(" ,obj"..i);
+          end;
+          file:write("\n");
+        else
+          file:write("return\n");
+        end;
+        file:close();
       end;
-      file:close();
-    end;
 
-    load = function (path)
-      local f, e = loadfile(path);
-      if f then
-        return f();
-      else
-        return nil, e;
+      load = function (path)
+        local f, e = loadfile(path);
+        if f then
+          return f();
+        else
+          return nil, e;
+        end;
       end;
-    end;
-  }
+    }
 
 -- Private methods
 
 -- write thing (dispatcher)
-  write = function (file, item, level, objRefNames)
-    writers[type(item)](file, item, level, objRefNames);
-  end;
+    write = function (file, item, level, objRefNames)
+      writers[type(item)](file, item, level, objRefNames);
+    end;
 
 -- write indent
-  writeIndent = function (file, level)
-    for _ = 1, level do
-      file:write("\t");
+    writeIndent = function (file, level)
+      for _ = 1, level do
+        file:write("\t");
+      end;
     end;
-  end;
 
 -- recursively count references
-  refCount = function (objRefCount, item)
-    -- only count reference types (tables)
-    if type(item) == "table" then
-      -- Increase ref count
-      if objRefCount[item] then
-        objRefCount[item] = objRefCount[item] + 1;
-      else
-        objRefCount[item] = 1;
-        -- If first encounter, traverse
-        for k, v in pairs(item) do
-          refCount(objRefCount, k);
-          refCount(objRefCount, v);
+    refCount = function (objRefCount, item)
+      -- only count reference types (tables)
+      if type(item) == "table" then
+        -- Increase ref count
+        if objRefCount[item] then
+          objRefCount[item] = objRefCount[item] + 1;
+        else
+          objRefCount[item] = 1;
+          -- If first encounter, traverse
+          for k, v in pairs(item) do
+            refCount(objRefCount, k);
+            refCount(objRefCount, v);
+          end;
         end;
       end;
     end;
-  end;
 
 -- Format items for the purpose of restoring
-  writers = {
-    ["nil"] = function (file, _)
-      file:write("nil");
-    end;
-    ["number"] = function (file, item)
-      file:write(tostring(item));
-    end;
-    ["string"] = function (file, item)
-      file:write(string.format("%q", item));
-    end;
-    ["boolean"] = function (file, item)
-      if item then
-        file:write("true");
-      else
-        file:write("false");
-      end
-    end;
-    ["table"] = function (file, item, level, objRefNames)
-      local refIdx = objRefNames[item];
-      if refIdx then
-        -- Table with multiple references
-        file:write("multiRefObjects["..refIdx.."]");
-      else
-        -- Single use table
-        file:write("{\n");
-        for k, v in pairs(item) do
-          writeIndent(file, level+1);
-          file:write("[");
-          write(file, k, level+1, objRefNames);
-          file:write("] = ");
-          write(file, v, level+1, objRefNames);
-          file:write(";\n");
-        end
-        writeIndent(file, level);
-        file:write("}");
+    writers = {
+      ["nil"] = function (file, _)
+        file:write("nil");
       end;
-    end;
-    ["function"] = function (file, item)
-      -- Does only work for "normal" functions, not those
-      -- with upvalues or c functions
-      local dInfo = debug.getinfo(item, "uS");
-      if dInfo.nups > 0 then
-        file:write("nil --[[functions with upvalue not supported]]");
-      elseif dInfo.what ~= "Lua" then
-        file:write("nil --[[non-lua function not supported]]");
-      else
-        local r, s = pcall(string.dump,item);
-        if r then
-          file:write(string.format("loadstring(%q)", s));
+      ["number"] = function (file, item)
+        file:write(tostring(item));
+      end;
+      ["string"] = function (file, item)
+        file:write(string.format("%q", item));
+      end;
+      ["boolean"] = function (file, item)
+        if item then
+          file:write("true");
         else
-          file:write("nil --[[function could not be dumped]]");
+          file:write("false");
         end
-      end
-    end;
-    ["thread"] = function (file, _)
-      file:write("nil --[[thread]]\n");
-    end;
-    ["userdata"] = function (file, _)
-      file:write("nil --[[userdata]]\n");
-    end;
-  }
+      end;
+      ["table"] = function (file, item, level, objRefNames)
+        local refIdx = objRefNames[item];
+        if refIdx then
+          -- Table with multiple references
+          file:write("multiRefObjects["..refIdx.."]");
+        else
+          -- Single use table
+          file:write("{\n");
+          for k, v in pairs(item) do
+            writeIndent(file, level+1);
+            file:write("[");
+            write(file, k, level+1, objRefNames);
+            file:write("] = ");
+            write(file, v, level+1, objRefNames);
+            file:write(";\n");
+          end
+          writeIndent(file, level);
+          file:write("}");
+        end;
+      end;
+      ["function"] = function (file, item)
+        -- Does only work for "normal" functions, not those
+        -- with upvalues or c functions
+        local dInfo = debug.getinfo(item, "uS");
+        if dInfo.nups > 0 then
+          file:write("nil --[[functions with upvalue not supported]]");
+        elseif dInfo.what ~= "Lua" then
+          file:write("nil --[[non-lua function not supported]]");
+        else
+          local r, s = pcall(string.dump,item);
+          if r then
+            file:write(string.format("loadstring(%q)", s));
+          else
+            file:write("nil --[[function could not be dumped]]");
+          end
+        end
+      end;
+      ["thread"] = function (file, _)
+        file:write("nil --[[thread]]\n");
+      end;
+      ["userdata"] = function (file, _)
+        file:write("nil --[[userdata]]\n");
+      end;
+    }
 
-  local filesDW = {
-    ["fibaroapiHC3.lua"] = function() offline.downloadGitHubFile("fibaroapiHC3.lua") end,
-    ["fibaroapiHC3plug.lua"] = function() offline.downloadGitHubFile("fibaroapiHC3plug.lua") end,
-    ["Toolbox/*"] = offline.downloadToolbox,
-    ["EventRunner4.lua"] = function() offline.downloadGitHubFile("EventRunner4.lua") end,
-    ["EventRunnerEngine.lua"] = function() offline.downloadGitHubFile("EventRunner4Engine.lua") end,
-    ["MQTT/*"] = offline.downloadMQTT,
-    ["wsLua_ER.lua"] = function() offline.downloadGitHubFile("wsLua_ER.lua") end,
-    ["credentials_ex.lua"] = function() offline.downloadGitHubFile("credentials_ex§ .lua") end,
-  }
-  commandLines['downloadfile']=function(s)
-    local f = filesDW[s]
-    f()
-  end
-  offline.persistence = persistence
+    local filesDW = {
+      ["fibaroapiHC3.lua"] = function() offline.downloadGitHubFile("fibaroapiHC3.lua") end,
+      ["fibaroapiHC3plug.lua"] = function() offline.downloadGitHubFile("fibaroapiHC3plug.lua") end,
+      ["Toolbox/*"] = offline.downloadToolbox,
+      ["EventRunner4.lua"] = function() offline.downloadGitHubFile("EventRunner4.lua") end,
+      ["EventRunnerEngine.lua"] = function() offline.downloadGitHubFile("EventRunner4Engine.lua") end,
+      ["MQTT/*"] = offline.downloadMQTT,
+      ["wsLua_ER.lua"] = function() offline.downloadGitHubFile("wsLua_ER.lua") end,
+      ["credentials_ex.lua"] = function() offline.downloadGitHubFile("credentials_ex§ .lua") end,
+    }
+    commandLines['downloadfile']=function(s)
+      local f = filesDW[s]
+      f()
+    end
+    offline.persistence = persistence
 
-  return offline
-end -- Offline
+    return offline
+  end -- Offline
 
 --------------- Load modules  and start ------------------------------
-Util    = module.Utilities()
-json    = module.Json()
-Timer   = module.Timer()
-HTTP    = module.HTTP()
-Trigger = module.Trigger()
-fibaro  = module.FibaroAPI()
-Files   = module.Files()
-QA      = module.QuickApp()
-Scene   = module.Scene()
-Web     = module.WebAPI()
-Offline = module.Offline()
+  Util    = module.Utilities()
+  json    = module.Json()
+  Timer   = module.Timer()
+  HTTP    = module.HTTP()
+  Trigger = module.Trigger()
+  fibaro  = module.FibaroAPI()
+  Files   = module.Files()
+  QA      = module.QuickApp()
+  Scene   = module.Scene()
+  Web     = module.WebAPI()
+  Offline = module.Offline()
 
-commandLines['help'] = function()
-  for c,_ in pairs(commandLines) do
-    Log(LOG.LOG,"Command: -%s",c)
-  end
-end
-
-local function DEFAULT(v,d) if v~=nil then return v else return d end end
-hc3_emulator.offline = DEFAULT(hc3_emulator.offline,false)
-hc3_emulator.defaultDevice     = DEFAULT(hc3_emulator.defaultDevice,"com.fibaro.multilevelSwitch")
-hc3_emulator.autocreateDevices = DEFAULT(hc3_emulator.autocreateDevices,true)
-hc3_emulator.autocreateGlobals = DEFAULT(hc3_emulator.autocreateGlobals,true)
-
-hc3_emulator.updateViewLayout  = QA.updateViewLayout
-hc3_emulator.getUI             = QA.getQAUI
-hc3_emulator.createQuickApp    = QA.createQuickApp
-hc3_emulator.createProxy       = QA.createProxy
-hc3_emulator.getIPaddress      = Util.getIPaddress
-hc3_emulator.cache             = Trigger.cache
-hc3_emulator.prettyJsonStruct  = Util.prettyJsonStruct
-hc3_emulator.prettyJson        = Util.prettyJson
-hc3_emulator.copyFromHC3       = Offline.copyFromHC3
-hc3_emulator.backup            = Files.backup
-hc3_emulator.file              = Files.file
-hc3_emulator.postTrigger       = Trigger.postTrigger
-hc3_emulator.loadScene         = Scene.loadScene
-hc3_emulator.loadQA            = QA.loadQA
-
-function Util.createEnvironment(envType, extras)
-  local env = {}
-  local function copy(t) local res={} for k,v in pairs(t) do res[k]=v end  return res end
-
-  env._G = env
-  env.hc3_emulator = copy(hc3_emulator)
-  env.fibaro = copy(fibaro)  -- scenes may patch fibaro:*...
-  env.json = copy(json)
-  env.print = print
-  env.net = copy(net)
-  env.api = copy(api)
-  env.tostring = tostring
-  env.tonumber = tonumber
-  env.table = table
-  env.string = string
-  env.math = math
-  env.pairs = pairs
-  env.ipairs = ipairs
-  env.pcall = pcall
-  env.error = error
-  env.type = function(o) 
-    local t = type(o) 
-    return t=='table' and o._USERDATA and 'userdata' or t 
-  end
-  env.next = next
-  env.select = select
-  env.assert = assert
-
-  if envType == 'Scene' then env.os = { time = os.time, data = os.date } end
-
-  if envType == 'QA' then
-
-    env._VERSION = "Lua 5.3"
-    env.__assert_type = __assert_type
-    env.__fibaro_get_device = __fibaro_get_device
-    env.__fibaro_add_debug_message = __fibaro_add_debug_message
-    env.__fibaro_get_global_variable = __fibaro_get_global_variable
-    env.__fibaro_get_device_property = __fibaro_get_device_property
-    env.__fibaroUseAsyncHandler = __fibaroUseAsyncHandler
-    env.__ternary = function(a,b,c) if a then return b else return c end end
-    env.__fibaro_get_device = __fibaro_get_device
-    env.__fibaroSleep = __fibaroSleep
-    env.__fibaro_get_scene = __fibaro_get_scene
-    env.__fibaro_get_devices = __fibaro_get_devices
-    env.__fibaro_get_room = __fibaro_get_room
-
-    env.setTimeout = setTimeout
-    env.clearTimeout = clearTimeout
-    env.setInterval = setInterval
-    env.clearInterval = clearInterval
-    env.urlencode = Util.urlencode
-    env.xpcall = xpcall
-    env.rawlen = rawlen
-    env.collectgarbage = collectgarbage
-    env.bit32 = bit32
-    env.debug = debug
-    env.mqtt = mqtt
-    env.unpack = unpack
-    env.os = { time = os.time, date = os.date, clock = os.clock, difftime = os.difftime }
-
-    local mt = getmetatable(QuickApp)
-    local QA = copy(QuickApp)
-    setmetatable(QA,mt)
-    env.Device = Device
-    env.QuickApp = QA
-    env.QuickAppBase = QuickAppBase
-    env.QuickAppChild = QuickAppChild
-    env.plugin = copy(plugin)
-    env.class = class
-    env.property = property
-    env.super = super
-    env.utf8 = utf8
-
-    env.getHierarchy = getHierarchy -- ToDo define...
-    env.Hierarchy = Hierarchy
+  commandLines['help'] = function()
+    for c,_ in pairs(commandLines) do
+      Log(LOG.LOG,"Command: -%s",c)
+    end
   end
 
-  if extras then
-    env.os = os
-    env.io = io
-    env.dofile = hc3_emulator.dofile -- Allow dofile for including code for testing, but use our version that sets context
-    env.loadfile = loadfile
-    env.require = require
-  end
+  local function DEFAULT(v,d) if v~=nil then return v else return d end end
+  hc3_emulator.offline = DEFAULT(hc3_emulator.offline,false)
+  hc3_emulator.defaultDevice     = DEFAULT(hc3_emulator.defaultDevice,"com.fibaro.multilevelSwitch")
+  hc3_emulator.autocreateDevices = DEFAULT(hc3_emulator.autocreateDevices,true)
+  hc3_emulator.autocreateGlobals = DEFAULT(hc3_emulator.autocreateGlobals,true)
 
-  return env
-end
+  hc3_emulator.updateViewLayout  = QA.updateViewLayout
+  hc3_emulator.getUI             = QA.getQAUI
+  hc3_emulator.createQuickApp    = QA.createQuickApp
+  hc3_emulator.createProxy       = QA.createProxy
+  hc3_emulator.getIPaddress      = Util.getIPaddress
+  hc3_emulator.cache             = Trigger.cache
+  hc3_emulator.prettyJsonStruct  = Util.prettyJsonStruct
+  hc3_emulator.prettyJson        = Util.prettyJson
+  hc3_emulator.copyFromHC3       = Offline.copyFromHC3
+  hc3_emulator.backup            = Files.backup
+  hc3_emulator.file              = Files.file
+  hc3_emulator.postTrigger       = Trigger.postTrigger
+  hc3_emulator.loadScene         = Scene.loadScene
+  hc3_emulator.loadQA            = QA.loadQA
+
+  function Util.createEnvironment(envType, extras)
+    local env = {}
+    local function copy(t) local res={} for k,v in pairs(t) do res[k]=v end  return res end
+
+    env._G = env
+    env.hc3_emulator = copy(hc3_emulator)
+    env.fibaro = copy(fibaro)  -- scenes may patch fibaro:*...
+    env.json = copy(json)
+    env.print = print
+    env.net = copy(net)
+    env.api = copy(api)
+    env.tostring = tostring
+    env.tonumber = tonumber
+    env.table = table
+    env.string = string
+    env.math = math
+    env.pairs = pairs
+    env.ipairs = ipairs
+    env.pcall = pcall
+    env.error = error
+    env.type = function(o) 
+      local t = type(o) 
+      return t=='table' and o._USERDATA and 'userdata' or t 
+    end
+    env.next = next
+    env.select = select
+    env.assert = assert
+
+    if envType == 'Scene' then env.os = { time = os.time, data = os.date } end
+
+    if envType == 'QA' then
+
+      env._VERSION = "Lua 5.3"
+      env.__assert_type = __assert_type
+      env.__fibaro_get_device = __fibaro_get_device
+      env.__fibaro_add_debug_message = __fibaro_add_debug_message
+      env.__fibaro_get_global_variable = __fibaro_get_global_variable
+      env.__fibaro_get_device_property = __fibaro_get_device_property
+      env.__fibaroUseAsyncHandler = __fibaroUseAsyncHandler
+      env.__ternary = function(a,b,c) if a then return b else return c end end
+      env.__fibaro_get_device = __fibaro_get_device
+      env.__fibaroSleep = __fibaroSleep
+      env.__fibaro_get_scene = __fibaro_get_scene
+      env.__fibaro_get_devices = __fibaro_get_devices
+      env.__fibaro_get_room = __fibaro_get_room
+
+      env.setTimeout = setTimeout
+      env.clearTimeout = clearTimeout
+      env.setInterval = setInterval
+      env.clearInterval = clearInterval
+      env.urlencode = Util.urlencode
+      env.xpcall = xpcall
+      env.rawlen = rawlen
+      env.collectgarbage = collectgarbage
+      env.bit32 = bit32
+      env.debug = debug
+      env.mqtt = mqtt
+      env.unpack = unpack
+      env.os = { time = os.time, date = os.date, clock = os.clock, difftime = os.difftime }
+
+      local mt = getmetatable(QuickApp)
+      local QA = copy(QuickApp)
+      setmetatable(QA,mt)
+      env.Device = Device
+      env.QuickApp = QA
+      env.QuickAppBase = QuickAppBase
+      env.QuickAppChild = QuickAppChild
+      env.plugin = copy(plugin)
+      env.class = class
+      env.property = property
+      env.super = super
+      env.utf8 = utf8
+
+      env.getHierarchy = getHierarchy -- ToDo define...
+      env.Hierarchy = Hierarchy
+    end
+
+    if extras then
+      env.os = os
+      env.io = io
+      env.dofile = hc3_emulator.dofile -- Allow dofile for including code for testing, but use our version that sets context
+      env.loadfile = loadfile
+      env.require = require
+    end
+
+    return env
+  end
 
 --[[
 hc3_emulator.credentials
@@ -8378,94 +8403,94 @@ hc3_emulator.asyncHTTP
 args.restartQA
 --]]
 
-if arg[1] then
-  Timer.start(function()
-      os.setTimer(function()
-          local cmd,res = arg[1],false
-          if cmd:sub(1,1)=='-' then
-            cmd = cmd:sub(2)
-            if commandLines[cmd] then --- When fibaroapiHC3.lua is used as a command from ZBS
-              res = commandLines[cmd](select(2,table.unpack(arg)))
+  if arg[1] then
+    Timer.start(function()
+        os.setTimer(function()
+            local cmd,res = arg[1],false
+            if cmd:sub(1,1)=='-' then
+              cmd = cmd:sub(2)
+              if commandLines[cmd] then --- When fibaroapiHC3.lua is used as a command from ZBS
+                res = commandLines[cmd](select(2,table.unpack(arg)))
+              end
             end
-          end
-        end,0)
-    end,0)
-end
-
-local function startEmulator(file)
-
-  if not hc3_emulator.offline and not hc3_emulator.credentials then
-    error("Missing HC3 credentials -- hc3_emulator.credentials{ip=<IP>,user=<string>,pwd=<string>}")
-  end
-  if not hc3_emulator.offline then
-    typeHierarchy = api.get('/devices/hierarchy')
-    hc3_emulator.HC3version = api.get("/settings/info").currentVersion.version or "5.040.37"
-  end
-  hc3_emulator.speeding = hc3_emulator.speed==true and 48 or tonumber(hc3_emulator.speed)
-  if hc3_emulator.traceFibaro then Util.traceFibaro() end
-
-  Log(LOG.SYS,"HC3 SDK v%s",hc3_emulator.version)
-  if hc3_emulator.deploy==true or _G["DEPLOY"] then Files.deployQA(file) osExit() end
-
-  if hc3_emulator.speeding then Log(LOG.SYS,"Speeding %s hours",hc3_emulator.speeding) end
-  hc3_emulator.IPaddress = Util.getIPaddress()
-  if hc3_emulator.startWeb ~= false then Web.eventServer(hc3_emulator.webPort) end
-  if hc3_emulator.startTerminal ~= false then Web.terminalServer(hc3_emulator.terminalPort) end
-
-  if type(hc3_emulator.startTime) == 'string' then
-    Timer.setEmulatorTime(Util.parseDate(hc3_emulator.startTime))
+          end,0)
+      end,0)
   end
 
-  if hc3_emulator.offline then
-    Offline.createBaseMap()
-    if hc3_emulator.db then Offline.loadDB() end
-    Offline.start()
+  local function startEmulator(file)
+
+    if not hc3_emulator.offline and not hc3_emulator.credentials then
+      error("Missing HC3 credentials -- hc3_emulator.credentials{ip=<IP>,user=<string>,pwd=<string>}")
+    end
+    if not hc3_emulator.offline then
+      typeHierarchy = api.get('/devices/hierarchy')
+      hc3_emulator.HC3version = api.get("/settings/info").currentVersion.version or "5.040.37"
+    end
+    hc3_emulator.speeding = hc3_emulator.speed==true and 48 or tonumber(hc3_emulator.speed)
+    if hc3_emulator.traceFibaro then Util.traceFibaro() end
+
+    Log(LOG.SYS,"HC3 SDK v%s",hc3_emulator.version)
+    if hc3_emulator.deploy==true or _G["DEPLOY"] then Files.deployQA(file) osExit() end
+
+    if hc3_emulator.speeding then Log(LOG.SYS,"Speeding %s hours",hc3_emulator.speeding) end
+    hc3_emulator.IPaddress = Util.getIPaddress()
+    if hc3_emulator.startWeb ~= false then Web.eventServer(hc3_emulator.webPort) end
+    if hc3_emulator.startTerminal ~= false then Web.terminalServer(hc3_emulator.terminalPort) end
+
+    if type(hc3_emulator.startTime) == 'string' then
+      Timer.setEmulatorTime(Util.parseDate(hc3_emulator.startTime))
+    end
+
+    if hc3_emulator.offline then
+      Offline.createBaseMap()
+      if hc3_emulator.db then Offline.loadDB() end
+      Offline.start()
+    end
+
+    if hc3_emulator.speeding then Timer.speedTime(hc3_emulator.speeding) end
+    if hc3_emulator.credentials then
+      hc3_emulator.BasicAuthorization = "Basic "..Util.base64(hc3_emulator.credentials.user..":"..hc3_emulator.credentials.pwd)
+    end
+    hc3_emulator.inited = true
+
+    if hc3_emulator.poll and not hc3_emulator.offline then
+      local p = tonumber(hc3_emulator.poll) or 2000
+      Log(LOG.LOG,"Polling HC3 for triggers every %sms",p)
+      Trigger.startPolling(p)
+    end
+
+    local code = Files.file.read(file)
+    hc3_emulator._code = code
+    if code:match("hc3_emulator%.actions") then
+      hc3_emulator.loadScene(file):install()
+    elseif code:match("QuickApp:") then
+      hc3_emulator.loadQA(file):install()
+    else
+      hc3_emulator._code = nil
+      load(code,file,"bt",Util.createEnvironment("QA",true))()
+    end
+  end -- startEmulator
+
+  if not hc3_emulator.sourceFile then
+    local file = debug.getinfo(3, 'S')                                      -- Find out what file we are running
+    if file and file.source then
+      file = file.source
+      if not file:sub(1,1)=='@' then error("Can't locate file:"..file) end  -- Is it a file?
+      hc3_emulator.sourceFile = file:sub(2)
+    end
   end
 
-  if hc3_emulator.speeding then Timer.speedTime(hc3_emulator.speeding) end
-  if hc3_emulator.credentials then
-    hc3_emulator.BasicAuthorization = "Basic "..Util.base64(hc3_emulator.credentials.user..":"..hc3_emulator.credentials.pwd)
-  end
-  hc3_emulator.inited = true
-
-  if hc3_emulator.poll and not hc3_emulator.offline then
-    local p = tonumber(hc3_emulator.poll) or 2000
-    Log(LOG.LOG,"Polling HC3 for triggers every %sms",p)
-    Trigger.startPolling(p)
-  end
-
-  local code = Files.file.read(file)
-  hc3_emulator._code = code
-  if code:match("hc3_emulator%.actions") then
-    hc3_emulator.loadScene(file):install()
-  elseif code:match("QuickApp:") then
-    hc3_emulator.loadQA(file):install()
-  else
-    hc3_emulator._code = nil
-    load(code,file,"bt",Util.createEnvironment("QA",true))()
-  end
-end -- startEmulator
-
-if not hc3_emulator.sourceFile then
-  local file = debug.getinfo(3, 'S')                                      -- Find out what file we are running
-  if file and file.source then
-    file = file.source
-    if not file:sub(1,1)=='@' then error("Can't locate file:"..file) end  -- Is it a file?
-    hc3_emulator.sourceFile = file:sub(2)
-  end
-end
-
-if hc3_emulator.sourceFile then
-  if hc3_emulator.profile then
-    -- https://raw.githubusercontent.com/charlesmallah/lua-profiler/master/src/profiler.lua
-    profiler = require("profiler")
-    profiler.start()
-  end
-  Timer.start(function()
-      --setTimeout(function() profiler.report("profiler.log") end,60*1000)
-      startEmulator(hc3_emulator.sourceFile) end,
-      0)
-  else
-    Log(LOG.SYS,"fibaroapiHC3 version:%s",FIBAROAPIHC3_VERSION)
-  end
-  osExit()
+  if hc3_emulator.sourceFile then
+    if hc3_emulator.profile then
+      -- https://raw.githubusercontent.com/charlesmallah/lua-profiler/master/src/profiler.lua
+      profiler = require("profiler")
+      profiler.start()
+    end
+    Timer.start(function()
+        --setTimeout(function() profiler.report("profiler.log") end,60*1000)
+        startEmulator(hc3_emulator.sourceFile) end,
+        0)
+    else
+      Log(LOG.SYS,"fibaroapiHC3 version:%s",FIBAROAPIHC3_VERSION)
+    end
+    osExit()
