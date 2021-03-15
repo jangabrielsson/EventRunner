@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.188"
+local FIBAROAPIHC3_VERSION = "0.189"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -191,9 +191,7 @@ hc3_emulator.post(ev,t)                                        -- post event/sou
 --]]
 
 local _debugFlags = {
-  fcall=true, 
-  fget=true, 
-  post=true, 
+  fibaro=true,        -- Logs calls to fibaro api
   trigger=true,        -- Logs incoming triggers from HC3 or internal emulator
   timers=nil,          -- Logs low level  info on timers being called, very noisy.
   refreshloop=false,   -- Logs evertime refreshloop receives events
@@ -3485,7 +3483,7 @@ function module.HTTP()
       self.type = device.type
       self.properties = device.properties
       self._emu = device._emu
-      self.parentId = device.parentId > 0 and device.parentId
+      self.parentId = self.parentId and (device.parentId > 0 and device.parentId)
       device._emu = nil
       local cbs = {}
       for _,cb in ipairs(self.properties.uiCallbacks or {}) do
@@ -5675,29 +5673,15 @@ climate
       end
     end
 
-    function self.traceFibaro()
-      patchFibaro("call")
-      -- patchFibaro("get")
-    end
+    local fibaroFunsToPatch = {
+      "call","getType","getValue","getName","get","getGlobalVariable","setGlobalVariable","getRoomName",
+      "getRoomID","getRoomNameByDeviceID","getSectionID","getIds","getDevicesID","scene","profile","callGroupAction",
+      "alert","alarm","setTimeout","clearTimeout","emitCustomEvent","wakeUpDeadDevice","sleep"
+    }
 
---    function self.cleanUpVarsAndEvents()
---      local vs,c1,c2 = api.get("/globalVariables/"),0,0
---      for _,v in ipairs(vs or {}) do
---        if v.name:match("RPC%d+") then
---          api.delete("/globalVariables/"..v.name)
---          c1=c1+1
---        end
---      end
---      vs = api.get("/customEvents/")
---      for _,v in ipairs(vs or {}) do
---        if v.name:match("PROXY%d+_%d+") then
---          api.delete("/customeEvents/"..v.name)
---          c2=c2+1
---        end
---      end
---      Log(LOG.SYS,"Deleted %s RPC variables",c1)
---      Log(LOG.SYS,"Deleted %s PROXY events",c2)
---    end
+    function self.traceFibaro()
+      for _,name in ipairs(fibaroFunsToPatch) do patchFibaro(name) _debugFlags["f"..name]=true end
+    end
 
     local CRC16Lookup = {
       0x0000,0x1021,0x2042,0x3063,0x4084,0x50a5,0x60c6,0x70e7,
@@ -8506,6 +8490,8 @@ args.restartQA
       Log(LOG.LOG,"Polling HC3 for triggers every %sms",p)
       Trigger.startPolling(p)
     end
+    
+    if _debugFlags.fibaro then Util.traceFibaro() end
 
     local code = Files.file.read(file)
     hc3_emulator._code = code
