@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.185"
+local FIBAROAPIHC3_VERSION = "0.186"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -191,10 +191,27 @@ hc3_emulator.post(ev,t)                                        -- post event/sou
 --]]
 
 local _debugFlags = {
-  fcall=true, fget=true, post=true, trigger=true, timers=nil, refreshLoop=false,
-  mqtt=true, http=false, onAction=true, UIEvent=true, debugPlugin=true,
-  webServer=false, webServerReq=false,
-  ctx=false, timersSched=false, timersWarn=0.500, timersExtra=true,
+  fcall=true, 
+  fget=true, 
+  post=true, 
+  trigger=true,        -- Logs incoming triggers from HC3 or internal emulator
+  timers=nil,          -- Logs low level  info on timers being called, very noisy.
+  refreshloop=false,   -- Logs evertime refreshloop receives events
+  mqtt=true,           -- Logs mqtt   message and callbacks
+  http=false,          -- Logs all net.HTTPClient():request. ALso includes the time the request took
+  api=false,           -- Logs all api request to the HC3
+  onAction=true,       -- Logs call to onAction (incoming fibaro.calls etc
+  UIEvent=true,        -- Logs incoming UIEvents,  from GUI elements
+  zbsplug=true,        -- Logs call from ZBS plugin calls
+  webServer=false,     -- Logs requests to /web/ including headers
+  webServerReq=false,  -- Logs requests to /web/ excluding headers
+  files=false,         -- Logs files loaded and run
+  breakOnError=false,  -- Logs files loaded and run
+  breakOnLoad=false,   -- Sets breakpoint on first line of file loaded
+  ctx=false,           -- Logs Lua context switches
+  timersSched=false,   -- Logs when timers are scheduled
+  timersWarn=0.500,    -- Logs when  timers are called late or setTimeout with time < 0
+  timersExtra=true,    -- Adds extra info to timers, like from where it's called and definition of function (small time penalty)
 }
 local function merge(t1,t2)
   if type(t1)=='table' and type(t2)=='table' then for k,v in pairs(t2) do if t1[k]==nil then t1[k]=v else merge(t1[k],v) end end end
@@ -271,13 +288,13 @@ local contexts = {}
 setmetatable(contexts,{__mode='k'})
 local function setContext(env)
   local co = coroutine.running()
-  if _debugFlags.ctx then print("SC:",((env or _ENV).plugin or {}).mainDeviceId,tostring(co)) end
+  if _debugFlags.ctx then print("SC:",((env or _ENV).plugin or {}).mainDeviceId,tostring(co),tostring(env.quickApp)) end
   contexts[co]=env or _ENV
 end
 local function getContext()
   local co = coroutine.running()
   local env = contexts[co] or {}
-  if _debugFlags.ctx then print("GC:",(env.plugin or {}).mainDeviceId,tostring(co)) end
+  if _debugFlags.ctx then print("GC:",(env.plugin or {}).mainDeviceId,tostring(co),tostring(env.quickApp)) end
   return env
 end
 setContext(_G) -- Start, main thread
@@ -3617,7 +3634,8 @@ function module.HTTP()
   function QuickAppChild:__init(device)
     assert(type(device)=='number' or type(device)=='table',"QuickAppChild:__init needs number/table")
     local function copy(d) local res={} for k,v in pairs(d) do res[k]=v end return res end
-    device._emu = copy(device._emu or getContext().quickApp._emu or {})
+    local emu = device.parentId and quickApps[device.parentId]._emu
+    device._emu = copy(device._emu or emu or getContext().quickApp._emu or {})
     device._emu.UI,device._emu.slideCache = {},{}
     QuickAppBase.__init(self,device)
     self._emu.proxy=true
@@ -4448,6 +4466,7 @@ end
 
             -- step 5. run the files
             for _,f in ipairs(loadedFiles) do
+              local path = self.paths and self.paths[f.name] or f.name
               if _debugFlags.breakOnLoad then mobdebug.setbreakpoint(path,1) end
               if _debugFlags.files then Log(LOG.LOG,"Running file '%s'",f.name) end
               _,msg=f.code()
@@ -5139,6 +5158,7 @@ function module.Trigger()
 
   local function checkEvents(events)
     if not events[1] then events={events} end
+    if _debugFlags.refreshloop then Log(LOG.LOG,"/refresh #%s",#events) end
     for _,e in ipairs(events) do
       local eh = EventTypes[e.type]
       if eh then eh(e.data)
@@ -5164,7 +5184,6 @@ function module.Trigger()
     req.headers["Accept"] = '*/*'
     req.headers["X-Fibaro-Version"] = 2
     local r, c, h = copas.http.request(req)       -- ToDo https
---    http.TIMEOUT = to
     if not r then return nil,c, h end
     if c>=200 and c<300 then
       local states = resp[1] and json.decode(table.concat(resp))
@@ -7082,6 +7101,16 @@ function module.Files()
     end
   end
 
+  local function tmp_dir()
+    return os.getenv("TMPDIR") or os.getenv("TEMP") or os.getenv("TMP") or "/tmp"
+  end
+
+  local function tmp_name(prefix)
+    prefix = prefix or ""
+    assert(type(prefix) == "string", "sys.tmp_name: Argument 'prefix' is not a string.")
+    return make_path(tmp_dir(), prefix .. "luadist_" .. utils.rand(10000000000))
+  end
+
   local function read(fn)
     local f = io.open(fn,"r")
     assert(f,"File "..fn.." doesn't exists")
@@ -7149,7 +7178,7 @@ function module.Files()
   end
 
   local function downloadFile(url,path)
-    if hc3_emulator.debugPlugin then Log(LOG.DEBUG,"Downloading %s %s",tostring(url),tostring(path)) end
+    if hc3_emulator.zbsplug then Log(LOG.DEBUG,"Downloading %s %s",tostring(url),tostring(path)) end
     net.HTTPClient({sync=true}):request(url,{
         options={method="GET", checkCertificate = false, timeout=5000},
         success=function(res)
@@ -8253,6 +8282,7 @@ function Util.createEnvironment(envType, extras)
   local env = {}
   local function copy(t) local res={} for k,v in pairs(t) do res[k]=v end  return res end
 
+  env._G = env
   env.hc3_emulator = copy(hc3_emulator)
   env.fibaro = copy(fibaro)  -- scenes may patch fibaro:*...
   env.json = copy(json)
