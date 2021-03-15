@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.190"
+local FIBAROAPIHC3_VERSION = "0.191"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -4399,6 +4399,10 @@ end
               if tonumber(self.proxy) then
                 if api.get("/quickApp/"..self.proxy.."/files/PROXY") == nil then
                   pdevice = injectProxy(self.proxy)
+                  Log(LOG.LOG,"Connecting to QA %s, injecting new PROXY",self.proxy)
+                else
+                  Log(LOG.LOG,"Connecting to QA %s, using existing PROXY",self.proxy)
+                  pdevice = api.get("/devices/"..self.proxy)
                 end
               else
                 pdevice = createProxy(self.name,self.type,
