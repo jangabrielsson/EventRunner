@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.189"
+local FIBAROAPIHC3_VERSION = "0.190"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -247,7 +247,8 @@ hc3_emulator.negativeTimeout   = DEF(hc3_emulator.negativeTimeout,true)
 hc3_emulator.strictClass       = true
 hc3_emulator.HC3_logmessages   = DEF(hc3_emulator.HC3_logmessages,false)
 _debugFlags  = hc3_emulator.debug
-
+local  EMURUNNING              = "HC3Emulator"
+local  EMURUNNING_INTERVAL     = 4.0
 local cr = loadfile(hc3_emulator.credentialsFile)
 if cr then hc3_emulator.credentials = merge(hc3_emulator.credentials or {},cr() or {}) end
 
@@ -4012,47 +4013,55 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
 
     local function injectProxy(id)
       local code = [[
-local actionH,UIh,pingRef = nil,nil,nil
-function QuickApp:PROXY(enable,ip)
+do
+   local actionH,UIh,patched = nil,nil,false
    local function urlencode (str)
      return str and string.gsub(str ,"([^% w])",function(c) return string.format("%%% 02X",string.byte(c))  end)
    end
    local IGNORE={updateView=true,setVariable=true,updateProperty=true,PROXY=true,APIPOST=true,APIPUT=true,APIGET=true} -- Rewrite!!!!
    
-   if enable and actionH==nil and UIh==nil then
-     actionH,UIh = self.actionHandler,self.UIHandler
-     local function POST2IDE(path,payload)
-       url = "http://"..ip..path
-       net.HTTPClient():request(url,{options={method='POST',data=json.encode(payload)}})
-     end
-     local pingURL = "http://"..ip.."/fibaroapiHC3/ping"
-     local function pinger()
-       net.HTTPClient():request(pingURL,{
-       options={method='GET' ,timeout=3000, headers={['content-type']='text/html'}}, 
-       success = function(resp) end,
-       error = function(err) setTimeout(function() self:PROXY(false) end,0) end
-       })
-     end
-     function self:actionHandler(action)
-        if IGNORE[action.actionName] then 
-          return self:callAction(action.actionName, table.unpack(action.args))
+   local function enable(ip)
+     if patched==false then
+        actionH,UIh = quickApp.actionHandler,quickApp.UIHandler
+        local function POST2IDE(path,payload)
+          url = "http://"..ip..path
+          net.HTTPClient():request(url,{options={method='POST',data=json.encode(payload)}})
         end
-        POST2IDE("/fibaroapiHC3/action/"..self.id,action)   
+        function quickApp:actionHandler(action)
+           if IGNORE[action.actionName] then 
+             return quickApp:callAction(action.actionName, table.unpack(action.args))
+           end
+           POST2IDE("/fibaroapiHC3/action/"..quickApp.id,action)   
+        end
+        function quickApp:UIHandler(UIEvent) POST2IDE("/fibaroapiHC3/ui/"..quickApp.id,UIEvent) end
+        quickApp:debug("Events intercepted by emulator at "..ip)
       end
-      function self:UIHandler(UIEvent) POST2IDE("/fibaroapiHC3/ui/"..self.id,UIEvent) end
-      function self:CREATECHILD(id) self.childDevices[id]=QuickAppChild({id=id}) end
-      function self:APIGET(url) api.get(url) end
-      function self:APIPOST(url,data) api.post(url,data) end -- to get around some access restrictions
-      function self:APIPUT(url,data) api.put(url,data) end
-      self:debug("Events intercepted by emulator at "..ip)
-      pingRef = setInterval(pinger,4000)
-   else
-    if pingRef then clearInterval(pingRef); pingRef = nil end
-    if actionH then self.actionHandler = actionH end
-    if UIh then self.UIHandler = UIh end 
-    actionH,UIh=nil,nil
-    self:debug("Events restored by emulator")
+      patched=true
    end
+   
+   local function disable()
+    if patched==true then
+      if actionH then quickApp.actionHandler = actionH end
+      if UIh then quickApp.UIHandler = UIh end 
+      actionH,UIh=nil,nil
+      quickApp:debug("Events restored from emulator")
+      patched=false
+    end
+   end
+   
+   setInterval(function()
+    local stat,res = pcall(function()
+    local var,err = __fibaro_get_global_variable("HC3Emulator")
+    if var then
+      local modified = var.modified
+      local ip = var.value
+      print(modified,os.time()-5,modified-os.time()+5)
+      if modified > os.time()-5 then enable(ip:match(":(.*)"))
+      else disable() end
+    end
+   end)
+   if not stat then print(res) end
+   end,3000)
 end
 ]]
       local dev = api.get("/devices/"..id)
@@ -4388,11 +4397,9 @@ end
             -- step 1. create proxy
             if self.proxy and not self.offline then
               if tonumber(self.proxy) then
-                pdevice = injectProxy(self.proxy)
-                os.setTimer(function() 
-                    fibaro.call(-self.proxy,"PROXY",true,hc3_emulator.IPaddress..":"..hc3_emulator.webPort) 
-                    Log(LOG.LOG,"Intercepting events from QA:%s",self.proxy)
-                  end,1000)
+                if api.get("/quickApp/"..self.proxy.."/files/PROXY") == nil then
+                  pdevice = injectProxy(self.proxy)
+                end
               else
                 pdevice = createProxy(self.name,self.type,
                   {
@@ -5110,7 +5117,7 @@ climate
       WeatherChangedEvent = function(d) post({type='weather',property=d.change, value=d.newValue, old=d.oldValue}) end,
       GlobalVariableChangedEvent = function(d)
         cache.write('globals',0,d.variableName,{name=d.variableName, value = d.newValue, modified=os.time()})
-        if d.variableName == tickEvent then return end
+        if d.variableName == EMURUNNING then return end
         post({type='global-variable', property=d.variableName, value=d.newValue, old=d.oldValue})
       end,
       DevicePropertyUpdatedEvent = function(d)
@@ -8469,6 +8476,15 @@ args.restartQA
     if hc3_emulator.startWeb ~= false then Web.eventServer(hc3_emulator.webPort) end
     if hc3_emulator.startTerminal ~= false then Web.terminalServer(hc3_emulator.terminalPort) end
 
+    if not hc3_emulator.offline then
+      api.post("/globalVariables",{ name=EMURUNNING,value=""  })
+      local tick=0
+      os.setTimer2(function()
+          api.put("/globalVariables/"..EMURUNNING,{value=tostring(tick)..":"..hc3_emulator.IPaddress..":"..hc3_emulator.webPort})
+          tick  = tick+1
+          end,EMURUNNING_INTERVAL,true)
+    end
+
     if type(hc3_emulator.startTime) == 'string' then
       Timer.setEmulatorTime(Util.parseDate(hc3_emulator.startTime))
     end
@@ -8490,7 +8506,7 @@ args.restartQA
       Log(LOG.LOG,"Polling HC3 for triggers every %sms",p)
       Trigger.startPolling(p)
     end
-    
+
     if _debugFlags.fibaro then Util.traceFibaro() end
 
     local code = Files.file.read(file)
