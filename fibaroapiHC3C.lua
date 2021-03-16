@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.191"
+local FIBAROAPIHC3_VERSION = "0.192"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -4462,6 +4462,7 @@ end
                     local p = ff.tmp_name(f.name,Util.crc16(f.content))
                     if ff.exists(p) then
                       self.paths[f.name]=p
+                      f.content = ff.read(p)
                     else
                       if pcall(function() ff.write(p,f.content,true,true) end) then
                         self.paths[f.name]=p
@@ -4512,7 +4513,7 @@ end
                 assert(msg==nil,string.format("Running %s - %s",path,msg))
               end
               if not _debugFlags.patchSetTimeout then -- restore setTimeout etc if pacthed by user
-                codeEnv.setTimeout,codeEnv.fibaro.setTimeout,codeEnv.json.encode,codeEnv.json.decode =  ost,ostf,jsenc,jsdec
+                codeEnv.setTimeout,codeEnv.fibaro.setTimeout =  ost,ostf
               end
 
               -- step 6. instantiate QA
@@ -5121,7 +5122,7 @@ climate
       WeatherChangedEvent = function(d) post({type='weather',property=d.change, value=d.newValue, old=d.oldValue}) end,
       GlobalVariableChangedEvent = function(d)
         cache.write('globals',0,d.variableName,{name=d.variableName, value = d.newValue, modified=os.time()})
-        if d.variableName == EMURUNNING then return end
+        if d.variableName == EMURUNNING then return true end
         post({type='global-variable', property=d.variableName, value=d.newValue, old=d.oldValue})
       end,
       DevicePropertyUpdatedEvent = function(d)
@@ -5196,12 +5197,17 @@ climate
     local function checkEvents(events)
       if not events[1] then events={events} end
       if _debugFlags.refreshloop then Log(LOG.LOG,"/refresh #%s",#events) end
-      for _,e in ipairs(events) do
+      local kills={}
+      for i,e in ipairs(events) do
         local eh = EventTypes[e.type]
-        if eh then eh(e.data)
+        if eh then 
+          if eh(e.data) then 
+            kills[#kills+1]=i 
+          end 
         elseif eh==nil then Log(LOG.WARNING,"Unhandled event:%s -- please report",json.encode(e)) end
       end
-      self.refreshStates.addEvents(events)
+      for i=#kills,1,-1 do table.remove(events,kills[i]) end
+      if #events > 0 then self.refreshStates.addEvents(events) end
     end
 
     local copas = hc3_emulator.copas
@@ -5232,7 +5238,6 @@ climate
           end
         end
       end
-      --   end,0)
       return nil,c, h
     end
 
@@ -5982,9 +5987,13 @@ climate
     function json.encode(val,...)
       local extras = {...}
       assert(#extras==0,"Too many arguments to json.encode?")
-      return ( encode(val) )
+      local res = {pcall(encode,val)}
+      if res[1] then return select(2,table.unpack(res))
+      else 
+        local info = debug.getinfo(2)
+        error(format("json.encode, %s, called from %s line:%s",res[2],info.short_src,info.currentline))
+      end
     end
-
 -------------------------------------------------------------------------------
 -- Decode
 -------------------------------------------------------------------------------
@@ -8486,7 +8495,7 @@ args.restartQA
       os.setTimer2(function()
           api.put("/globalVariables/"..EMURUNNING,{value=tostring(tick)..":"..hc3_emulator.IPaddress..":"..hc3_emulator.webPort})
           tick  = tick+1
-          end,EMURUNNING_INTERVAL,true)
+        end,EMURUNNING_INTERVAL,true)
     end
 
     if type(hc3_emulator.startTime) == 'string' then
