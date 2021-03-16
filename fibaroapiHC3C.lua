@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.192"
+local FIBAROAPIHC3_VERSION = "0.194"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -3202,11 +3202,11 @@ function module.HTTP()
 
 --------- Main HC3 timer support based on  Copas -------------------------
     local format,colorStr = string.format,Util.colorStr
-
+    local function patchSource(str) return str:match('"(.-)"') or str end
     local TimerMetatable = {
       __tostring = function(self)
         local extra = self.tag and (" "..self.tag) or ""
-        if self.line then extra = format("%s %s,line:%s",extra,self.source,self.line) end
+        if self.extra then extra = format("%s %s,line:%s",extra,patchSource(self.extra.short_src),self.extra.currentline) end
         if _debugFlags.timersWarn then
           local diff = os.milliTime()-self.time
           return colorStr(diff > _debugFlags.timersWarn and 'red' or 'green',self.tostr..os.milliStr(self.time)..extra..">")
@@ -3368,20 +3368,15 @@ function module.HTTP()
       if _debugFlags.breakOnError then mobdebug.pause() end
     end
 
-    function setTimeout(fun,time,tag,errHandler,env,offs)
+    function setTimeout(fun,time,tag,errHandler,env,extra)
       assert(type(fun)=='function' and type(time)=='number',"Bad arguments to setTimeout")
       local warn,params = _debugFlags.timersWarn and time<0, {fun,nil,errHandler or timerErr}
       time = time > 0 and time or 0
       local t = insertTimer(makeTimer({fun=timerWrap,params=params,time=os.milliTime()+time/1000.0,tag=tag,env=env or getContext()}))
       if warn then Log(LOG.WARNING,"Negative timer:%s",t) end
       params[2]=t
-      if  _debugFlags.timersExtra then
-        if offs then t.source, t.line = offs.source,offs.linedefined
-        else
-          local l = debug.getinfo(2,"Sl")
-          t.source = l.source
-          t.line = l.currentline
-        end
+      if _debugFlags.timersExtra then
+        t.extra = extra or debug.getinfo(2,"Sl")
       end
       return t
     end
@@ -3405,16 +3400,19 @@ function module.HTTP()
     end
 
     function setInterval(fun,ms,tag)
-      local setTimeout = getContext().setTimeout or setTimeout
+      local setTimeout,extra = getContext().setTimeout or setTimeout
       assert(type(fun)=='function' and type(ms)=='number',"Bad argument to setInterval")
+      if _debugFlags.timersExtra then
+        extra = debug.getinfo(2,"Sl")
+      end
       local ref={}
       local function loop()
         if ref[1] then
           fun()
-          ref[1]=ref[1] and setTimeout(loop,ms,tag)
+          ref[1]=ref[1] and setTimeout(loop,ms,tag,nil,nil,extra)
         end
       end
-      ref[1] = setTimeout(loop,ms,tag)
+      ref[1] = setTimeout(loop,ms,tag,nil,nil,extra)
       return ref
     end
 
@@ -5676,19 +5674,20 @@ climate
       end
     end
 
+    local fjson = self.prettyJson
     local function patchFibaro(name)
       local oldF,flag = fibaro[name],"f"..name
       fibaro[name] = function(...)
         local args = {...}
         local res = {oldF(...)}
         if _debugFlags[flag] then
-          args = #args==0 and "" or json.encode(args):sub(2,-2)
+          args = #args==0 and "" or fjson(args):sub(2,-2)
           Log(LOG.LOG,"fibaro.%s(%s) => %s",name,args,#res==0 and "nil" or #res==1 and res[1] or res)
         end
         return table.unpack(res)
       end
     end
-
+    
     local fibaroFunsToPatch = {
       "call","getType","getValue","getName","get","getGlobalVariable","setGlobalVariable","getRoomName",
       "getRoomID","getRoomNameByDeviceID","getSectionID","getIds","getDevicesID","scene","profile","callGroupAction",
