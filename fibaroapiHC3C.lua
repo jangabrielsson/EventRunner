@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.195"
+local FIBAROAPIHC3_VERSION = "0.196"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -5589,8 +5589,10 @@ climate
           if t == 'string' then res[#res+1] = '"' res[#res+1] = e res[#res+1] = '"'
           elseif t == 'number' then res[#res+1] = e
           elseif t == 'boolean' or t == 'function' or t=='thread' or t=='userdata' then res[#res+1] = tostring(e)
-          elseif t == 'table' then
-            if next(e)==nil then res[#res+1]='{}'
+        elseif t == 'table' then
+            local mt = getmetatable(e)
+            if mt and mt.__tostring then res[#res+1]=tostring(e) -- honor metatable.__tostring
+            elseif next(e)==nil then res[#res+1]='{}'
             elseif seen[e] then res[#res+1]="..rec.."
             elseif e[1] or #e>0 then
               seen[e]=true
