@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.198"
+local FIBAROAPIHC3_VERSION = "0.199"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -3482,7 +3482,7 @@ function module.HTTP()
       self.type = device.type
       self.properties = device.properties
       self._emu = device._emu
-      self.parentId = self.parentId or (device.parentId > 0 and device.parentId)
+      self.parentId = self.parentId or (device.parentId and device.parentId > 0 and device.parentId)
       device._emu = nil
       local cbs = {}
       for _,cb in ipairs(self.properties.uiCallbacks or {}) do
@@ -4252,6 +4252,7 @@ end
         self.interfaces = env1.hc3_emulator.interfaces
         self.resources = env1.hc3_emulator.resources
         self.proxy = env1.hc3_emulator.proxy or false
+        self.debug = env1.hc3_emulator.debug or self.debug
         loadResources(self)
         self.quickVars = self.quickVars or {}
         for n,v in pairs(env1.hc3_emulator.quickVars or {}) do
@@ -4263,13 +4264,14 @@ end
       else error("Bad argument to loadQA") end
 
       --  Inject args -- overwriting existing args
-      function self:args(args) 
-        for k,v in pairs(args) do
-          if k=='quickVars' then
-            self.quickVars = self.quickVars or {}
-            for m,n in pairs(v) do self.quickVars[m]=n end
-          else self[k]=v end
-        end 
+      function self:args(args)
+        local function copyFrom(a,b)
+          if type(a)=='table' and type(b)=='table' then
+            for k,v in pairs(a) do b[k]=copyFrom(v,b[k]) end
+            return b
+          else return a end
+        end
+        copyFrom(args,self)
         return self 
       end
 
@@ -4365,6 +4367,8 @@ end
         -- 6. We create an instance of QuickApp and call the :onInit method if it exists
         -- Restarting QA means kill timers and go back to 2
 
+        assert(not(tonumber(self.id) and self.proxy),"Can't specify both id and proxy")
+      
         os.setTimer(function()
             Log(LOG.HEADER,"Loading QuickApp '%s'...",self.name)
 
@@ -4443,6 +4447,7 @@ end
               local st = codeEnv.setTimeout
               local function errHandler(err)
                 Log(LOG.ERROR,"QuickApp timer %s for '%s', deviceId:%s, crashed - %s",codeEnv._lastTimer,self.name,self.id,err)
+                if _debugFlags.breakOnError then mobdebug.pause() end
               end
               codeEnv.setTimeout = function(fun,ms,tag,eh,env,off) return st(fun,ms,tag,errHandler,codeEnv,off) end
               local st2 = codeEnv.setTimeout
@@ -4508,7 +4513,7 @@ end
                 end
                 if _debugFlags.files then Log(LOG.LOG,"Running file '%s'",f.name) end
                 _,msg=f.code()
-                assert(msg==nil,string.format("Running %s - %s",path,msg))
+                assert(msg==nil,string.format("Running %s - %s",path or "",msg or ""))
               end
               if not _debugFlags.patchSetTimeout then -- restore setTimeout etc if pacthed by user
                 codeEnv.setTimeout,codeEnv.fibaro.setTimeout =  ost,ostf
@@ -5589,7 +5594,7 @@ climate
           if t == 'string' then res[#res+1] = '"' res[#res+1] = e res[#res+1] = '"'
           elseif t == 'number' then res[#res+1] = e
           elseif t == 'boolean' or t == 'function' or t=='thread' or t=='userdata' then res[#res+1] = tostring(e)
-        elseif t == 'table' then
+          elseif t == 'table' then
             local mt = getmetatable(e)
             if mt and mt.__tostring then res[#res+1]=tostring(e) -- honor metatable.__tostring
             elseif next(e)==nil then res[#res+1]='{}'
@@ -5689,7 +5694,7 @@ climate
         return table.unpack(res)
       end
     end
-    
+
     local fibaroFunsToPatch = {
       "call","getType","getValue","getName","get","getGlobalVariable","setGlobalVariable","getRoomName",
       "getRoomID","getRoomNameByDeviceID","getSectionID","getIds","getDevicesID","scene","profile","callGroupAction",
