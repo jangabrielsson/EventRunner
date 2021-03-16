@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.194"
+local FIBAROAPIHC3_VERSION = "0.195"
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -191,7 +191,7 @@ hc3_emulator.post(ev,t)                                        -- post event/sou
 --]]
 
 local _debugFlags = {
-  fibaro=true,        -- Logs calls to fibaro api
+  fibaro=false,        -- Logs calls to fibaro api
   trigger=true,        -- Logs incoming triggers from HC3 or internal emulator
   timers=nil,          -- Logs low level  info on timers being called, very noisy.
   refreshloop=false,   -- Logs evertime refreshloop receives events
