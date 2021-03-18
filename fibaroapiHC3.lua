@@ -29,7 +29,7 @@ Contributions & bugfixes:
 -  @rangee, forum.fibaro.com
 -  @petrkl12, forum.fibaro.com
 
-Sources:
+Sources included:
 json           -- Copyright (c) 2019 rxi
 persistence    -- Copyright (c) 2010 Gerhard Roethlin
 file functions -- Credit pkulchenko - ZeroBraneStudio
@@ -40,6 +40,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 --]]
 
 local FIBAROAPIHC3_VERSION = "0.199"
+assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
 --[[
   Best way is to conditionally include this code at the top of your lua file
@@ -2276,8 +2277,8 @@ function module.HTTP()
           return
         end
 
-        local ok, res, new_q = coroutine.resume(co, skt, ...)
-
+        local ok, res, new_q = coroutine.resume(co, skt, ...) 
+       
         if ok and res and new_q then
           new_q:insert (res)
           new_q:push (res, co)
@@ -3368,7 +3369,7 @@ function module.HTTP()
       if _debugFlags.breakOnError then mobdebug.pause() end
     end
 
-    function setTimeout(fun,time,tag,errHandler,env,extra)
+    function setTimeout(fun,time,tag,errHandler,env,extra) 
       assert(type(fun)=='function' and type(time)=='number',"Bad arguments to setTimeout")
       local warn,params = _debugFlags.timersWarn and time<0, {fun,nil,errHandler or timerErr}
       time = time > 0 and time or 0
@@ -3472,9 +3473,10 @@ function module.HTTP()
       end
     end
 
-    class 'QuickAppBase'
+    Util.class2 'QuickAppBase'
     function QuickAppBase:__init(device)
       if tonumber(device) then device =  api.get("/devices/"..device) end
+      local function copy(x) r={} for k,v in pairs(x) do r[k]=v end return r end
       quickApps[device.id] = self
       self.deviceStruct = device
       self.name = device.name
@@ -3485,7 +3487,7 @@ function module.HTTP()
       self.parentId = self.parentId or (device.parentId and device.parentId > 0 and device.parentId)
       device._emu = nil
       local cbs = {}
-      for _,cb in ipairs(self.properties.uiCallbacks or {}) do
+      for _,cb in ipairs(device.properties.uiCallbacks or {}) do
         cbs[cb.name]=cbs[cb.name] or {}
         cbs[cb.name][cb.eventType] = cb.callback
       end
@@ -3581,7 +3583,7 @@ function module.HTTP()
     function QuickApp:__init(device)
       QuickAppBase.__init(self,device)
       self.childDevices = {}
-      self:onInit() 
+      if self.onInit then self:onInit() end
       if not self._childsInited then self:initChildDevices() end
     end
 
@@ -3590,7 +3592,6 @@ function module.HTTP()
       props.parentId = self.id
       props.initialInterfaces = props.initialInterfaces or {}
       props.initialInterfaces[#props.initialInterfaces+1]='quickAppChild'
-
       local d,res = api.post("/plugins/createChildDevice",props)
       assert(res==200,"Can't create child device "..json.encode(props))
       --fibaro.call(self.id,"CREATECHILD",d.id)
@@ -3635,6 +3636,7 @@ function module.HTTP()
       device._emu.UI,device._emu.slideCache = {},{}
       QuickAppBase.__init(self,device)
       self._emu.proxy=true
+      self.properties = device.properties
       quickApps[device.id]=self
     end
 
@@ -4368,7 +4370,7 @@ end
         -- Restarting QA means kill timers and go back to 2
 
         assert(not(tonumber(self.id) and self.proxy),"Can't specify both id and proxy")
-      
+
         os.setTimer(function()
             Log(LOG.HEADER,"Loading QuickApp '%s'...",self.name)
 
@@ -4473,7 +4475,7 @@ end
                     end
                   end
                   local path = self.paths[f.name] or f.name
-                  if _debugFlags.files then Log(LOG.LOG,"Loading file '%s'",f.name) end
+                  if _debugFlags.files then Log(LOG.LOG,"Loading file '%s' in %s",f.name,self.name) end
                   local code,msg=load(f.content,path,"bt",codeEnv)
                   assert(code,msg)
                   if f.isMain then table.insert(loadedFiles,{code=code,content=f.content,name=f.name}) -- 'main' last
@@ -4502,6 +4504,7 @@ end
               device.properties.quickAppVariables = vars2list(quickVars)
 
               quickApps[self.id]={ deviceStruct = device } -- Just so we have somethimng there if someone asks...
+--              quickAppsStructs[self.id]=deviceStruct       -- Just so we have somethimng there if someone asks...
 
               -- step 5. run the files
               for _,f in ipairs(loadedFiles) do
@@ -4511,7 +4514,7 @@ end
                   if _debugFlags.breakOnLoad then mobdebug.setbreakpoint(path,first) end
                   if _debugFlags.breakOnInit and init then mobdebug.setbreakpoint(path,init) end
                 end
-                if _debugFlags.files then Log(LOG.LOG,"Running file '%s'",f.name) end
+                if _debugFlags.files then Log(LOG.LOG,"Running file '%s' in %s",f.name,self.name) end
                 _,msg=f.code()
                 assert(msg==nil,string.format("Running %s - %s",path or "",msg or ""))
               end

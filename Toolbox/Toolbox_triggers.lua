@@ -9,20 +9,21 @@
   function QuickApp:setTriggerInterval(ms)            -- Set polling interval. Default 1000ms
 
   Supported events:
-  {type='alarm', property='armed', id=<id>, value=<value>}
-  {type='alarm', property='breached', id=<id>, value=<value>}
-  {type='alarm', property='homeArmed', value=<value>}
-  {type='alarm', property='homeBreached', value=<value>}
-  {type='weather', property=<prop>, value=<value>, old=<value>}
-  {type='global-variable', property=<name>, value=<value>, old=<value>}
-  {type='device', id=<id>, property=<property>, value=<value>, old=<value>}
-  {type='device', id=<id>, property='centralSceneEvent', value={keyId=<value>, keyAttribute=<value>}}
-  {type='device', id=<id>, property='accessControlEvent', value=<value>}
-  {type='device', id=<id>, property='sceneActivationEvent', value=<value>}
-  {type='profile', property='activeProfile', value=<value>, old=<value>}
-  {type='location',id=<userId>,property=<locationId>,value=<geofenceAction>,timestamp=<timestamp>}
-  {type='custom-event', name=<name>}
-  {type='UpdateReadyEvent', value=_}
+  {type='alarm',       id=<id>, property='armed',                value=<value>}
+  {type='alarm',       id=<id>, property='breached',             value=<value>}
+  {type='alarm',                property='homeArmed',            value=<value>}
+  {type='alarm',                property='homeBreached',         value=<value>}
+  {type='weather',              property=<prop>,                 value=<value>, old=<value>}
+  {type='global-variable',      property=<name>,                 value=<value>, old=<value>}
+  {type='quickvar',    id=<id>, name=<name>,                     value=_,       old=_}
+  {type='device',      id=<id>, property=<property>,             value=<value>, old=<value>}
+  {type='device',      id=<id>, property='centralSceneEvent',    value={keyId=<value>, keyAttribute=<value>}}
+  {type='device',      id=<id>, property='accessControlEvent',   value=<value>}
+  {type='device',      id=<id>, property='sceneActivationEvent', value=<value>}
+  {type='profile',              property='activeProfile',        value=<value>, old=<value>}
+  {type='location',    id=<uid>,property=<locationId>,           value=<geofenceAction>, timestamp=<timestamp>}
+  {type='custom-event',         name=<name>}
+  {type='UpdateReadyEvent',     value=_}
   {type='deviceEvent', id=<id>, value='removed'}
   {type='deviceEvent', id=<id>, value='changedRoom'}
   {type='deviceEvent', id=<id>, value='created'}
@@ -33,7 +34,7 @@
   {type='sceneEvent',  id=<id>, value='finished'}
   {type='sceneEvent',  id=<id>, value='instance', instance=d}
   {type='sceneEvent',  id=<id>, value='removed'}
-  {type='onlineEvent', value=<bool>}
+  {type='onlineEvent',           value=<bool>}
 --]]
 
 Toolbox_Module = Toolbox_Module or {}
@@ -145,15 +146,15 @@ function Toolbox_Module.triggers.init(self)
     ClimateZoneChangedEvent = function(d) d.type = 'ClimateZoneChangedEvent' post(d) end,
     ClimateZoneSetpointChangedEvent = function(d) d.type = 'ClimateZoneSetpointChangedEvent' post(d) end,
     DeviceActionRanEvent = function(_) end,
-    NotificationCreatedEvent = function(_) end,
-    NotificationRemovedEvent = function(_) end,
-    NotificationUpdatedEvent = function(_) end,
-    RoomCreatedEvent = function(_) end,
-    RoomRemovedEvent = function(_) end,
-    RoomModifiedEvent = function(_) end,
-    SectionCreatedEvent = function(_) end,
-    SectionRemovedEvent = function(_) end,
-    SectionModifiedEvent = function(_) end,
+    NotificationCreatedEvent = function(d) post({type='notification', id=d.id, value='created'}) end,
+    NotificationRemovedEvent = function(d) post({type='notification', id=d.id, value='removed'}) end,
+    NotificationUpdatedEvent = function(d) post({type='notification', id=d.id, value='updated'}) end,
+    RoomCreatedEvent = function(d) post({type='room', id=d.id, value='created'}) end,
+    RoomRemovedEvent = function(d) post({type='room', id=d.id, value='removed'}) end,
+    RoomModifiedEvent = function(d) post({type='room', id=d.id, value='modified'}) end,
+    SectionCreatedEvent = function(d) post({type='section', id=d.id, value='created'}) end,
+    SectionRemovedEvent = function(d) post({type='section', id=d.id, value='removede'}) end,
+    SectionModifiedEvent = function(d) post({type='section', id=d.id, value='modified'}) end,
     DeviceActionRanEvent = function(_) end,
     QuickAppFilesChangedEvent = function(_) end,
     ZwaveDeviceParametersChangedEvent = function(_) end,

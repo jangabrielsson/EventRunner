@@ -22,7 +22,7 @@ local format = string.format
 function Toolbox_Module.events.init(self)
   if Toolbox_Module.events.inited then return end
   Toolbox_Module.events.inited = true 
-  
+
   local em,handlers = { sections = {}, stats={tried=0,matched=0}},{}
   em.BREAK, em.TIMER, em.RULE = '%%BREAK%%', '%%TIMER%%', '%%RULE%%'
   local function isEvent(e) return type(e)=='table' and e.type end
@@ -196,8 +196,24 @@ function Toolbox_Module.events.init(self)
   local toHash,fromHash={},{}
   fromHash['device'] = function(e) return {"device"..e.id..e.property,"device"..e.id,"device"..e.property,"device"} end
   fromHash['global-variable'] = function(e) return {'global-variable'..e.name,'global-variable'} end
+  fromHash['quickvar'] = function(e) return {"quickvar"..e.id..e.name,"quickvar"..e.id,"quickvar"..e.name,"quickvar"} end
+  fromHash['profile'] = function(e) return {'profile'..e.property,'profile'} end
+  fromHash['weather'] = function(e) return {'weather'..e.property,'weather'} end
+  fromHash['custom-event'] = function(e) return {'custom-event'..e.name,'custom-event'} end
+  fromHash['deviceEvent'] = function(e) return {"deviceEvent"..e.id..e.value,"deviceEvent"..e.id,"deviceEvent"..e.value,"deviceEvent"} end
+  fromHash['sceneEvent'] = function(e) return {"sceneEvent"..e.id..e.value,"sceneEvent"..e.id,"sceneEvent"..e.value,"sceneEvent"} end
   toHash['device'] = function(e) return "device"..(e.id or "")..(e.property or "") end   
   toHash['global-variable'] = function(e) return 'global-variable'..(e.name or "") end
+  toHash['quickvar'] = function(e) return 'quickvar'..(e.id or "")..(e.name or "") end
+  toHash['profile'] = function(e) return 'profile'..(e.property or "") end
+  toHash['weather'] = function(e) return 'weather'..(e.property or "") end
+  toHash['custom-event'] = function(e) return 'custom-event'..(e.name or "") end
+  toHash['deviceEvent'] = function(e) return 'deviceEvent'..(e.id or "")..(e.value or "") end
+  toHash['sceneEvent'] = function(e) return 'sceneEvent'..(e.id or "")..(e.value or "") end
+
+  if not table.maxn then 
+    function table.maxn(tbl)local c=0; for _ in pairs(tbl) do c=c+1 end return c end
+  end
 
   local function rule2str(rule) return rule.doc end
   local function comboToStr(r)
@@ -250,6 +266,16 @@ function Toolbox_Module.events.init(self)
       em.sections[em.SECTION] = s
     end
     return rule
+  end
+
+  function self:removeEvent(pattern,fun)
+    local hashKey = toHash[pattern.type] and toHash[pattern.type](pattern) or pattern.type
+    local rules,i = handlers[hashKey] or {},1
+    while i <= #rules do
+      if rules[i].action==fun then
+        table.remove(rules,i)
+      else i=i+i end
+    end
   end
 
   function self:trueFor(time,events,test,action)
