@@ -270,11 +270,15 @@ function Toolbox_Module.events.init(self)
 
   function self:removeEvent(pattern,fun)
     local hashKey = toHash[pattern.type] and toHash[pattern.type](pattern) or pattern.type
-    local rules,i = handlers[hashKey] or {},1
-    while i <= #rules do
-      if rules[i].action==fun then
-        table.remove(rules,i)
-      else i=i+i end
+    local rules,i,j= handlers[hashKey] or {},1,1
+    while j <= #rules do
+      local rs = rules[j]
+      while i <= #rs do
+        if rs[i].action==fun then
+          table.remove(rs,i)
+        else i=i+i end
+      end
+      if #rs==0 then table.remove(rules,j) else j=j+1 end
     end
   end
 

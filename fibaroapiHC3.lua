@@ -4432,10 +4432,19 @@ end
               Log(LOG.SYS,"Restarting QA %s, timers=%s, memory used %.1fkB",
                 self.id,Timer.killTimers("QUICKAPP"..self.id),collectgarbage("count")
               ) 
-              codeEnv.setTimeout(function() runQA() end,2)
+              codeEnv.setTimeout(function() runQA('DeviceModifiedEvent') end,0)
             end
 
-            function runQA() -- rest of the steps in a function that can be called
+            local function deleteQA()
+              collectgarbage("collect")
+              Log(LOG.SYS,"Deleting QA %s, timers=%s, memory used %.1fkB",
+                self.id,Timer.killTimers("QUICKAPP"..self.id),collectgarbage("count")
+              )
+              quickApps[self.id]=nil
+              Trigger.postTrigger({type='DeviceRemovedEvent', data = {id = self.id}},0)
+            end
+            
+            function runQA(event) -- rest of the steps in a function that can be called
 
               -- step 2. create the environment
               codeEnv = Util.createEnvironment("QA",false)
@@ -4535,11 +4544,13 @@ end
               if status then
                 Log(LOG.HEADER,"QuickApp '%s', deviceID:%s started at %s",device.name,device.id,os.date("%c"))
                 codeEnv.quickApp.restartQA = restartQA
+                codeEnv.quickApp.deleteQA = deleteQA
                 codeEnv.quickApp.runQA = runQA
+                Trigger.postTrigger({type=event, data = {id = self.id, c=os.clock()}},0)
               end
             end
 
-            runQA()
+            runQA('DeviceCreatedEvent')
 
           end,0) -- os.setTimer
         return self
@@ -5260,7 +5271,10 @@ climate
     function self.postTrigger(ev,t)
       assert(type(ev)=='table' and ev.type,"Bad event format:"..json.encode(ev))
       t = t or 0
-      setTimeout(function() post(ev) end,t)
+      os.setTimer(function()
+          self.refreshStates.addEvents(ev)
+          post(ev) 
+      end,t)
     end
 
 --------------- refreshState handling ---------------
@@ -5293,7 +5307,10 @@ climate
         local function get(n) return queue[tostring(n)] end
         function dump()
           local res={}
-          for i=0,size-1 do res[#res+1]=tostring(peek(i)) end
+          for i=0,size-1 do 
+            local e=peek(i)
+            if e then res[#res+1]=json.encode(e) end
+          end
           return table.concat(res,",")
         end
         return { pop = pop, push = push, tailp=tailp, headp=headp, empty=empty, peek = peek, get=get, dump=dump }
@@ -5309,14 +5326,14 @@ climate
       end
 
       function self.addEvents(events) -- {last=num,events={}}
-        --print("ADD:"..json.encode(filter(events)))
         events = events[1] and events or {events}
+        --print("ADD:"..json.encode(filter(events)))
         local index = eventQueue.headp()
         eventQueue.push({last=index, events=events})
       end
 
       function self.getEvents(last)
-        --print(format("Top:%s, Bottom:%s Last:%s",eventQueue.top().last or 0,eventQueue.bottom().last or 0,last))
+        --print(eventQueue.dump())
         if eventQueue.empty() then return {last = last } end
         local res1,res2,i = {},{},0
         while true do
@@ -5327,7 +5344,7 @@ climate
           i=i+1
         end
         if #res1==0 then return { last=last } end
-        last = res1[#res1].last   ----  { 1, 2, 3, 4, 5}
+        last = res1[1].last   ----  { 1, 2, 3, 4, 5}
         for i=1,#res1 do
           local es = res1[i].events
           if es then for j=1,#es do res2[#res2+1]=es[j] end end
@@ -7576,7 +7593,7 @@ button.button1 { width: 287px; }
       end
     end
 
-    local function quickAppApi(id,name)
+    local function quickAppApiGET(id,name)
       local files = quickApps[tonumber(id)]._emu.files
       if name=="" then
         local res = {}
@@ -7686,7 +7703,7 @@ button.button1 { width: 287px; }
         ["/settings/location/?$"] = function(_) return resources.settings.location end,
         ["/notificationCenter"] = function(_,_,_,_) return {},200 end,
         ["/quickApp/(%d+)/files/?(.*)"] = function(_,_,_,id,name)
-          return quickAppApi(tonumber(id),name)
+          return quickAppApiGET(tonumber(id),name)
         end,
       },
       ["POST"] = {
@@ -7842,6 +7859,9 @@ button.button1 { width: 287px; }
           resources.devices[id]:modify(data)
           return resources.devices[id],200
         end,
+        ["/quickApp/(%d+)/files/(.+)"] = function(_,_,_,id,name)
+          --return quickAppApiGET(tonumber(id),name)
+        end,
         ["/notificationCenter/(%d+)"] = function(_,data,_,id)
           data = json.decode(data)
           id = tonumber(id)
@@ -7861,7 +7881,9 @@ button.button1 { width: 287px; }
         end,
         ["/devices/(%d+)"] = function(_,_,_,id)
           id = tonumber(id)
-          if quickApps[id] then quickApps[id]=nil return nil,200
+          if quickApps[id] then 
+            quickApps[id].deleteQA()
+            return nil,200
           else return delete(resources.devices,tonumber(id)) end
         end,
         ["/rooms/(%d+)"] = function(_,_,_,id)

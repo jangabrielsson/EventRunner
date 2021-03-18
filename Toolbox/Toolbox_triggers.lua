@@ -77,7 +77,7 @@ function Toolbox_Module.triggers.init(self)
   local function post(ev)
     if ENABLEDTRIGGERS[ev.type] then
       TR.stats.triggers = TR.stats.triggers+1
-      if self.debugFlags.trigger then self:debugf("Incoming trigger:%s",ev) end
+      if self.debugFlags.trigger then self:debugf("Incoming trigger2:%s",ev) end
       ev._trigger=true
       --ev.__tostring = _eventPrint
       if self._Events then self._Events.postEvent(ev) end
@@ -179,7 +179,7 @@ function Toolbox_Module.triggers.init(self)
             lastRefresh=states.last
             if states.events and #states.events>0 then 
               for _,e in ipairs(states.events) do
-                --print(os.date("%c",e.created).." "..json.encode(e))
+                --self:tracef("Last:%s, e:%s",lastRefresh,e)
                 local handler = EventTypes[e.type]
                 if handler then handler(e.data)
                 elseif handler==nil and self._UNHANDLED_EVENTS then 
