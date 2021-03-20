@@ -218,7 +218,7 @@ local function merge(t1,t2)
 end
 
 local Util,Timer,QA,Scene,Web,Trigger,Offline,Files,HTTP      -- local modules
-local quickApps,scenes = {},{}
+local localQA,localQAFiles,scenes = {},{},{}
 -- luacheck: globals hc3_emulator fibaro json plugin quickApp
 -- luacheck: globals QuickApp QuickAppBase QuickAppChild
 fibaro,json,plugin = {},{},nil
@@ -588,8 +588,8 @@ function module.FibaroAPI()
     return a,b,c
   end
   local GETintercepts = {
-    ['/devices'] = function(call) return getExtras(call,quickApps) end,
-    ['/devices?interface=quickApp'] = function(call) return getExtras(call,quickApps) end,
+    ['/devices'] = function(call) return getExtras(call,localQA) end,
+    ['/devices?interface=quickApp'] = function(call) return getExtras(call,localQA) end,
     ['/scenes'] = function(call) return getExtras(call,scenes) end,
   }
   GETintercepts['/devices/'] = GETintercepts['/devices']
@@ -607,7 +607,7 @@ function module.FibaroAPI()
   end
   function api.put(call, data, hc3) return rawCall("PUT",call,json.encode(data),"application/json", hc3) end
   function api.post(call, data, hc3)
-    if call=='/plugins/restart' and quickApps[data.deviceId] then
+    if call=='/plugins/restart' and localQA[data.deviceId] then
       return Offline.api("POST",call,data,nil,hc3)
     else return rawCall("POST",call,data and json.encode(data),"application/json", hc3)  end
   end
@@ -623,7 +623,7 @@ function module.FibaroAPI()
     -- api calls for  scenes/quickApps that are emulated, re-direct to offline APIs
     if not hc3 then
       local a,id = call:match("^/(.-)/(%d+)")
-      if (a=='devices' or a=='quickApp') and id and quickApps[tonumber(id)] then
+      if (a=='devices' or a=='quickApp') and id and localQA[tonumber(id)] then
         return Offline.api(method,call,data,cType,hc3)
       elseif a=='scenes' and id and scenes[tonumber(id)] then
         return Offline.api(method,call,data,cType,hc3)
@@ -2278,7 +2278,7 @@ function module.HTTP()
         end
 
         local ok, res, new_q = coroutine.resume(co, skt, ...) 
-       
+
         if ok and res and new_q then
           new_q:insert (res)
           new_q:push (res, co)
@@ -3298,7 +3298,7 @@ function module.HTTP()
           Log(LOG.LOG,"Will run next timer at %s in %0.4fs",os.milliStr(timers.time),timers.time-os.milliTime())
         end
         if runT then runT:cancel() end
-        runT = os.setTimer2(runTimers,max(timers.time-os.milliTime(),0))
+        runT = os.setTimer2(runTimers,SPEED and 0.01 or max(timers.time-os.milliTime(),0))
       end
       --dumpTimers()
       return t
@@ -3310,7 +3310,7 @@ function module.HTTP()
       if timers == timer then
         timers = timers.next
         if runT then runT:cancel() runT=nil end
-        if timers then runT = os.setTimer2(runTimers,max(timers.time-os.milliTime(),0)) end
+        if timers then runT = os.setTimer2(runTimers,SPEED and 0.01 or max(timers.time-os.milliTime(),0)) end
       else
         local tp = timers
         while tp and tp.next do
@@ -3326,18 +3326,19 @@ function module.HTTP()
       local t,now = timers,os.milliTime()
       if timers then
         if _debugFlags.timersSched then Log(LOG.LOG,"Running:%s, RT:%s, SPEED:%s",t,os.milliStr(now),SPEED) end
-        if maxTime and timer.time >= maxTime then Log(LOG.SYS,"Max time - exit") osExit() end
-        if SPEED then
+        if maxTime and t.time >= maxTime then Log(LOG.SYS,"Max time - exit") osExit() end
+        if SPEED then 
           timers = timers.next
           timeAdjust = t.time-os.rt()
-          os.setTimer2(t.fun,0,false,t.params,t.env)
+          --os.setTimer2(t.fun,0,false,t.params,t.env)
+          t.fun(nil,t.params)
           if timers ~= nil and timers.time == t.time then goto REDO end
         else
-          timers = timers.next
+          timers = timers.next 
           os.setTimer2(t.fun,0,false,t.params,t.env)
         end
         if timers then
-          if SPEED then
+          if SPEED then 
             runT = os.setTimer2(runTimers,0.01)
           elseif not SPEED then
             local s = max(timers.time-os.milliTime(),0)
@@ -3348,8 +3349,8 @@ function module.HTTP()
     end
 
     local function timerWrap(_,params)
-      local t,fun,eh,now = params[2],params[1],params[3]
-      local ctx = getContext()
+      local t,fun,eh,ctx,now = params[2],params[1],params[3],params[4]
+      --local ctx = getContext()
       ctx._getLock()
       if not t.expired then
         now = os.milliTime()
@@ -3371,7 +3372,7 @@ function module.HTTP()
 
     function setTimeout(fun,time,tag,errHandler,env,extra) 
       assert(type(fun)=='function' and type(time)=='number',"Bad arguments to setTimeout")
-      local warn,params = _debugFlags.timersWarn and time<0, {fun,nil,errHandler or timerErr}
+      local warn,params = _debugFlags.timersWarn and time<0, {fun,nil,errHandler or timerErr,env}
       time = time > 0 and time or 0
       local t = insertTimer(makeTimer({fun=timerWrap,params=params,time=os.milliTime()+time/1000.0,tag=tag,env=env or getContext()}))
       if warn then Log(LOG.WARNING,"Negative timer:%s",t) end
@@ -3425,6 +3426,7 @@ function module.HTTP()
 
     function self.speedTime(speedTime) -- seconds
       maxTime = os.time()+speedTime*60*60
+      os.speed(true)
     end
 
     function self.start(f)
@@ -3460,13 +3462,13 @@ function module.HTTP()
     function plugin.createChildDevice(props) return api.post("/plugins/createChildDevice",props) end
 
     function self.getWebUIValue(id,elm,t)
-      local qa = quickApps[id]
+      local qa = localQA[id]
       if qa and qa._emu.UI then
         return qa._emu.uiValues[elm][t]
       end
     end
     function self.setWebUIValue(id,elm,t,v)
-      local qa = quickApps[id]
+      local qa = localQA[id]
       if qa and qa._emu.UI then
         qa._emu.uiValues[elm] = qa._emu.uiValues[elm] or {}
         qa._emu.uiValues[elm][t]=tostring(v)
@@ -3477,7 +3479,7 @@ function module.HTTP()
     function QuickAppBase:__init(device)
       if tonumber(device) then device =  api.get("/devices/"..device) end
       local function copy(x) r={} for k,v in pairs(x) do r[k]=v end return r end
-      quickApps[device.id] = self
+      localQA[device.id] = self
       self.deviceStruct = device
       self.name = device.name
       self.id = device.id
@@ -3607,7 +3609,6 @@ function module.HTTP()
       if self.childDevices[id] then
         api.delete("/plugins/removeChildDevice/" .. id)
         self.childDevices[id] = nil
-        quickApps[id]=nil
       end
     end
 
@@ -3620,7 +3621,7 @@ function module.HTTP()
         elseif not childs[d.id] then
           Log(LOG.ERROR,"Class for the child device: %s, with type: %s not found. Using base class: QuickAppChild",d.id,d.type)
           childs[d.id]=QuickAppChild(d)
-          --quickApps[d.id]=childs[d.id]
+          --localQA[d.id]=childs[d.id]
         end
         childs[d.id].parent = self
       end
@@ -3631,13 +3632,13 @@ function module.HTTP()
     function QuickAppChild:__init(device)
       assert(type(device)=='number' or type(device)=='table',"QuickAppChild:__init needs number/table")
       local function copy(d) local res={} for k,v in pairs(d) do res[k]=v end return res end
-      local emu = device.parentId and quickApps[device.parentId]._emu
+      local emu = device.parentId and localQA[device.parentId]._emu
       device._emu = copy(device._emu or emu or getContext().quickApp._emu or {})
       device._emu.UI,device._emu.slideCache = {},{}
       QuickAppBase.__init(self,device)
       self._emu.proxy=true
       self.properties = device.properties
-      quickApps[device.id]=self
+      localQA[device.id]=self
     end
 
     local function traverse(o,f)
@@ -4074,8 +4075,8 @@ end
 
     function onAction(event)
       Debug(_debugFlags.onAction,"onAction: %s",json.encode(event))
-      local self = quickApps[event.deviceId]
-      if self.parentId then self = quickApps[self.parentId] end
+      local self = localQA[event.deviceId]
+      if self.parentId then self = localQA[self.parentId] end
       assert(self,"Unknown deviceID for onAction:"..event.deviceId)
       if self.actionHandler then self:actionHandler(event)
       else
@@ -4096,8 +4097,8 @@ end
 --"{\"eventType\":\"onChanged\",\"values\":[80],\"elementName\":\"sl\",\"deviceId\":726}"
     function onUIEvent(event)
       Debug(_debugFlags.UIEvent,"UIEvent: %s",json.encode(event))
-      local self = quickApps[event.deviceId]
-      if self.parentId then self = quickApps[self.parentId] end
+      local self = localQA[event.deviceId]
+      if self.parentId then self = localQA[self.parentId] end
       assert(self,"Unknown deviceID for UIEvent:"..event.deviceId)
       if self.UIHandler then self:UIHandler(event)
       else
@@ -4420,7 +4421,7 @@ end
             end
 
             if pdevice then self.id = pdevice.id else 
-              while self.id == nil or quickApps[self.id] do -- find free id
+              while self.id == nil or localQA[self.id] do -- find free id
                 QA_ID = QA_ID+1
                 self.id = QA_ID
               end
@@ -4440,10 +4441,10 @@ end
               Log(LOG.SYS,"Deleting QA %s, timers=%s, memory used %.1fkB",
                 self.id,Timer.killTimers("QUICKAPP"..self.id),collectgarbage("count")
               )
-              quickApps[self.id]=nil
+              localQA[self.id]=nil
               Trigger.postTrigger({type='DeviceRemovedEvent', data = {id = self.id}},0)
             end
-            
+
             function runQA(event) -- rest of the steps in a function that can be called
 
               -- step 2. create the environment
@@ -4512,7 +4513,7 @@ end
               device.properties.viewLayout = self.viewLayout
               device.properties.quickAppVariables = vars2list(quickVars)
 
-              quickApps[self.id]={ deviceStruct = device } -- Just so we have somethimng there if someone asks...
+              localQA[self.id]={ deviceStruct = device } -- Just so we have somethimng there if someone asks...
 --              quickAppsStructs[self.id]=deviceStruct       -- Just so we have somethimng there if someone asks...
 
               -- step 5. run the files
@@ -4534,20 +4535,20 @@ end
               -- step 6. instantiate QA
               codeEnv._getLock()
               local status, err, ret = xpcall(
-                function() codeEnv.quickApp = codeEnv.QuickApp(device) end,
+                function() 
+                  Log(LOG.HEADER,"QuickApp '%s', deviceID:%s started at %s",device.name,device.id,os.date("%c"))
+                  Trigger.postTrigger({type=event, data = {id = self.id}},0)
+                  codeEnv.quickApp = codeEnv.QuickApp(device) 
+                end,
                 function(err)
                   Log(LOG.ERROR,"QuickApp '%s', deviceId:%s, crashed (%s) at %s",self.name,self.id,err,os.date("%c"))
                   print(debug.traceback(err,1))
                   if _debugFlags.breakOnError then mobdebug.pause() end
                 end)
               codeEnv._releaseLock()
-              if status then
-                Log(LOG.HEADER,"QuickApp '%s', deviceID:%s started at %s",device.name,device.id,os.date("%c"))
-                codeEnv.quickApp.restartQA = restartQA
-                codeEnv.quickApp.deleteQA = deleteQA
-                codeEnv.quickApp.runQA = runQA
-                Trigger.postTrigger({type=event, data = {id = self.id, c=os.clock()}},0)
-              end
+              codeEnv.quickApp.restartQA = restartQA
+              codeEnv.quickApp.deleteQA = deleteQA
+              codeEnv.quickApp.runQA = runQA
             end
 
             runQA('DeviceCreatedEvent')
@@ -5274,7 +5275,7 @@ climate
       os.setTimer(function()
           self.refreshStates.addEvents(ev)
           post(ev) 
-      end,t)
+        end,t)
     end
 
 --------------- refreshState handling ---------------
@@ -6341,7 +6342,7 @@ climate
           if call=="" then call="main" end
           local qp = call:match("quickApp/(%d+)")
           if qp then call,qp = "quickApp",tonumber(qp) end
-          local page = Pages.getPath(call,qp,quickApps[qp])
+          local page = Pages.getPath(call,qp,localQA[qp])
           if page~=nil then client:send(page) return true
           else return false end
         end,
@@ -6363,7 +6364,7 @@ Connection: Closed
             local i,v = a:match("^(%w+)=(.*)")
             res[i]=v
           end
-          local qa = quickApps[id]
+          local qa = localQA[id]
           if not qa then return end
           local slideCache = qa._emu.slideCache
           if res.type=='values' then
@@ -6599,7 +6600,7 @@ help - this text
           local LENV = {
             ["Web"]=Web,["Pages"]=Pages,hc3_emulator=hc3_emulator,
             ["FIBAROAPIHC3_VERSION"] = FIBAROAPIHC3_VERSION,
-            quickApps = quickApps, scenes = scenes
+            localQA = localQA, scenes = scenes
           }
           local f = format("return function(a1,a2,a3) %s end",code)
           f,m = load(f,nil,nil,LENV)()
@@ -7067,7 +7068,7 @@ button.button1 { width: 287px; }
     <li class="nav-item" id="eventsN">
       <a class="nav-link" target="_self" href="/web/events">Events</a>
     </li>]]}
-      for _,v in pairs(quickApps) do
+      for _,v in pairs(localQA) do
         res[#res+1]=format([[<li class="nav-item" id="quickAppN">
       <a class="nav-link" target="_self" href="/web/quickApp/%d">QA:%s</a>]],v.id,v.name)
       end
@@ -7594,7 +7595,7 @@ button.button1 { width: 287px; }
     end
 
     local function quickAppApiGET(id,name)
-      local files = quickApps[tonumber(id)]._emu.files
+      local files = localQA[tonumber(id)]._emu.files
       if name=="" then
         local res = {}
         for _,f in pairs(files) do
@@ -7640,10 +7641,10 @@ button.button1 { width: 287px; }
             local i,v = a:match("^arg(%d+)=(.*)")
             res[tonumber(i)]=urldecode(v)
           end
-          dev = quickApps[id] or resources.devices[id]
+          dev = localQA[id] or resources.devices[id]
           if not dev then return nil,404 end
           local stat,err
-          if quickApps[id] then
+          if localQA[id] then
             stat, err = pcall(onAction,{deviceId=id,actionName=action,args=res})
           else
             stat,err = pcall(dev[action],dev,table.unpack(res))
@@ -7656,11 +7657,11 @@ button.button1 { width: 287px; }
         end,
         ["/devices/(%d+)/properties/(.+)$"] = function(_,_,_,id,property)
           id = tonumber(id)
-          local dev = quickApps[id] or resources.devices[id]
+          local dev = localQA[id] or resources.devices[id]
           if not dev then return nil,404 end
           return dev:getProperty(property),200
         end,
-        ["/devices/(%d+)$"] = function(_,_,_,id) return quickApps[tonumber(id)].deviceStruct or get(resources.devices,tonumber(id)) end,
+        ["/devices/(%d+)$"] = function(_,_,_,id) return localQA[tonumber(id)].deviceStruct or get(resources.devices,tonumber(id)) end,
         ["/devices/?$"] = function(_,_,_,_) return arr(resources.devices) end,
         ["/devices/?%?(.*)"] = function(_,_,_,args)
           local props = {}
@@ -7774,13 +7775,13 @@ button.button1 { width: 287px; }
         ["/devices/(%d+)/action/(.+)$"] = function(_,data,_,id,action) -- call device action
           data = json.decode(data)
           id = tonumber(id)
-          local dev = quickApps[id] or resources.devices[id]
+          local dev = localQA[id] or resources.devices[id]
           if not dev then
             Log(LOG.WARNING,"Device '%s' don't exists",tostring(id))
             return dev,404
           end
           local stat,err
-          if quickApps[id] then
+          if localQA[id] then
             stat,err = pcall(onAction,{deviceId=id,actionName=action,args=data.args})
           else
             stat,err = pcall(dev[action],dev,table.unpack(data.args))
@@ -7807,8 +7808,8 @@ button.button1 { width: 287px; }
           Trigger.checkEvents({type='CustomEvent', data={name=name,}})
         end,
         ["/plugins/restart$"] = function(_,data,_)
-          if quickApps[data.deviceId] then
-            quickApps[data.deviceId].restartQA()
+          if localQA[data.deviceId] then
+            localQA[data.deviceId].restartQA()
             return data,200
           end
         end,     
@@ -7835,8 +7836,8 @@ button.button1 { width: 287px; }
         ["/devices/(%d+)"] = function(_,data,_,id) -- modify value
           data = json.decode(data)
           id = tonumber(id)
-          if quickApps[id] then
-            local d = quickApps[id].deviceStruct
+          if localQA[id] then
+            local d = localQA[id].deviceStruct
             local function put(source,dest)
               if type(source)=='table' then
                 if type(dest)~='table' then dest={} end
@@ -7848,8 +7849,8 @@ button.button1 { width: 287px; }
               else return source end
             end
             d=put(data,d) -- ToDo, reflect back to proxy
-            quickApps[id].name = d.name
-            quickApps[id].enabled = d.enabled
+            localQA[id].name = d.name
+            localQA[id].enabled = d.enabled
             return d,200
           end
           if rawget(resources.devices,id) == nil then
@@ -7879,10 +7880,23 @@ button.button1 { width: 287px; }
         ["/customEvents/(.+)"] = function(_,_,_,name)
           return delete(resources.customEvents,name)
         end,
+        ["/plugins/removeChildDevice/(%d+)"] = function(_,_,_,id)
+          id = tonumber(id)
+          local qa = localQA[id]
+          if qa and qa.parentId and qa.parentId > 0 then
+            localQA[id] = nil
+            local parent = localQA[qa.parentId]
+            if not parent then Log(LOG.WARNING,"Child %s has no parent",id) 
+            else parent.childDevices[id]=nil end
+          else return nil,400 end
+        end,
         ["/devices/(%d+)"] = function(_,_,_,id)
           id = tonumber(id)
-          if quickApps[id] then 
-            quickApps[id].deleteQA()
+          if localQA[id] then
+            local qa = localQA[id]
+            if qa.parentId and qa.parentId > 0 then
+              --- UUU
+            else qa.deleteQA() end
             return nil,200
           else return delete(resources.devices,tonumber(id)) end
         end,
