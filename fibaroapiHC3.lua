@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.199"
+local FIBAROAPIHC3_VERSION = "0.200"
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
 --[[
@@ -3221,7 +3221,7 @@ function module.HTTP()
     local TINDEX = 1
     local function makeTimer(t)
       t['%%TIMER%%']=true
-      t.tostr = format("<Timer:%04d fun:%s exp:",TINDEX,tostring(t.fun):sub(11))
+      t.tostr = format("<Timer:%04d fun:%s exp:",TINDEX,tostring(t.fun2 or t.fun):sub(11))
       TINDEX=TINDEX+1
       setmetatable(t,TimerMetatable)
       return t
@@ -3262,7 +3262,7 @@ function module.HTTP()
       contexts[t.co]=env or _ENV
       return t
     end
-    os.setTimer = function(fun,ms,recurring,params,env) os.setTimer2(fun,ms/1000.0,recurring,params,env) end
+    os.setTimer = function(fun,ms,recurring,params,env) return os.setTimer2(fun,ms/1000.0,recurring,params,env) end
     os.clearTimer = function(t) t:cancel() end
     os.milliStr = function(t) return os.date("%H:%M:%S",math.floor(t))..format(":%03d",math.floor((t%1)*1000+0.5)) end
     function os.setTime(t)
@@ -3277,13 +3277,17 @@ function module.HTTP()
 
     local function dumpTimers()
       local t = timers
+      print("-----------------------")
       while t do print(os.date("%c",math.floor(t.time)),t.time,t); t = t.next end
     end
 
+    hc3_emulator.dumpTimers = dumpTimers
+    
     local function countTimers() local t,n = timers,0; while t do n=n+1; t=t.next end return  n end
 
     local function insertTimer(t) -- {fun,time,next}
       if _debugFlags.timersSched then Log(LOG.LOG,"Inserting timer %s",t) end
+      if t.env and not t.env._ENVID then return end
       if timers == nil then
         timers=t
       elseif t.time < timers.time then
@@ -3297,8 +3301,8 @@ function module.HTTP()
         if _debugFlags.timersSched then
           Log(LOG.LOG,"Will run next timer at %s in %0.4fs",os.milliStr(timers.time),timers.time-os.milliTime())
         end
-        if runT then runT:cancel() end
-        runT = os.setTimer2(runTimers,SPEED and 0.01 or max(timers.time-os.milliTime(),0))
+        if runT then runT:cancel(); runT=nil end
+        runT = os.setTimer2(runTimers,SPEED and 0 or max(timers.time-os.milliTime(),0))
       end
       --dumpTimers()
       return t
@@ -3306,11 +3310,12 @@ function module.HTTP()
 
     local function deleteTimer(timer) -- ToDo: delete scheduled timer?
       if timer==nil then return end
+      if _debugFlags.timersSched then Log(LOG.LOG,"Deleting timer:%s",timer) end
       timer.expired = true
       if timers == timer then
         timers = timers.next
         if runT then runT:cancel() runT=nil end
-        if timers then runT = os.setTimer2(runTimers,SPEED and 0.01 or max(timers.time-os.milliTime(),0)) end
+        if timers then runT = os.setTimer2(runTimers,SPEED and 0 or max(timers.time-os.milliTime(),0)) end
       else
         local tp = timers
         while tp and tp.next do
@@ -3339,7 +3344,7 @@ function module.HTTP()
         end
         if timers then
           if SPEED then 
-            runT = os.setTimer2(runTimers,0.01)
+            runT = os.setTimer2(runTimers,0)
           elseif not SPEED then
             local s = max(timers.time-os.milliTime(),0)
             runT = os.setTimer2(runTimers,s)
@@ -3352,7 +3357,7 @@ function module.HTTP()
       local t,fun,eh,ctx,now = params[2],params[1],params[3],params[4]
       --local ctx = getContext()
       ctx._getLock()
-      if not t.expired then
+      if not t.expired and ctx._ENVID then
         now = os.milliTime()
         t.expired = true
         if _debugFlags.timersWarn  and now-t.time > _debugFlags.timersWarn then
@@ -3370,16 +3375,27 @@ function module.HTTP()
       if _debugFlags.breakOnError then mobdebug.pause() end
     end
 
-    function setTimeout(fun,time,tag,errHandler,env,extra) 
+    function self.setSystemTimeout(fun,time,tag)
+      time = time > 0 and time or 0
+      local t = insertTimer(makeTimer({fun=fun,time=os.milliTime()+time/1000.0,tag=tag}))
+    end
+
+    function setTimeout(fun,time,tag,errHandler,env,extra)
+      if not env._ENVID then return end -- Killed
       assert(type(fun)=='function' and type(time)=='number',"Bad arguments to setTimeout")
       local warn,params = _debugFlags.timersWarn and time<0, {fun,nil,errHandler or timerErr,env}
       time = time > 0 and time or 0
-      local t = insertTimer(makeTimer({fun=timerWrap,params=params,time=os.milliTime()+time/1000.0,tag=tag,env=env or getContext()}))
+      if _debugFlags.timersExtra then
+        extra = extra or debug.getinfo(2,"Sl")
+      end
+     -- tag = env._VERSION
+      local t = insertTimer(makeTimer({
+            fun=timerWrap,params=params,fun2=fun,extra=extra,
+            time=os.milliTime()+time/1000.0,tag=tag,env=env or getContext()
+          }))
       if warn then Log(LOG.WARNING,"Negative timer:%s",t) end
       params[2]=t
-      if _debugFlags.timersExtra then
-        t.extra = extra or debug.getinfo(2,"Sl")
-      end
+      --dumpTimers()
       return t
     end
 
@@ -4433,7 +4449,9 @@ end
               Log(LOG.SYS,"Restarting QA %s, timers=%s, memory used %.1fkB",
                 self.id,Timer.killTimers("QUICKAPP"..self.id),collectgarbage("count")
               ) 
-              codeEnv.setTimeout(function() runQA('DeviceModifiedEvent') end,0)
+              codeEnv._ENVID=nil
+              --os.setTimer(function() runQA('DeviceModifiedEvent') end,0)
+              runQA('DeviceModifiedEvent')
             end
 
             local function deleteQA()
@@ -4441,6 +4459,7 @@ end
               Log(LOG.SYS,"Deleting QA %s, timers=%s, memory used %.1fkB",
                 self.id,Timer.killTimers("QUICKAPP"..self.id),collectgarbage("count")
               )
+              codeEnv._ENVID=nil
               localQA[self.id]=nil
               Trigger.postTrigger({type='DeviceRemovedEvent', data = {id = self.id}},0)
             end
@@ -4513,7 +4532,7 @@ end
               device.properties.viewLayout = self.viewLayout
               device.properties.quickAppVariables = vars2list(quickVars)
 
-              localQA[self.id]={ deviceStruct = device } -- Just so we have somethimng there if someone asks...
+              localQA[self.id]={ deviceStruct = device } -- Just so we have something there if someone asks...
 --              quickAppsStructs[self.id]=deviceStruct       -- Just so we have somethimng there if someone asks...
 
               -- step 5. run the files
@@ -4536,6 +4555,8 @@ end
               codeEnv._getLock()
               local status, err, ret = xpcall(
                 function() 
+                  self.VERSION=(self.VERSION or 0)+1
+                  codeEnv._VERSION=format("QA%s:%s",self.id,self.VERSION) 
                   Log(LOG.HEADER,"QuickApp '%s', deviceID:%s started at %s",device.name,device.id,os.date("%c"))
                   Trigger.postTrigger({type=event, data = {id = self.id}},0)
                   codeEnv.quickApp = codeEnv.QuickApp(device) 
@@ -8011,9 +8032,9 @@ button.button1 { width: 287px; }
       local function midnight()
         setupSuntimes()
         t = t+24*60*60
-        os.setTimer(midnight,1000*(t-os.time()))
+        Timer.setSystemTimeout(midnight,1000*(t-os.time()))
       end
-      os.setTimer(midnight,1000*(t-os.time()))
+      Timer.setSystemTimeout(midnight,1000*(t-os.time()))
       setupSuntimes()
     end
 
@@ -8459,7 +8480,7 @@ button.button1 { width: 287px; }
       env.debug = debug
       env.mqtt = mqtt
       env.unpack = unpack
-      env.os = { time = os.time, date = os.date, clock = os.clock, difftime = os.difftime }
+      env.os = { time = os.time, date = os.date, clock = os.clock, difftime = os.difftime, milliTime = os.milliTime }
 
       local mt = getmetatable(QuickApp)
       local QA = copy(QuickApp)
@@ -8545,7 +8566,18 @@ args.restartQA
     end
 
     if type(hc3_emulator.startTime) == 'string' then
-      Timer.setEmulatorTime(Util.parseDate(hc3_emulator.startTime))
+      os.setTime(Util.parseDate(hc3_emulator.startTime))
+    end
+
+    local t = (os.time() // 3600)*3600
+    local dst = os.date("*t",t).isdst
+    for i=1,24*30*6 do
+      t=t+3600
+      if os.date("*t",t).isdst ~= dst then 
+        hc3_emulator.DST = t; 
+        Log(LOG.LOG,os.date("DST at %c",t))
+        break 
+      end
     end
 
     if hc3_emulator.offline then
