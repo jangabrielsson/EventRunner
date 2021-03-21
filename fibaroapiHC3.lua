@@ -3282,7 +3282,7 @@ function module.HTTP()
     end
 
     hc3_emulator.dumpTimers = dumpTimers
-    
+
     local function countTimers() local t,n = timers,0; while t do n=n+1; t=t.next end return  n end
 
     local function insertTimer(t) -- {fun,time,next}
@@ -3375,6 +3375,7 @@ function module.HTTP()
       if _debugFlags.breakOnError then mobdebug.pause() end
     end
 
+    function self.adjustTime(time) timeAdjust=timeAdjust+time end
     function self.setSystemTimeout(fun,time,tag)
       time = time > 0 and time or 0
       local t = insertTimer(makeTimer({fun=fun,time=os.milliTime()+time/1000.0,tag=tag}))
@@ -3388,7 +3389,7 @@ function module.HTTP()
       if _debugFlags.timersExtra then
         extra = extra or debug.getinfo(2,"Sl")
       end
-     -- tag = env._VERSION
+      -- tag = env._VERSION
       local t = insertTimer(makeTimer({
             fun=timerWrap,params=params,fun2=fun,extra=extra,
             time=os.milliTime()+time/1000.0,tag=tag,env=env or getContext()
@@ -5293,7 +5294,8 @@ climate
     function self.postTrigger(ev,t)
       assert(type(ev)=='table' and ev.type,"Bad event format:"..json.encode(ev))
       t = t or 0
-      os.setTimer(function()
+      local f = t==0 and (function(f) f() end) or os.setTimer 
+      f(function()
           self.refreshStates.addEvents(ev)
           post(ev) 
         end,t)
@@ -8576,6 +8578,9 @@ args.restartQA
       if os.date("*t",t).isdst ~= dst then 
         hc3_emulator.DST = t; 
         Log(LOG.LOG,os.date("DST at %c",t))
+        Timer.setSystemTimeout(function()
+            Timer.adjustTime(dst and 3600 or -3600)
+          end,1000*(t-os.time()))
         break 
       end
     end
