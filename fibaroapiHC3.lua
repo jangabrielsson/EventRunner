@@ -749,8 +749,8 @@ function module.HTTP()
         req.source = ltn12.source.string(req.data)
       else req.headers["Content-Length"]=0 end
       local ctx,call = getContext(),nil
-      assert(ctx._getLock,"net.HTTPClient() not called from QuickApp/Scene")
       local sync = i_options and i_options.sync==true
+      if not sync then assert(ctx._getLock,"net.HTTPClient() not called from QuickApp/Scene") end
       call = sync and (function(f) f() end) or ctx.setTimeout
       call(function()
           local t1 = os.milliTime()
@@ -8373,7 +8373,7 @@ button.button1 { width: 287px; }
       ["EventRunnerEngine.lua"] = function() offline.downloadGitHubFile("EventRunner4Engine.lua") end,
       ["MQTT/*"] = offline.downloadMQTT,
       ["wsLua_ER.lua"] = function() offline.downloadGitHubFile("wsLua_ER.lua") end,
-      ["credentials_ex.lua"] = function() offline.downloadGitHubFile("credentials_ex§ .lua") end,
+      ["credentials_ex.lua"] = function() offline.downloadGitHubFile("credentials_ex.lua") end,
     }
     commandLines['downloadfile']=function(s)
       local f = filesDW[s]
