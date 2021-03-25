@@ -3377,7 +3377,7 @@ function module.HTTP()
 
     function self.adjustTime(time) timeAdjust=timeAdjust+time end
     function self.setSystemTimeout(fun,time,tag)
-      time = time > 0 and time or 0
+      time,tag = time > 0 and time or 0, tag or "System"
       local t = insertTimer(makeTimer({fun=fun,time=os.milliTime()+time/1000.0,tag=tag}))
     end
 
