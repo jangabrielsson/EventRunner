@@ -1918,7 +1918,7 @@ function Module.eventScript.init()
       local gtFuns = {
         ['%daily'] = function(e,s) s.dailys[#s.dailys+1 ]=ScriptCompiler.compile2(e[2]); s.dailyFlag=true end,
         ['%interv'] = function(e,s) s.scheds[#s.scheds+1 ] = ScriptCompiler.compile2(e[2]) end,
-        ['%betw'] = function(e,s) 
+        ['%betw'] = function(e,s)
           s.dailys[#s.dailys+1 ]=ScriptCompiler.compile2(e[2])
           s.dailys[#s.dailys+1 ]=ScriptCompiler.compile({'+',1,e[3]}) 
         end,
@@ -2114,14 +2114,16 @@ function Module.eventScript.init()
         dailys.timers = newTimers
         local times,m,ot,catchup1,catchup2 = compTimes(dailys.dailys),midnight(),os.time()
         for i,t in ipairs(times) do _assert(tonumber(t),"@time not a number:%s",t)
-          local oldT = oldTimers[i] and oldTimers[i][1]
-          if t ~= CATCHUP then
-            if _MIDNIGHTADJUST and t==HOURS24 then t=t-1 end
-            if t+m >= ot then 
-              Debug(oldT ~= t and _debugFlags.dailys,"Rescheduling daily %s for %s",r.src or "",os.date("%c",t+m)); 
-              newTimers[#newTimers+1]={t,QA:post(dailys.event,max(os.time(),t+m),r.src)}
-            else catchup1=true end
-          else catchup2 = true end
+          if t > 3600*24 and t < math.huge then 
+            local oldT = oldTimers[i] and oldTimers[i][1]
+            if t ~= CATCHUP then
+              if _MIDNIGHTADJUST and t==HOURS24 then t=t-1 end
+              if t+m >= ot then 
+                Debug(oldT ~= t and _debugFlags.dailys,"Rescheduling daily %s for %s",r.src or "",os.date("%c",t+m)); 
+                newTimers[#newTimers+1]={t,QA:post(dailys.event,max(os.time(),t+m),r.src)}
+              else catchup1=true end
+            else catchup2 = true end
+          end
         end
         if catch and catchup2 and catchup1 then ptrace("Catching up:%s",r.src); QA:post(dailys.event) end
         return r
