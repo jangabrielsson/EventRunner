@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix47"
+E_VERSION,E_FIX = 0.5,"fix48"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -2114,7 +2114,7 @@ function Module.eventScript.init()
         dailys.timers = newTimers
         local times,m,ot,catchup1,catchup2 = compTimes(dailys.dailys),midnight(),os.time()
         for i,t in ipairs(times) do _assert(tonumber(t),"@time not a number:%s",t)
-          if t > 3600*24 and t < math.huge then 
+          if t <= 3600*24 or t == math.huge then 
             local oldT = oldTimers[i] and oldTimers[i][1]
             if t ~= CATCHUP then
               if _MIDNIGHTADJUST and t==HOURS24 then t=t-1 end
