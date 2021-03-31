@@ -7,7 +7,7 @@ if dofile and not hc3_emulator then
     --speed = 2,
     --deploy=true,
     --proxy=true,
-    -- doffline=true,
+    --offline=true,
     --profile=true,
     debug = {trigger=false},
     UI = {
@@ -18,17 +18,17 @@ if dofile and not hc3_emulator then
     }
   }
   dofile("fibaroapiHC3.lua")
+--FILE:EventRunner4Engine.lua,EventRunner;
+--FILE:Toolbox/Toolbox_basic.lua,Toolbox;
+--FILE:Toolbox/Toolbox_events.lua,Toolbox_events;
+--FILE:Toolbox/Toolbox_child.lua,Toolbox_child;
+--FILE:Toolbox/Toolbox_triggers.lua,Toolbox_triggers;
+--FILE:Toolbox/Toolbox_files.lua,Toolbox_files;
+--FILE:Toolbox/Toolbox_rpc.lua,Toolbox_rpc;
+--FILE:Toolbox/Toolbox_pubsub.lua,Toolbox_pubsub;
+-- FILE:EventRunnerDoc.lua,EventRunnerDoc;
+-- FILE:Toolbox/Toolbox_profiler.lua,Toolbox_profiler;
 end
-
-if hc3_emulator then hc3_emulator.FILE("EventRunner4Engine.lua","EventRunner") end
-if hc3_emulator then hc3_emulator.FILE("Toolbox/Toolbox_basic.lua","Toolbox") end
-if hc3_emulator then hc3_emulator.FILE("Toolbox/Toolbox_events.lua","Toolbox_events") end
-if hc3_emulator then hc3_emulator.FILE("Toolbox/Toolbox_child.lua","Toolbox_child") end
-if hc3_emulator then hc3_emulator.FILE("Toolbox/Toolbox_triggers.lua","Toolbox_triggers") end
-if hc3_emulator then hc3_emulator.FILE("Toolbox/Toolbox_files.lua","Toolbox_files") end
-if hc3_emulator then hc3_emulator.FILE("Toolbox/Toolbox_rpc.lua","Toolbox_rpc") end
-if hc3_emulator then hc3_emulator.FILE("Toolbox/Toolbox_pubsub.lua","Toolbox_pubsub") end
---if hc3_emulator then hc3_emulator.FILE("Toolbox/Toolbox_profiler.lua","Toolbox_profiler") end
 ----------- Code -----------------------------------------------------------
 
 _debugFlags.trigger = true -- log incoming triggers
@@ -37,6 +37,7 @@ _debugFlags.post = true    -- log internal posts
 _debugFlags.rule=true      -- log rules being invoked (true or false)
 _debugFlags.ruleTrue=true  -- log only rules that are true
 _debugFlags.pubsub=true    -- log only rules that are true
+
 ------------- Put your rules inside QuickApp:main() -------------------
 
 function QuickApp:main()    -- EventScript version
@@ -49,10 +50,18 @@ function QuickApp:main()    -- EventScript version
     temp = 22, 
     lux = 23,
   }
-  
-  Util.defvars(HT)
-  Util.reverseMapDef(HT)
- 
+
+--  Phone = {2,107}
+--  lights={267,252,65,67,78,111,129,158,292,127,216,210,205,286,297,302,305,410,384,389,392,272,329,276} -- eller hämta värden från HomeTable
+--  rule("earthDates={2021/3/27/20:30,2022/3/26/20:30,2023/3/25/20:30}")
+--  rule("for _,v in ipairs(earthDates) do log(osdate('Earth hour %c',v)); post(#earthHour,v) end")
+--  rule("#earthHour => wait(00:00:10); Phone:msg=log('Earth Hour har inletts, belysningen tänds igen om 1 timme')")
+--  rule("#earthHour => states = lights:value; lights:off; wait(01:00); lights:value = states")
+--  -- Slut ---
+---- Testar Earth hour --------
+--  rule("#earthHour2 => states = lights:value; lights:off; wait(00:00:06); lights:value = states")
+--  rule("@now+00:00:05 => post(#earthHour2)")
+
   -- rule("@@00:01 & date('0/5 12-15 *') => log('ping')")
   -- rule("@@00:00:05 => log(now % 2 == 1 & 'Tick' | 'Tock')")
   -- rule("remote(1356,#foo)")
