@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.200"
+local FIBAROAPIHC3_VERSION = "0.200.2"
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
 --[[
@@ -4263,9 +4263,9 @@ end
         }
         assert(header and header~="","Malformed emulator header")
         local e1,msg = load(header,nil,nil,env1)
-        if msg then error(msg) end
+        if msg then error("Error in file header: "..msg) end
         local stat,res = pcall(e1)
-        if not stat then error(res) end
+        if not stat then error("Error in file header: "..res) end
         self.name = env1.hc3_emulator.name or arg:match("(.-)%.[Ll][Uu][Aa]$")
         self.type = env1.hc3_emulator.type or "com.fibaro.binarySwitch"
         self.id = env1.hc3_emulator.id
@@ -4897,7 +4897,7 @@ climate
         local code = hc3_emulator._code or ff.read(arg)
         hc3_emulator._code = nil
         local header,env1 = code:match("^if(.-)[\n\r]end"),{dofile=function() end}
-        print(header)
+        --print(header)
         local e1,msg = load("if "..header.." end",nil,nil,env1)
         if msg then error(msg) end
         local stat,res = pcall(e1)
@@ -7682,7 +7682,11 @@ button.button1 { width: 287px; }
           id = tonumber(id)
           local dev = localQA[id] or resources.devices[id]
           if not dev then return nil,404 end
-          return dev:getProperty(property),200
+          if localQA[id] then 
+            return dev.properties[property],200
+          else
+            return dev:getProperty(property),200
+          end
         end,
         ["/devices/(%d+)$"] = function(_,_,_,id) return localQA[tonumber(id)].deviceStruct or get(resources.devices,tonumber(id)) end,
         ["/devices/?$"] = function(_,_,_,_) return arr(resources.devices) end,
@@ -8433,6 +8437,7 @@ button.button1 { width: 287px; }
     env.fibaro = copy(fibaro)  -- scenes may patch fibaro:*...
     env.json = copy(json)
     env.print = print
+    env._print = print
     env.net = copy(net)
     env.api = copy(api)
     env.tostring = tostring
