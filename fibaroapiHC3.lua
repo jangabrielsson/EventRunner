@@ -253,7 +253,7 @@ hc3_emulator.backDirFmt        = "%m-%d-%Y %H.%M.%S"               -- not used
 hc3_emulator.conditions        = false
 hc3_emulator.actions           = false
 hc3_emulator.offline           = DEF(hc3_emulator.offline,false)
-hc3_emulator.autoCreate        = DEF(hc3_emulator.autoCreate,true)
+hc3_emulator.autoCreate        = DEF(hc3_emulator.autoCreate,hc3_emulator.offline)
 hc3_emulator.emulated          = true
 hc3_emulator.debug             = merge(hc3_emulator.debug  or {},_debugFlags)
 hc3_emulator.runSceneAtStart   = false
@@ -7939,7 +7939,7 @@ function module.Local(hc3)
       modified = os.time()
     }
     gLoc.globalVariables[data.name]=v
-    Log(LOG.SYS,"Creating globalVariable: '%s'",v.name)
+    Log(LOG.SYS,"[Local] Creating globalVariable: '%s'",v.name)
     return v
   end
 
@@ -7957,7 +7957,7 @@ function module.Local(hc3)
       sortOrder = 1, category = "other"
     }
     gLoc.rooms[r.id]=r
-    Log(LOG.SYS,"Creating room, id:%s, name:'%s'",r.id,r.name)
+    Log(LOG.SYS,"[Local] Creating room, id:%s, name:'%s'",r.id,r.name)
     return r
   end
 
@@ -7966,7 +7966,7 @@ function module.Local(hc3)
     data.id = data.id or SECTION_ID; SECTION_ID = SECTION_ID+1
     local s = {id = data.id, name = data.name, sortOrder=data.sortOrder or 1, created=os.time(), modified=os.time()}
     gLoc.sections[s.id]=s
-    Log(LOG.SYS,"Creating section, id:%s, name:'%s'",s.id,s.name)
+    Log(LOG.SYS,"[Local] Creating section, id:%s, name:'%s'",s.id,s.name)
     return s
   end
 
@@ -7974,7 +7974,7 @@ function module.Local(hc3)
     if type(data)=='string' then   data={name=data,userDescription=""}  end
     local  e = {name=data.name, userDescription=data.userDescription or ""}
     gLoc.customEvents[data.name]=e
-    Log(LOG.SYS,"Creating customEvent: '%s'",e.name)
+    Log(LOG.SYS,"[Local] Creating customEvent: '%s'",e.name)
     return e
   end
 
@@ -8020,7 +8020,7 @@ function module.Local(hc3)
     end
     d.id = data.id or self.getNextDeviceID()
     d.name = data.name or 'Device_'..data.id
-    if _debugFlags.locl and not silent then Log(LOG.SYS,"Creating local device, id:%s, name:%s, type:%s",d.id,d.name,d.type) end
+    if _debugFlags.locl and not silent then Log(LOG.SYS,"[Local] Creating local device, id:%s, name:%s, type:%s",d.id,d.name,d.type) end
     postTrigger({type="DeviceCreatedEvent",data={id=d.id},objects={{objectId=d.id,objectType="device"}},sourceType="system"})
     gLoc.devices[d.id]=d
     return d
