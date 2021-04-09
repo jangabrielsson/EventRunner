@@ -107,7 +107,7 @@ for _,s in ipairs(scenes) do
   printf("Backing up %s",s.name)
   hc3_emulator.loadScene(s.id):save("fsc",sceneDir)
 end
-]]
+]],
   ['MultilevelSwitch'] =
 [[if dofile and not hc3_emulator then
   hc3_emulator = {
