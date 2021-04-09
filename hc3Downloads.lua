@@ -47,7 +47,7 @@ local downloads = {
       ["protocol5.lua"]="protocol5.lua",
       ["tools.lua"]="tools.lua",
     }
-  },
+  },  
   ["wsLua_ER.lua"] = {
     url="https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/wsLua_ER.lua",
     path = "wsLua_ER.lua"
