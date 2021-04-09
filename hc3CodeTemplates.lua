@@ -81,6 +81,78 @@ modules = {
 function QuickApp:onInit()
   self:debug("onInit",self.id)
 end
+]],
+  ['Simple backup'] =
+[[if dofile and not hc3_emulator then
+  dofile("fibaroapiHC3.lua")
+end--hc3
+
+local fs = "/"
+local today    = os.date("%x"):gsub("/","")
+local qaDir    = "QAbackup"..fs..today..fs             -- Directory will be created if it doesn't exist.
+local sceneDir = "Scenebackup"..fs..today..fs          -- Directory will be created if it doesn't exist.
+
+local function printf(...) print(string.format(...)) end
+
+-- This is a script that backs up your QAs and Scenes from the HC3 and store them in a directory
+
+local QAs = api.get("/devices?interface=quickApp")
+for _,q in ipairs(QAs) do
+  printf("Backing up %s",q.name)
+  hc3_emulator.loadQA(q.id):save("fqa",qaDir)
+end
+
+local scenes = api.get("/scenes")
+for _,s in ipairs(scenes) do
+  printf("Backing up %s",s.name)
+  hc3_emulator.loadScene(s.id):save("fsc",sceneDir)
+end
 ]]
+  ['MultilevelSwitch'] =
+[[if dofile and not hc3_emulator then
+  hc3_emulator = {
+    name = "MyMultilevelSwitch",    -- Name of QA
+    type = "com.fibaro.multilevelSwitch",
+    poll = 1000,                    -- Poll HC3 for triggers every 1000ms
+    offline = true,
+    UI = {
+      {label='info', text=''},
+      {
+        {button='turnOn', text='Turn On',  onReleased='turnOn'},
+        {button='turnOff', text='Turn Off',  onReleased='turnOff'}
+      },
+      {slider='val', min=0, max=99, onChanged='slider'}
+    }
+  }
+  dofile("fibaroapiHC3C.lua")
+end--hc3
+
+function QuickApp:turnOn()
+  self:updateProperty("value",99)
+  self:info()
+end
+
+function QuickApp:turnOff()
+  self:updateProperty("value",0)
+  self:info()
+end
+
+function QuickApp:slider(ev) self:setValue(ev.values[1]) end
+
+function QuickApp:setValue(value)
+  self:updateProperty("value",value)
+  self:info()
+end
+
+function QuickApp:info()
+  local val = fibaro.getValue(self.id,"value")
+  self:updateView("info","text","Value is "..val)
+  self:updateView("val","value",tostring(val))
+end
+
+function QuickApp:onInit()
+  self:debug(self.name,self.id)
+  self:info()
+end]]
 }
 return {version = version, templates = code}

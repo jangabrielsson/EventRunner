@@ -1,4 +1,4 @@
-VERSION = "0.5"
+VERSION = "0.7"
 
 local idech3 = ID("HC3.copyHC3")
 local idech31 = ID("HC3.sdkHC3")
@@ -9,10 +9,8 @@ local ide_deploy = ID("HC3.deployQA")
 local idem = ID("HC3.web")
 local idet = ID("HC3.templ")
 
---https = require ("ssl.https")
---ltn12 = require("ltn12")
---local s33 = require("socket")
---local h33 = require("socket.http")
+local lfs = require("lfs")
+local sdkFile = "fibaroapiHC3.lua"
 
 local urlEmu = "http://127.0.0.1:6872/web/main"
 local urlHC3Help = "https://forum.fibaro.com/topic/49488-sdk-for-remote-and-offline-hc3-development/"
@@ -25,7 +23,42 @@ local urlHC3ChildHelp = "https://manuals.fibaro.com/knowledge-base-browse/hc3-qu
 local function launchEmulator() wx.wxLaunchDefaultBrowser(urlEmu, 0) end
 local function openURL(url) wx.wxLaunchDefaultBrowser(url, 0) end
 
-ide:Print("fibaroapiHC3plug.lua v."..VERSION)
+ide:Print("Fibaro plugin version: "..VERSION)
+sdkFile = ide.config.hc3api or sdkFile
+ide:Print("Fibaro api file:"..sdkFile)
+
+local function printf(fmt,...) ide:Print(string.format(fmt,...)) end
+local ps  = ide.osname == "Windows" and "\\" or "/"
+local assetDir  = os.getenv("HC3EMU")
+if not assetDir then
+  assetDir = (os.getenv('HOME')  or '')..ps..".zbstudio"..ps.."hc3emu"..ps
+end
+printf("Asset directory set to '%s'",assetDir)
+
+local function readLuaFile(name)
+  local p = assetDir..name
+  local f = io.open(p,"r")
+  if f then 
+    local stat,res = pcall(function() 
+        local d = f:read("*all")
+        f:close()
+        return load(d)()
+      end)
+    if stat then return res 
+    else printf("Error reading %s - %s",p,res) end
+  else print("Missing '%s', ignoring",name) end
+end
+
+local function checkAndReport(t,name)
+  local n = 0;
+  for _,_ in pairs(t or {}) do n=n+1 end
+  printf("%s %s",n,name)
+end
+
+local codeTemplates = readLuaFile("hc3CodeTemplates.lua")
+local downLoads = readLuaFile("hc3Downloads.lua")
+if codeTemplates then checkAndReport(codeTemplates.templates,"code templates") end
+if downLoads then checkAndReport((downLoads or {}).files,"download links") end
 
 local function exePath(self, version)
   local version = tostring(version or ""):gsub('%.','')
@@ -65,7 +98,7 @@ local function callFibaroAPIHC3(cmd,endMessage)
     wx.wxSetEnv(envlpath, lpath..';'..ide.oslibs)
   end
 
-  local wfilename = ide:MergePath(ide.config.path.projectdir, 'fibaroapiHC3.lua')
+  local wfilename = ide:MergePath(ide.config.path.projectdir, sdkFile)
   local ep = exePath(nil,version)
   local pid = CommandLineRun( --tooutput,nohide,stringcallback,uid,endcallback)
     ep.." "..wfilename.." "..cmd,    -- command
@@ -85,7 +118,7 @@ end
 
 local function launchHC3Copy()
   ide:Print("Copying and creating DB from HC3...") 
-  callFibaroAPIHC3("-downloaddb","Copying done! - HC3sdk.db")
+  callFibaroAPIHC3("-downloaddb","Copying done!")
 end 
 
 local function downloadFile(file)
@@ -124,103 +157,6 @@ local function backupResources()
   ide:Print("Backing up resources from HC3...") 
   callFibaroAPIHC3("-backup","Backup done!")
 end
-
-------------- Scene and QuickApp templates -------------
-
-local SCENE_TEMPL = 
-[[if dofile and not hc3_emulator then
-  hc3_emulator = {
-    name = "My Scene",    -- Name of Scene
-    poll = 2000,       -- Poll HC3 for triggers every 2000ms
-    traceFibaro=true,        -- Log fibaro.call and fibaro.get
-    --offline = true,
-  }
-  dofile("fibaroapiHC3.lua")
-end
-
-function hc3_emulator.preamble() -- This runs before the scene starts up - place to do initializations for offline execution.
-  -- hc3_emulator.offline = true
-  -- api.post("/globalVariables/",{name="HomeTable",value=""}) -- create if not exist
-  -- local jt = { Bathroom={ bathroomlight=21, motion=37, lux=23}}
-  -- fibaro.setGlobalVariable("HomeTable", json.encode(jt))
-  -- local motion = hc3_emulator.create.motionSensor(37)   -- Create devices
-  -- motion.turnOff()               -- start with sensor off (default)
-  -- motion.delay(5).breach(20)      -- Wait 5s, breach and restore after 20s
-end
-
-hc3_emulator.conditions = {  -- example condition triggering on device 37 becoming 'true'
-  conditions = { {
-      id = 37,
-      isTrigger = true,
-      operator = "==",
-      property = "value",
-      type = "device",
-      value = true
-      } },
-  operator = "all"
-}
-
-function hc3_emulator.actions()
-  local hc = fibaro
-  jT = json.decode(hc.getGlobalVariable("HomeTable")) 
-  -- Your code
-end
-
-]]
-
-local QA_TEMPL =
-[[if dofile and not hc3_emulator then
-  hc3_emulator = {
-    name = "My QA",    -- Name of QA
-    poll = 2000,       -- Poll HC3 for triggers every 2000ms
-    --offline = true,
-  }
-  dofile("fibaroapiHC3.lua")
-end
-
-function QuickApp:onInit()
-  self:debug("onInit ",self.id)
-end
-
-]]
-
-local QAwT_TEMPL =
-[[if dofile and not hc3_emulator then
-  hc3_emulator = {
-    name="My QA",
-    --proxy=true,
-    --deploy=true,
-    type="com.fibaro.deviceController",
-    poll=1000,
-    UI = {}
-  }
-  dofile("fibaroapiHC3.lua")
-end
-
-hc3_emulator.FILE("Toolbox/Toolbox_basic.lua","Toolbox")
---hc3_emulator.FILE("Toolbox/Toolbox_child.lua","Toolbox_child")
---hc3_emulator.FILE("Toolbox/Toolbox_events.lua","Toolbox_events")
---hc3_emulator.FILE("Toolbox/Toolbox_triggers.lua","Toolbox_triggers")
---hc3_emulator.FILE("Toolbox/Toolbox_files.lua","Toolbox_files")
---hc3_emulator.FILE("Toolbox/Toolbox_rpc.lua","Toolbox_rpc")
---hc3_emulator.FILE("Toolbox/Toolbox_pubsub.lua","Toolbox_pubsub")
---hc3_emulator.FILE("Toolbox/Toolbox_ui.lua","Toolbox_ui")
------------ Code -----------------------------------------------------------
-_version = "0.1"
-modules = {
---  "childs",
---  "events",
---  "triggers",
---  "files",
---  "rpc",
---  "pubsub",
---  "ui"
-}
-
-function QuickApp:onInit()
-  self:debug("onInit",self.id)
-end
-]]
 
 ---------- API completion and tooltips --------------
 
@@ -623,14 +559,53 @@ local array = json.decode(tmp)]],
   }
 }
 
-local function addTemplates(t)
-  if t=="SCENE" then
-    ide:GetEditor():InsertText(-1, SCENE_TEMPL)
-  elseif t=="QA" then
-    ide:GetEditor():InsertText(-1, QA_TEMPL)
-  elseif t=="QAwToolbox" then
-    ide:GetEditor():InsertText(-1, QAwT_TEMPL)
-  end
+local function getWebContent(url)
+  local https = require ("ssl.https")
+  local ltn12 = require("ltn12")
+  local socket = require("socket")
+  local http = require("socket.http")
+  local resp = {}
+  local req = { method = "GET", url = url, headers = { ["Content-Length"]=0 }, sink = ltn12.sink.table(resp) }
+  local res,status,headers = https.request(req)
+  if status >= 200 and status < 300 then resp = table.concat(resp) end
+  return resp, status
+end
+
+local function downloadContent(fdef)
+  local ps = ide.osname == "Windows" and "\\" or "/"
+  local stat,res = pcall(function()
+      if fdef.url then
+        printf("Downloading %s",fdef.url)
+        local src,code = getWebContent(fdef.url)
+        local f = io.open(ide.config.path.projectdir..ps..fdef.path,"w+")
+        f:write(src)
+        printf("Writing %s",fdef.path)
+        f:close()
+      elseif fdef.urldir then
+        lfs.mkdir(ide.config.path.projectdir..ps..fdef.pathdir)
+        for fn,p in pairs(fdef.files) do
+          printf("Downloading %s",fn)
+          local src,code = getWebContent(fdef.urldir..fn)
+          local f = io.open(ide.config.path.projectdir..ps..fdef.pathdir..ps..p,"w+")
+          printf("Writing %s",fdef.pathdir..ps..p)
+          f:write(src)
+          f:close()
+        end
+      end
+    end)
+  if not stat then printf("Error downloading %s - %s",fdef.url or fdef.urldir,res) end
+end
+
+local function sendCommandToEmulator(cmd)
+  local https = require ("ssl.https")
+  local ltn12 = require("ltn12")
+  local socket = require("socket")
+  local http = require("socket.http")
+  local url = "http://127.0.0.1:6872/web/"
+  local resp = {}
+  local req = { method = "GET", url = url, headers = { ["Content-Length"]=0 }, sink = ltn12.sink.table(resp) }
+  local res,status,headers = http.request(req)
+  return res,status
 end
 
 local interpreter = {
@@ -642,7 +617,7 @@ local interpreter = {
   frun = function(self,wfilename,rundebug)
     local exe = self:fexepath(version or "")
     local filepath = wfilename:GetFullPath()
-    local fibaroName = "fibaroapiHC3.lua"
+    local fibaroName = sdkFile
     local projectPath = ide:GetProject()
     if projectPath then fibaroName = projectPath..fibaroName end
     local tmplua = wx.wxFileName()
@@ -653,14 +628,14 @@ local interpreter = {
       DisplayOutput("Can't open temporary file '"..filepath.."' for writing\n")
       return
     end
-    flua:write("local md = require('mobdebug')")
-    flua:write("md.basedir([[projectPath]])")
-    flua:write("md.start()")
-    flua:write(("hc3_emulator = {_startFile=[[%s]]}\n"):format(filepath))
-    flua:write("dofile([[fibaroapiHC3.lua]])\n")
-    --flua:write(("dofile([[%s]])\n"):format(fibaroName))
-    --flua:write(("dofile([[%s]])\n"):format(filepath))
-    flua:write(("hc3_emulator.startFile([[%s]])"):format(filepath))
+    flua:write("local md = require('mobdebug')\n")
+    flua:write("md.basedir([[projectPath]])\n")
+    flua:write("md.start()\n")
+    flua:write("if dofile and hc3_emulator==nil then\n")   
+    flua:write("  hc3_emulator = { loadconfigs=true }\n")    
+    flua:write(("  dofile([[%s]])\n"):format(sdkFile))   
+    flua:write("end\n")
+    flua:write(("hc3_emulator.loadQAScene([[%s]]):install()\n"):format(filepath))
     flua:close()
 
     if rundebug then
@@ -730,7 +705,11 @@ local interpreter = {
     dependencies = "1.0",
 
     onRegister = function()
-      --ide:AddInterpreter("HC3", interpreter)
+
+      --local res,stat = getWebContent("https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/EventRunner4.lua")
+      --ide:Print(stat)
+
+      ide:AddInterpreter("HC3", interpreter)
 
       local menu = ide:FindTopMenu("&View")
       menu:Append(idem, "HC3 Emulator\tCtrl-Alt-E"..KSC(idem))
@@ -745,56 +724,55 @@ local interpreter = {
         menu:Append(id, name..KSC(id))
         ide:GetMainFrame():Connect(id, wx.wxEVT_COMMAND_MENU_SELECTED, function() openURL(url) end)
       end
-      
+
       addLinkHelp("HC3 SDK (fibaroapiHC3.lua) help",urlHC3Help)
       addLinkHelp("Fibaro QuickApp manual",urlHC3QAHelp)
-      addLinkHelp("Fibaro QUickAppChild manual",urlHC3ChildHelp)
+      addLinkHelp("Fibaro QuickAppChild manual",urlHC3ChildHelp)
       addLinkHelp("Fibaro Lua Scene manual",urlHC3ScHelp)
       addLinkHelp("Fibaro MQTT Client manual",urlHC3MQTTHelp)
       addLinkHelp("Fibaro WebSocket Client manual",urlHC3WSHelp)
 
       menu = ide:FindTopMenu("&File")
       menu:AppendSeparator()
-      menu:Append(idech3, "Download and create HC3sdk database"..KSC(idech3))
+      menu:Append(idech3, "Download HC3 local resource file"..KSC(idech3))
       ide:GetMainFrame():Connect(idech3, wx.wxEVT_COMMAND_MENU_SELECTED, launchHC3Copy)
 
       menu = ide:FindTopMenu("&File")
       templSubMenu2 = ide:MakeMenu()
       templ2 = menu:AppendSubMenu(templSubMenu2, TR("Download files..."))
 
-      local function downloadFileItem(name)
-        local id = ID("HC3."..name)
-        templSubMenu2:Append(id, name..KSC(id))
-        ide:GetMainFrame():Connect(id, wx.wxEVT_COMMAND_MENU_SELECTED, function() downloadFile(name) end)        
+      if downLoads and downLoads.files then
+        local i,tab = 1,{}
+        for name,code in pairs((downLoads or {}).files or {}) do tab[#tab+1]=name end
+        table.sort(tab)
+        for _,name in ipairs(tab) do  
+          local id = ID("HC3."..name)
+          templSubMenu2:Append(id, name..KSC(id))
+          ide:GetMainFrame():Connect(id, wx.wxEVT_COMMAND_MENU_SELECTED, 
+            function() downloadContent(downLoads.files[name]) end)  
+        end
       end
-
-      downloadFileItem("fibaroapiHC3.lua")
-      downloadFileItem("fibaroapiHC3plug.lua")
-      downloadFileItem("Toolbox/*")
-      downloadFileItem("EventRunner4.lua")
-      downloadFileItem("EventRunnerEngine.lua")
-      downloadFileItem("MQTT/*")
-      downloadFileItem("wsLua_ER.lua")
-      downloadFileItem("credentials_ex.lua")
 
       menu = ide:FindTopMenu("&Project")
       menu:AppendSeparator()
-      menu:Append(ide_deploy, "Deploy QuickApp"..KSC(ide_deploy))
+      menu:Append(ide_deploy, "Deploy QuickApp/Scene"..KSC(ide_deploy))
       ide:GetMainFrame():Connect(ide_deploy, wx.wxEVT_COMMAND_MENU_SELECTED, deployQA)
 
       menu = ide:FindTopMenu("&Edit")
       templSubMenu = ide:MakeMenu()
       templ = menu:AppendSubMenu(templSubMenu, TR("HC3 SDK templates..."))
 
-      local idTSC = ID("HC3.temp_SC")
-      local idTER = ID("HC3.temp_ER")
-      local idTERT = ID("HC3.temp_ERT")
-      templSubMenu:Append(idTER, "QuickApp"..KSC(idTER))
-      ide:GetMainFrame():Connect(idTER, wx.wxEVT_COMMAND_MENU_SELECTED, function() addTemplates("QA") end)
-      templSubMenu:Append(idTERT, "QuickApp w. toolbox"..KSC(idTERT))
-      ide:GetMainFrame():Connect(idTERT, wx.wxEVT_COMMAND_MENU_SELECTED, function() addTemplates("QAwToolbox") end)
-      templSubMenu:Append(idTSC, "Scene"..KSC(idTSC))
-      ide:GetMainFrame():Connect(idTSC, wx.wxEVT_COMMAND_MENU_SELECTED, function() addTemplates("SCENE") end)
+      if codeTemplates and codeTemplates.templates then 
+        local i,tab = 1,{}
+        for name,code in pairs((codeTemplates or {}).templates or {}) do tab[#tab+1]=name end
+        table.sort(tab)
+        for _,name in ipairs(tab) do
+          local id = ID("HC3.temp_ERT"..i); i=i+1
+          templSubMenu:Append(id, name..KSC(id))
+          ide:GetMainFrame():Connect(id, wx.wxEVT_COMMAND_MENU_SELECTED, 
+            function() ide:GetEditor():InsertText(-1, codeTemplates.templates[name]) end)
+        end
+      end
 
       -- add API with name "sample" and group "lua"
       table.insert(ide:GetConfig().api, name)
