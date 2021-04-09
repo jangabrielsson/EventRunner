@@ -9,7 +9,7 @@ local code = {
     --offline = true,
   }
   dofile("fibaroapiHC3.lua")
-end
+end--hc3
 
 hc3_emulator.conditions = {  -- example condition triggering on device 37 becoming 'true'
   conditions = { {
@@ -41,7 +41,7 @@ end
 end--hc3
 
 function QuickApp:onInit()
-  self:debug("onInit ",self.id)
+  self:debug(self.name, self.id)
 end
 
 ]],
@@ -56,7 +56,7 @@ end
     UI = {}
   }
   dofile("fibaroapiHC3.lua")
-end
+end--hc3
 
 --FILE:Toolbox/Toolbox_basic.lua,Toolbox;
 -- FILE("Toolbox/Toolbox_child.lua,Toolbox_child;
@@ -79,7 +79,7 @@ modules = {
 }
 
 function QuickApp:onInit()
-  self:debug("onInit",self.id)
+  self:debug(self.name ,self.id)
 end
 ]],
   ['Simple backup'] =
@@ -151,7 +151,7 @@ function QuickApp:info()
 end
 
 function QuickApp:onInit()
-  self:debug(self.name,self.id)
+  self:debug(self.name, self.id)
   self:info()
 end]]
 }
