@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.200.2"
+local FIBAROAPIHC3_VERSION = "0.200.3"
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
 --[[
@@ -262,9 +262,9 @@ local lfs     = require("lfs")            -- LuaFileSystem,
 -- optional require('mobdebug')           -- Lua remote debugger
 assert(socket and url and headers and ltn12 and mime and lfs,"Missing libraries")
 
-local _,mobdebug = pcall(function() return require('mobdebug') end) -- Load mobdebug if available to debug coroutines..
+local stat,mobdebug = pcall(function() return require('mobdebug') end) -- Load mobdebug if available to debug coroutines..
 local fid = function() end
-mobdebug = mobdebug or {coro=fid, pause=fid, setbreakpoint=fid, on=fid, off=fid}
+mobdebug = stat and mobdebug or {coro=fid, pause=fid, setbreakpoint=fid, on=fid, off=fid}
 mobdebug.coro()
 
 local profiler = nil
@@ -4266,6 +4266,7 @@ end
         if msg then error("Error in file header: "..msg) end
         local stat,res = pcall(e1)
         if not stat then error("Error in file header: "..res) end
+        env1.hc3_emulator = env1.hc3_emulator or {}
         self.name = env1.hc3_emulator.name or arg:match("(.-)%.[Ll][Uu][Aa]$")
         self.type = env1.hc3_emulator.type or "com.fibaro.binarySwitch"
         self.id = env1.hc3_emulator.id
