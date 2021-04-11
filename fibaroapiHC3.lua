@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.299.2"
+local FIBAROAPIHC3_VERSION = "0.299.3"
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
 --[[
@@ -708,18 +708,18 @@ function module.HTTP(hc3)
   end
 
   local function interceptLocal(url,options,success,_) --error)
+    local refresh = url:match("/api/refreshStates%?last=(%d+)")
+    if refresh then
+      local state = Trigger.refreshStates.getEvents(tonumber(refresh))
+      if success then success({status=200,data=json.encode(state)}) end
+      return true
+    end
     if url:match("://(127%.0%.0%.1)[:/]") then
-      url = url:gsub("(://127%.0%.0%.1)","://"..hc3.credentials.ip)
+      url = url:gsub("(://127%.0%.0%.1)","://"..(hc3.credentials.ip or "127.0.0.1"))
       if url:match("://.-:11111/") then
         url = url:gsub("(:11111)","")
         options.headers = options.headers or {}
-        options.headers['Authorization'] = hc3.BasicAuthorization
-      end
-      local refresh = url:match("/api/refreshStates%?last=(%d+)")
-      if refresh then
-        local state = Trigger.refreshStates.getEvents(tonumber(refresh))
-        if success then success({status=200,data=json.encode(state)}) end
-        return true
+        options.headers['Authorization'] = hc3.BasicAuthorization or ""
       end
     end
     return false,url
@@ -9317,7 +9317,7 @@ function module.Local(hc3)
       end
 
       if hc3_emulator.speeding then Timer.speedTime(hc3_emulator.speeding) end
-      if hc3_emulator.credentials then
+      if hc3_emulator.credentials and not offline then
         hc3_emulator.BasicAuthorization = "Basic "..Util.base64(hc3_emulator.credentials.user..":"..hc3_emulator.credentials.pwd)
       end
 
