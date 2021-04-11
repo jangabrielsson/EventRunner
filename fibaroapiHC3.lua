@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.299"
+local FIBAROAPIHC3_VERSION = "0.299.2"
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
 --[[
@@ -96,6 +96,7 @@ hc3_emulator.negativeTimeout=<boolean> -- Allow specification of negative timeou
 hc3_emulator.strictClass=<boolean>     -- Strict class semantics, requiring initializers
 hc3_emulator.consoleColors=<table>     -- Maps fibaro.debug/self:debug etc to color (debug.color enables color debugging)
 hc3_emulator.sysConsoleColors=<table>  -- Maps colors used for system logs 
+hc3_emulator.userdataType=<boolean>    -- If true intercepts type(...) to return userdate for our Lua classes. Some apps tests this...
 
 Common hc3_emulator functions:
 ---------------------------------
@@ -302,6 +303,9 @@ local function osExit()
   end
   os.exit(0,true)
 end
+
+collectgarbage("setpause",100)
+collectgarbage("setstepmul",150)
 
 -- Globals
 LOG,Log,json,assertf,api,net=nil,nil,nil,nil,nil,nil
@@ -3392,6 +3396,8 @@ function module.Timer(hc3)
       t.expired = true
       if _debugFlags.timersWarn  and now-t.time > _debugFlags.timersWarn then
         Log(LOG.WARNING,"Late timer:%0.3fs %s",now-t.time,t)
+        --if ctx._lastTimer then Log(LOG.WARNING,"Last timer:%s",ctx._lastTimer) end
+        ----hc3.mobdebug.pause() 
       end
       ctx._lastTimer = t
       xpcall(fun,eh)
@@ -4637,8 +4643,11 @@ end
               if _debugFlags.breakOnInit and init then hc3.mobdebug.setbreakpoint(path,init) end
             end
             if _debugFlags.files then Log(LOG.LOG,"Running file '%s' in %s",f.name,self.name) end
-            _,msg=f.code()
-            assert(msg==nil,string.format("Running %s - %s",path or "",msg or ""))
+            local stat42,res42 = xpcall(f.code,function(err)
+                Log(LOG.ERROR,"Running %s - %s",path or "",err or "")
+                print(debug.traceback(err,2))
+              end)
+            if not stat42 then error(res42) end
           end
           if not _debugFlags.patchSetTimeout then -- restore setTimeout etc if pacthed by user
             codeEnv.setTimeout,codeEnv.fibaro.setTimeout =  ost,ostf
@@ -8002,10 +8011,9 @@ function module.Local(hc3)
 
   function self.createDevice(data,silent)
     if type(data) == 'number' then
-      data = {id = data, name='Device_'..data, type=hc3.defaultDevice}
-    elseif data.id~=1 then data.id=nil end
-    local typ = data.type
-    local d = nil
+      data = {id = data, name='Device_'..data, type=hc3.defaultDevice} -- Minimal device
+    end
+    local d,typ = nil,data.type or hc3.defaultDevice
     if data.id  == 1 then
       d = { 
         name = "zwave", type = "com.fibaro.zwavePrimaryController", baseType = "",
@@ -8030,6 +8038,37 @@ function module.Local(hc3)
     local m = actions[dev.type] or actions[dev.baseType]
     if m and m[action] then return m[action](dev,a,b,...)
     else Log(LOG.WARNING,"Unknown action '%s' for type:%s",action,dev.type) end
+  end
+
+  self.locl = {}
+  function self.locl.room(args)
+    if args.id and gLoc.rooms[id] then
+      Log(LOG.SYS,"[Local] Room: '%s' exists",args.id)
+      return gLoc.rooms[args.id]
+    else return self.createRoom(args) end
+  end
+
+  function self.locl.section(args)
+    if args.id and gLoc.sections[id] then
+      Log(LOG.SYS,"[Local] Section: '%s' exists",args.id)
+      return gLoc.sections[args.id]
+    else return self.createSection(args) end
+  end
+
+  function self.locl.device(args)
+    if args.id and gLoc.devices[id] then
+      Log(LOG.SYS,"[Local] Device: '%s' exists",args.id)
+      return gLoc.devices[args.id]
+    else return self.createDevice(args) end
+  end
+
+  function self.locl.global(args)
+    local name,value = args.name,args.value
+    assert(type(name)=='string',"Global variable need name")
+    if gLoc.globalVariables[name] then
+      Log(LOG.SYS,"[Local] globalVariable: '%s' exists",name)
+      return gLoc.globalVariables[name]
+    else return self.createGlobal(args) end
   end
 
   local persistence = nil
@@ -8373,6 +8412,7 @@ function module.Local(hc3)
       ["POST/devices"] --Create plugin
       = function(method,url,props,data,options)
         local args = type(data)=='string' and json.decode(data) or data
+        if args.id and gLoc.devices[args.id] then return nil,409 end
         local dev = Local.createDevice(args)
         if dev then
           gLoc.devices[dev.id]=dev
@@ -9108,6 +9148,7 @@ function module.Local(hc3)
     hc3.defaultDevice     = DEFAULT(hc3.defaultDevice,"com.fibaro.multilevelSwitch")
     hc3.autoCreate        = DEFAULT(hc3.autoCreate,true)
     hc3.setOffline        = hc3.module.API.setOffline
+    hc3.locl              = hc3.module.Local.locl
 
     hc3.updateViewLayout  = hc3.module.QA.updateViewLayout
     hc3.getUI             = hc3.module.QA.getQAUI
@@ -9126,7 +9167,6 @@ function module.Local(hc3)
     hc3.downloadFile      = hc3.module.OS.downloadFile
     hc3.downloadResources = hc3.module.Local.downloadResources
     hc3.loadResources     = hc3.module.Local.loadResources
-
 
     function hc3.module.Util.createEnvironment(envType, extras)
       local env = {}
