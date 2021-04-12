@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.299.4"
+local FIBAROAPIHC3_VERSION = "0.299.5"
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
 --[[
@@ -3515,7 +3515,7 @@ function module.QuickApp(hc3)
   local __fibaro_get_device,__assert_type
   local format = string.format
 
-  local quickApps,files,plugin = {},{},{}
+  local quickApps,files,filePaths,plugin = {},{},{},{}
   self.quickApps,self.files,self.plugin = quickApps,files,plugin
 
   Log,LOG,json,api,net,assert,assertf=Log,LOG,json,api,net,assert,assertf
@@ -4287,7 +4287,7 @@ end
     assert(type(arg)=='number' or type(arg)=='string',"Bad argument  to loadQA")
 
     if tonumber(arg) then                                        -- Download QA from HC3 (fqa)
-      self.fqa = api.get("/quickApp/export/"..arg)
+      self.fqa = api.getHC3("/quickApp/export/"..arg)
       assert(self.fqa,"QA "..arg.." does not exists on HC3")
       self.id = arg
     end
@@ -4536,6 +4536,24 @@ end
           end
         end
 
+        -- Now we have deviceID!!! Setup files in /quickApp/../files
+        files[self.id]={} -- This struct is used for /api/quickApp/...
+        for _,f in ipairs(self.files or self.fqa and self.fqa.file) do
+          files[self.id][f.name]={name=f.name,content=f.content,type='lua',isOpen=false,isMain=f.isMain==true}
+          if self.paths[f.name] == nil then -- Store code without files in tmp/...
+            local p = ff.tmp_name(f.name,Util.crc16(f.content))
+            if ff.exists(p) then
+              self.paths[f.name]=p
+              f.content = ff.read(p)
+            else
+              if pcall(function() ff.write(p,f.content,true,true) end) then
+                self.paths[f.name]=p
+              end
+            end
+          end
+        end
+        filePaths[self.id]=self.paths
+
         local runQA,codeEnv
         local function restartQA()
           collectgarbage("collect")
@@ -4556,6 +4574,8 @@ end
           quickApps[self.id]=nil
           Trigger.postTrigger({type='DeviceRemovedEvent', data = {id = self.id}},0)
         end
+
+        quickVarsReal = vars2list(quickVars)
 
         function runQA(event) -- rest of the steps in a function that can be called
 
@@ -4583,31 +4603,15 @@ end
           local loadedFiles = {}
           self.paths = self.paths or {}
           local ost,ostf,jsenc,jsdec = codeEnv.setTimeout, codeEnv.fibaro.setTimeout,codeEnv.json.encode,codeEnv.json.decode
-          for _,f in ipairs(self.files or self.fqa and self.fqa.files) do
+          for _,f in pairs(QA.files[self.id]) do
             if f.name ~= 'PROXY' then
-              if self.paths[f.name] == nil then -- Store code without files in tmp/...
-                local p = ff.tmp_name(f.name,Util.crc16(f.content))
-                if ff.exists(p) then
-                  self.paths[f.name]=p
-                  f.content = ff.read(p)
-                else
-                  if pcall(function() ff.write(p,f.content,true,true) end) then
-                    self.paths[f.name]=p
-                  end
-                end
-              end
-              local path = self.paths[f.name] or f.name
+              local path = filePaths[self.id][f.name] or f.name
               if _debugFlags.files then Log(LOG.LOG,"Loading file '%s' in %s",f.name,self.name) end
               local code,msg=load(f.content,path,"bt",codeEnv)
               assert(code,msg)
               if f.isMain then table.insert(loadedFiles,{code=code,content=f.content,name=f.name,isMain=true}) -- 'main' last
               else  table.insert(loadedFiles,math.max(#loadedFiles,1),{code=code,content=f.content,name=f.name}) end
             end
-          end
-
-          files[self.id]={} -- This struct is used for /api/quickApp/...
-          for _,f in ipairs(loadedFiles) do
-            files[self.id][f.name]={name=f.name,content=f.content,type='lua',isOpen=false,isMain=f.isMain==true}
           end
 
           -- Step 4. build device struct
@@ -4632,7 +4636,7 @@ end
           device.properties = device.properties or {}
           device.properties.uiCallbacks = self.uiCallbacks
           device.properties.viewLayout = self.viewLayout
-          device.properties.quickAppVariables = vars2list(quickVars)
+          device.properties.quickAppVariables = quickVarsReal
           Local.gLoc.devices[device.id]=device -- register it as a device
 
           -- step 5. run the files
@@ -8729,6 +8733,8 @@ function module.Local(hc3)
           if QA.files[id][name] then
             local args = type(data)=='string' and json.decode(data) or data
             QA.files[id][name] = args
+            if hc3.HC3quickAppFile and tonumber(QA.quickApps[id]._emu.proxy) then HC3call(method,url,data) end
+            QA.quickApps[id].restartQA()
             return QA.files[id][name],200
           else return nil,404 end
         else return HC3call(method,url) end
@@ -8740,8 +8746,10 @@ function module.Local(hc3)
           for _,f in ipairs(args) do
             if QA.quickApps[id][f.name] then QA.quickApps[id][f.name]=f end
           end
+          if hc3.HC3quickAppFile and tonumber(QA.quickApps[id]._emu.proxy) then HC3call(method,url,data) end
+          QA.quickApps[id].restartQA()
           return true,200
-        else return HC3call(method,url) end
+        else return HC3call(method,url,data) end
       end,
       ["GET/quickApp/export/#id"]             --Export QA to fqa
       = function(method,url,props,data,options,id)
@@ -8767,7 +8775,8 @@ function module.Local(hc3)
         if qa then
           if qa[name] then
             QA.files[id][name]=nil
-            if qa._emu.proxy then HC3call(method,url,data) end
+            if hc3.HC3quickAppFile and tonumber(QA.quickApps[id]._emu.proxy) then HC3call(method,url) end
+            QA.quickApps[id].restartQA()
             return true,200
           else return nil,404 end
         else return HC3call(method,url) end
