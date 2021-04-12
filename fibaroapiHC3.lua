@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.299.3"
+local FIBAROAPIHC3_VERSION = "0.299.4"
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
 --[[
@@ -4342,7 +4342,7 @@ end
       self.file_emu = arg
       code = code or ff.read(arg) -- hack, code is already loaded by caller, should be arg?
       local header,env1 = code:match("(if%s+dofile.-[\n\r]%s*end%s*%-%-[hH][cC]3)"),{
-        dofile=function() end,
+        dofile=function() end, require=require,
       }
       assert(header and header~="","Malformed emulator header, forgot 'end--hc3'?")
       local e1,msg = load(header,nil,nil,env1)
@@ -4353,6 +4353,7 @@ end
       self.name = env1.hc3_emulator.name or arg:match("(.-)%.[Ll][Uu][Aa]$")
       self.type = env1.hc3_emulator.type or "com.fibaro.binarySwitch"
       self.baseType = env1.hc3_emulator.baseType
+      self.fullLua = env1.hc3_emulator.fullLua
       self.id = env1.hc3_emulator.id
       self.interfaces = env1.hc3_emulator.interfaces
       self.resources = env1.hc3_emulator.resources
@@ -4559,7 +4560,7 @@ end
         function runQA(event) -- rest of the steps in a function that can be called
 
           -- step 2. create the environment
-          codeEnv = Util.createEnvironment("QA",false)
+          codeEnv = Util.createEnvironment("QA",self.fullLua)
           setContext(codeEnv)
           local QAlock = copas.lock.new(60*60*30)
           function codeEnv._getLock() QAlock:get(60*60*30) end
@@ -5000,7 +5001,7 @@ climate
       self.fname = arg
       self.file_emu = arg
       code = code or ff.read(arg)
-      local header,env1 = code:match("^if(.-)[\n\r]end"),{dofile=function() end}
+      local header,env1 = code:match("^if(.-)[\n\r]end"),{dofile=function() end, require=require}
       print(header)
       local e1,msg = load("if "..header.." end",nil,nil,env1)
       if msg then error(msg) end
@@ -5009,6 +5010,7 @@ climate
       self.name = env1.hc3_emulator.name or arg:match("(.-)%.[Ll][Uu][Aa]$")
       self.id = env1.hc3_emulator.id
       self.runAtStart = env1.hc3_emulator.runAtStart
+      self.fullLua = env1.hc3_emulator.fullLua
       self.code = code
       local conditions = code:match("hc3_emulator%.conditions%s*=%s*(%b{})")
       local actions = code:match("hc3_emulator%.actions%s*%(%s*%)(.*)end")
@@ -5087,7 +5089,7 @@ climate
     --  Install Scene in emulator
     function self:install()
 
-      local codeEnv = Util.createEnvironment("Scene",false)
+      local codeEnv = Util.createEnvironment("Scene",self.fullLua)
 
       os.setTimer(function()
 
@@ -9201,7 +9203,7 @@ function module.Local(hc3)
 
       if envType == 'Scene' then env.os = { time = os.time, data = os.date } end
 
-      if envType == 'QA' then
+      if envType == 'QA' or extras then
 
         env._VERSION = "Lua 5.3"
         env.__assert_type = hc3.module.Fibaro.__assert_type
@@ -9253,7 +9255,11 @@ function module.Local(hc3)
         env.io = io
         env.dofile = hc3_emulator.dofile -- Allow dofile for including code for testing, but use our version that sets context
         env.loadfile = loadfile
+        env.load = load
         env.require = require
+        env.coroutine = coroutine
+        env.metatable = metatable
+        env.debuf = debug
       end
 
       return env
