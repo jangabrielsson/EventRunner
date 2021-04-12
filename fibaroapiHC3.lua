@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.299.5"
+local FIBAROAPIHC3_VERSION = "0.299.6"
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
 --[[
@@ -4139,7 +4139,7 @@ do
     if var then
       local modified = var.modified
       local ip = var.value
-      print(modified,os.time()-5,modified-os.time()+5)
+      --print(modified,os.time()-5,modified-os.time()+5)
       if modified > os.time()-5 then enable(ip:match(":(.*)"))
       else disable() end
     end
@@ -4159,7 +4159,6 @@ end
           type='lua'
         })
     end
-    startProxyPinger()
     return dev
   end
 
@@ -4291,7 +4290,12 @@ end
       assert(self.fqa,"QA "..arg.." does not exists on HC3")
       self.id = arg
     end
-    if type(arg)=='string' and arg:match("%.[Ff][Qq][Aa]$") then  -- Read in .fqa  file
+    if type(arg)=='string' and arg:match("^http[s?]://") then    -- From URL (authentication????)
+      local f = OS.file.downloadFile(arg)
+      assert(f,"No such QA url - "..arg)
+      code = f
+      self.fqa = json.decode(code)    
+    elseif type(arg)=='string' and arg:match("%.[Ff][Qq][Aa]$") then  -- Read in .fqa  file
       code = code or ff.read(arg)
       self.fname = arg
       self.fqa = json.decode(code)
@@ -4519,6 +4523,7 @@ end
               Log(LOG.LOG,"Connecting to QA %s, using existing PROXY",self.proxy)
               pdevice = api.getHC3("/devices/"..self.proxy)
             end
+            startProxyPinger()
           else
             pdevice = createProxy(self.name,self.type,
               {
@@ -4538,7 +4543,9 @@ end
 
         -- Now we have deviceID!!! Setup files in /quickApp/../files
         files[self.id]={} -- This struct is used for /api/quickApp/...
-        for _,f in ipairs(self.files or self.fqa and self.fqa.file) do
+        self.paths = self.paths or {}
+        for _,f in ipairs(self.files or self.fqa and self.fqa.files) do
+          
           files[self.id][f.name]={name=f.name,content=f.content,type='lua',isOpen=false,isMain=f.isMain==true}
           if self.paths[f.name] == nil then -- Store code without files in tmp/...
             local p = ff.tmp_name(f.name,Util.crc16(f.content))
@@ -7474,20 +7481,24 @@ function module.OS(hc3)
 
   local function downloadFile(url,path)
     if hc3.zbsplug then Log(LOG.DEBUG,"Downloading %s %s",tostring(url),tostring(path)) end
+    local res2
     net.HTTPClient({sync=true}):request(url,{
         options={method="GET", checkCertificate = false, timeout=20000},
         success=function(res)
           if res.status == 200 then
-            Log(LOG.LOG,"Writing file %s",path)
-            local f = io.open(path,"w")
-            f:write(res.data)
-            f:close()
+            if path ~= nil then
+              Log(LOG.LOG,"Writing file %s",path)
+              local f = io.open(path,"w")
+              f:write(res.data)
+              f:close()
+            else res2 = res.data end
           else
             Log(LOG.ERROR,"Bad file - %s",url)
           end
         end,
         error=function(res) Log(LOG.ERROR,"Downloading %s: %s",url,res) end,
       })
+    return res2
   end
 
   function self.deployQA(sourceFile) hc3.loadQA(sourceFile):upload() end
