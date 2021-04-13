@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.299.6"
+local FIBAROAPIHC3_VERSION = "0.299.7"
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
 --[[
@@ -276,7 +276,9 @@ _debugFlags  = hc3_emulator.debug
 
 do
   local cr = loadfile(hc3_emulator.credentialsFile)
+  --hc3_emulator.credentials = hc3_emulator.credentials or {}
   if cr then hc3_emulator.credentials = merge(hc3_emulator.credentials or {},cr() or {}) end
+  --print(hc3_emulator.credentials.user)
 end
 
 do
@@ -4358,6 +4360,9 @@ end
       self.type = env1.hc3_emulator.type or "com.fibaro.binarySwitch"
       self.baseType = env1.hc3_emulator.baseType
       self.fullLua = env1.hc3_emulator.fullLua
+      if env1.hc3_emulator.credentials and env1.hc3_emulator.credentials.ip then
+        hc3_emulator.credentials = env1.hc3_emulator.credentials
+      end
       self.id = env1.hc3_emulator.id
       self.interfaces = env1.hc3_emulator.interfaces
       self.resources = env1.hc3_emulator.resources
@@ -4707,6 +4712,7 @@ end
   end
 
   commandLines['deploy']=function(file)
+   -- print(json.encode(hc3_emulator.credentials))
     hc3_emulator.loadQAorScene(file)
     fibaro.sleep(2000)
     os.exit()
