@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.299.7"
+local FIBAROAPIHC3_VERSION = "0.299.8"
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
 --[[
@@ -3964,6 +3964,12 @@ function module.QuickApp(hc3)
     paths['main']=mainFileName
     return files,paths
   end
+  
+  function self.loadFilesFromSource(source,mainFileName)
+    local files,paths = createFilesFromSource(source,mainFileName)
+    --- TBD
+  end
+  
   self.createFilesFromSource = createFilesFromSource
 
 -- name of device - string
@@ -4190,7 +4196,7 @@ end
     local self = quickApps[event.deviceId]
     assert(self,"Unknown deviceID for UIEvent:"..event.deviceId)
 --    if self.parentId then self = quickApps[self.parentId] end
-    if self.parentId==nil or self.parentId==0 then 
+    if not(self.parentId==nil or self.parentId==0) then 
       Debug(_debugFlags.UIEvent,"UIEvent: %s",json.encode(event))
       if self.UIHandler then self:UIHandler(event)
       else
@@ -4704,7 +4710,7 @@ end
     local code,done = OS.file.read(file),nil
     if code:match("hc3_emulator%.actions") then
       Scene.loadScene(file,code):upload()
-    elseif code:match("QuickApp:") then
+    elseif code:match("QuickApp:") or code:match("QuickerApp:") then
       QA.loadQA(file,code):upload()
     else
       Log(LOG.LOG,"Unrecognized file")
@@ -8490,7 +8496,8 @@ function module.Local(hc3)
         if offline and not gLoc.devices[id] and auto then Local.createDevice(id) end
         if gLoc.devices[id] then
           if QA.quickApps[id] then
-            QA.onAction()
+            local stat,res = pcall(onAction,{deviceId=id,actionName=name,args=args.args})
+            if stat then return true,200 else return nil,500 end
           else
             Local.deviceAction(gLoc.devices[id],name,table.unpack(args.args))
             return true,200
@@ -8672,7 +8679,7 @@ function module.Local(hc3)
           local oldValue = var.value
           var.value = args.value
           if var.value ~= oldValue then
-            postTrigger({type='GlobalVariableChangedEvent',data={name=name,newValue=var.value,oldValue=oldValue}})
+            postTrigger({type='GlobalVariableChangedEvent',data={variableName=name,newValue=var.value,oldValue=oldValue}})
           end
           return var,200
         else return HC3call(method,url,data) end
@@ -9364,10 +9371,12 @@ function module.Local(hc3)
       local code = OS.file.read(file)
       if code:match("hc3_emulator%.actions") then
         hc3_emulator.loadScene(file,code):install()
-      elseif code:match("QuickApp:") then
+      elseif code:match("QuickApp:") or hc3_emulator.quickAppPattern and code:match(hc3_emulator.quickAppPattern) then
         hc3_emulator.loadQA(file,code):install()
       else
-        load(code,file,"bt",Util.createEnvironment("QA",true))()
+        local env = Util.createEnvironment("QA",true)
+        setContext(env)
+        load(code,file,"bt",env)()
       end
     end -- startEmulator
 
