@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.299.8"
+local FIBAROAPIHC3_VERSION = "0.299.10"
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
 --[[
@@ -353,18 +353,8 @@ function module.Fibaro(hc3)
     GET_VARIABLE = API.GET_VARIABLE
     PUT_VARIABLE = API.PUT_VARIABLE
     CALL_ACTION = API.CALL_ACTION
+    POST_DEBUGMESSAGE = API.POST_DEBUGMESSAGE
   end
-
---  local function __convertToString(value)
---    if  type(value) == 'boolean' then
---      return value and '1' or '0'
---    elseif type (value)  ==  'number' then
---      return  tostring(value)
---    elseif type(value) == 'table' then
---      return json.encode(value)
---    end
---    return value
---  end
 
   local function __assert_type(value,typeOfValue )
     if type(value) ~= typeOfValue then  -- Wrong parameter type, string required. Provided param 'nil' is type of nil
@@ -399,52 +389,14 @@ function module.Fibaro(hc3)
     --if ctx.releaseeLock then ctx.releaseLock() end
   end
 
-  local function addDebugMessage(tag,type,message)
-    local a,b = api.post("/debugMessages", {
-        tag = tag,
-        messageType = type,
-        message = message
-      })
-    return a,b
-  end
-
-  local ZBCOLORMAP = Util.ZBCOLORMAP
-  hc3.consoleColors = hc3.consoleColors or {['DEBUG']='green', ['TRACE']='orange', ['WARNING']='purple', ['ERROR']='red'}
-
-  local function html2color(str,startColor)
-    local st,p = {startColor or '\027[0m'},1
-    return str:gsub("(</?font.->)",function(s)
-        if s=="</font>" then
-          p=p-1; return st[p]
-        else
-          local color = s:match("color=(%w+)")
-          color=ZBCOLORMAP[color] or ZBCOLORMAP['black']
-          p=p+1; st[p]=color
-          return color
-        end
-      end)
-  end
-
-  local function fibaro_debug(tag,type,str)
+  local function __fibaro_add_debug_message(tag,type,str)
     assert(str,"Missing tag for debug")
-    if hc3.HC3_debugmessages then addDebugMessage(tag,type:lower(),str) end
-    if hc3.htmlDebug then -- A bit messy, but try to convert html tags to ZBSconsole equivalents
-      str = html2color(str,'\027[0m')
-      str=str:gsub("&nbsp;"," ")
-    end
-    str = format("%s [%s] [%s]: %s",os.date("[%d.%m.%Y] [%X]"),colorStr(hc3.consoleColors[type],type),tag:upper(),str)
-    print(str) -- To IDE console
-    for pat,skts in pairs(terminals) do
-      if tag:match(pat) then
-        for skt,_ in pairs(skts) do copas.send(skt, str.."\n") end
-      end
-    end
+    POST_DEBUGMESSAGE({message=str,messageType=type,tag=tag},"/debugMessages")
   end
-  local function __fibaro_add_debug_message(tag,type,str) fibaro_debug(tag,type,str) end
-  function fibaro.debug(tag,...)  fibaro_debug(tag,"DEBUG",d2str(...)) end
-  function fibaro.warning(tag,...)  fibaro_debug(tag,"WARNING",d2str(...)) end
-  function fibaro.trace(tag,...) fibaro_debug(tag,"TRACE",d2str(...)) end
-  function fibaro.error(tag,...) fibaro_debug(tag,"ERROR",d2str(...)) end
+  function fibaro.debug(tag,...)  __fibaro_add_debug_message(tag,"DEBUG",d2str(...)) end
+  function fibaro.warning(tag,...) __fibaro_add_debug_message(tag,"WARNING",d2str(...)) end
+  function fibaro.trace(tag,...) __fibaro_add_debug_message(tag,"TRACE",d2str(...)) end
+  function fibaro.error(tag,...) __fibaro_add_debug_message(tag,"ERROR",d2str(...)) end
 
   function fibaro.getName(deviceID)
     __assert_type(deviceID,'number')
@@ -3681,6 +3633,7 @@ function module.QuickApp(hc3)
   end
 
   function QuickApp:initChildDevices(map)
+    map = map or {}
     local echilds = plugin.getChildDevices() 
     local childs = self.childDevices
     for _,d in pairs(echilds or {}) do
@@ -3699,7 +3652,7 @@ function module.QuickApp(hc3)
   function QuickAppChild:__init(device)
     assert(type(device)=='number' or type(device)=='table',"QuickAppChild:__init needs number/table")
     local parent = device.parentId and quickApps[device.parentId]
-    assert(parent,"Trying to create QuickAppCild without parentId")
+    assert(parent,"Trying to create QuickAppChild without parentId")
     device._proxy = parent._emu.proxy
     device._env = parent._emu.env
     if Util.member('quickApp',device.interfaces or {}) and device.properties.viewLayout then
@@ -3964,12 +3917,12 @@ function module.QuickApp(hc3)
     paths['main']=mainFileName
     return files,paths
   end
-  
+
   function self.loadFilesFromSource(source,mainFileName)
     local files,paths = createFilesFromSource(source,mainFileName)
     --- TBD
   end
-  
+
   self.createFilesFromSource = createFilesFromSource
 
 -- name of device - string
@@ -4192,38 +4145,30 @@ end
 
 --"{\"eventType\":\"onReleased\",\"values\":[null],\"elementName\":\"bt\",\"deviceId\":726}"
 --"{\"eventType\":\"onChanged\",\"values\":[80],\"elementName\":\"sl\",\"deviceId\":726}"
+  local function ui2fun(self,event)
+    local elm,etyp=event.elementName,event.eventType
+    local callbacks = self.uiCallbacks or {}
+    if callbacks[elm] and callbacks[elm][etyp] then
+      if etyp=='onChanged' then
+        QA.setWebUIValue(self.id,elm,'value',event.values)
+      end
+      return callbacks[elm][etyp]
+    else return self[elm] end
+  end
+
   function onUIEvent(event)
     local self = quickApps[event.deviceId]
     assert(self,"Unknown deviceID for UIEvent:"..event.deviceId)
---    if self.parentId then self = quickApps[self.parentId] end
-    if not(self.parentId==nil or self.parentId==0) then 
-      Debug(_debugFlags.UIEvent,"UIEvent: %s",json.encode(event))
-      if self.UIHandler then self:UIHandler(event)
-      else
-        local elm,etyp = event.elementName, event.eventType
-        local cb = self.uiCallbacks
-        if cb[elm] and cb[elm][etyp] then
-          if etyp=='onChanged' then
-            QA.setWebUIValue(event.deviceId,elm,'value',event.values[1])
-          end
-          return self:callAction(cb[elm][etyp], event)
-        elseif self[elm] then
-          return self:callAction(elm, event)
-        end
-        error(format("UI callback for element:%s not found.", elm))
-      end
-    else
-      local elm,etyp = event.elementName, event.eventType
-      local cb = self.uiCallbacks
-      if cb[elm] and cb[elm][etyp] then
-        if etyp=='onChanged' then
-          QA.setWebUIValue(event.deviceId,elm,'value',event.values[1])
-        end
-        onAction({deviceId=self.id,actionName=cb[elm][etyp],args=event.values})
-      else
-        error(format("UI callback for %s not found.", json.encode(event)))
-      end
+    local parent = quickApps[self.parentId or 0] or self
+    if event.elementName:sub(1,2)=="__" then -- json/builtin UI that becomes onAction
+      local actionName = ui2fun(self,event)
+      return onAction({deviceId=event.deviceId,actionName=actionName,args=event.values})
     end
+    Debug(_debugFlags.UIEvent,"UIEvent: %s",json.encode(event))
+    if parent.UIHandler then return parent:UIHandler(event) end
+    local actionName = ui2fun(self,event)
+    if actionName then return self:callAction(cb[elm][etyp], event) end
+    error(format("UI callback for element:%s not found.", elm))
   end
 
   local function vars2keymap(vars)
@@ -4386,7 +4331,7 @@ end
     return self
   end
 
-  --  Inject args -- overwriting existing args
+--  Inject args -- overwriting existing args
   local function LQAargs(self,args)
     local function copyFrom(a,b)
       if type(a)=='table' and type(b)=='table' then
@@ -4398,7 +4343,7 @@ end
     return self 
   end
 
-  -- Saving file in filesystem. We can save in .fqa or "unpacked" format
+-- Saving file in filesystem. We can save in .fqa or "unpacked" format
   local function LQAsave(self,fm,path,overwrite)
     assert(({fqa=true,unpacked=true})[fm or ""],"Bad format for save")
     path = path or ""
@@ -4452,7 +4397,7 @@ end
     return self
   end -- save
 
-  --  Upload QuickApp to HC3
+--  Upload QuickApp to HC3
   local function LQAupload(self,name,id)
     -- Resolve $CREDS
     resolveCREDS(self.quickVars)
@@ -4476,7 +4421,7 @@ end
     return self
   end
 
-  -- Install QuickApp in the emulator
+-- Install QuickApp in the emulator
   function LQAinstall(self,args)
 
     -- A QA is a 7 step process
@@ -4556,7 +4501,7 @@ end
         files[self.id]={} -- This struct is used for /api/quickApp/...
         self.paths = self.paths or {}
         for _,f in ipairs(self.files or self.fqa and self.fqa.files) do
-          
+
           files[self.id][f.name]={name=f.name,content=f.content,type='lua',isOpen=false,isMain=f.isMain==true}
           if self.paths[f.name] == nil then -- Store code without files in tmp/...
             local p = ff.tmp_name(f.name,Util.crc16(f.content))
@@ -4689,7 +4634,7 @@ end
             end,
             function(err)
               Log(LOG.ERROR,"QuickApp '%s', deviceId:%s, crashed (%s) at %s",self.name,self.id,err,os.date("%c"))
-              print(debug.traceback(err,1))
+              print(debug.traceback(err))
               if _debugFlags.breakOnError then hc3.mobdebug.pause() end
             end)
           codeEnv._releaseLock()
@@ -4718,7 +4663,7 @@ end
   end
 
   commandLines['deploy']=function(file)
-   -- print(json.encode(hc3_emulator.credentials))
+    -- print(json.encode(hc3_emulator.credentials))
     hc3_emulator.loadQAorScene(file)
     fibaro.sleep(2000)
     os.exit()
@@ -6599,7 +6544,7 @@ Connection: Closed
         else
           local stat,res = pcall(function()
               if res.type=='btn' then
-                onUIEvent({eventType='onReleased',values={},elementName=res.id,deviceId=id})
+                onUIEvent({eventType='onReleased',values={id},elementName=res.id,deviceId=id})
               elseif res.type=='slider' then
                 onUIEvent({eventType='onChanged',values={tonumber(res.val)},elementName=res.id,deviceId=id})
                 QA.setWebUIValue(id,res.id,'value',tonumber(res.val))
@@ -7824,15 +7769,21 @@ function module.Local(hc3)
 
   self.customUI = {}
   self.customUI['com.fibaro.binarySwitch'] = 
-  {{{button='_turnon', text="Turn On",onReleased="turnOn"},{button='_turnoff', text="Turn Off",onReleased="turnOff"}}}
+  {{{button='__turnon', text="Turn On",onReleased="turnOn"},{button='__turnoff', text="Turn Off",onReleased="turnOff"}}}
   self.customUI['com.fibaro.multilevelSwitch'] = 
-  {{{button='_turnon', text="Turn On",onReleased="turnOn"},{button='_turnoff', text="Turn Off",onReleased="turnOff"}},
-    {{label='_lab1',text='Value'},{slider='_value', min=0, max=99, onChanged='setValue'}}}
+  {{{button='__turnon', text="Turn On",onReleased="turnOn"},{button='__turnoff', text="Turn Off",onReleased="turnOff"}},
+    {{label='__lab1',text='Value'},{slider='__value', min=0, max=99, onChanged='setValue'}},
+    {
+      {button='__sli', text="🔼",onReleased="startLevelIncrease"},
+      {button='__sld', text="🔽",onReleased="startLevelIncrease"},
+      {button='__sls', text="⏸",onReleased="stopLevelChange"},
+    }
+  }
 
   self.customUI['com.fibaro.binarySensor']     = self.customUI['com.fibaro.binarySwitch']      -- For debugging
   self.customUI['com.fibaro.multilevelSensor'] = self.customUI['com.fibaro.multilevelSwitch']  -- For debugging
 
-  local function setValue(d,prop,value) return setProp(d.id,prop,value) end
+  local function setValue(d,value) return setProp(d.id,'value',value) end
 
   local actions = {
     ['com.fibaro.doorLock'] = {
@@ -8029,8 +7980,8 @@ function module.Local(hc3)
     if d then
       d.id = nil
       d.interfaces = Util.remove('quickApp',d.interfaces or {})
-      d.uiCallbacks = nil
-      d.viewLayout=nil
+      d.properties.uiCallbacks = nil
+      d.properties.viewLayout=nil
       d.typeTemplateInitialized = nil
       d.apiVersion=nil
       d.quickAppVariables = nil
@@ -8345,8 +8296,8 @@ function module.Local(hc3)
   function module.API(hc3)
     local self = {}
     local Util = hc3.module.Util
-    local _debugFlags = hc3.debug
-    local copy,urldecode = Util.copy,Util.urldecode
+    local _debugFlags,format = hc3.debug,string.format
+    local copy,urldecode,colorStr = Util.copy,Util.urldecode,Util.colorStr
     local HC3call,URLcall
     local offline,online,auto = true,false,false
     local Trigger,QA,Scene,Local
@@ -8409,6 +8360,23 @@ function module.Local(hc3)
         if flag then res[#res+1]=rsrc end
       end
       return res
+    end
+
+    local ZBCOLORMAP = Util.ZBCOLORMAP
+    hc3.consoleColors = hc3.consoleColors or {['DEBUG']='green', ['TRACE']='orange', ['WARNING']='purple', ['ERROR']='red'}
+
+    local function html2color(str,startColor)
+      local st,p = {startColor or '\027[0m'},1
+      return str:gsub("(</?font.->)",function(s)
+          if s=="</font>" then
+            p=p-1; return st[p]
+          else
+            local color = s:match("color=(%w+)")
+            color=ZBCOLORMAP[color] or ZBCOLORMAP['black']
+            p=p+1; st[p]=color
+            return color
+          end
+        end)
     end
 
     API = {
@@ -9051,6 +9019,26 @@ function module.Local(hc3)
       = function(method,url,props,data,options)
         return HC3call(method,url,data)
       end,
+      ["POST/debugMessages"]  --mas Notification
+      = function(method,url,props,data,options)
+        local args = type(data)=='string' and json.decode(data) or data
+        if hc3.HC3_debugmessages then
+          HC3call(method,url,data)
+        end
+        local str,tag,typ = args.message,args.tag,args.messageType
+        if hc3.htmlDebug then -- A bit messy, but try to convert html tags to ZBSconsole equivalents
+          str = html2color(str,'\027[0m')
+          str=str:gsub("&nbsp;"," ")
+        end
+        typ=typ:upper()
+        str = format("%s [%s] [%s]: %s",os.date("[%d.%m.%Y] [%X]"),colorStr(hc3.consoleColors[typ],typ),tag:upper(),str)
+        print(str) -- To IDE console
+        for pat,skts in pairs(terminals) do
+          if tag:match(pat) then
+            for skt,_ in pairs(skts) do copas.send(skt, str.."\n") end
+          end
+        end
+      end,
     }
 
     local pAPI={GET={},PUT={},POST={},DELETE={}}
@@ -9142,6 +9130,7 @@ function module.Local(hc3)
       self.GET_VARIABLE = createHandler("GET","/globalVariables/#name")
       self.PUT_VARIABLE = createHandler("PUT","/globalVariables/#name")
       self.CALL_ACTION = createHandler("POST","/devices/#id/action/#name")
+      self.POST_DEBUGMESSAGE = createHandler("POST","/debugMessages")
       return self
     end--module API
 
@@ -9292,7 +9281,7 @@ function module.Local(hc3)
         env.require = require
         env.coroutine = coroutine
         env.metatable = metatable
-        env.debuf = debug
+        env.debug = debug
       end
 
       return env
