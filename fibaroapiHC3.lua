@@ -286,7 +286,7 @@ do
   if type(package)=='table' then -- For VS. 
     -- See https://forum.fibaro.com/topic/49488-sdk-for-remote-and-offline-hc3-development/page/8/?tab=comments#comment-225963
     if hc3_emulator.package then
-      package.path,package.cpath = hc3_emulator.package.path, hc3_emulator.package.cpath
+      package.path,package.cpath = package.path..";"..hc3_emulator.package.path, package.cpath..";"..hc3_emulator.package.cpath
     else
       package.path = package.path .. ";./libs/?.lua";
       package.cpath = package.cpath .. ";./libs/?.dll";
