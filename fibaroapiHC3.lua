@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.299.12"
+local FIBAROAPIHC3_VERSION = "0.299.13"
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
 --[[
@@ -4317,7 +4317,7 @@ end
       local stat,res = pcall(e1)
       if not stat then error("Error in emulator header, forgot 'end--hc3'?:"..res) end
       env1.hc3_emulator = env1.hc3_emulator or {}
-      self.name = env1.hc3_emulator.name or arg:match("(.-)%.[Ll][Uu][Aa]$")
+      self.name = env1.hc3_emulator.name or arg:match("([%w%s_%-]+)%.[Ll][Uu][Aa]$")
       self.type = env1.hc3_emulator.type or "com.fibaro.binarySwitch"
       self.baseType = env1.hc3_emulator.baseType
       self.fullLua = env1.hc3_emulator.fullLua
