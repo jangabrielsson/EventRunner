@@ -97,7 +97,7 @@ hc3_emulator.strictClass=<boolean>     -- Strict class semantics, requiring init
 hc3_emulator.consoleColors=<table>     -- Maps fibaro.debug/self:debug etc to color (debug.color enables color debugging)
 hc3_emulator.sysConsoleColors=<table>  -- Maps colors used for system logs 
 hc3_emulator.userdataType=<boolean>    -- If true intercepts type(...) to return userdate for our Lua classes. Some apps tests this...
-hc3_emulator.packages                  -- Lua library paths (.path, .cpath)
+hc3_emulator.package=...               -- Lua library paths (.path, .cpath)
 
 Common hc3_emulator functions:
 ---------------------------------
@@ -283,7 +283,7 @@ do
 end
 
 do
-  if type(packages)=='table' then -- For VS. 
+  if type(package)=='table' then -- For VS. 
     -- See https://forum.fibaro.com/topic/49488-sdk-for-remote-and-offline-hc3-development/page/8/?tab=comments#comment-225963
     if hc3_emulator.package then
       package.path,package.cpath = hc3_emulator.package.path, hc3_emulator.package.cpath
