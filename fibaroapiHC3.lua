@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.299.10"
+local FIBAROAPIHC3_VERSION = "0.299.12"
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
 --[[
@@ -97,6 +97,7 @@ hc3_emulator.strictClass=<boolean>     -- Strict class semantics, requiring init
 hc3_emulator.consoleColors=<table>     -- Maps fibaro.debug/self:debug etc to color (debug.color enables color debugging)
 hc3_emulator.sysConsoleColors=<table>  -- Maps colors used for system logs 
 hc3_emulator.userdataType=<boolean>    -- If true intercepts type(...) to return userdate for our Lua classes. Some apps tests this...
+hc3_emulator.packages                  -- Lua library paths (.path, .cpath)
 
 Common hc3_emulator functions:
 ---------------------------------
@@ -282,6 +283,15 @@ do
 end
 
 do
+  if type(packages)=='table' then -- For VS. 
+    -- See https://forum.fibaro.com/topic/49488-sdk-for-remote-and-offline-hc3-development/page/8/?tab=comments#comment-225963
+    if hc3_emulator.package then
+      package.path,package.cpath = hc3_emulator.package.path, hc3_emulator.package.cpath
+    else
+      package.path = package.path .. ";./libs/?.lua";
+      package.cpath = package.cpath .. ";./libs/?.dll";
+    end
+  end
   local socket  = require("socket")         -- LuaSocket, these are the dependencies we have
   local url     = require("socket.url")     -- LuaSocket
   local headers = require("socket.headers") -- LuaSocket
