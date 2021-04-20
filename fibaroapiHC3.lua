@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.299.13"
+local FIBAROAPIHC3_VERSION = "0.299.14"
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
 --[[
@@ -3244,7 +3244,11 @@ function module.Timer(hc3)
   os._date  = os.date
   os.rt = _milliTime
   os._exit = os.exit
-  os.speed = function(b) SPEED = b Log(LOG.SYS,"Setting speed to %s",tostring(b)) end
+  os.speed = function(b) 
+    SPEED = b Log(LOG.SYS,"Setting speed to %s",tostring(b)) 
+    if runT then runT:cancel(); runT=nil end
+    runT = os.setTimer2(runTimers,SPEED and 0 or max(timers.time-os.milliTime(),0))
+  end
   os.time = function(t) return t and os._time(t) or math.floor(os.rt() + timeAdjust) end
   os.milliTime = function() return os.rt() + timeAdjust end
   os.clock = function() return os._clock() end
@@ -3329,7 +3333,10 @@ function module.Timer(hc3)
     local t,now = timers,os.milliTime()
     if timers then
       if _debugFlags.timersSched then Log(LOG.LOG,"Running:%s, RT:%s, SPEED:%s",t,os.milliStr(now),SPEED) end
-      if maxTime and t.time >= maxTime then Log(LOG.SYS,"Max time - exit") osExit() end
+      if maxTime and t.time >= maxTime then
+        timeAdjust = maxTime-os.rt()
+        Log(LOG.SYS,"Max time - exit") osExit()
+      end
       if SPEED then 
         timers = timers.next
         timeAdjust = t.time-os.rt()
@@ -9293,7 +9300,6 @@ function module.Local(hc3)
         env.metatable = metatable
         env.debug = debug
       end
-
       return env
     end
 
