@@ -1,15 +1,16 @@
 if dofile and not hc3_emulator then
   hc3_emulator = {
     name="EventRunner4",
+    credentials = { user = "admin", ip = "192.168.1.57", pwd = "admin" },
     type="com.fibaro.genericDevice",
     poll=1000, 
     --startTime="10:00:00 5/12/2020",
-    --speed = 2,
+    --speed = 24,
     --deploy=true,
     --proxy=true,
     --offline=true,
     --profile=true,
-    debug = {trigger=false},
+    debug = {trigger=true, post=true},
     UI = {
       {label='ERname',text="..."},
       {button='debugTrigger', text='Triggers:ON'},
@@ -28,7 +29,7 @@ if dofile and not hc3_emulator then
 --FILE:Toolbox/Toolbox_pubsub.lua,Toolbox_pubsub;
 -- FILE:EventRunnerDoc.lua,EventRunnerDoc;
 -- FILE:Toolbox/Toolbox_profiler.lua,Toolbox_profiler;
-end
+end--hc3
 ----------- Code -----------------------------------------------------------
 
 _debugFlags.trigger = true -- log incoming triggers

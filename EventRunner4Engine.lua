@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix48"
+E_VERSION,E_FIX = 0.5,"fix49"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -1152,8 +1152,8 @@ function Module.eventScript.init()
     postP['::'] = function(e) return {'%addr',e[2][2]} end
     postP['%jmp'] = function(e) return {'%jmp',e[2][2]} end
 -- preC['return'] = function(e) return {'return',e[2]} end
-    postP['++'] = function(e) return tostring(e[2]) .. tostring(e[3]) end
-    postP['==='] = function(e) return tostring(e[2]):match(tostring(e[3])) end
+    postP['++'] = function(e) return {'%concat',e[2],e[3]} end
+    postP['==='] = function(e) return {'%match',e[2],e[3]} end
     postP['%neg'] = function(e) return tonumber(e[2]) and -e[2] or e end
     postP['+='] = function(e) return {'%inc',e[2],e[3],'+'} end
     postP['-='] = function(e) return {'%inc',e[2],e[3],'-'} end
@@ -1453,6 +1453,8 @@ function Module.eventScript.init()
       for i,v in ipairs(vars) do r=setVarFs[v[3]](v[2],arg[i],e) end 
       s.push(r) 
     end
+    instr['%concat'] = function(s,n,e,i) local s2,s1=s.pop(),s.pop() s.push(tostring(s1)..tostring(s2)) end 
+    instr['%match'] = function(s,n,e,i) local m,str=s.pop(),s.pop() s.push(tostring(str):match(tostring(m))) end
     instr['trace'] = function(s,n,e) _traceInstrs=s.peek() end
     instr['pack'] = function(s,n,e) local res=s.get(1); s.pop(); s.push(res) end
     instr['env'] = function(s,n,e) s.push(e) end
@@ -1849,14 +1851,21 @@ function Module.eventScript.init()
 
       function self.listInstructions()
         local t={}
+        local doc = Toolbox_Module.doc.doc
         pdebug("User functions:")
         for f,_ in pairs(instr) do if f=="%" or f:sub(1,1)~='%' then t[#t+1]=f end end
-        table.sort(t); for _,f in ipairs(t) do pdebug(f) end
+        table.sort(t); for _,f in ipairs(t) do 
+          if doc[f] and doc[f] ~= "" then pdebug(doc[f]) else pdebug(f)  end
+        end
+        --table.sort(t); for _,f in ipairs(t) do _print("['"..f.."'] = [[]]") end
         pdebug("Property functions:")
         t={}
         for f,_ in pairs(getFuns) do t[#t+1]="<ID>:"..f end 
         for f,_ in pairs(setFuns) do t[#t+1]="<ID>:"..f.."=.." end 
-        table.sort(t); for _,f in ipairs(t) do pdebug(f) end
+        table.sort(t); for _,f in ipairs(t) do 
+          if doc[f] and doc[f] ~= ""  then pdebug(doc[f]) else pdebug(f)  end
+        end
+        --table.sort(t); for _,f in ipairs(t) do _print("['"..f.."'] = [[]]") end
       end
 
       function self.eval(env)
@@ -2208,7 +2217,7 @@ function Module.eventScript.init()
 
   modules = {
     "events","childs","triggers","rpc","files","pubsub",
-    "utilities","autopatch","objects","device","extras","eventScript","nodered"
+    "utilities","autopatch","objects","device","extras","eventScript","nodered",--"doc"
   }
 
 ----------------- Main ----------------------------------------
