@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.299.14"
+local FIBAROAPIHC3_VERSION = "0.299.15"
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
 --[[
@@ -9381,6 +9381,25 @@ function module.Local(hc3)
       else
         local env = Util.createEnvironment("QA",true)
         setContext(env)
+
+        env._ENVID='Lua'
+        local CodeLock = Timer.copas.lock.new(60*60*30)
+        function env._getLock() CodeLock:get(60*60*30) end
+        function env._releaseLock() CodeLock:release() end
+        env.print = function(...) env.fibaro.debug("Lua",...) end
+        local st = Timer.setTimeout
+        local function errHandler(err)
+          Log(LOG.ERROR,"Lua timer %s crashed - %s",env._lastTimer,"Lua",err)
+        end
+        env.setTimeout = function(fun,ms,tag)
+          local function f(...)
+            local stat,res = pcall(fun)
+            if not stat then error(res,2) end
+          end
+          return st(f,ms,tag,errHandler,env)
+        end
+        env.fibaro.setTimeout = function(a,b,...) return env.setTimeout(b,a,...) end
+
         load(code,file,"bt",env)()
       end
     end -- startEmulator
