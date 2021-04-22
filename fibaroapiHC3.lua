@@ -39,9 +39,22 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.299.15"
+local FIBAROAPIHC3_VERSION = "0.299.17"
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
+--[[ -- Minimal header + QA
+  if dofile and not hc3_emulator then
+     hc3_emulator = {
+       name = "My QA",    -- Name of QA
+       poll = 2000,       -- Poll HC3 for triggers every 2000ms
+      --offline = true,
+     }
+     dofile("fibaroapiHC3.lua")
+  end--hc3
+  function QUickApp:onInit()
+     self:debug(selfname, self.id)
+  end
+--]]
 --[[
   Best way is to conditionally include this code at the top of your lua file
     if dofile and not hc3_emulator then
@@ -49,7 +62,7 @@ assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version
        quickVars = {["Hue_User"]="$CREDS.Hue_user",["Hue_IP"]=$CREDS.Hue_IP}
       }
       dofile("fibaroapiHC3.lua")
-    end
+    end--hc3
   Then define another file, credentials.lua, where we define credentials to access the HC3 etc:
   return {
     ip = <IP>,
@@ -4695,6 +4708,7 @@ end
   self.loadQA               = loadQA
   return self
 end--module QuickApp
+
 --------------- Scene functions and support ----------
 function module.Scene(hc3)
   local self = {scenes = {}}
@@ -4986,9 +5000,11 @@ climate
       self.fname = arg
       self.file_emu = arg
       code = code or ff.read(arg)
-      local header,env1 = code:match("^if(.-)[\n\r]end"),{dofile=function() end, require=require}
-      print(header)
-      local e1,msg = load("if "..header.." end",nil,nil,env1)
+      local header,env1 = (code:match("(if%s+dofile.-end%s*%-%-[hH][cC]3)")),{
+        dofile=function() end, require=require,
+      }
+      assert(header and header~="","Malformed emulator header, forgot 'end--hc3'?")
+      local e1,msg = load(header,nil,nil,env1)
       if msg then error(msg) end
       local stat,res = pcall(e1)
       if not stat then error(res) end
@@ -5109,7 +5125,7 @@ climate
               actions = "..."
             })
 
-          local SceneLock = hc3.copas.lock.new(60*60*30)
+          local SceneLock = Timer.copas.lock.new(60*60*30)
           function codeEnv._getLock() SceneLock:get(60*60*30) end
           function codeEnv._releaseLock() SceneLock:release() end
           codeEnv.print = function(...) codeEnv.fibaro.debug(codeEnv.tag:upper(),...) end
@@ -8930,10 +8946,30 @@ function module.Local(hc3)
         if offline then return gLoc.settings_info,200
         else return HC3call(method,url) end
       end,
+      ["PUT/settings/info"]                    --settings/info
+      = function(method,url,props,data,options,name)
+        if offline then
+          local args = type(data)=='string' and json.decode(data) or data
+          for k,v  in pairs(args) do
+            gLoc.settings_info[k]=v
+          end
+          return gLoc.settings_info,200
+        else return HC3call(method,url,data) end
+      end,
       ["GET/settings/location"]                    --settings/location
       = function(method,url,props,data,options,name)
         if offline then return gLoc.settings_location,200
         else return HC3call(method,url) end
+      end,
+      ["PUT/settings/location"]                    --settings/location
+      = function(method,url,props,data,options,name)
+        if offline then 
+          local args = type(data)=='string' and json.decode(data) or data
+          for k,v  in pairs(args) do
+            gLoc.settings_location[k]=v
+          end
+          return gLoc.settings_location,200
+        else return HC3call(method,url,data) end
       end,
       ----------- Rooms ------------
       ["GET/rooms"] -- Get rooms
@@ -9373,6 +9409,8 @@ function module.Local(hc3)
 
       if _debugFlags.fibaro then Util.traceFibaro() end
 
+      if offline then api.put("/settings/info",{serverStatus=os.time()})  end -- Set the time
+      
       local code = OS.file.read(file)
       if code:match("hc3_emulator%.actions") then
         hc3_emulator.loadScene(file,code):install()
