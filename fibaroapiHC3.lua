@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.300"
+local FIBAROAPIHC3_VERSION = "0.301"
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
 --[[ -- Minimal header + QA
@@ -3495,7 +3495,7 @@ function module.QuickApp(hc3)
   local QA = self
   local Util,Timer,Trigger,OS,Local=hc3.module.Util
   local _debugFlags = hc3.debug
-  local class,class2,ff,copas,fibaro = Util.class,Util.class2
+  local class,ff,copas,fibaro = Util.class
   local __fibaro_get_device,__assert_type
   local format = string.format
 
@@ -3533,7 +3533,7 @@ function module.QuickApp(hc3)
     end
   end
 
-  Util.class2 'QuickAppBase'
+  Util.class 'QuickAppBase'
   function QuickAppBase:__init(device)
     if tonumber(device) then device =  api.get("/devices/"..device) end
     quickApps[device.id] = self
@@ -3631,7 +3631,7 @@ function module.QuickApp(hc3)
     end
   end
 
-  Util.class2 'QuickApp'(QuickAppBase) -- Special form of class easier to step through...
+  Util.class 'QuickApp'(QuickAppBase) -- Special form of class easier to step through...
   function QuickApp:__init(device)
     QuickAppBase.__init(self,device)
     self.childDevices = {}
@@ -4197,8 +4197,8 @@ end
     Debug(_debugFlags.UIEvent,"UIEvent: %s",json.encode(event))
     if parent.UIHandler then return parent:UIHandler(event) end
     local actionName = ui2fun(self,event)
-    if actionName then return self:callAction(cb[elm][etyp], event) end
-    error(format("UI callback for element:%s not found.", elm))
+    if actionName then return self:callAction(actionName, event) end
+    error(format("UI callback for element:%s not found.", event.elementName))
   end
 
   local function vars2keymap(vars)
@@ -4684,7 +4684,7 @@ end
   function hc3_emulator.loadQAorScene(file)
     local code,done = OS.file.read(file),nil
     if code:match("hc3_emulator%.actions") then
-      Scene.loadScene(file,code):upload()
+      hc3.module.Scene.loadScene(file,code):upload()
     elseif code:match("QuickApp:") or code:match("QuickerApp:") then
       QA.loadQA(file,code):upload()
     else
@@ -4714,7 +4714,7 @@ function module.Scene(hc3)
   local self = {scenes = {}}
   local Util,Timer,Trigger,OS=hc3.module.Util
   local _debugFlags = hc3.debug
-  local ff,printf,fibaro
+  local ff,printf,fibaro,__fibaro_get_device_property
   local scenes = self.scenes
 
   Log,LOG,json,api,net,assert,assertf=Log,LOG,json,api,net,assert,assertf
@@ -4722,6 +4722,7 @@ function module.Scene(hc3)
   function self.initialise() --luacheck: ignore
     Timer,Trigger,OS = hc3.module.Timer,hc3.module.Trigger,hc3.module.OS
     fibaro,ff,printf = hc3.module.Fibaro.fibaro,OS.file,Util.printf
+    __fibaro_get_device_property = hc3.module.Fibaro.__fibaro_get_device_property
   end
 
 --[[
@@ -4946,7 +4947,7 @@ function module.Scene(hc3)
         local tp = c.type..":"..(stdProps[prop] and "*" or prop)
         if compileCF[tp] then return compileCF[tp](c,all) end
       end
-      error(format("Bad condition:%s (%s)",json.encode(c),json.encode(cf)))
+      error(string.format("Bad condition:%s (%s)",json.encode(c),json.encode(cf)))
     end
 
     if not next(cf) then return function() return true end,triggers,dates end
@@ -5010,7 +5011,7 @@ climate
       if not stat then error(res) end
       self.name = env1.hc3_emulator.name or arg:match("(.-)%.[Ll][Uu][Aa]$")
       self.id = env1.hc3_emulator.id
-      self.runAtStart = env1.hc3_emulator.runAtStart
+      self.runSceneAtStart = env1.hc3_emulator.runSceneAtStart
       self.fullLua = env1.hc3_emulator.fullLua
       self.code = code
       local conditions = code:match("hc3_emulator%.conditions%s*=%s*(%b{})")
@@ -5221,7 +5222,7 @@ climate
             loop()
           end
 
-          if self.runAtStart then
+          if self.runSceneAtStart then
             os.setTimer(function() self.eventHandler({type = "user", property = "execute", id=2}) end,0)
           end
 
@@ -5517,7 +5518,6 @@ function module.Utilities(hc3)
   Util.assert(value,errmsg)
   Util.assertf(value,errmsg,...)
   Util.class(name)
-  Util.class2(name)
   Util.property(getter,setter)
   Util.urlencode(str)
   Util.urldecode(str)
@@ -5554,126 +5554,58 @@ function module.Utilities(hc3)
   self.assert,self.assertf = assert,assertf
 
   -- Class support
-  function self.property(getter,setter)
-    return {['%CLASSPROPERTY%']=true,get=getter,set=setter}
+  local metas = {}
+  for _,m in ipairs({
+      "__add","__sub","__mul","__div","__mod","__pow","__unm","__idiv","__band","__bor",
+      "__bxor","__bnot","__shl","__shr","__concat","__len","__eq","__lt","__le","__call",
+      "__tostring"
+      }) do
+    metas[m]=true
   end
 
-  local function isProp(x) return type(x)=='table' and x['%CLASSPROPERTY%']  end
+  function self.property(get,set)
+    assert(type(get)=='function' and type(set)=="function","Property need function set and get")
+    return {['%CLASSPROP%']=true, get=get, set=set}
+  end
+
+  local function trapIndex(props,cmt,obj)
+    function cmt.__index(tab,key)
+      if props[key] then return props[key].get(obj) 
+      else return rawget(obj,key) end
+    end
+    function cmt.__newindex(tab,key,val)
+      if props[key] then return props[key].set(obj,val) 
+      else return rawset(obj,key,val) end
+    end
+  end
 
   function self.class(name)
-    local c = {}    -- a new class instance
-    local mt = {}
---  mt.__index = function(tab,key) return rawget(c,key) end
---  mt.__newindex = function(tab,key,value) rawset(c,key,value) end
-    mt.__call = function(class_tbl, ...)
-      local obj = {_USERDATA=true}
-      setmetatable(obj,class_tbl)
-
-      if hc3.noClassProps then
-        for i,v in pairs(class_tbl) do
-          if not ({__index=true,__newindex=true,__base=true})[i] then
-            rawset(obj,i,v)
-          end
-        end
-      end
-
-      if hc3.strictClass then
-        if not rawget(class_tbl,'__init') then error("Class "..name.." missing constructor") end
-        class_tbl.__init(obj,...) 
-      else
-        if class_tbl.__init then
-          class_tbl.__init(obj,...) 
-        else
-          if class_tbl.__base and class_tbl.__base.__init then
-            class_tbl.__base.__init(obj, ...) 
-          end
-        end
+    --print("Defining class "..name)
+    local cl,mt,cmt,props,parent= {},{},{},{}
+    function cl.__copyObject(cl,obj)
+      if parent then parent.__copyObject(parent,obj) end
+      for k,v in pairs(cl) do
+        if metas[k] then cmt[k]=v else obj[k]=v end
       end
       return obj
     end
-
-    if not hc3.noClassProps then
-      c.__index = function(tab,key)
-        local v = rawget(tab,key) or rawget(c,key)-- OOOPS
-        if v==nil then
-          local p = rawget(tab,'__props')
-          if p and p[key] then return p[key].get(tab) end
-        end
-        return v --c[key]
+    function mt.__call(tab,...)
+      --print("Intstantiating class "..name)
+      local obj = tab.__copyObject(tab,{})
+      if not tab.__init then error("Class "..name.." missing initialiser") end
+      --print("__init "..tostring(tab.__init))
+      tab.__init(obj,...)
+      local trapF = false
+      for k,v in pairs(obj) do
+        if type(v)=='table' and v['%CLASSPROP%'] then obj[k],props[k]=nil,v; trapF = true end
       end
-
-      c.__newindex = function(tab,key,value)
-        local p = rawget(tab,'__props')
-        if isProp(value) then
-          if not p then
-            p = {}
-            rawset(tab,'__props',p)
-          end
-          p[key]=value
-        elseif p and p[key] then p[key].set(tab,value)
-        else rawset(tab,key,value) end
-      end
-    end
-
-    setmetatable(c, mt)
-    getContext()[name] = c
-
-    return function(base)
-      local mb = getmetatable(base)
-      setmetatable(base,nil)
-      for i,v in pairs(base) do
-        if not ({__index=true,__newindex=true,__base=true,__init=true})[i] then
-          rawset(c,i,v)
-        end
-      end
-      rawset(c,'__base',base)
-      setmetatable(base,mb)
-      return c
-    end
-  end
-
-  function self.class2(name)
-    local c = {}    -- a new class instance
-    local mt = {}
-    mt.__call = function(class_tbl, ...)
-      local obj = {_USERDATA=true}
-      setmetatable(obj,class_tbl)
-      for i,v in pairs(class_tbl) do
-        if not ({__index=true,__newindex=true,__base=true,__init=true})[i] then
-          rawset(obj,i,v)
-        end
-      end
-
-      if hc3.strictClass then
-        if not rawget(class_tbl,'__init') then error("Class "..name.." missing constructor") end
-        class_tbl.__init(obj,...) 
-      else
-        if class_tbl.__init then
-          class_tbl.__init(obj,...)
-        else
-          if class_tbl.__base and class_tbl.__base.__init then
-            class_tbl.__base.__init(obj, ...)
-          end
-        end
-      end
+      if trapF then trapIndex(props,cmt,obj) end
+      setmetatable(obj,cmt)
       return obj
     end
-
-    setmetatable(c, mt)
-    getContext()[name] = c
-
-    return function(base)
-      local mb = getmetatable(base)
-      setmetatable(base,nil)
-      for i,v in pairs(base) do
-        if not ({__index=true,__newindex=true,__base=true,__init=true})[i] then
-          rawset(c,i,v)
-        end
-      end
-      rawset(c,'__base',base)
-      setmetatable(base,mb)
-      return c
-    end
+    setmetatable(cl,mt)
+    getContext()[name] = cl
+    return function(p) parent = p end
   end
 
   function self.urlencode(str)
@@ -5765,7 +5697,7 @@ function module.Utilities(hc3)
   end
   self.transform = transform
   function self.copy(obj) return transform(obj, function(o) return o end) end
-  function self.shallowCopy(obj) 
+  function self.shallowCopy(t) 
     if type(t)=='table' then
       local r={}; for k,v in pairs(t) do r[k]=v end 
       return r 
@@ -8055,21 +7987,21 @@ function module.Local(hc3)
 
   self.locl = {}
   function self.locl.room(args)
-    if args.id and gLoc.rooms[id] then
+    if args.id and gLoc.rooms[args.id] then
       Log(LOG.SYS,"[Local] Room: '%s' exists",args.id)
       return gLoc.rooms[args.id]
     else return self.createRoom(args) end
   end
 
   function self.locl.section(args)
-    if args.id and gLoc.sections[id] then
+    if args.id and gLoc.sections[args.id] then
       Log(LOG.SYS,"[Local] Section: '%s' exists",args.id)
       return gLoc.sections[args.id]
     else return self.createSection(args) end
   end
 
   function self.locl.device(args)
-    if args.id and gLoc.devices[id] then
+    if args.id and gLoc.devices[args.id] then
       Log(LOG.SYS,"[Local] Device: '%s' exists",args.id)
       return gLoc.devices[args.id]
     else return self.createDevice(args) end
@@ -8121,1347 +8053,1351 @@ function module.Local(hc3)
     local rsrc = persistence.load(fname)
     local function idMap(list,fun) 
       fun = fun or function(r) return r.id or r.name end
-      local res = {}; for _,r in ipairs(list) do res[fun(r)]=r end; return res 
-      end
-      rsrc.devices = idMap(rsrc.devices)
-      rsrc.scenes = idMap(rsrc.scenes)
-      rsrc.globalVariables = idMap(rsrc.globalVariables)
-      rsrc.rooms = idMap(rsrc.rooms)
-      rsrc.sections = idMap(rsrc.sections)
-      rsrc.customEvents = idMap(rsrc.customEvents)
-      rsrc.panels_location = idMap(rsrc.panels_location)
-      rsrc.panels_notification = idMap(rsrc.panels_notification)
-      rsrc.alarm_partitions = idMap(rsrc.alarm_partitions)
-      rsrc.alarm_devices = idMap(rsrc.alarm_devices)
+      local res = {}; 
+      for _,r in ipairs(list) do res[fun(r)]=r end
+      return res 
+    end
+    rsrc.devices = idMap(rsrc.devices)
+    rsrc.scenes = idMap(rsrc.scenes)
+    rsrc.globalVariables = idMap(rsrc.globalVariables)
+    rsrc.rooms = idMap(rsrc.rooms)
+    rsrc.sections = idMap(rsrc.sections)
+    rsrc.customEvents = idMap(rsrc.customEvents)
+    rsrc.panels_location = idMap(rsrc.panels_location)
+    rsrc.panels_notification = idMap(rsrc.panels_notification)
+    rsrc.alarm_partitions = idMap(rsrc.alarm_partitions)
+    rsrc.alarm_devices = idMap(rsrc.alarm_devices)
 --    rsrc.settings_location = idMap()
 --    rsrc.settings_info = idMap()
-      rsrc.categories = idMap(rsrc.categories)
+    rsrc.categories = idMap(rsrc.categories)
 --    rsrc.home = idMap()
-      rsrc.iosDevices = idMap(rsrc.iosDevices)
+    rsrc.iosDevices = idMap(rsrc.iosDevices)
 --    rsrc.profiles = idMap(rsrc.profiles)
-      rsrc.users = idMap(rsrc.users)
-      gLoc = rsrc
-    end
+    rsrc.users = idMap(rsrc.users)
+    gLoc = rsrc
+  end
 
-    commandLines['downloaddb']=function()
-      self.downloadResources()
-    end
+  commandLines['downloaddb']=function()
+    self.downloadResources()
+  end
 -----------------------------
 -- persistence
 -- Copyright (c) 2010 Gerhard Roethlin
 
 --------------------
 -- Private methods
-    local write, writeIndent, writers, refCount;
+  local write, writeIndent, writers, refCount;
 
-    persistence = {
-      store = function (path, ...)
-        local file, e;
-        if type(path) == "string" then
-          -- Path, open a file
-          file, e = io.open(path, "w");
-          if not file then
-            return error(e);
-          end
-        else
-          -- Just treat it as file
-          file = path;
+  persistence = {
+    store = function (path, ...)
+      local file, e;
+      if type(path) == "string" then
+        -- Path, open a file
+        file, e = io.open(path, "w");
+        if not file then
+          return error(e);
         end
-        local n = select("#", ...);
-        -- Count references
-        local objRefCount = {}; -- Stores reference that will be exported
-        for i = 1, n do
-          refCount(objRefCount, (select(i,...)));
-        end;
-        -- Export Objects with more than one ref and assign name
-        -- First, create empty tables for each
-        local objRefNames = {};
-        local objRefIdx = 0;
-        file:write("-- Persistent Data\n");
-        file:write("local multiRefObjects = {\n");
-        for obj, count in pairs(objRefCount) do
-          if count > 1 then
-            objRefIdx = objRefIdx + 1;
-            objRefNames[obj] = objRefIdx;
-            file:write("{};"); -- table objRefIdx
-          end;
-        end;
-        file:write("\n} -- multiRefObjects\n");
-        -- Then fill them (this requires all empty multiRefObjects to exist)
-        for obj, idx in pairs(objRefNames) do
-          for k, v in pairs(obj) do
-            file:write("multiRefObjects["..idx.."][");
-            write(file, k, 0, objRefNames);
-            file:write("] = ");
-            write(file, v, 0, objRefNames);
-            file:write(";\n");
-          end;
-        end;
-        -- Create the remaining objects
-        for i = 1, n do
-          file:write("local ".."obj"..i.." = ");
-          write(file, (select(i,...)), 0, objRefNames);
-          file:write("\n");
-        end
-        -- Return them
-        if n > 0 then
-          file:write("return obj1");
-          for i = 2, n do
-            file:write(" ,obj"..i);
-          end;
-          file:write("\n");
-        else
-          file:write("return\n");
-        end;
-        file:close();
+      else
+        -- Just treat it as file
+        file = path;
+      end
+      local n = select("#", ...);
+      -- Count references
+      local objRefCount = {}; -- Stores reference that will be exported
+      for i = 1, n do
+        refCount(objRefCount, (select(i,...)));
       end;
-
-      load = function (path)
-        local f, e = loadfile(path);
-        if f then
-          return f();
-        else
-          return nil, e;
+      -- Export Objects with more than one ref and assign name
+      -- First, create empty tables for each
+      local objRefNames = {};
+      local objRefIdx = 0;
+      file:write("-- Persistent Data\n");
+      file:write("local multiRefObjects = {\n");
+      for obj, count in pairs(objRefCount) do
+        if count > 1 then
+          objRefIdx = objRefIdx + 1;
+          objRefNames[obj] = objRefIdx;
+          file:write("{};"); -- table objRefIdx
         end;
       end;
-    }
+      file:write("\n} -- multiRefObjects\n");
+      -- Then fill them (this requires all empty multiRefObjects to exist)
+      for obj, idx in pairs(objRefNames) do
+        for k, v in pairs(obj) do
+          file:write("multiRefObjects["..idx.."][");
+          write(file, k, 0, objRefNames);
+          file:write("] = ");
+          write(file, v, 0, objRefNames);
+          file:write(";\n");
+        end;
+      end;
+      -- Create the remaining objects
+      for i = 1, n do
+        file:write("local ".."obj"..i.." = ");
+        write(file, (select(i,...)), 0, objRefNames);
+        file:write("\n");
+      end
+      -- Return them
+      if n > 0 then
+        file:write("return obj1");
+        for i = 2, n do
+          file:write(" ,obj"..i);
+        end;
+        file:write("\n");
+      else
+        file:write("return\n");
+      end;
+      file:close();
+    end;
+
+    load = function (path)
+      local f, e = loadfile(path);
+      if f then
+        return f();
+      else
+        return nil, e;
+      end;
+    end;
+  }
 
 -- Private methods
 
 -- write thing (dispatcher)
-    write = function (file, item, level, objRefNames)
-      writers[type(item)](file, item, level, objRefNames);
-    end;
+  write = function (file, item, level, objRefNames)
+    writers[type(item)](file, item, level, objRefNames);
+  end;
 
 -- write indent
-    writeIndent = function (file, level)
-      for i = 1, level do
-        file:write("\t");
-      end;
+  writeIndent = function (file, level)
+    for i = 1, level do
+      file:write("\t");
     end;
+  end;
 
 -- recursively count references
-    refCount = function (objRefCount, item)
-      -- only count reference types (tables)
-      if type(item) == "table" then
-        -- Increase ref count
-        if objRefCount[item] then
-          objRefCount[item] = objRefCount[item] + 1;
-        else
-          objRefCount[item] = 1;
-          -- If first encounter, traverse
-          for k, v in pairs(item) do
-            refCount(objRefCount, k);
-            refCount(objRefCount, v);
-          end;
+  refCount = function (objRefCount, item)
+    -- only count reference types (tables)
+    if type(item) == "table" then
+      -- Increase ref count
+      if objRefCount[item] then
+        objRefCount[item] = objRefCount[item] + 1;
+      else
+        objRefCount[item] = 1;
+        -- If first encounter, traverse
+        for k, v in pairs(item) do
+          refCount(objRefCount, k);
+          refCount(objRefCount, v);
         end;
       end;
     end;
+  end;
 
 -- Format items for the purpose of restoring
-    writers = {
-      ["nil"] = function (file, item)
-        file:write("nil");
-      end;
-      ["number"] = function (file, item)
-        file:write(tostring(item));
-      end;
-      ["string"] = function (file, item)
-        file:write(string.format("%q", item));
-      end;
-      ["boolean"] = function (file, item)
-        if item then
-          file:write("true");
-        else
-          file:write("false");
+  writers = {
+    ["nil"] = function (file, item)
+      file:write("nil");
+    end;
+    ["number"] = function (file, item)
+      file:write(tostring(item));
+    end;
+    ["string"] = function (file, item)
+      file:write(string.format("%q", item));
+    end;
+    ["boolean"] = function (file, item)
+      if item then
+        file:write("true");
+      else
+        file:write("false");
+      end
+    end;
+    ["table"] = function (file, item, level, objRefNames)
+      local refIdx = objRefNames[item];
+      if refIdx then
+        -- Table with multiple references
+        file:write("multiRefObjects["..refIdx.."]");
+      else
+        -- Single use table
+        file:write("{\n");
+        for k, v in pairs(item) do
+          writeIndent(file, level+1);
+          file:write("[");
+          write(file, k, level+1, objRefNames);
+          file:write("] = ");
+          write(file, v, level+1, objRefNames);
+          file:write(";\n");
         end
+        writeIndent(file, level);
+        file:write("}");
       end;
-      ["table"] = function (file, item, level, objRefNames)
-        local refIdx = objRefNames[item];
-        if refIdx then
-          -- Table with multiple references
-          file:write("multiRefObjects["..refIdx.."]");
+    end;
+    ["function"] = function (file, item)
+      -- Does only work for "normal" functions, not those
+      -- with upvalues or c functions
+      local dInfo = debug.getinfo(item, "uS");
+      if dInfo.nups > 0 then
+        file:write("nil --[[functions with upvalue not supported]]");
+      elseif dInfo.what ~= "Lua" then
+        file:write("nil --[[non-lua function not supported]]");
+      else
+        local r, s = pcall(string.dump,item);
+        if r then
+          file:write(string.format("loadstring(%q)", s));
         else
-          -- Single use table
-          file:write("{\n");
-          for k, v in pairs(item) do
-            writeIndent(file, level+1);
-            file:write("[");
-            write(file, k, level+1, objRefNames);
-            file:write("] = ");
-            write(file, v, level+1, objRefNames);
-            file:write(";\n");
-          end
-          writeIndent(file, level);
-          file:write("}");
-        end;
-      end;
-      ["function"] = function (file, item)
-        -- Does only work for "normal" functions, not those
-        -- with upvalues or c functions
-        local dInfo = debug.getinfo(item, "uS");
-        if dInfo.nups > 0 then
-          file:write("nil --[[functions with upvalue not supported]]");
-        elseif dInfo.what ~= "Lua" then
-          file:write("nil --[[non-lua function not supported]]");
-        else
-          local r, s = pcall(string.dump,item);
-          if r then
-            file:write(string.format("loadstring(%q)", s));
-          else
-            file:write("nil --[[function could not be dumped]]");
-          end
+          file:write("nil --[[function could not be dumped]]");
         end
-      end;
-      ["thread"] = function (file, item)
-        file:write("nil --[[thread]]\n");
-      end;
-      ["userdata"] = function (file, item)
-        file:write("nil --[[userdata]]\n");
-      end;
-    }
+      end
+    end;
+    ["thread"] = function (file, item)
+      file:write("nil --[[thread]]\n");
+    end;
+    ["userdata"] = function (file, item)
+      file:write("nil --[[userdata]]\n");
+    end;
+  }
 
-    self.gLoc = gLoc
-    return self
-  end--module Local
+  self.gLoc = gLoc
+  return self
+end--module Local
 
 --------------- API support ----------------------
-  function module.API(hc3)
-    local self = {}
-    local Util = hc3.module.Util
-    local _debugFlags,format = hc3.debug,string.format
-    local copy,urldecode,colorStr = Util.copy,Util.urldecode,Util.colorStr
-    local HC3call,URLcall
-    local offline,online,auto = true,false,false
-    local Trigger,QA,Scene,Local
-    local postTrigger,gLoc,refreshStates
-    Log,LOG,json=Log,LOG,json
+function module.API(hc3)
+  local self = {}
+  local Util = hc3.module.Util
+  local _debugFlags,format = hc3.debug,string.format
+  local copy,urldecode,colorStr = Util.copy,Util.urldecode,Util.colorStr
+  local HC3call,URLcall
+  local offline,online,auto = true,false,false
+  local Trigger,QA,Scene,Local,copas
+  local postTrigger,gLoc,refreshStates
+  Log,LOG,json=Log,LOG,json
 
-    function self.initialise()
-      Trigger,QA,Scene,Local = hc3.module.Trigger,hc3.module.QA,hc3.module.Scene,hc3.module.Local
-      gLoc = Local.gLoc
-      refreshStates,postTrigger = Trigger.refreshStates.getEvents,Trigger.postTrigger
-      local hc3call = hc3.module.HTTP.HC3call
-      HC3call = function(method,url,data)
-        if type(data)=='table' then data = json.encode(data) end
-        if offline then return nil,404  else return hc3call(method,url,data) end
+  function self.initialise()
+    Trigger,QA,Scene,Local = hc3.module.Trigger,hc3.module.QA,hc3.module.Scene,hc3.module.Local
+    gLoc = Local.gLoc
+    refreshStates,postTrigger = Trigger.refreshStates.getEvents,Trigger.postTrigger
+    local hc3call = hc3.module.HTTP.HC3call
+    copas = hc3.module.Timer.copas
+    HC3call = function(method,url,data)
+      if type(data)=='table' then data = json.encode(data) end
+      if offline then return nil,404  else return hc3call(method,url,data) end
+    end
+    self.setOffline(hc3.offline,hc3.autoCreate)
+  end
+
+  local function createHandler(method,url)
+    local h = self.getHandler(method,url)
+    return function(data,url2,...) return h(method,url2,{},data,{},...) end
+  end
+  self.createHandler = createHandler
+
+  local function copyTo(from,tos)  --- {a=9,b=10},{b=10}
+    if type(tos) == 'table' then
+      for k,v in pairs(tos) do
+        if from[k] then tos[k]=copyTo(from[k],v) end
       end
-      self.setOffline(hc3.offline,hc3.autoCreate)
-    end
+      return tos
+    else return from end
+  end
 
-    local function createHandler(method,url)
-      local h = self.getHandler(method,url)
-      return function(data,url2,...) return h(method,url2,{},data,{},...) end
-    end
-    self.createHandler = createHandler
+  local function NIP(m,url) Log(LOG.WARNING,"API not implemented: %s %s",m,url) end
 
-    local function copyTo(from,tos)  --- {a=9,b=10},{b=10}
-      if type(tos) == 'table' then
-        for k,v in pairs(tos) do
-          if from[k] then tos[k]=copyTo(from[k],v) end
+  local function idfi(r) return r.id end
+  local function merge(list,map,idfv)
+    local rs,idff = {},idfv or idfi
+    for _,rsrc in ipairs(list) do
+      if map[idff(rsrc)]==nil then rs[#rs+1]=rsrc end
+    end
+    for _,rsrc in pairs(map) do rs[#rs+1]=rsrc end
+    return rs
+  end
+
+  local fFuns = {
+    interface=function(v,rsrc) return Util.member(v,rsrc.interfaces or {}) end
+  }
+
+  local function filter(list,props)
+    if next(props)==nil then return list end
+    local res = {}
+    for _,rsrc in ipairs(list) do
+      local flag = false
+      for k,v in pairs(props) do
+        if fFuns[k] then flag = fFuns[k](v,rsrc)
+        else flag = rsrc[k]==v end
+        if not flag then break end 
+      end
+      if flag then res[#res+1]=rsrc end
+    end
+    return res
+  end
+
+  local ZBCOLORMAP = Util.ZBCOLORMAP
+  hc3.consoleColors = hc3.consoleColors or {['DEBUG']='green', ['TRACE']='orange', ['WARNING']='purple', ['ERROR']='red'}
+
+  local function html2color(str,startColor)
+    local st,p = {startColor or '\027[0m'},1
+    return str:gsub("(</?font.->)",function(s)
+        if s=="</font>" then
+          p=p-1; return st[p]
+        else
+          local color = s:match("color=(%w+)")
+          color=ZBCOLORMAP[color] or ZBCOLORMAP['black']
+          p=p+1; st[p]=color
+          return color
         end
-        return tos
-      else return from end
-    end
+      end)
+  end
 
-    local function NIP(m,url) Log(LOG.WARNING,"API not implemented: %s %s",m,url) end
-
-    local function idfi(r) return r.id end
-    local function merge(list,map,idfv)
-      local rs,idff = {},idfv or idfi
-      for _,rsrc in ipairs(list) do
-        if map[idff(rsrc)]==nil then rs[#rs+1]=rsrc end
-      end
-      for _,rsrc in pairs(map) do rs[#rs+1]=rsrc end
-      return rs
-    end
-
-    local fFuns = {
-      interface=function(v,rsrc) return Util.member(v,rsrc.interfaces or {}) end
-    }
-
-    local function filter(list,props)
-      if next(props)==nil then return list end
-      local res = {}
-      for _,rsrc in ipairs(list) do
-        local flag = false
-        for k,v in pairs(props) do
-          if fFuns[k] then flag = fFuns[k](v,rsrc)
-          else flag = rsrc[k]==v end
-          if not flag then break end 
-        end
-        if flag then res[#res+1]=rsrc end
-      end
-      return res
-    end
-
-    local ZBCOLORMAP = Util.ZBCOLORMAP
-    hc3.consoleColors = hc3.consoleColors or {['DEBUG']='green', ['TRACE']='orange', ['WARNING']='purple', ['ERROR']='red'}
-
-    local function html2color(str,startColor)
-      local st,p = {startColor or '\027[0m'},1
-      return str:gsub("(</?font.->)",function(s)
-          if s=="</font>" then
-            p=p-1; return st[p]
-          else
-            local color = s:match("color=(%w+)")
-            color=ZBCOLORMAP[color] or ZBCOLORMAP['black']
-            p=p+1; st[p]=color
-            return color
-          end
-        end)
-    end
-
-    API = {
-      ------------ Devices -------------
-      ["GET/devices"] -- Get list of available devices
-      = function(method,url,props,data,options)
-        local devices = offline and {} or HC3call(method,url)
-        return filter(merge(devices,gLoc.devices),props or {}),200
-      end,
+  API = {
+    ------------ Devices -------------
+    ["GET/devices"] -- Get list of available devices
+    = function(method,url,props,data,options)
+      local devices = offline and {} or HC3call(method,url)
+      return filter(merge(devices,gLoc.devices),props or {}),200
+    end,
 --   ?type=
 --   ?interface=
 --   ?name?
-      ["GET/devices?property=[lastLoggedUser,{userId}]"] --Get mobile device list for user with specified id
-      = function(method,url,props,data,options)
-        return NIP(method,url)
-      end,
-      ["GET/devices/#id"] --Get device object
-      = function(method,url,props,data,options,id)
-        local d = gLoc.devices[id] or online and HC3call(method,url) or auto and Local.createDevice(id)
-        if d then return d,200 else return nil,404 end
-      end,
-      ["GET/devices/#id/properties/#name"] --Get device object
-      = function(method,url,props,data,options,id,name)
-        if not gLoc.devices[id] and  offline and auto then Local.createDevice(id) end
-        local d = gLoc.devices[id]
-        if d then return {value = d.properties[name], modified=d.modified},200
-        else return HC3call(method,url) end
-      end,
+    ["GET/devices?property=[lastLoggedUser,{userId}]"] --Get mobile device list for user with specified id
+    = function(method,url,props,data,options)
+      return NIP(method,url)
+    end,
+    ["GET/devices/#id"] --Get device object
+    = function(method,url,props,data,options,id)
+      local d = gLoc.devices[id] or online and HC3call(method,url) or auto and Local.createDevice(id)
+      if d then return d,200 else return nil,404 end
+    end,
+    ["GET/devices/#id/properties/#name"] --Get device object
+    = function(method,url,props,data,options,id,name)
+      if not gLoc.devices[id] and  offline and auto then Local.createDevice(id) end
+      local d = gLoc.devices[id]
+      if d then return {value = d.properties[name], modified=d.modified},200
+      else return HC3call(method,url) end
+    end,
 
-      ["POST/devices"] --Create plugin
-      = function(method,url,props,data,options)
-        local args = type(data)=='string' and json.decode(data) or data
-        if args.id and gLoc.devices[args.id] then return nil,409 end
-        local dev = Local.createDevice(args)
-        if dev then
-          gLoc.devices[dev.id]=dev
-          return dev,200
-        else return nil,500 end
-      end,
-      ["POST/devices/filter"] --Get list of filtered devices
-      = function(method,url,props,data,options)
-        return HC3call(method,url,data)
-      end,
-      ["POST/devices/addInterface"]           --Add interfaces to devices
-      = function(method,url,props,data,options)
-        local args = type(data)=='string' and json.decode(data) or data
-        local ids,eids = args.deviceId,{}
-        for _,id in ipairs(ids or {}) do
-          if gLoc.devices[id]  then
-            for  _,i in ipairs(args.interfaces or {}) do
-              if not Util.member(i,gLoc.devices[id].interfaces or {}) then
-                table.insert(gLoc.devices[id].interfaces or {},i)
-              end
+    ["POST/devices"] --Create plugin
+    = function(method,url,props,data,options)
+      local args = type(data)=='string' and json.decode(data) or data
+      if args.id and gLoc.devices[args.id] then return nil,409 end
+      local dev = Local.createDevice(args)
+      if dev then
+        gLoc.devices[dev.id]=dev
+        return dev,200
+      else return nil,500 end
+    end,
+    ["POST/devices/filter"] --Get list of filtered devices
+    = function(method,url,props,data,options)
+      return HC3call(method,url,data)
+    end,
+    ["POST/devices/addInterface"]           --Add interfaces to devices
+    = function(method,url,props,data,options)
+      local args = type(data)=='string' and json.decode(data) or data
+      local ids,eids = args.deviceId,{}
+      for _,id in ipairs(ids or {}) do
+        if gLoc.devices[id]  then
+          for  _,i in ipairs(args.interfaces or {}) do
+            if not Util.member(i,gLoc.devices[id].interfaces or {}) then
+              table.insert(gLoc.devices[id].interfaces or {},i)
             end
-          else eids[#eids+1]=id end
+          end
+        else eids[#eids+1]=id end
+      end
+      if #eids > 0 then
+        args.deviceId = eids
+        return HC3call(method,url,(json.encode(args)))
+      end
+    end,
+    ["POST/devices/deleteInterface"]        --Delete interfaces from devices
+    = function(method,url,props,data,options)
+      local args = type(data)=='string' and json.decode(data) or data
+      local ids,eids = args.deviceId,{}
+      for _,id in ipairs(ids or {}) do
+        if gLoc.devices[id]  then
+          for  _,i in ipairs(args.interfaces or {}) do 
+            Util.remove(gLoc.devices[id].interfaces or {},i)
+          end
+        else eids[#eids+1]=id end
+      end
+      if #eids > 0 then
+        args.deviceId = eids
+        return HC3call(method,url,(json.encode(args)))
+      end
+    end,
+    ["POST/devices/groupAction/#name"]       --Call group action
+    = function(method,url,props,data,options,name)
+      HC3call(method,url,data)
+    end,
+    ["POST/devices/#id/action/#name"]         --Call action
+    = function(method,url,props,data,options,id,name)
+      local args = type(data)=='string' and json.decode(data) or data
+      if offline and not gLoc.devices[id] and auto then Local.createDevice(id) end
+      if gLoc.devices[id] then
+        if QA.quickApps[id] then
+          local stat,res = pcall(onAction,{deviceId=id,actionName=name,args=args.args})
+          if stat then return true,200 else return nil,500 end
+        else
+          Local.deviceAction(gLoc.devices[id],name,table.unpack(args.args))
+          return true,200
         end
-        if #eids > 0 then
-          args.deviceId = eids
-          return HC3call(method,url,(json.encode(args)))
-        end
-      end,
-      ["POST/devices/deleteInterface"]        --Delete interfaces from devices
-      = function(method,url,props,data,options)
+      else return HC3call(method,url,data) end
+    end,
+    ["PUT/devices/#id/interfaces/polling"] --Add polling interface
+    = function(method,url,props,data,options,id)
+      return NIP(method,url)
+    end,
+    ["PUT/devices/#id"] --Modify device
+    = function(method,url,props,data,options,id)
+      if gLoc.devices[id] then
         local args = type(data)=='string' and json.decode(data) or data
-        local ids,eids = args.deviceId,{}
-        for _,id in ipairs(ids or {}) do
-          if gLoc.devices[id]  then
-            for  _,i in ipairs(args.interfaces or {}) do 
-              Util.remove(gLoc.devices[id].interfaces or {},i)
-            end
-          else eids[#eids+1]=id end
-        end
-        if #eids > 0 then
-          args.deviceId = eids
-          return HC3call(method,url,(json.encode(args)))
-        end
-      end,
-      ["POST/devices/groupAction/#name"]       --Call group action
-      = function(method,url,props,data,options,name)
-        HC3call(method,url,data)
-      end,
-      ["POST/devices/#id/action/#name"]         --Call action
-      = function(method,url,props,data,options,id,name)
-        local args = type(data)=='string' and json.decode(data) or data
-        if offline and not gLoc.devices[id] and auto then Local.createDevice(id) end
-        if gLoc.devices[id] then
-          if QA.quickApps[id] then
-            local stat,res = pcall(onAction,{deviceId=id,actionName=name,args=args.args})
-            if stat then return true,200 else return nil,500 end
+        gLoc.devices[id]=copyTo(args,gLoc.devices[id])
+        return gLoc.devices[id],200
+      else return HC3call(method,url,data) end
+    end,
+    ["POST/slave/#id/api/devices/#id/action/#name"] --Call action using master as a proxy for slave
+    = function(method,url,props,data,options,id1,id2,name)
+      return NIP(method,url)
+    end,
+    ["GET/devices/hierarchy"]                 --hierarchy
+    = function(method,url,props,data,options,name)
+      if offline then
+        if next(gLoc.hierarchy)==nil then
+          local f = hc3.assetDirectory and io.open(hc3.assetDirectory.."hierarchy.json")
+          if f then
+            gLoc.hierarchy = json.decode((f:read("*all")))
           else
-            Local.deviceAction(gLoc.devices[id],name,table.unpack(args.args))
-            return true,200
+            Log(LOG.WARNING,"Please download assets to use hierarchy offline")
+            return nil,404
           end
-        else return HC3call(method,url,data) end
-      end,
-      ["PUT/devices/#id/interfaces/polling"] --Add polling interface
-      = function(method,url,props,data,options,id)
-        return NIP(method,url)
-      end,
-      ["PUT/devices/#id"] --Modify device
-      = function(method,url,props,data,options,id)
-        if gLoc.devices[id] then
-          local args = type(data)=='string' and json.decode(data) or data
-          gLoc.devices[id]=copyTo(args,gLoc.devices[id])
-          return gLoc.devices[id],200
-        else return HC3call(method,url,data) end
-      end,
-      ["POST/slave/#id/api/devices/#id/action/#name"] --Call action using master as a proxy for slave
-      = function(method,url,props,data,options,id1,id2,name)
-        return NIP(method,url)
-      end,
-      ["GET/devices/hierarchy"]                 --hierarchy
-      = function(method,url,props,data,options,name)
-        if offline then
-          if next(gLoc.hierarchy)==nil then
-            local f = hc3.assetDirectory and io.open(hc3.assetDirectory.."hierarchy.json")
-            if f then
-              gLoc.hierarchy = json.decode((f:read("*all")))
-            else
-              Log(LOG.WARNING,"Please download assets to use hierarchy offline")
-              return nil,404
-            end
-          end
-          return gLoc.hierarchy,200
-        else return HC3call(method,url) end
-      end,
-      ["DELETE/devices/#id/interfaces/polling"] --Delete polling interface
-      = function(method,url,props,data,options,id)
-        return NIP(method,url)
-      end,
-      ["DELETE/devices/#id"]                    --Delete device
-      = function(method,url,props,data,options,id)
-        local d = gLoc.devices[id]
-        if d then
-          if QA.quickApps[id] then
-            QA.quickApps[id].deleteQA()
-          end
-          gLoc.devices[id]=nil
-          postTrigger({type="DeviceRemovedEvent",data={
-                type=d.type,deviceName=d.name,id=d.id,roomId=d.roomId,roomName="Default Room",sectionName="Default Section"
-              },
-              sourceType="system"
-            })
-          return true,200
-        else return HC3call(method,url) end
-      end,
-      ["DELETE/slave/#id/api/devices/#id"]  --Delete device using master as a proxy for slave
-      = function(method,url,props,data,options,id1,id2)
-        return HC3call(method,url)
-      end,
-      ["DELETE/devices/action/#id/#id"]     --Delete delayed action
-      = function(method,url,props,data,options,id1,id2)
-        if gLoc.devices[id1] then
-          Log(LOG.WARNING,"%s not implmeneted",url)
-          return nil,500
-        else return HC3call(method,url) end
-      end,
-      ["GET/uiDeviceInfo"]                  --Get device info
-      = function(method,url,props,data,options)
-        return NIP(method,url)
-      end,
-      ------------ Scenes -------------
-      ["GET/scenes"] -- Get scenes
-      = function(method,url,props,data,options)
-        local scenes = offline and {} or HC3call(method,url)
-        return merge(scenes,gLoc.scenes),200
-      end,
-      ["GET/scenes/#id"] --Get scene object
-      = function(method,url,props,data,options,id)
-        local s = gLoc.scenes[id] or HC3call(method,url)
-        if s then return s,200 else return nil,404 end
-      end,
-      ["POST/scenes"]   -- Install scene
-      = function(method,url,props,data,options)
-        if offline then
-          local stat,res = pcall(function()
-              Scene.loadScene(nil,data):install()
-            end)
-          if stat then return nil,500
-          else return res,201 end
-        else return HC3call(method,url,data) end
-      end,
-      ["POST/scenes/hasTriggers"] --Filter scenes by triggers
-      = function(method,url,props,data,options)
-        return HC3call(method,url,data)
-      end,
-      ["POST/scenes/#id/execute"] --Executes asynchronously executive part of the scene neglecting conditional part.
-      = function(method,url,props,data,options,id)
-        if gLoc.scenes[id] then
-          Scene.runScene(id)
-          return true,200
-        else return HC3call(method,url,data) end
-      end,
-      ["POST/scenes/#id/executeSync"] --Executes synchronously executive part of the scene neglecting conditional part.
-      = function(method,url,props,data,options,id)
-        if gLoc.scenes[id] then
-          Scene.runScene(id)
-          return true,200
-        else return HC3call(method,url,data) end
-      end,
-      ["POST/scenes/#id/convert"] --Convert block scene to lua.
-      = function(method,url,props,data,options,id)
-        if gLoc.scenes[id] then return NIP(method,url)
-        else return HC3call(method,url,data) end
-      end,
-      ["POST/scenes/#id/copy"] --Create scene copy scene
-      = function(method,url,props,data,options,id)
-        if gLoc.scenes[id] then return NIP(method,url)
-        else return HC3call(method,url,data) end
-      end,
-      ["POST/scenes/#id/copyAndConvert"] --Copy and convert block scene to lua.
-      = function(method,url,props,data,options,id)
-        if gLoc.scenes[id] then return NIP(method,url)
-        else return HC3call(method,url,data) end
-      end,
-      ["POST/scenes/#id/kill"] --Kill running scene.
-      = function(method,url,props,data,options,id)
-        if gLoc.scenes[id] then
-          if Scene.scenes[id] then Scene.killScene(id) end
-          return true,200
-        else HC3call(method,url,data) end
-      end,
-      ["PUT/scenes/#id"]  --Modify scene
-      = function(method,url,props,data,options,id)
-        if gLoc.scenes[id] then
-          local args = type(data)=='string' and json.decode(data) or data
-          gLoc.scenes[id]=copyTo(args,gLoc.scenes[id])
-          return gLoc.scenes[id],200
-        else return HC3call(method,url,data) end
-      end,
-      ["DELETE/scenes/#id"]                     --Delete scene
-      = function(method,url,props,data,options,id)
-        if gLoc.scenes[id] then
-          if Scene.scenes[id] then
-            Scene.scenes[id]:deleteScene()
-            return true,200
-          end
-          gLoc.scenes[id] = nil
-          return true,200
-        else return HC3call(method,url) end
-      end,
-      ------------ Global variables -------------
-      ["GET/globalVariables"] -- Get global variables
-      = function(method,url,props,data,options)
-        local globs = offline and {} or HC3call(method,url)
-        return merge(globs,gLoc.globalVariables,function(v) return v.name end),200
-      end,
-      ["GET/globalVariables/#name"] --Get globalvariable object
-      = function(method,url,props,data,options,name)
-        local s = gLoc.globalVariables[name] or online and HC3call(method,url) or auto and Local.createGlobal(name)
-        if s then return s,200 else return s,404 end
-      end,
-      ["POST/globalVariables"]  --Create variable
-      = function(method,url,props,data,options)
-        if offline then
-          local args = type(data)=='string' and json.decode(data) or data
-          if gLoc.globalVariables[args.name] then return nil,409 end
-          local v = Local.createGlobal(args)
-          if v then return v,200 else return v,500 end
-        else return HC3call(method,url,data) end
-      end,
-      ["PUT/globalVariables/#name"]  --Modify global
-      = function(method,url,props,data,options,name)
-        if offline and auto then Local.createGlobal(name) end
-        if gLoc.globalVariables[name] then
-          local args = type(data)=='string' and json.decode(data) or data
-          local var = gLoc.globalVariables[name]
-          local oldValue = var.value
-          var.value = args.value
-          if var.value ~= oldValue then
-            postTrigger({type='GlobalVariableChangedEvent',data={variableName=name,newValue=var.value,oldValue=oldValue}})
-          end
-          return var,200
-        else return HC3call(method,url,data) end
-      end,
-      ["DELETE/globalVariables/#name"]  --Delete global
-      = function(method,url,props,data,options,name)
-        if gLoc.globalVariables[name] then
-          gLoc.globalVariables[name]=nil
-          return true,200
-        else return HC3call(method,url) end
-      end,
-      ------------ Custom events -------------
-      ["GET/customEvents"]          --get events
-      = function(method,url,props,data,options)
-        local ces = offline and {} or HC3call(method,url)
-        return merge(ces,gLoc.customEvents,function(v) return v.name end),200
-      end,
-      ["GET/customEvents/#name"]          --get named event
-      = function(method,url,props,data,options,name)
-        local e = gLoc.customEvents[name] or online and HC3call(method,url)
-        if e then return e,200 else return e,404 end
-      end,
-      ["POST/customEvents"]  --Create custom event
-      = function(method,url,props,data,options)
-        if offline then
-          local args = type(data)=='string' and json.decode(data) or data
-          local e = Local.createCustomEvent(args)
-          if e then return e,200 else return e,500 end
-        else return HC3call(method,url,data) end
-      end,
-      ["POST/customEvents/#name"]  --post event
-      = function(method,url,props,data,options,name)
-        if gLoc.customEvents[name] then
-          postTrigger({type='CustomEvent',data={name=name}},0)
-          return true,200
-        else return HC3call(method,url,data) end
-      end,
-      ["PUT/customEvents/#name"]  --modify event
-      = function(method,url,props,data,options,name)
-        if offline then
-          if not gLoc.customEvents[name] then return nil,404 end
-          local args = type(data)=='string' and json.decode(data) or data
-          copyTo(args,gLoc.customEvents[name])
-          gLoc.customEvents[name].name=name
-          return gLoc.customEvents[name],200
-        else return HC3call(method,url,data) end
-      end,
-      ["DELETE/customEvents/#name"]  --delete event
-      = function(method,url,props,data,options,name)
-        if offline then
-          if not gLoc.customEvents[name] then return nil,404 end
-          gLoc.customEvents[name]=nil
-          return true,200
-        else return HC3call(method,url,data) end
-      end,
-      ------------- quickApp ---------
-      ["GET/quickApp/#id/files"]                --get files
-      = function(method,url,props,data,options,id)
+        end
+        return gLoc.hierarchy,200
+      else return HC3call(method,url) end
+    end,
+    ["DELETE/devices/#id/interfaces/polling"] --Delete polling interface
+    = function(method,url,props,data,options,id)
+      return NIP(method,url)
+    end,
+    ["DELETE/devices/#id"]                    --Delete device
+    = function(method,url,props,data,options,id)
+      local d = gLoc.devices[id]
+      if d then
         if QA.quickApps[id] then
-          local f,files = QA.files[id],{}
-          for _,v in pairs(f) do v = copy(v); v.content = nil; files[#files+1]=v end
-          return files,200
-        else return HC3call(method,url) end
-      end,
-      ["GET/quickApp/#id/files/#name"]          --Get specific file
-      = function(method,url,props,data,options,id,name)
-        if QA.quickApps[id] then
-          if QA.files[id][name] then return QA.files[id][name],200
-          else return nil,404 end
-        else return HC3call(method,url) end
-      end,
-      ["PUT/quickApp/#id/files/#name"]          --Update specific file
-      = function(method,url,props,data,options,id,name)
-        if QA.quickApps[id] then
-          if QA.files[id][name] then
-            local args = type(data)=='string' and json.decode(data) or data
-            QA.files[id][name] = args
-            if hc3.HC3quickAppFile and tonumber(QA.quickApps[id]._emu.proxy) then HC3call(method,url,data) end
-            QA.quickApps[id].restartQA()
-            return QA.files[id][name],200
-          else return nil,404 end
-        else return HC3call(method,url) end
-      end,
-      ["PUT/quickApp/#id/files"]               --Update files
-      = function(method,url,props,data,options,id)
-        if QA.quickApps[id] then
-          local args = type(data)=='string' and json.decode(data) or data
-          for _,f in ipairs(args) do
-            if QA.quickApps[id][f.name] then QA.quickApps[id][f.name]=f end
-          end
-          if hc3.HC3quickAppFile and tonumber(QA.quickApps[id]._emu.proxy) then HC3call(method,url,data) end
-          QA.quickApps[id].restartQA()
-          return true,200
-        else return HC3call(method,url,data) end
-      end,
-      ["GET/quickApp/export/#id"]             --Export QA to fqa
-      = function(method,url,props,data,options,id)
-        if QA.quickApps[id] then
-          return QA.toFQA(id,nil),200
-        else return HC3call(method,url) end
-      end,
-      ["GET/quickApp/availableTypes"]          --Available QA types
-      = function(method,url,props,data,options,id,name)
-        return HC3call(method,url)
-      end,
-      ["POST/quickApp/"]    -- Install QA
-      = function(method,url,props,data,options)
+          QA.quickApps[id].deleteQA()
+        end
+        gLoc.devices[id]=nil
+        postTrigger({type="DeviceRemovedEvent",data={
+              type=d.type,deviceName=d.name,id=d.id,roomId=d.roomId,roomName="Default Room",sectionName="Default Section"
+            },
+            sourceType="system"
+          })
+        return true,200
+      else return HC3call(method,url) end
+    end,
+    ["DELETE/slave/#id/api/devices/#id"]  --Delete device using master as a proxy for slave
+    = function(method,url,props,data,options,id1,id2)
+      return HC3call(method,url)
+    end,
+    ["DELETE/devices/action/#id/#id"]     --Delete delayed action
+    = function(method,url,props,data,options,id1,id2)
+      if gLoc.devices[id1] then
+        Log(LOG.WARNING,"%s not implmeneted",url)
+        return nil,500
+      else return HC3call(method,url) end
+    end,
+    ["GET/uiDeviceInfo"]                  --Get device info
+    = function(method,url,props,data,options)
+      return NIP(method,url)
+    end,
+    ------------ Scenes -------------
+    ["GET/scenes"] -- Get scenes
+    = function(method,url,props,data,options)
+      local scenes = offline and {} or HC3call(method,url)
+      return merge(scenes,gLoc.scenes),200
+    end,
+    ["GET/scenes/#id"] --Get scene object
+    = function(method,url,props,data,options,id)
+      local s = gLoc.scenes[id] or HC3call(method,url)
+      if s then return s,200 else return nil,404 end
+    end,
+    ["POST/scenes"]   -- Install scene
+    = function(method,url,props,data,options)
+      if offline then
         local stat,res = pcall(function()
-            QA.loadQA(nil,data):install()
+            Scene.loadScene(nil,data):install()
           end)
         if stat then return nil,500
         else return res,201 end
-      end,
-      ["DELETE/quickApp/#id/files/#name"]    -- Delete file
-      = function(method,url,props,data,options,id,name)
-        local qa = QA.quickApps[id]
-        if qa then
-          if qa[name] then
-            QA.files[id][name]=nil
-            if hc3.HC3quickAppFile and tonumber(QA.quickApps[id]._emu.proxy) then HC3call(method,url) end
-            QA.quickApps[id].restartQA()
-            return true,200
-          else return nil,404 end
-        else return HC3call(method,url) end
-      end,
-      -------------- Plugins ---------------
-      ["GET/plugins"] -- Get  installed plugin
-      = function(method,url,props,data,options)
-        return HC3call(method,url)
-      end,
-      ["GET/plugins/callUIEvent"]
-      = function(method,url,props,data,options)
-        return HC3call(method,url)
-      end,
-      ["GET/plugins/getView"]
-      = function(method,url,props,data,options)
-        return HC3call(method,url)
-      end,
-      ["GET/plugins/installed"]
-      = function(method,url,props,data,options)
-        return HC3call(method,url)
-      end,
-      ["GET/plugins/ipCameras"]
-      = function(method,url,props,data,options)
-        return HC3call(method,url)
-      end,
-      ["GET/plugins/types"]   --Types in the system
-      = function(method,url,props,data,options)
-        return HC3call(method,url)
-      end,
-      ["DELETE/plugins/installed"]                  --Delete plugin
-      = function(method,url,props,data,options)
-        return NIP(method,url,data)
-      end,
-      ["POST/plugins/createChildDevice"]
-      = function(method,url,props,data,options)
+      else return HC3call(method,url,data) end
+    end,
+    ["POST/scenes/hasTriggers"] --Filter scenes by triggers
+    = function(method,url,props,data,options)
+      return HC3call(method,url,data)
+    end,
+    ["POST/scenes/#id/execute"] --Executes asynchronously executive part of the scene neglecting conditional part.
+    = function(method,url,props,data,options,id)
+      if gLoc.scenes[id] then
+        Scene.runScene(id)
+        return true,200
+      else return HC3call(method,url,data) end
+    end,
+    ["POST/scenes/#id/executeSync"] --Executes synchronously executive part of the scene neglecting conditional part.
+    = function(method,url,props,data,options,id)
+      if gLoc.scenes[id] then
+        Scene.runScene(id)
+        return true,200
+      else return HC3call(method,url,data) end
+    end,
+    ["POST/scenes/#id/convert"] --Convert block scene to lua.
+    = function(method,url,props,data,options,id)
+      if gLoc.scenes[id] then return NIP(method,url)
+      else return HC3call(method,url,data) end
+    end,
+    ["POST/scenes/#id/copy"] --Create scene copy scene
+    = function(method,url,props,data,options,id)
+      if gLoc.scenes[id] then return NIP(method,url)
+      else return HC3call(method,url,data) end
+    end,
+    ["POST/scenes/#id/copyAndConvert"] --Copy and convert block scene to lua.
+    = function(method,url,props,data,options,id)
+      if gLoc.scenes[id] then return NIP(method,url)
+      else return HC3call(method,url,data) end
+    end,
+    ["POST/scenes/#id/kill"] --Kill running scene.
+    = function(method,url,props,data,options,id)
+      if gLoc.scenes[id] then
+        if Scene.scenes[id] then Scene.killScene(id) end
+        return true,200
+      else HC3call(method,url,data) end
+    end,
+    ["PUT/scenes/#id"]  --Modify scene
+    = function(method,url,props,data,options,id)
+      if gLoc.scenes[id] then
         local args = type(data)=='string' and json.decode(data) or data
-        local parent = QA.quickApps[args.parentId or 0]
-        if (not online) or (parent and not parent._proxy) then
-          local dev = Local.createDevice({name=args.name,type=args.type})
-          -- name,parentId,type,initialProperties,initialInterfaces
-          if not dev then return nil,500 end
-          dev.parentId = args.parentId
-          local iprops = args.initialProperties or {}
-          local interfaces = args.initialInterfaces or {}
-          dev.interfaces = dev.interfaces or {}
-          for p,v in  pairs(iprops) do dev.properties[p]=v end
-          for _,i in ipairs(interfaces) do if not Util.member(i,dev.interfaces) then table.insert(dev.interfaces,i) end end
-          return dev,200
-        end
-        return HC3call(method,url,data)
-      end,
-      ["DELETE/plugins/createChildDevice/#id"]
-      = function(method,url,props,data,options,id)
-        if gLoc.devices[id] then
-          gLoc.devices[id]=nil
-          return nil,200
-        end
-        return HC3call(method,url,data)
-      end,
-      ["POST/plugins/interfaces"]      --Add/remove interfaces
-      = function(method,url,props,data,options)
-        return HC3call(method,url,data)
-      end,
-      ["POST/plugins/publishEvent"]    --Publish event
-      = function(method,url,props,data,options)
-        if offline then
-          Log(LOG.WARNING,"/plugins/publishEvent not implemented for offline yet")
-          return nil,500
-        end
-        return HC3call(method,url,data)
-      end,
-      ["POST/plugins/restart"]         --Restart plugin
-      = function(method,url,props,data,options)
-        local args = type(data)=='string' and json.decode(data) or data
-        if args.deviceId and QA.quickApps[args.deviceId] then
-          QA.quickApps[args.deviceId].restartQA()
+        gLoc.scenes[id]=copyTo(args,gLoc.scenes[id])
+        return gLoc.scenes[id],200
+      else return HC3call(method,url,data) end
+    end,
+    ["DELETE/scenes/#id"]                     --Delete scene
+    = function(method,url,props,data,options,id)
+      if gLoc.scenes[id] then
+        if Scene.scenes[id] then
+          Scene.scenes[id]:deleteScene()
           return true,200
-        else return HC3call(method,url,data) end
-      end,
-      ["POST/plugins/updateProperty"]  --Update property
-      = function(method,url,props,data,options)
-        local args,old = type(data)=='string' and json.decode(data) or data
-        local id,dev = args.deviceId,gLoc.devices[args.deviceId]
-        if dev then
-          if dev.properties[args.propertyName] ~= args.value or args.force then
-            local qa = QA.quickApps[id]
-            old = dev.properties[args.propertyName]
-            if qa==nil and type(dev.properties[args.propertyName]) ~= type(args.value) then
-              Log(LOG.ERROR,"updateProperty id:%s, propertyName:%s, wrong type:%s",id,args.propertyName,type(args.value))
-            end
-            dev.properties[args.propertyName] = args.value
-            if qa and qa._emu.proxy then 
-              return HC3call(method,url,data) -- We have a proxy, let it post the update event
-            else -- Local QA or device, post event locally
-              postTrigger({
-                  type='DevicePropertyUpdatedEvent',
-                  data = {
-                    id=args.deviceId,
-                    property=args.propertyName,
-                    newValue=args.value,
-                    oldValue=old
-                  }
-                })
-            end
-          end
-          return data.value,200
-        else return HC3call(method,url,data) end
-      end,
-      ["POST/plugins/updateView"]      --Update view
-      = function(method,url,props,data,options)
+        end
+        gLoc.scenes[id] = nil
+        return true,200
+      else return HC3call(method,url) end
+    end,
+    ------------ Global variables -------------
+    ["GET/globalVariables"] -- Get global variables
+    = function(method,url,props,data,options)
+      local globs = offline and {} or HC3call(method,url)
+      return merge(globs,gLoc.globalVariables,function(v) return v.name end),200
+    end,
+    ["GET/globalVariables/#name"] --Get globalvariable object
+    = function(method,url,props,data,options,name)
+      local s = gLoc.globalVariables[name] or online and HC3call(method,url) or auto and Local.createGlobal(name)
+      if s then return s,200 else return s,404 end
+    end,
+    ["POST/globalVariables"]  --Create variable
+    = function(method,url,props,data,options)
+      if offline then
         local args = type(data)=='string' and json.decode(data) or data
-        local qa = QA.quickApps[args.deviceId]
-        if qa then
-          QA.setWebUIValue(args.deviceId,args.componentName,args.propertyName,args.newValue)
-          if qa._emu.proxy then
-            return HC3call(method,url,data)
-          else return true,200 end
-        else return HC3call(method,url,data) end
-      end,
-      ------------ Misc -------------
-      ["GET/refreshStates"]           --events
-      = function(method,url,props,data,options)
-        return refreshStates(tonumber(props.last) or 0),200
-      end,
-      ["GET/weather"]           --weather
-      = function(method,url,props,data,options)
-        if offline then return gLoc.weather,200
-        else return HC3call(method,url) end
-      end,
-      ["GET/alarms/v1/devices/"]           --alarms
-      = function(method,url,props,data,options)
-        if offline then return gLoc.alarms_devices,200
-        else return HC3call(method,url) end
-      end,
-      ["GET/alarms/v1/partitions"]          --alarm partitions
-      = function(method,url,props,data,options)
-        if offline then return gLoc.alarms_partitions,200
-        else return HC3call(method,url) end
-      end,
-      ["GET/settings/info"]                    --settings/info
-      = function(method,url,props,data,options,name)
-        if offline then return gLoc.settings_info,200
-        else return HC3call(method,url) end
-      end,
-      ["PUT/settings/info"]                    --settings/info
-      = function(method,url,props,data,options,name)
-        if offline then
+        if gLoc.globalVariables[args.name] then return nil,409 end
+        local v = Local.createGlobal(args)
+        if v then return v,200 else return v,500 end
+      else return HC3call(method,url,data) end
+    end,
+    ["PUT/globalVariables/#name"]  --Modify global
+    = function(method,url,props,data,options,name)
+      if offline and auto then Local.createGlobal(name) end
+      if gLoc.globalVariables[name] then
+        local args = type(data)=='string' and json.decode(data) or data
+        local var = gLoc.globalVariables[name]
+        local oldValue = var.value
+        var.value = args.value
+        if var.value ~= oldValue then
+          postTrigger({type='GlobalVariableChangedEvent',data={variableName=name,newValue=var.value,oldValue=oldValue}})
+        end
+        return var,200
+      else return HC3call(method,url,data) end
+    end,
+    ["DELETE/globalVariables/#name"]  --Delete global
+    = function(method,url,props,data,options,name)
+      if gLoc.globalVariables[name] then
+        gLoc.globalVariables[name]=nil
+        return true,200
+      else return HC3call(method,url) end
+    end,
+    ------------ Custom events -------------
+    ["GET/customEvents"]          --get events
+    = function(method,url,props,data,options)
+      local ces = offline and {} or HC3call(method,url)
+      return merge(ces,gLoc.customEvents,function(v) return v.name end),200
+    end,
+    ["GET/customEvents/#name"]          --get named event
+    = function(method,url,props,data,options,name)
+      local e = gLoc.customEvents[name] or online and HC3call(method,url)
+      if e then return e,200 else return e,404 end
+    end,
+    ["POST/customEvents"]  --Create custom event
+    = function(method,url,props,data,options)
+      if offline then
+        local args = type(data)=='string' and json.decode(data) or data
+        local e = Local.createCustomEvent(args)
+        if e then return e,200 else return e,500 end
+      else return HC3call(method,url,data) end
+    end,
+    ["POST/customEvents/#name"]  --post event
+    = function(method,url,props,data,options,name)
+      if gLoc.customEvents[name] then
+        postTrigger({type='CustomEvent',data={name=name}},0)
+        return true,200
+      else return HC3call(method,url,data) end
+    end,
+    ["PUT/customEvents/#name"]  --modify event
+    = function(method,url,props,data,options,name)
+      if offline then
+        if not gLoc.customEvents[name] then return nil,404 end
+        local args = type(data)=='string' and json.decode(data) or data
+        copyTo(args,gLoc.customEvents[name])
+        gLoc.customEvents[name].name=name
+        return gLoc.customEvents[name],200
+      else return HC3call(method,url,data) end
+    end,
+    ["DELETE/customEvents/#name"]  --delete event
+    = function(method,url,props,data,options,name)
+      if offline then
+        if not gLoc.customEvents[name] then return nil,404 end
+        gLoc.customEvents[name]=nil
+        return true,200
+      else return HC3call(method,url,data) end
+    end,
+    ------------- quickApp ---------
+    ["GET/quickApp/#id/files"]                --get files
+    = function(method,url,props,data,options,id)
+      if QA.quickApps[id] then
+        local f,files = QA.files[id],{}
+        for _,v in pairs(f) do v = copy(v); v.content = nil; files[#files+1]=v end
+        return files,200
+      else return HC3call(method,url) end
+    end,
+    ["GET/quickApp/#id/files/#name"]          --Get specific file
+    = function(method,url,props,data,options,id,name)
+      if QA.quickApps[id] then
+        if QA.files[id][name] then return QA.files[id][name],200
+        else return nil,404 end
+      else return HC3call(method,url) end
+    end,
+    ["PUT/quickApp/#id/files/#name"]          --Update specific file
+    = function(method,url,props,data,options,id,name)
+      if QA.quickApps[id] then
+        if QA.files[id][name] then
           local args = type(data)=='string' and json.decode(data) or data
-          for k,v  in pairs(args) do
-            gLoc.settings_info[k]=v
+          QA.files[id][name] = args
+          if hc3.HC3quickAppFile and tonumber(QA.quickApps[id]._emu.proxy) then HC3call(method,url,data) end
+          QA.quickApps[id].restartQA()
+          return QA.files[id][name],200
+        else return nil,404 end
+      else return HC3call(method,url) end
+    end,
+    ["PUT/quickApp/#id/files"]               --Update files
+    = function(method,url,props,data,options,id)
+      if QA.quickApps[id] then
+        local args = type(data)=='string' and json.decode(data) or data
+        for _,f in ipairs(args) do
+          if QA.quickApps[id][f.name] then QA.quickApps[id][f.name]=f end
+        end
+        if hc3.HC3quickAppFile and tonumber(QA.quickApps[id]._emu.proxy) then HC3call(method,url,data) end
+        QA.quickApps[id].restartQA()
+        return true,200
+      else return HC3call(method,url,data) end
+    end,
+    ["GET/quickApp/export/#id"]             --Export QA to fqa
+    = function(method,url,props,data,options,id)
+      if QA.quickApps[id] then
+        return QA.toFQA(id,nil),200
+      else return HC3call(method,url) end
+    end,
+    ["GET/quickApp/availableTypes"]          --Available QA types
+    = function(method,url,props,data,options,id,name)
+      return HC3call(method,url)
+    end,
+    ["POST/quickApp/"]    -- Install QA
+    = function(method,url,props,data,options)
+      local stat,res = pcall(function()
+          QA.loadQA(nil,data):install()
+        end)
+      if stat then return nil,500
+      else return res,201 end
+    end,
+    ["DELETE/quickApp/#id/files/#name"]    -- Delete file
+    = function(method,url,props,data,options,id,name)
+      local qa = QA.quickApps[id]
+      if qa then
+        if qa[name] then
+          QA.files[id][name]=nil
+          if hc3.HC3quickAppFile and tonumber(QA.quickApps[id]._emu.proxy) then HC3call(method,url) end
+          QA.quickApps[id].restartQA()
+          return true,200
+        else return nil,404 end
+      else return HC3call(method,url) end
+    end,
+    -------------- Plugins ---------------
+    ["GET/plugins"] -- Get  installed plugin
+    = function(method,url,props,data,options)
+      return HC3call(method,url)
+    end,
+    ["GET/plugins/callUIEvent"]
+    = function(method,url,props,data,options)
+      return HC3call(method,url)
+    end,
+    ["GET/plugins/getView"]
+    = function(method,url,props,data,options)
+      return HC3call(method,url)
+    end,
+    ["GET/plugins/installed"]
+    = function(method,url,props,data,options)
+      return HC3call(method,url)
+    end,
+    ["GET/plugins/ipCameras"]
+    = function(method,url,props,data,options)
+      return HC3call(method,url)
+    end,
+    ["GET/plugins/types"]   --Types in the system
+    = function(method,url,props,data,options)
+      return HC3call(method,url)
+    end,
+    ["DELETE/plugins/installed"]                  --Delete plugin
+    = function(method,url,props,data,options)
+      return NIP(method,url,data)
+    end,
+    ["POST/plugins/createChildDevice"]
+    = function(method,url,props,data,options)
+      local args = type(data)=='string' and json.decode(data) or data
+      local parent = QA.quickApps[args.parentId or 0]
+      if (not online) or (parent and not parent._proxy) then
+        local dev = Local.createDevice({name=args.name,type=args.type})
+        -- name,parentId,type,initialProperties,initialInterfaces
+        if not dev then return nil,500 end
+        dev.parentId = args.parentId
+        local iprops = args.initialProperties or {}
+        local interfaces = args.initialInterfaces or {}
+        dev.interfaces = dev.interfaces or {}
+        for p,v in  pairs(iprops) do dev.properties[p]=v end
+        for _,i in ipairs(interfaces) do if not Util.member(i,dev.interfaces) then table.insert(dev.interfaces,i) end end
+        return dev,200
+      end
+      return HC3call(method,url,data)
+    end,
+    ["DELETE/plugins/createChildDevice/#id"]
+    = function(method,url,props,data,options,id)
+      if gLoc.devices[id] then
+        gLoc.devices[id]=nil
+        return nil,200
+      end
+      return HC3call(method,url,data)
+    end,
+    ["POST/plugins/interfaces"]      --Add/remove interfaces
+    = function(method,url,props,data,options)
+      return HC3call(method,url,data)
+    end,
+    ["POST/plugins/publishEvent"]    --Publish event
+    = function(method,url,props,data,options)
+      if offline then
+        Log(LOG.WARNING,"/plugins/publishEvent not implemented for offline yet")
+        return nil,500
+      end
+      return HC3call(method,url,data)
+    end,
+    ["POST/plugins/restart"]         --Restart plugin
+    = function(method,url,props,data,options)
+      local args = type(data)=='string' and json.decode(data) or data
+      if args.deviceId and QA.quickApps[args.deviceId] then
+        QA.quickApps[args.deviceId].restartQA()
+        return true,200
+      else return HC3call(method,url,data) end
+    end,
+    ["POST/plugins/updateProperty"]  --Update property
+    = function(method,url,props,data,options)
+      local args,old = type(data)=='string' and json.decode(data) or data
+      local id,dev = args.deviceId,gLoc.devices[args.deviceId]
+      if dev then
+        if dev.properties[args.propertyName] ~= args.value or args.force then
+          local qa = QA.quickApps[id]
+          old = dev.properties[args.propertyName]
+          if qa==nil and type(dev.properties[args.propertyName]) ~= type(args.value) then
+            Log(LOG.ERROR,"updateProperty id:%s, propertyName:%s, wrong type:%s",id,args.propertyName,type(args.value))
           end
-          return gLoc.settings_info,200
-        else return HC3call(method,url,data) end
-      end,
-      ["GET/settings/location"]                    --settings/location
-      = function(method,url,props,data,options,name)
-        if offline then return gLoc.settings_location,200
-        else return HC3call(method,url) end
-      end,
-      ["PUT/settings/location"]                    --settings/location
-      = function(method,url,props,data,options,name)
-        if offline then 
-          local args = type(data)=='string' and json.decode(data) or data
-          for k,v  in pairs(args) do
-            gLoc.settings_location[k]=v
+          dev.properties[args.propertyName] = args.value
+          if qa and qa._emu.proxy then 
+            return HC3call(method,url,data) -- We have a proxy, let it post the update event
+          else -- Local QA or device, post event locally
+            postTrigger({
+                type='DevicePropertyUpdatedEvent',
+                data = {
+                  id=args.deviceId,
+                  property=args.propertyName,
+                  newValue=args.value,
+                  oldValue=old
+                }
+              })
           end
-          return gLoc.settings_location,200
-        else return HC3call(method,url,data) end
-      end,
-      ----------- Rooms ------------
-      ["GET/rooms"] -- Get rooms
-      = function(method,url,props,data,options)
-        local rooms = offline and {} or HC3call(method,url)
-        return merge(rooms,gLoc.rooms),200
-      end,
-      ["GET/rooms/#id"] --Get globalvariable  object
-      = function(method,url,props,data,options,id)
-        local s = gLoc.rooms[id] or online and HC3call(method,url)
-        if s then return s,200 else return s,404 end
-      end,
-      ["POST/rooms"]  --Create room
-      = function(method,url,props,data,options)
-        if offline then
-          local args = type(data)=='string' and json.decode(data) or data
-          local r = Local.createRoom(args)
-          if r then return r,200 else return r,500 end
-        else return HC3call(method,url,data) end
-      end,
-      ["PUT/rooms/#id"]  --Modify room
-      = function(method,url,props,data,options,id)
-        if offline then
-          if gLoc.rooms[id] then
-            local args = type(data)=='string' and json.decode(data) or data
-            gLoc.rooms[id]=copyTo(args,gLoc.rooms[id])
-            return gLoc.rooms[id],200
-          else return nil,404 end
-        else return HC3call(method,url,data) end
-      end,
-      ["DELETE/rooms/#id"]  --Delete room
-      = function(method,url,props,data,options,id)
+        end
+        return data.value,200
+      else return HC3call(method,url,data) end
+    end,
+    ["POST/plugins/updateView"]      --Update view
+    = function(method,url,props,data,options)
+      local args = type(data)=='string' and json.decode(data) or data
+      local qa = QA.quickApps[args.deviceId]
+      if qa then
+        QA.setWebUIValue(args.deviceId,args.componentName,args.propertyName,args.newValue)
+        if qa._emu.proxy then
+          return HC3call(method,url,data)
+        else return true,200 end
+      else return HC3call(method,url,data) end
+    end,
+    ------------ Misc -------------
+    ["GET/refreshStates"]           --events
+    = function(method,url,props,data,options)
+      return refreshStates(tonumber(props.last) or 0),200
+    end,
+    ["GET/weather"]           --weather
+    = function(method,url,props,data,options)
+      if offline then return gLoc.weather,200
+      else return HC3call(method,url) end
+    end,
+    ["GET/alarms/v1/devices/"]           --alarms
+    = function(method,url,props,data,options)
+      if offline then return gLoc.alarms_devices,200
+      else return HC3call(method,url) end
+    end,
+    ["GET/alarms/v1/partitions"]          --alarm partitions
+    = function(method,url,props,data,options)
+      if offline then return gLoc.alarms_partitions,200
+      else return HC3call(method,url) end
+    end,
+    ["GET/settings/info"]                    --settings/info
+    = function(method,url,props,data,options,name)
+      if offline then return gLoc.settings_info,200
+      else return HC3call(method,url) end
+    end,
+    ["PUT/settings/info"]                    --settings/info
+    = function(method,url,props,data,options,name)
+      if offline then
+        local args = type(data)=='string' and json.decode(data) or data
+        for k,v  in pairs(args) do
+          gLoc.settings_info[k]=v
+        end
+        return gLoc.settings_info,200
+      else return HC3call(method,url,data) end
+    end,
+    ["GET/settings/location"]                    --settings/location
+    = function(method,url,props,data,options,name)
+      if offline then return gLoc.settings_location,200
+      else return HC3call(method,url) end
+    end,
+    ["PUT/settings/location"]                    --settings/location
+    = function(method,url,props,data,options,name)
+      if offline then 
+        local args = type(data)=='string' and json.decode(data) or data
+        for k,v  in pairs(args) do
+          gLoc.settings_location[k]=v
+        end
+        return gLoc.settings_location,200
+      else return HC3call(method,url,data) end
+    end,
+    ----------- Rooms ------------
+    ["GET/rooms"] -- Get rooms
+    = function(method,url,props,data,options)
+      local rooms = offline and {} or HC3call(method,url)
+      return merge(rooms,gLoc.rooms),200
+    end,
+    ["GET/rooms/#id"] --Get globalvariable  object
+    = function(method,url,props,data,options,id)
+      local s = gLoc.rooms[id] or online and HC3call(method,url)
+      if s then return s,200 else return s,404 end
+    end,
+    ["POST/rooms"]  --Create room
+    = function(method,url,props,data,options)
+      if offline then
+        local args = type(data)=='string' and json.decode(data) or data
+        local r = Local.createRoom(args)
+        if r then return r,200 else return r,500 end
+      else return HC3call(method,url,data) end
+    end,
+    ["PUT/rooms/#id"]  --Modify room
+    = function(method,url,props,data,options,id)
+      if offline then
         if gLoc.rooms[id] then
-          gLoc.rooms[id]=nil
-          return true,200
-        else return HC3call(method,url) end
-      end,
-      ----------- Sections ------------
-      ["POST/sections"]  --Create section
-      = function(method,url,props,data,options)
-        if offline then
           local args = type(data)=='string' and json.decode(data) or data
-          local s = Local.createSection(args)
-          if s then return s,200 else return s,404 end
-        else return HC3call(method,url,data) end
-      end,
-      ["PUT/sections/#id"]  --Modify section
-      = function(method,url,props,data,options,id)
-        if offline then
-          if gLoc.sections[id] then
-            local args = type(data)=='string' and json.decode(data) or data
-            gLoc.sections[id]=copyTo(args,gLoc.sections[id])
-            return gLoc.sections[id],200
-          else return nil,404 end
-        else return HC3call(method,url,data) end
-      end,
-      ["GET/sections"] -- Get global variables
-      = function(method,url,props,data,options)
-        local secs = offline and {} or HC3call(method,url)
-        return merge(secs,gLoc.sections,function(v) return v.name end),200
-      end,
-      ["GET/sections/#name"] --Get globalvariable  object
-      = function(method,url,props,data,options,id)
-        local s = gLoc.sections[id] or online and HC3call(method,url)
-        if s then return s,200 else return s,404 end
-      end,
-      ["DELETE/sections/#id"]  --Delete section
-      = function(method,url,props,data,options,id)
-        if gLoc.sections[id] then
-          gLoc.section[id]=nil
-          return true,200
-        else return HC3call(method,url) end
-      end,
-      ["GET/notificationCenter"]  --Notification list
-      = function(method,url,props,data,options,id)
-        if offline then return gLoc.notificationCenter,200 end
-        return HC3call(method,url,data)
-      end,
-      ["POST/notificationCenter"]  --Create notification
-      = function(method,url,props,data,options,id)
-        return HC3call(method,url,data)
-      end,
-      ["DELETE/notificationCenter"]  --Delete read notifications
-      = function(method,url,props,data,options,id)
-        return HC3call(method,url,data)
-      end,
-      ["GET/notificationCenter​/#ID"]  --Notification
-      = function(method,url,props,data,options,id)
-        return HC3call(method,url,data)
-      end,
-      ["PUT/notificationCenter​/#ID"]  --Modify Notification
-      = function(method,url,props,data,options,id)
-        return HC3call(method,url,data)
-      end,
-      ["DELETE/notificationCenter​/#ID"]  --Delete Notification
-      = function(method,url,props,data,options,id)
-        return HC3call(method,url,data)
-      end,
-      ["POST/notificationCenter​/markAsRead"]  --mas Notification
-      = function(method,url,props,data,options)
-        return HC3call(method,url,data)
-      end,
-      ["POST/debugMessages"]  --mas Notification
-      = function(method,url,props,data,options)
+          gLoc.rooms[id]=copyTo(args,gLoc.rooms[id])
+          return gLoc.rooms[id],200
+        else return nil,404 end
+      else return HC3call(method,url,data) end
+    end,
+    ["DELETE/rooms/#id"]  --Delete room
+    = function(method,url,props,data,options,id)
+      if gLoc.rooms[id] then
+        gLoc.rooms[id]=nil
+        return true,200
+      else return HC3call(method,url) end
+    end,
+    ----------- Sections ------------
+    ["POST/sections"]  --Create section
+    = function(method,url,props,data,options)
+      if offline then
         local args = type(data)=='string' and json.decode(data) or data
-        if hc3.HC3_debugmessages then
-          HC3call(method,url,data)
-        end
-        local str,tag,typ = args.message,args.tag,args.messageType
-        if hc3.htmlDebug then -- A bit messy, but try to convert html tags to ZBSconsole equivalents
-          str = html2color(str,'\027[0m')
-          str=str:gsub("&nbsp;"," ")
-        end
-        typ=typ:upper()
-        str = format("%s [%s] [%s]: %s",os.date("[%d.%m.%Y] [%X]"),colorStr(hc3.consoleColors[typ],typ),tag:upper(),str)
-        print(str) -- To IDE console
-        for pat,skts in pairs(terminals) do
-          if tag:match(pat) then
-            for skt,_ in pairs(skts) do copas.send(skt, str.."\n") end
-          end
-        end
-      end,
-    }
-
-    local pAPI={GET={},PUT={},POST={},DELETE={}}
-    local function processAPI(api,dict)
-      local method
-      for k,v in pairs(api) do
-        method,k = k:match("(%w+)(.*)")
-        local d = dict[method]
-        k:gsub("([^/]+)",function(p)
-            d[p] = d[p] or {}
-            d=d[p]
-          end)
-        d['#fun']=v
+        local s = Local.createSection(args)
+        if s then return s,200 else return s,404 end
+      else return HC3call(method,url,data) end
+    end,
+    ["PUT/sections/#id"]  --Modify section
+    = function(method,url,props,data,options,id)
+      if offline then
+        if gLoc.sections[id] then
+          local args = type(data)=='string' and json.decode(data) or data
+          gLoc.sections[id]=copyTo(args,gLoc.sections[id])
+          return gLoc.sections[id],200
+        else return nil,404 end
+      else return HC3call(method,url,data) end
+    end,
+    ["GET/sections"] -- Get global variables
+    = function(method,url,props,data,options)
+      local secs = offline and {} or HC3call(method,url)
+      return merge(secs,gLoc.sections,function(v) return v.name end),200
+    end,
+    ["GET/sections/#name"] --Get globalvariable  object
+    = function(method,url,props,data,options,id)
+      local s = gLoc.sections[id] or online and HC3call(method,url)
+      if s then return s,200 else return s,404 end
+    end,
+    ["DELETE/sections/#id"]  --Delete section
+    = function(method,url,props,data,options,id)
+      if gLoc.sections[id] then
+        gLoc.section[id]=nil
+        return true,200
+      else return HC3call(method,url) end
+    end,
+    ["GET/notificationCenter"]  --Notification list
+    = function(method,url,props,data,options,id)
+      if offline then return gLoc.notificationCenter,200 end
+      return HC3call(method,url,data)
+    end,
+    ["POST/notificationCenter"]  --Create notification
+    = function(method,url,props,data,options,id)
+      return HC3call(method,url,data)
+    end,
+    ["DELETE/notificationCenter"]  --Delete read notifications
+    = function(method,url,props,data,options,id)
+      return HC3call(method,url,data)
+    end,
+    ["GET/notificationCenter​/#ID"]  --Notification
+    = function(method,url,props,data,options,id)
+      return HC3call(method,url,data)
+    end,
+    ["PUT/notificationCenter​/#ID"]  --Modify Notification
+    = function(method,url,props,data,options,id)
+      return HC3call(method,url,data)
+    end,
+    ["DELETE/notificationCenter​/#ID"]  --Delete Notification
+    = function(method,url,props,data,options,id)
+      return HC3call(method,url,data)
+    end,
+    ["POST/notificationCenter​/markAsRead"]  --mas Notification
+    = function(method,url,props,data,options)
+      return HC3call(method,url,data)
+    end,
+    ["POST/debugMessages"]  --mas Notification
+    = function(method,url,props,data,options)
+      local args = type(data)=='string' and json.decode(data) or data
+      if hc3.HC3_debugmessages then
+        HC3call(method,url,data)
       end
+      local str,tag,typ = args.message,args.tag,args.messageType
+      if hc3.htmlDebug then -- A bit messy, but try to convert html tags to ZBSconsole equivalents
+        str = html2color(str,'\027[0m')
+        str=str:gsub("&nbsp;"," ")
+      end
+      typ=typ:upper()
+      str = format("%s [%s] [%s]: %s",os.date("[%d.%m.%Y] [%X]"),colorStr(hc3.consoleColors[typ],typ),tag:upper(),str)
+      print(str) -- To IDE console
+      for pat,skts in pairs(terminals) do
+        if tag:match(pat) then
+          for skt,_ in pairs(skts) do copas.send(skt, str.."\n") end
+        end
+      end
+    end,
+  }
+
+  local pAPI={GET={},PUT={},POST={},DELETE={}}
+  local function processAPI(api,dict)
+    local method
+    for k,v in pairs(api) do
+      method,k = k:match("(%w+)(.*)")
+      local d = dict[method]
+      k:gsub("([^/]+)",function(p)
+          d[p] = d[p] or {}
+          d=d[p]
+        end)
+      d['#fun']=v
     end
+  end
 
-    processAPI(API,pAPI)
+  processAPI(API,pAPI)
 
-    local function redirect(method,url,data)
-      if _debugFlags.api then
-        Log(LOG.WARNING,"Unhandled API call '%s:%s'%s",method,url,
-          online and ", redirecting to HC3" or  "") end
-        return HC3call(method,url,data)
-      end
+  local function redirect(method,url,data)
+    if _debugFlags.api then
+      Log(LOG.WARNING,"Unhandled API call '%s:%s'%s",method,url,
+        online and ", redirecting to HC3" or  "") 
+    end
+    return HC3call(method,url,data)
+  end
 
-      local keyMap = {['number'] = 'id', ['string'] = 'name'}
+  local keyMap = {['number'] = 'id', ['string'] = 'name'}
 
-      local function findPath(path,tree,keys)
-        for i=1,#path do
-          local key = path[i]
-          local t = tree[key]
-          if not t then
-            key = tonumber(key) or key
-            t = tree["#"..keyMap[type(key)]]
-            if t then
-              keys[#keys+1] = key
-              tree=t
-            else return redirect end
-          else tree = t end
-        end
-        return tree['#fun'] or redirect
-      end
+  local function findPath(path,tree,keys)
+    for i=1,#path do
+      local key = path[i]
+      local t = tree[key]
+      if not t then
+        key = tonumber(key) or key
+        t = tree["#"..keyMap[type(key)]]
+        if t then
+          keys[#keys+1] = key
+          tree=t
+        else return redirect end
+      else tree = t end
+    end
+    return tree['#fun'] or redirect
+  end
 
-      local function valueOf(v)
-        return tonumber(v) or (v=='true' and true) or (v=='false' and false) or v
-      end
+  local function valueOf(v)
+    return tonumber(v) or (v=='true' and true) or (v=='false' and false) or v
+  end
 
-      local function findHandler(method,url)
-        local tree = pAPI[method]
-        local path,query=url:match("([^%?]+)%??(.*)")
-        path = path:split("/")
-        local keys,props = {},false
-        if query~="" then
-          props={}
-          if query:sub(1,1)=='%' then query = urldecode(query) end
-          query:gsub("([%w%%]+)=([%w%%%[%]%,:_]+)",
-            function(k,v) props[k]=valueOf(v) end)
-        end
-        return findPath(path,tree,keys),props,keys
-      end
+  local function findHandler(method,url)
+    local tree = pAPI[method]
+    local path,query=url:match("([^%?]+)%??(.*)")
+    path = path:split("/")
+    local keys,props = {},false
+    if query~="" then
+      props={}
+      if query:sub(1,1)=='%' then query = urldecode(query) end
+      query:gsub("([%w%%]+)=([%w%%%[%]%,:_]+)",
+        function(k,v) props[k]=valueOf(v) end)
+    end
+    return findPath(path,tree,keys),props,keys
+  end
 
-      function URLcall(method,url,data,options)
-        local fun,props,keys = findHandler(method,url)
-        local stat,res,code = pcall(fun,method,url,props,data or false,options or {},table.unpack(keys or {}))
-        if not stat then Log(LOG.ERROR,"API crashed, %s:%s - %s",method,url,res) end
-        return res,code
-      end
+  function URLcall(method,url,data,options)
+    local fun,props,keys = findHandler(method,url)
+    local stat,res,code = pcall(fun,method,url,props,data or false,options or {},table.unpack(keys or {}))
+    if not stat then Log(LOG.ERROR,"API crashed, %s:%s - %s",method,url,res) end
+    return res,code
+  end
 
-      self.getHandler = findHandler
-      self.call = URLcall
-      function self.setOffline(flag,autoc)
-        offline = flag; online = not flag
-        if autoc~=nil then auto=autoc end
-      end
-      self.resources = gLoc
-      self.api = {
-        get = function(call, _, options) return URLcall("GET",call, nil, options) end,
-        put = function(call, data, options) return URLcall("PUT",call, data and json.encode(data), options) end,
-        post = function(call, data, options) return URLcall("POST",call, data and json.encode(data), options) end,
-        delete = function(call, data, options) return URLcall("DELETE",call, data and json.encode(data), options) end,
-        getHC3 = function(call) return HC3call("GET",call, nil) end,
-        putHC3 = function(call, data) return HC3call("PUT",call, data and json.encode(data)) end,
-        postHC3 = function(call, data) return HC3call("POST",call, data and json.encode(data)) end,
-        deleteHC3 = function(call, data) return HC3call("DELETE",call, data and json.encode(data)) end,
-      }
-      self.GET_DEVICE = createHandler("GET","/devices/#id")
-      self.GET_SCENE = createHandler("GET","/scenes/#id")
-      self.GET_PROPERTY = createHandler("GET","/devices/#id/properties/#name")
-      self.GET_VARIABLE = createHandler("GET","/globalVariables/#name")
-      self.PUT_VARIABLE = createHandler("PUT","/globalVariables/#name")
-      self.CALL_ACTION = createHandler("POST","/devices/#id/action/#name")
-      self.POST_DEBUGMESSAGE = createHandler("POST","/debugMessages")
-      return self
-    end--module API
+  self.getHandler = findHandler
+  self.call = URLcall
+  function self.setOffline(flag,autoc)
+    offline = flag; online = not flag
+    if autoc~=nil then auto=autoc end
+  end
+  self.resources = gLoc
+  self.api = {
+    get = function(call, _, options) return URLcall("GET",call, nil, options) end,
+    put = function(call, data, options) return URLcall("PUT",call, data and json.encode(data), options) end,
+    post = function(call, data, options) return URLcall("POST",call, data and json.encode(data), options) end,
+    delete = function(call, data, options) return URLcall("DELETE",call, data and json.encode(data), options) end,
+    getHC3 = function(call) return HC3call("GET",call, nil) end,
+    putHC3 = function(call, data) return HC3call("PUT",call, data and json.encode(data)) end,
+    postHC3 = function(call, data) return HC3call("POST",call, data and json.encode(data)) end,
+    deleteHC3 = function(call, data) return HC3call("DELETE",call, data and json.encode(data)) end,
+  }
+  self.GET_DEVICE = createHandler("GET","/devices/#id")
+  self.GET_SCENE = createHandler("GET","/scenes/#id")
+  self.GET_PROPERTY = createHandler("GET","/devices/#id/properties/#name")
+  self.GET_VARIABLE = createHandler("GET","/globalVariables/#name")
+  self.PUT_VARIABLE = createHandler("PUT","/globalVariables/#name")
+  self.CALL_ACTION = createHandler("POST","/devices/#id/action/#name")
+  self.POST_DEBUGMESSAGE = createHandler("POST","/debugMessages")
+  return self
+end--module API
 
 --------------- Load modules and start ------------------------------
-    local hc3 = hc3_emulator
-    hc3.module = {}
-    hc3.module.json    = module.Json(hc3)
-    hc3.module.Util    = module.Utilities(hc3)
-    hc3.module.Timer   = module.Timer(hc3)
-    hc3.module.HTTP    = module.HTTP(hc3)
-    hc3.module.Trigger = module.Trigger(hc3)
-    hc3.module.Fibaro  = module.Fibaro(hc3)
-    hc3.module.OS      = module.OS(hc3)
-    hc3.module.QA      = module.QuickApp(hc3)
-    hc3.module.Scene   = module.Scene(hc3)
-    hc3.module.Web     = module.WebAPI(hc3)
-    hc3.module.API     = module.API(hc3)
-    hc3.module.Local   = module.Local(hc3)
+local hc3 = hc3_emulator
+hc3.module = {}
+hc3.module.json    = module.Json(hc3)
+hc3.module.Util    = module.Utilities(hc3)
+hc3.module.Timer   = module.Timer(hc3)
+hc3.module.HTTP    = module.HTTP(hc3)
+hc3.module.Trigger = module.Trigger(hc3)
+hc3.module.Fibaro  = module.Fibaro(hc3)
+hc3.module.OS      = module.OS(hc3)
+hc3.module.QA      = module.QuickApp(hc3)
+hc3.module.Scene   = module.Scene(hc3)
+hc3.module.Web     = module.WebAPI(hc3)
+hc3.module.API     = module.API(hc3)
+hc3.module.Local   = module.Local(hc3)
 
 --Setup global functions
-    json,Log,LOG   = hc3.module.json,hc3.module.Util.Log,hc3.module.Util.LOG
-    net,api        = hc3.module.HTTP.net,hc3.module.API.api
-    assert,assertf = hc3.module.Util.assert,hc3.module.Util.assertf
+json,Log,LOG   = hc3.module.json,hc3.module.Util.Log,hc3.module.Util.LOG
+net,api        = hc3.module.HTTP.net,hc3.module.API.api
+assert,assertf = hc3.module.Util.assert,hc3.module.Util.assertf
 
-    local Util,Timer,API,OS = hc3.module.Util,hc3.module.Timer,hc3.module.API,hc3.module.OS
-    local Web,Trigger       = hc3.module.Web,hc3.module.Trigger
+local Util,Timer,API,OS = hc3.module.Util,hc3.module.Timer,hc3.module.API,hc3.module.OS
+local Web,Trigger,Fibaro= hc3.module.Web,hc3.module.Trigger,hc3.module.Fibaro
 
 --Initialize modules
-    for _,m in pairs(hc3.module) do if m and m.initialise then m.initialise(hc3) end end
+for _,m in pairs(hc3.module) do if m and m.initialise then m.initialise(hc3) end end
 
-    commandLines['help'] = function()
-      for c,_ in pairs(commandLines) do
-        Log(LOG.LOG,"Command: -%s",c)
-      end
+commandLines['help'] = function()
+  for c,_ in pairs(commandLines) do
+    Log(LOG.LOG,"Command: -%s",c)
+  end
+end
+
+local function DEFAULT(v,d) if v~=nil then return v else return d end end
+hc3.offline           = DEFAULT(hc3.offline,false)
+hc3.defaultDevice     = DEFAULT(hc3.defaultDevice,"com.fibaro.multilevelSwitch")
+hc3.autoCreate        = DEFAULT(hc3.autoCreate,true)
+hc3.setOffline        = hc3.module.API.setOffline
+hc3.locl              = hc3.module.Local.locl
+
+hc3.updateViewLayout  = hc3.module.QA.updateViewLayout
+hc3.getUI             = hc3.module.QA.getQAUI
+hc3.createQuickApp    = hc3.module.QA.createQuickApp
+hc3.createProxy       = hc3.module.QA.createProxy
+hc3.getIPaddress      = hc3.module.Util.getIPaddress
+hc3.cache             = hc3.module.Trigger.cache
+hc3.prettyJsonFormat  = hc3.module.Util.prettyJsonFormat
+hc3.prettyJson        = hc3.module.Util.prettyJson
+hc3.file              = hc3.module.OS.file
+hc3.postTrigger       = hc3.module.Trigger.postTrigger
+hc3.loadScene         = hc3.module.Scene.loadScene
+hc3.loadQA            = hc3.module.QA.loadQA
+hc3.downloadPlugin    = hc3.module.OS.downloadZbsPlugin
+hc3.downloadAssets    = hc3.module.OS.downloadAssets
+hc3.downloadFile      = hc3.module.OS.downloadFile
+hc3.downloadResources = hc3.module.Local.downloadResources
+hc3.loadResources     = hc3.module.Local.loadResources
+
+function hc3.module.Util.createEnvironment(envType, extras)
+  local env = {}
+  local function copy(t) local res={} for k,v in pairs(t) do res[k]=v end  return res end
+
+  env._G = env
+  env.hc3_emulator = copy(hc3)
+  env.fibaro = copy(hc3.module.Fibaro.fibaro)  -- scenes may patch fibaro:*...
+  env.json = copy(hc3.module.json)
+  env.print = print
+  env.net = copy(hc3.module.HTTP.net)
+  env.api = copy(hc3.module.API.api)
+  env.tostring = tostring
+  env.tonumber = tonumber
+  env.table = table
+  env.string = string
+  env.math = math
+  env.pairs = pairs
+  env.ipairs = ipairs
+  env.pcall = pcall
+  env.error = error
+  if hc3.userdataType then -- Some code tests against userdata...
+    env.type = function(o)
+      local t = type(o) 
+      return t=='table' and o._USERDATA and 'userdata' or t
     end
+  else env.type = type end
 
-    local function DEFAULT(v,d) if v~=nil then return v else return d end end
-    hc3.offline           = DEFAULT(hc3.offline,false)
-    hc3.defaultDevice     = DEFAULT(hc3.defaultDevice,"com.fibaro.multilevelSwitch")
-    hc3.autoCreate        = DEFAULT(hc3.autoCreate,true)
-    hc3.setOffline        = hc3.module.API.setOffline
-    hc3.locl              = hc3.module.Local.locl
+  env.next = next
+  env.select = select
+  env.assert = assert
 
-    hc3.updateViewLayout  = hc3.module.QA.updateViewLayout
-    hc3.getUI             = hc3.module.QA.getQAUI
-    hc3.createQuickApp    = hc3.module.QA.createQuickApp
-    hc3.createProxy       = hc3.module.QA.createProxy
-    hc3.getIPaddress      = hc3.module.Util.getIPaddress
-    hc3.cache             = hc3.module.Trigger.cache
-    hc3.prettyJsonFormat  = hc3.module.Util.prettyJsonFormat
-    hc3.prettyJson        = hc3.module.Util.prettyJson
-    hc3.file              = hc3.module.OS.file
-    hc3.postTrigger       = hc3.module.Trigger.postTrigger
-    hc3.loadScene         = hc3.module.Scene.loadScene
-    hc3.loadQA            = hc3.module.QA.loadQA
-    hc3.downloadPlugin    = hc3.module.OS.downloadZbsPlugin
-    hc3.downloadAssets    = hc3.module.OS.downloadAssets
-    hc3.downloadFile      = hc3.module.OS.downloadFile
-    hc3.downloadResources = hc3.module.Local.downloadResources
-    hc3.loadResources     = hc3.module.Local.loadResources
+  if envType == 'Scene' then env.os = { time = os.time, date = os.date } end
 
-    function hc3.module.Util.createEnvironment(envType, extras)
-      local env = {}
-      local function copy(t) local res={} for k,v in pairs(t) do res[k]=v end  return res end
+  if envType == 'QA' or extras then
 
-      env._G = env
-      env.hc3_emulator = copy(hc3)
-      env.fibaro = copy(hc3.module.Fibaro.fibaro)  -- scenes may patch fibaro:*...
-      env.json = copy(hc3.module.json)
-      env.print = print
-      env.net = copy(hc3.module.HTTP.net)
-      env.api = copy(hc3.module.API.api)
-      env.tostring = tostring
-      env.tonumber = tonumber
-      env.table = table
-      env.string = string
-      env.math = math
-      env.pairs = pairs
-      env.ipairs = ipairs
-      env.pcall = pcall
-      env.error = error
-      if hc3.userdataType then -- Some code tests against userdata...
-        env.type = function(o)
-          local t = type(o) 
-          return t=='table' and o._USERDATA and 'userdata' or t
-        end
-      else env.type = type end
+    env._VERSION = "Lua 5.3"
+    env.__assert_type = hc3.module.Fibaro.__assert_type
+    env.__fibaro_get_device = hc3.module.Fibaro.__fibaro_get_device
+    env.__fibaro_add_debug_message = hc3.module.Fibaro.__fibaro_add_debug_message
+    env.__fibaro_get_global_variable = hc3.module.Fibaro.__fibaro_get_global_variable
+    env.__fibaro_get_device_property = hc3.module.Fibaro.__fibaro_get_device_property
+    env.__fibaroUseAsyncHandler = hc3.module.Fibaro.__fibaroUseAsyncHandler
+    env.__ternary = function(a,b,c) if a then return b else return c end end
+    env.__fibaro_get_device = hc3.module.Fibaro.__fibaro_get_device
+    env.__fibaroSleep = hc3.module.Fibaro.__fibaroSleep
+    env.__fibaro_get_scene = hc3.module.Fibaro.__fibaro_get_scene
+    env.__fibaro_get_devices = hc3.module.Fibaro.__fibaro_get_devices
+    env.__fibaro_get_room = hc3.module.Fibaro.__fibaro_get_room
 
-      env.next = next
-      env.select = select
-      env.assert = assert
+    env.setTimeout = hc3.module.Timer.setTimeout
+    env.clearTimeout = hc3.module.Timer.clearTimeout
+    env.setInterval = hc3.module.Timer.setInterval
+    env.clearInterval = hc3.module.Timer.clearInterval
+    env.urlencode = Util.urlencode
+    env.xpcall = xpcall
+    env.rawlen = rawlen
+    env.collectgarbage = collectgarbage
+    env.bit32 = bit32
+    env.debug = debug
+    env.mqtt = hc3.module.HTTP.mqtt
+    env.unpack = table.unpack
+    env.os = { time = os.time, date = os.date, clock = os.clock, difftime = os.difftime, milliTime = os.milliTime }
 
-      if envType == 'Scene' then env.os = { time = os.time, data = os.date } end
+    local mt0 = getmetatable(QuickApp)
+    local QA,mt = copy(QuickApp),copy(mt0)
+    setmetatable(QA,mt)
+    env.Device = Device
+    env.QuickApp = QA
+    env.QuickAppBase = QuickAppBase
+    env.QuickAppChild = QuickAppChild
+    env.plugin = copy(hc3.module.QA.plugin)
+    env.class = class or Util.class
+    env.property = property or Util.property
+    env.super = Util.super
+    env.utf8 = utf8
 
-      if envType == 'QA' or extras then
+    env.getHierarchy = getHierarchy -- ToDo define...
+    env.Hierarchy = Hierarchy
+  end
 
-        env._VERSION = "Lua 5.3"
-        env.__assert_type = hc3.module.Fibaro.__assert_type
-        env.__fibaro_get_device = hc3.module.Fibaro.__fibaro_get_device
-        env.__fibaro_add_debug_message = hc3.module.Fibaro.__fibaro_add_debug_message
-        env.__fibaro_get_global_variable = hc3.module.Fibaro.__fibaro_get_global_variable
-        env.__fibaro_get_device_property = hc3.module.Fibaro.__fibaro_get_device_property
-        env.__fibaroUseAsyncHandler = hc3.module.Fibaro.__fibaroUseAsyncHandler
-        env.__ternary = function(a,b,c) if a then return b else return c end end
-        env.__fibaro_get_device = hc3.module.Fibaro.__fibaro_get_device
-        env.__fibaroSleep = hc3.module.Fibaro.__fibaroSleep
-        env.__fibaro_get_scene = hc3.module.Fibaro.__fibaro_get_scene
-        env.__fibaro_get_devices = hc3.module.Fibaro.__fibaro_get_devices
-        env.__fibaro_get_room = hc3.module.Fibaro.__fibaro_get_room
+  if extras then
+    env.os = os
+    env.io = io
+    env.dofile = hc3_emulator.dofile -- Allow dofile for including code for testing, but use our version that sets context
+    env.loadfile = loadfile
+    env.load = load
+    env.require = require
+    env.coroutine = coroutine
+    env.setmetatable = setmetatable
+    env.debug = debug
+  end
+  return env
+end
 
-        env.setTimeout = hc3.module.Timer.setTimeout
-        env.clearTimeout = hc3.module.Timer.clearTimeout
-        env.setInterval = hc3.module.Timer.setInterval
-        env.clearInterval = hc3.module.Timer.clearInterval
-        env.urlencode = Util.urlencode
-        env.xpcall = xpcall
-        env.rawlen = rawlen
-        env.collectgarbage = collectgarbage
-        env.bit32 = bit32
-        env.debug = debug
-        env.mqtt = hc3.module.HTTP.mqtt
-        env.unpack = table.unpack
-        env.os = { time = os.time, date = os.date, clock = os.clock, difftime = os.difftime, milliTime = os.milliTime }
-
-        local mt = getmetatable(QuickApp)
-        local QA = copy(QuickApp)
-        setmetatable(QA,mt)
-        env.Device = Device
-        env.QuickApp = QA
-        env.QuickAppBase = QuickAppBase
-        env.QuickAppChild = QuickAppChild
-        env.plugin = copy(hc3.module.QA.plugin)
-        env.class = Util.class
-        env.property = Util.property
-        env.super = Util.super
-        env.utf8 = utf8
-
-        env.getHierarchy = getHierarchy -- ToDo define...
-        env.Hierarchy = Hierarchy
-      end
-
-      if extras then
-        env.os = os
-        env.io = io
-        env.dofile = hc3_emulator.dofile -- Allow dofile for including code for testing, but use our version that sets context
-        env.loadfile = loadfile
-        env.load = load
-        env.require = require
-        env.coroutine = coroutine
-        env.metatable = metatable
-        env.debug = debug
-      end
-      return env
-    end
-
-    if arg[1] then
-      Timer.start(function()
-          os.setTimer(function()
-              local cmd,res = arg[1],false
-              if cmd:sub(1,1)=='-' then
-                cmd = cmd:sub(2)
-                if commandLines[cmd] then --- When fibaroapiHC3.lua is used as a command from ZBS
-                  res = commandLines[cmd](select(2,table.unpack(arg)))
-                end
-              end
-            end,0)
-        end,0)
-    end
-
-    local function startEmulator(file)
-
-      API.setOffline(hc3_emulator.offline)
-      local offline = hc3_emulator.offline
-
-      if not offline and not hc3_emulator.credentials then
-        error("Missing HC3 credentials -- hc3_emulator.credentials{ip=<IP>,user=<string>,pwd=<string>}")
-      end
-      if not offline then
-        hc3_emulator.typeHierarchy = api.get('/devices/hierarchy')
-        hc3_emulator.HC3version = api.get("/settings/info").currentVersion.version or "5.040.37"
-      end
-      hc3_emulator.speeding = hc3_emulator.speed==true and 48 or tonumber(hc3_emulator.speed)
-      if hc3_emulator.traceFibaro then Util.traceFibaro() end
-
-      Log(LOG.SYS,"HC3 SDK v%s",hc3_emulator.version)
-      if hc3_emulator.deploy==true or _G["DEPLOY"] then OS.deployQA(file) osExit() end
-
-      Log(LOG.SYS,"Running %sline (autocreate %s)",offline and "off" or "on",tostring(hc3_emulator.autoCreate))
-
-      if hc3_emulator.speeding then Log(LOG.SYS,"Speeding %s hours",hc3_emulator.speeding) end
-      hc3_emulator.IPaddress = Util.getIPaddress()
-      if hc3_emulator.startWeb ~= false then Web.eventServer(hc3_emulator.webPort) end
-      if hc3_emulator.startTerminal ~= false then Web.terminalServer(hc3_emulator.terminalPort) end
-
-      if type(hc3_emulator.startTime) == 'string' then
-        os.setTime(Util.parseDate(hc3_emulator.startTime))
-      end
-
-      local t = (math.floor(os.time() / 3600))*3600
-      local dst = os.date("*t",t).isdst
-      for _=1,24*30*6 do
-        t=t+3600
-        if os.date("*t",t).isdst ~= dst then
-          hc3_emulator.DST = t;
-          Log(LOG.LOG,os.date("DST at %c",t))
-          Timer.setSystemTimeout(function()
-              Timer.adjustTime(dst and 3600 or -3600)
-            end,1000*(t-os.time()))
-          break
-        end
-      end
-
-      if hc3_emulator.speeding then Timer.speedTime(hc3_emulator.speeding) end
-      if hc3_emulator.credentials and not offline then
-        hc3_emulator.BasicAuthorization = "Basic "..Util.base64(hc3_emulator.credentials.user..":"..hc3_emulator.credentials.pwd)
-      end
-
-      if hc3_emulator.poll and not hc3_emulator.offline then
-        local p = tonumber(hc3_emulator.poll) or 2000
-        Log(LOG.LOG,"Polling HC3 for triggers every %sms",p)
-        Trigger.startPolling(p)
-      end
-
-      if _debugFlags.fibaro then Util.traceFibaro() end
-
-      if offline then api.put("/settings/info",{serverStatus=os.time()})  end -- Set the time
-      
-      local code = OS.file.read(file)
-      if code:match("hc3_emulator%.actions") then
-        hc3_emulator.loadScene(file,code):install()
-      elseif code:match("QuickApp:") or hc3_emulator.quickAppPattern and code:match(hc3_emulator.quickAppPattern) then
-        hc3_emulator.loadQA(file,code):install()
-      else
-        local env = Util.createEnvironment("QA",true)
-        setContext(env)
-
-        env._ENVID='Lua'
-        local CodeLock = Timer.copas.lock.new(60*60*30)
-        function env._getLock() CodeLock:get(60*60*30) end
-        function env._releaseLock() CodeLock:release() end
-        env.print = function(...) env.fibaro.debug("Lua",...) end
-        local st = Timer.setTimeout
-        local function errHandler(err)
-          Log(LOG.ERROR,"Lua timer %s crashed - %s",env._lastTimer,"Lua",err)
-        end
-        env.setTimeout = function(fun,ms,tag)
-          local function f(...)
-            local stat,res = pcall(fun)
-            if not stat then error(res,2) end
+if arg[1] then
+  Timer.start(function()
+      os.setTimer(function()
+          local cmd,res = arg[1],false
+          if cmd:sub(1,1)=='-' then
+            cmd = cmd:sub(2)
+            if commandLines[cmd] then --- When fibaroapiHC3.lua is used as a command from ZBS
+              res = commandLines[cmd](select(2,table.unpack(arg)))
+            end
           end
-          return st(f,ms,tag,errHandler,env)
-        end
-        env.fibaro.setTimeout = function(a,b,...) return env.setTimeout(b,a,...) end
+        end,0)
+    end,0)
+end
 
-        load(code,file,"bt",env)()
-      end
-    end -- startEmulator
+local function startEmulator(file)
 
-    if not hc3_emulator.sourceFile then
-      local file = debug.getinfo(3, 'S')                                      -- Find out what file we are running
-      if file and file.source then
-        file = file.source
-        if not file:sub(1,1)=='@' then error("Can't locate file:"..file) end  -- Is it a file?
-        hc3_emulator.sourceFile = file:sub(2)
-      end
+  API.setOffline(hc3_emulator.offline)
+  local offline = hc3_emulator.offline
+
+  if not offline and not hc3_emulator.credentials then
+    error("Missing HC3 credentials -- hc3_emulator.credentials{ip=<IP>,user=<string>,pwd=<string>}")
+  end
+  if not offline then
+    hc3_emulator.typeHierarchy = api.get('/devices/hierarchy')
+    hc3_emulator.HC3version = api.get("/settings/info").currentVersion.version or "5.040.37"
+  end
+  hc3_emulator.speeding = hc3_emulator.speed==true and 48 or tonumber(hc3_emulator.speed)
+  if hc3_emulator.traceFibaro then Fibaro.traceFibaro() end
+
+  Log(LOG.SYS,"HC3 SDK v%s",hc3_emulator.version)
+  if hc3_emulator.deploy==true or _G["DEPLOY"] then OS.deployQA(file) osExit() end
+
+  Log(LOG.SYS,"Running %sline (autocreate %s)",offline and "off" or "on",tostring(hc3_emulator.autoCreate))
+
+  if hc3_emulator.speeding then Log(LOG.SYS,"Speeding %s hours",hc3_emulator.speeding) end
+  hc3_emulator.IPaddress = Util.getIPaddress()
+  if hc3_emulator.startWeb ~= false then Web.eventServer(hc3_emulator.webPort) end
+  if hc3_emulator.startTerminal ~= false then Web.terminalServer(hc3_emulator.terminalPort) end
+
+  if type(hc3_emulator.startTime) == 'string' then
+    os.setTime(Util.parseDate(hc3_emulator.startTime))
+  end
+
+  local t = (math.floor(os.time() / 3600))*3600
+  local dst = os.date("*t",t).isdst
+  for _=1,24*30*6 do
+    t=t+3600
+    if os.date("*t",t).isdst ~= dst then
+      hc3_emulator.DST = t;
+      Log(LOG.LOG,os.date("DST at %c",t))
+      Timer.setSystemTimeout(function()
+          Timer.adjustTime(dst and 3600 or -3600)
+        end,1000*(t-os.time()))
+      break
     end
+  end
 
-    if hc3_emulator.sourceFile then
-      if hc3_emulator.profile then
-        -- https://raw.githubusercontent.com/charlesmallah/lua-profiler/master/src/profiler.lua
-        profiler = require("profiler")
-        profiler.start()
+  if hc3_emulator.speeding then Timer.speedTime(hc3_emulator.speeding) end
+  if hc3_emulator.credentials and not offline then
+    hc3_emulator.BasicAuthorization = "Basic "..Util.base64(hc3_emulator.credentials.user..":"..hc3_emulator.credentials.pwd)
+  end
+
+  if hc3_emulator.poll and not hc3_emulator.offline then
+    local p = tonumber(hc3_emulator.poll) or 2000
+    Log(LOG.LOG,"Polling HC3 for triggers every %sms",p)
+    Trigger.startPolling(p)
+  end
+
+  if _debugFlags.fibaro then Fibaro.traceFibaro() end
+
+  if offline then api.put("/settings/info",{serverStatus=os.time()})  end -- Set the time
+
+  local code = OS.file.read(file)
+  if code:match("hc3_emulator%.actions") then
+    hc3_emulator.loadScene(file,code):install()
+  elseif code:match("QuickApp:") or hc3_emulator.quickAppPattern and code:match(hc3_emulator.quickAppPattern) then
+    hc3_emulator.loadQA(file,code):install()
+  else
+    local env = Util.createEnvironment("QA",true)
+    setContext(env)
+
+    env._ENVID='Lua'
+    local CodeLock = Timer.copas.lock.new(60*60*30)
+    function env._getLock() CodeLock:get(60*60*30) end
+    function env._releaseLock() CodeLock:release() end
+    env.print = function(...) env.fibaro.debug("Lua",...) end
+    local st = Timer.setTimeout
+    local function errHandler(err)
+      Log(LOG.ERROR,"Lua timer %s crashed - %s",env._lastTimer,"Lua",err)
+    end
+    env.setTimeout = function(fun,ms,tag)
+      local function f(...)
+        local stat,res = pcall(fun)
+        if not stat then error(res,2) end
       end
-      Timer.start(function()
-          --setTimeout(function() profiler.report("profiler.log") end,60*1000)
-          startEmulator(hc3_emulator.sourceFile) end,
-          0)
-      else
-        Log(LOG.SYS,"fibaroapiHC3 version:%s",FIBAROAPIHC3_VERSION)
-      end
-      osExit()
+      return st(f,ms,tag,errHandler,env)
+    end
+    env.fibaro.setTimeout = function(a,b,...) return env.setTimeout(b,a,...) end
+
+    load(code,file,"bt",env)()
+  end
+end -- startEmulator
+
+if not hc3_emulator.sourceFile then
+  local file = debug.getinfo(3, 'S')                                      -- Find out what file we are running
+  if file and file.source then
+    file = file.source
+    if not file:sub(1,1)=='@' then error("Can't locate file:"..file) end  -- Is it a file?
+    hc3_emulator.sourceFile = file:sub(2)
+  end
+end
+
+if hc3_emulator.sourceFile then
+  if hc3_emulator.profile then
+    -- https://raw.githubusercontent.com/charlesmallah/lua-profiler/master/src/profiler.lua
+    profiler = require("profiler")
+    profiler.start()
+  end
+  Timer.start(function()
+      --setTimeout(function() profiler.report("profiler.log") end,60*1000)
+      startEmulator(hc3_emulator.sourceFile) 
+    end, 0)
+else
+  Log(LOG.SYS,"fibaroapiHC3 version:%s",FIBAROAPIHC3_VERSION)
+end
+osExit()

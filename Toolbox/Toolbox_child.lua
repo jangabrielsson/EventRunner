@@ -119,7 +119,7 @@ function Toolbox_Module.childs.init(self)
       },
       _G[className] -- Fetch class constructor from class name
     )
-    setCallbacks(child,callbacks)
+    if callbacks then setCallbacks(child,callbacks) end
     return child
   end
 
