@@ -39,7 +39,7 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.301"
+local FIBAROAPIHC3_VERSION = "0.302"
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
 --[[ -- Minimal header + QA
@@ -685,13 +685,13 @@ function module.HTTP(hc3)
   end
 
   local function interceptLocal(url,options,success,_) --error)
-    local refresh = url:match("/api/refreshStates%?last=(%d+)")
-    if refresh then
-      local state = Trigger.refreshStates.getEvents(tonumber(refresh))
-      if success then success({status=200,data=json.encode(state)}) end
-      return true
-    end
     if url:match("://(127%.0%.0%.1)[:/]") then
+      local refresh = url:match("/api/refreshStates%?last=(%d+)")
+      if refresh then
+        local state = Trigger.refreshStates.getEvents(tonumber(refresh))
+        if success then success({status=200,data=json.encode(state)}) end
+        return true
+      end
       url = url:gsub("(://127%.0%.0%.1)","://"..(hc3.credentials.ip or "127.0.0.1"))
       if url:match("://.-:11111/") then
         url = url:gsub("(:11111)","")
