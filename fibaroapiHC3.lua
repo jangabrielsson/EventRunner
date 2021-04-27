@@ -36,29 +36,18 @@ file functions -- Credit pkulchenko - ZeroBraneStudio
 copas          -- Copyright 2005-2016 - Kepler Project (www.keplerproject.org)
 timerwheel     -- Credit https://github.com/Tieske/timerwheel.lua/blob/master/LICENSE
 binaryheap     -- Copyright 2015-2019 Thijs Schreijer
-
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.302"
+local FIBAROAPIHC3_VERSION = "0.303"
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
---[[ -- Minimal header + QA
-  if dofile and not hc3_emulator then
-     hc3_emulator = {
-       name = "My QA",    -- Name of QA
-       poll = 2000,       -- Poll HC3 for triggers every 2000ms
-      --offline = true,
-     }
-     dofile("fibaroapiHC3.lua")
-  end--hc3
-  function QUickApp:onInit()
-     self:debug(selfname, self.id)
-  end
---]]
 --[[
   Best way is to conditionally include this code at the top of your lua file
     if dofile and not hc3_emulator then
       hc3_emulator = {
+       name = "My QA",    -- Name of QA
+       poll = 2000,       -- Poll HC3 for triggers every 2000ms
+      --offline = true,
        quickVars = {["Hue_User"]="$CREDS.Hue_user",["Hue_IP"]=$CREDS.Hue_IP}
       }
       dofile("fibaroapiHC3.lua")
@@ -292,7 +281,6 @@ do
   local cr = loadfile(hc3_emulator.credentialsFile)
   --hc3_emulator.credentials = hc3_emulator.credentials or {}
   if cr then hc3_emulator.credentials = merge(hc3_emulator.credentials or {},cr() or {}) end
-  --print(hc3_emulator.credentials.user)
 end
 
 do
@@ -703,12 +691,18 @@ function module.HTTP(hc3)
   end
 
   local net = net or {}
-
+  local outstanding = 0
+  
   function net.HTTPClient(i_options)   
     local self = {}                   
     function self:request(url,args)
+      if outstanding > 30 then
+        Log(LOG.WARNING,"Number of outstanding http requests %s",outstanding)
+      end
       local req,resp = {},{}; for k,v in pairs(i_options or {}) do req[k]=v end
       for k,v in pairs(args.options or {}) do req[k]=v end
+      req.timeout = req.timeout or i_options.timeout
+      if req.timeout then req.timeout = math.floor(req.timeout / 1000.0 +0.5) end -- timeout in ms -> s
       local s,u = interceptLocal(url,req,args.success,args.error)
       if s then return else url=u end
       req.url = url
@@ -725,7 +719,9 @@ function module.HTTP(hc3)
       call(function()
           local t1 = os.milliTime()
           if not sync then ctx._releaseLock() end -- release lock so other timers in the QA can run during the request
+          outstanding = outstanding +1
           local _,status,headers = copas.http.request(req)
+          outstanding = outstanding -1
           if not sync then ctx._getLock() end
           if _debugFlags.http then Log(LOG.LOG,"httpRequest(%.03fs): %s %s %s",os.milliTime()-t1,req.method,url,req.data or "") end
           if tonumber(status) and status >= 200 and status < 400 then
@@ -5579,9 +5575,8 @@ function module.Utilities(hc3)
     end
   end
 
-  function self.class(name)
-    --print("Defining class "..name)
-    local cl,mt,cmt,props,parent= {},{},{},{}
+  function self.class(name)       -- Version that tries to avoid __index & __newindex  to make debugging easier
+    local cl,mt,cmt,props,parent= {['_USERDATA']=true},{},{},{}  -- We still try to be Luabind class compatible
     function cl.__copyObject(cl,obj)
       if parent then parent.__copyObject(parent,obj) end
       for k,v in pairs(cl) do
@@ -5589,11 +5584,9 @@ function module.Utilities(hc3)
       end
       return obj
     end
-    function mt.__call(tab,...)
-      --print("Intstantiating class "..name)
+    function mt.__call(tab,...)        -- Instantiation  <name>(...)
       local obj = tab.__copyObject(tab,{})
       if not tab.__init then error("Class "..name.." missing initialiser") end
-      --print("__init "..tostring(tab.__init))
       tab.__init(obj,...)
       local trapF = false
       for k,v in pairs(obj) do
@@ -5605,7 +5598,7 @@ function module.Utilities(hc3)
     end
     setmetatable(cl,mt)
     getContext()[name] = cl
-    return function(p) parent = p end
+    return function(p) parent = p end -- Class creation -- class <name>
   end
 
   function self.urlencode(str)
@@ -9267,6 +9260,8 @@ function hc3.module.Util.createEnvironment(envType, extras)
     env.dofile = hc3_emulator.dofile -- Allow dofile for including code for testing, but use our version that sets context
     env.loadfile = loadfile
     env.load = load
+    env.rawset = rawset
+    env.rawget = rawget
     env.require = require
     env.coroutine = coroutine
     env.setmetatable = setmetatable
