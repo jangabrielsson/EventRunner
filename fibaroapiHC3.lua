@@ -702,7 +702,7 @@ function module.HTTP(hc3)
       local req,resp = {},{}; for k,v in pairs(i_options or {}) do req[k]=v end
       for k,v in pairs(args.options or {}) do req[k]=v end
       req.timeout = req.timeout or i_options.timeout
-      if req.timeout then req.timeout = math.floor(req.timeout / 1000.0 +0.5) end -- timeout in ms -> s
+      if req.timeout then req.timeout = req.timeout / 1000.0  end -- timeout in ms -> s
       local s,u = interceptLocal(url,req,args.success,args.error)
       if s then return else url=u end
       req.url = url
