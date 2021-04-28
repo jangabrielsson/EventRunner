@@ -38,7 +38,7 @@ timerwheel     -- Credit https://github.com/Tieske/timerwheel.lua/blob/master/LI
 binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.303"
+local FIBAROAPIHC3_VERSION = "0.304"
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
 --[[
@@ -692,7 +692,7 @@ function module.HTTP(hc3)
 
   local net = net or {}
   local outstanding = 0
-  
+
   function net.HTTPClient(i_options)   
     local self = {}                   
     function self:request(url,args)
@@ -701,7 +701,7 @@ function module.HTTP(hc3)
       end
       local req,resp = {},{}; for k,v in pairs(i_options or {}) do req[k]=v end
       for k,v in pairs(args.options or {}) do req[k]=v end
-      req.timeout = req.timeout or i_options.timeout
+      req.timeout = req.timeout or (i_options and i_options.timeout)
       if req.timeout then req.timeout = req.timeout / 1000.0  end -- timeout in ms -> s
       local s,u = interceptLocal(url,req,args.success,args.error)
       if s then return else url=u end
@@ -744,28 +744,27 @@ function module.HTTP(hc3)
 
   function net.TCPSocket(opts)
     local self = { opts = opts or {} }
-    local sock = socket.tcp()
+    local sock --= socket.tcp()
     function self:connect(ip, port, opts)
       for k,v in pairs(self.opts) do opts[k]=v end
-      copas.addthread(function()
-          local sock, err = sock:connect(ip,port)
-          if err==nil and opts.success then opts.success()
-          elseif opts.error then opts.error(err) end
-        end)
+      sock = socket.connect(ip,port)
+      sock:settimeout(200000)
+      if err==nil and opts and opts.success then opts.success()
+      elseif opts and opts.error then opts.error(err) end
     end
     function self:read(opts)
       copas.addthread(function()
           local data,err = sock:receive()
-          if data and opts.success then opts.success(data)
-          elseif data==nil and opts.error then opts.error(err) end
+          if data and opts and opts.success then opts.success(data)
+          elseif data==nil and opts and opts.error then opts.error(err) end
         end)
     end
     function self:readUntil(delimiter, callbacks) end
     function self:write(data, opts)
       copas.addthread(function()
           local res,err = sock:send(data)
-          if res and opts.success then opts.success(res)
-          elseif res==nil and opts.error then opts.error(err) end
+          if res and opts and opts.success then opts.success(res)
+          elseif res==nil and opts and opts.error then opts.error(err) end
         end)
     end
     function self:close() sock:close() end
@@ -5594,8 +5593,11 @@ function module.Utilities(hc3)
       end
       if trapF then trapIndex(props,cmt,obj) end
       setmetatable(obj,cmt)
+      local str = "Object "..name..":"..tostring(obj):match("%s(.*)")
+      function cmt:__tostring() return str end
       return obj
     end
+    function mt:__tostring() return "class "..name end
     setmetatable(cl,mt)
     getContext()[name] = cl
     return function(p) parent = p end -- Class creation -- class <name>
@@ -6641,7 +6643,7 @@ help - this text
     assert(server,(msg or "").." ,port "..port)
     i, msg = server:getsockname()
     assert(i, msg)
-    local function echoHandler(skt)
+    local function termHandler(skt)
       while true do
         local data = copas.receive(skt)
         local cr = 'lua'
@@ -6658,8 +6660,33 @@ help - this text
         end
       end
     end
-    copas.addserver(server,echoHandler)
+    copas.addserver(server,termHandler)
     Log(LOG.SYS,"Created Terminal server at %s:%s",hc3.IPaddress, port)
+  end
+
+  function self.socketServer(port,handler)
+    local server,msg,i = socket.bind("*", port)
+    assert(server,(msg or "").." ,port "..port)
+    i, msg = server:getsockname()
+    assert(i, msg)
+    local function sockHandler(skt)
+      if _debugFlags.socketServer then Log(LOG.SYS,"SocketServer: Connected") end
+       while true do
+        print("WAITING")
+        local data,err,n = copas.receive(skt)
+        print("GOT")
+        if err == "closed" then
+          if _debugFlags.socketServer then Log(LOG.SYS,"SocketServer: Closed") end
+          return
+        else
+          if _debugFlags.socketServer then Log(LOG.SYS,"SocketServer: Data#:%d",data and #data) end
+          local res = handler(data)
+          if res then copas.send(skt, res) end
+        end
+      end
+    end
+    copas.addserver(server,sockHandler)
+    Log(LOG.SYS,"Created Socket server at %s:%s",hc3.IPaddress, port)
   end
 
   Pages = { pages={} }
@@ -9173,6 +9200,7 @@ hc3.downloadAssets    = hc3.module.OS.downloadAssets
 hc3.downloadFile      = hc3.module.OS.downloadFile
 hc3.downloadResources = hc3.module.Local.downloadResources
 hc3.loadResources     = hc3.module.Local.loadResources
+hc3.socketServer      = Web.socketServer
 
 function hc3.module.Util.createEnvironment(envType, extras)
   local env = {}
