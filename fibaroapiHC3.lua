@@ -38,7 +38,7 @@ timerwheel     -- Credit https://github.com/Tieske/timerwheel.lua/blob/master/LI
 binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.304"
+local FIBAROAPIHC3_VERSION = "0.305"
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
 --[[
@@ -747,22 +747,61 @@ function module.HTTP(hc3)
     local sock --= socket.tcp()
     function self:connect(ip, port, opts)
       for k,v in pairs(self.opts) do opts[k]=v end
-      sock = socket.connect(ip,port)
-      sock:settimeout(200000)
+      local err
+      sock,err = socket.connect(ip,port)
+      sock:settimeout(0)
       if err==nil and opts and opts.success then opts.success()
       elseif opts and opts.error then opts.error(err) end
     end
-    function self:read(opts)
+    function self:read(opts) -- I interpret this as reading as much as is available...?
       copas.addthread(function()
-          local data,err = sock:receive()
-          if data and opts and opts.success then opts.success(data)
-          elseif data==nil and opts and opts.error then opts.error(err) end
+          local data,res = {}
+          local b,err = copas.receive(sock,1)
+          if not err then
+            data[#data+1]=b
+            while socket.select({sock},nil,0.1)[1] do
+              b,err = copas.receive(sock,1)
+              if b then data[#data+1]=b else break end
+            end
+            res = table.concat(data)
+          end
+          if res and opts and opts.success then opts.success(res)
+          elseif res==nil and opts and opts.error then opts.error(err) end
         end)
     end
-    function self:readUntil(delimiter, callbacks) end
+    local function check(data,del)
+      local n = #del
+      for i=1,#del do if data[#data-n+i]~=del:sub(i,i) then return false end end
+      return true
+    end
+    function self:readUntil(delimiter, opts) -- Read until the cows come home, or closed
+      copas.addthread(function()
+          local data,ok,res = {},true,nil
+          local b,err = copas.receive(sock,1)
+          if not err then
+            data[#data+1]=b
+            if not check(data,delimiter) then
+              ok = false
+              while true do
+                b,err = copas.receive(sock,1)
+                if b then 
+                  data[#data+1]=b 
+                  if check(data,delimiter) then ok=true break end
+                else break end
+              end -- while
+            end
+            if ok then
+              for i=1,#delimiter do table.remove(data,#data) end
+              res = table.concat(data)
+            end
+          end
+          if res and opts and opts.success then opts.success(res)
+          elseif res==nil and opts and opts.error then opts.error(err) end
+        end)
+    end
     function self:write(data, opts)
       copas.addthread(function()
-          local res,err = sock:send(data)
+          local res,err = copas.send(sock,data)
           if res and opts and opts.success then opts.success(res)
           elseif res==nil and opts and opts.error then opts.error(err) end
         end)
@@ -782,21 +821,21 @@ function module.HTTP(hc3)
     end
     if opts.timeout~=nil then sock:settimeout(opts.timeout / 1000) end
     function self:sendTo(datagram, ip,port, callbacks) -- udp sendTo doesn't block.
-      local stat, res = sock:sendto(datagram, ip, port)
+      local stat, res = copas.sendto(sock, datagram, ip, port)
       if stat and callbacks.success then
-        pcall(function() callbacks.success(1) end)
+        pcall(callbacks.success,1)
       elseif stat==nil and callbacks.error then
-        pcall(function() callbacks.error(res) end)
+        pcall(callbacks.error,res)
       end
     end
-    function self:bind(ip,port) sock:setsockname(ip,port) end
+    function self:bind(ip,port) sock:setsockname(ip, port) end
     function self:receive(callbacks)
       copas.addthread(function()
-          local stat, res = sock:receivefrom()
+          local stat, res = copas.receivefrom(sock,ip,port)
           if stat and callbacks.success then
-            pcall(function() callbacks.success(stat, res) end)
+            pcall(callbacks.success,stat, res)
           elseif stat==nil and callbacks.error then
-            pcall(function() callbacks.error(res) end)
+            pcall(callbacks.error,res)
           end
         end)
     end
@@ -6664,7 +6703,7 @@ help - this text
     Log(LOG.SYS,"Created Terminal server at %s:%s",hc3.IPaddress, port)
   end
 
-  function self.socketServer(port,handler)
+  function self.socketServer(port,patt,handler)
     local server,msg,i = socket.bind("*", port)
     assert(server,(msg or "").." ,port "..port)
     i, msg = server:getsockname()
@@ -6672,14 +6711,11 @@ help - this text
     local function sockHandler(skt)
       if _debugFlags.socketServer then Log(LOG.SYS,"SocketServer: Connected") end
        while true do
-        print("WAITING")
-        local data,err,n = copas.receive(skt)
-        print("GOT")
+        local data,err,n = copas.receive(skt,patt)
         if err == "closed" then
           if _debugFlags.socketServer then Log(LOG.SYS,"SocketServer: Closed") end
           return
         else
-          if _debugFlags.socketServer then Log(LOG.SYS,"SocketServer: Data#:%d",data and #data) end
           local res = handler(data)
           if res then copas.send(skt, res) end
         end
