@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix50"
+E_VERSION,E_FIX = 0.5,"fix51"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -6,7 +6,7 @@ Util = nil
 triggerInterval = 500 
 
 --[[ Supported events:
- 
+
 Supported events:
 {type='alarm', property='armed', id=<id>, value=<value>}
 {type='alarm', property='breached', id=<id>, value=<value>}
@@ -1068,7 +1068,6 @@ function Module.eventScript.init()
       end
       while not ops.isEmpty() do apply(ops.pop(),st) end
       --st.dump()
-      assert(st.size() == 1,"Bad expression")
       return st.pop()
     end
 
@@ -1272,10 +1271,7 @@ function Module.eventScript.init()
       local tokens = mkStream(tokenize(str))
       --for i,v in ipairs(tokens.stream) do print(v.type, v.value, v.from, v.to) end
       local stat,res = pcall(function() return self.postParse(gRule(tokens)) end)
-      if not stat then 
-        local t=tokens.last() 
-        error(string.format("Parser error char %s ('%s') in expression '%s' (%s)",t.from+1,str:sub(t.from+1,t.to),str,res)) 
-      end
+      if not stat then local t=tokens.last() error(string.format("Parser error char %s ('%s') in expression '%s' (%s)",t.from+1,str:sub(t.from+1,t.to),str,res)) end
       return res
     end
 
@@ -2127,7 +2123,6 @@ function Module.eventScript.init()
         dailys.timers = newTimers
         local times,m,ot,catchup1,catchup2 = compTimes(dailys.dailys),midnight(),os.time()
         for i,t in ipairs(times) do _assert(tonumber(t),"@time not a number:%s",t)
-          t=math.floor(t+0.5)
           if t <= 3600*24 or t == math.huge then 
             local oldT = oldTimers[i] and oldTimers[i][1]
             if t ~= CATCHUP then
