@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix52"
+E_VERSION,E_FIX = 0.5,"fix53"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -972,6 +972,13 @@ function Module.extras.init(self)
       e.t=e.t+e.dir*e.step
       if 0 <= e.t and  e.t <= e.sec then self:post(e,os.time()+e.step) end
     end)
+
+  self:event({type='alarm', property='homeArmed'},
+    function(env) self:post({type='alarm',property='armed',id=0, value=env.event.value}) 
+    end)
+  self:event({type='alarm', property='homeBreached'},
+    function(env) self:post({type='alarm',property='breached',id=0, value=env.event.value}) 
+    end)
 end
 
 ----------------- EventScript support -------------------------
@@ -1550,7 +1557,7 @@ function Module.eventScript.init()
         ['watch']=function(id) 
           if id==0 then
             local ps = api.get("/alarms/v1/partitions") or {}
-            for _,id in ipairs(ps) do alarmsToWatch[id]=true end
+            for _,p in ipairs(ps) do alarmsToWatch[p.id]=true end
           else alarmsToWatch[id]=true end
           if alarmRef==nil then alarmRef = setInterval(watchAlarms,alarmWatchInterval) end
           return true 
@@ -1572,8 +1579,7 @@ function Module.eventScript.init()
           if action=='true' then fibaro.alarm("arm") return true
           elseif action == 'false' then fibaro.alarm("disarm") return true
           else
-            local ps = {}
-            for _,p in ipairs() do alarmFuns[action](id) end
+            alarmFuns[action](id)
             return true
           end
         end
@@ -1614,9 +1620,15 @@ function Module.eventScript.init()
       getFuns.last={last,'value',nil,true}
       getFuns.alarm={alarm,nil,nil,false}
       getFuns.armed={function(id) return gp(id).armed end,'armed',mapOr,true}
-      getFuns.disarmed={function(id) return not gp(id).armed end,'armed',mapAnd,true}
-      getFuns.abreached={function(id) return gp(id).breached end,'breached',mapOr,true}
-      getFuns.asafe={function(id) return not gp(id).breached end,'breached',mapAnd,true}
+      getFuns.allArmed={function(id) return gp(id).armed end,'armed',mapAnd,true,true}
+      getFuns.disarmed={function(id,_,val) return not gp(id).armed end,'armed',mapAnd,true}
+      getFuns.anyDisarmed={function(id,_,val) return not gp(id).armed end,'armed',mapOr,true,false}
+      getFuns.alarmBreached={function(id) return gp(id).breached end,'breached',mapOr,true}
+      getFuns.alarmSafe={function(id) return not gp(id).breached end,'breached',mapAnd,true}
+      getFuns.allAlarmBreached={function(id) return gp(id).breached end,'breached',mapAnd,true}
+      getFuns.anyAlarmSafe={function(id) return not gp(id).breached end,'breached',mapOr,true,false}
+      getFuns.willArm={function(id) return armedPs[id] end,'willArm',mapOr,true}
+      getFuns.allWillArm={function(id) return armedPs[id] end,'willArm',mapAnd,true}
       getFuns.child={child,nil,nil,false}
       getFuns.profile={profile,nil,nil,false}
       getFuns.scene={sae,'sceneActivationEvent',nil,true}
@@ -1931,7 +1943,11 @@ function Module.eventScript.init()
       local function isTEvent(e) return type(e)=='table' and (e[1]=='%table' or e[1]=='%quote') and type(e[2])=='table' and e[2].type end
 
       local function ID(id,p) _assert(tonumber(id),"bad deviceID '%s' for '%s'",id,p or "") return id end
-      local ttypes = {armed='alarm',disarmed='alarm',asafe='alarm',abreached='alarm'}
+      local ttypes = {
+        armed='alarm',disarmed='alarm',alarmSafe='alarm',alarmBreached='alarm', 
+        allArmed='alarm',anyDisarmed='alarm',anyAlarmSafe='alarm',allAlarmBreached='alarm', 
+        willArm='alarm',allWillArm='alarm',
+      }
       local gtFuns = {
         ['%daily'] = function(e,s) s.dailys[#s.dailys+1 ]=ScriptCompiler.compile2(e[2]); s.dailyFlag=true end,
         ['%interv'] = function(e,s) s.scheds[#s.scheds+1 ] = ScriptCompiler.compile2(e[2]) end,
@@ -1950,7 +1966,8 @@ function Module.eventScript.init()
           local cv = ScriptCompiler.compile2(e[2])
           local v = ScriptEngine.eval2({code=cv})
           local typ = ttypes[e[3]] or 'device'
-          map(function(id) s.triggs[ID(id,e[3])..pn]={type=typ, id=id, property=pn} end,type(v)=='table' and v or {v})
+          local tval = getFuns[e[3]][5] 
+          map(function(id) s.triggs[ID(id,e[3])..pn]={type=typ, id=id, property=pn, value=tval} end,type(v)=='table' and v or {v})
         end,
       }
 
