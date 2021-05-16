@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix51"
+E_VERSION,E_FIX = 0.5,"fix52"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -1563,7 +1563,7 @@ function Module.eventScript.init()
           return true 
         end, 
       }
-
+      local function gp(pid) return api.get("/alarms/v1/partitions/"..pid) or {} end
       local function setAlarm(id,cmd,val)
         local action = tostring(val)
         if not alarmFuns[action] then error("Bad argument to :alarm") end
@@ -1613,6 +1613,10 @@ function Module.eventScript.init()
       getFuns.isAnyOff={off,'value',mapOr,true}
       getFuns.last={last,'value',nil,true}
       getFuns.alarm={alarm,nil,nil,false}
+      getFuns.armed={function(id) return gp(id).armed end,'armed',mapOr,true}
+      getFuns.disarmed={function(id) return not gp(id).armed end,'armed',mapAnd,true}
+      getFuns.abreached={function(id) return gp(id).breached end,'breached',mapOr,true}
+      getFuns.asafe={function(id) return not gp(id).breached end,'breached',mapAnd,true}
       getFuns.child={child,nil,nil,false}
       getFuns.profile={profile,nil,nil,false}
       getFuns.scene={sae,'sceneActivationEvent',nil,true}
@@ -1670,6 +1674,7 @@ function Module.eventScript.init()
       setFuns.W={set,'setW'}
       setFuns.value={set,'setValue'}
       setFuns.alarm={setAlarm,'setAlarm'}
+      setFuns.armed={setAlarm,'setAlarm'}
       setFuns.profile={setProfile,'setProfile'}
       setFuns.time={set,'setTime'}
       setFuns.power={set,'setPower'}
@@ -1704,7 +1709,9 @@ function Module.eventScript.init()
     instr['%prop'] = function(s,n,e,i) local id,f=s.pop(),getFuns[i[3]]
       if i[3]=='dID' then s.push(getFuns['dID'][1](id,e)) return end
       if not f then f={_getFun,i[3]} end
-      if type(id)=='table' then s.push((f[3] or map)(function(id) return f[1](ID(id,i,e._lastR),f[2],e) end,id))
+      if type(id)=='table' then 
+        local l = (f[3] or map)(function(id) return f[1](ID(id,i,e._lastR),f[2],e) end,id)
+        s.push(l)
       else s.push(f[1](ID(id,i,e._lastR),f[2],e)) end
     end
 
@@ -1924,6 +1931,7 @@ function Module.eventScript.init()
       local function isTEvent(e) return type(e)=='table' and (e[1]=='%table' or e[1]=='%quote') and type(e[2])=='table' and e[2].type end
 
       local function ID(id,p) _assert(tonumber(id),"bad deviceID '%s' for '%s'",id,p or "") return id end
+      local ttypes = {armed='alarm',disarmed='alarm',asafe='alarm',abreached='alarm'}
       local gtFuns = {
         ['%daily'] = function(e,s) s.dailys[#s.dailys+1 ]=ScriptCompiler.compile2(e[2]); s.dailyFlag=true end,
         ['%interv'] = function(e,s) s.scheds[#s.scheds+1 ] = ScriptCompiler.compile2(e[2]) end,
@@ -1941,7 +1949,8 @@ function Module.eventScript.init()
           if not getFuns[e[3]] then pn = e[3] elseif not getFuns[e[3]][4] then return else pn = getFuns[e[3]][2] end
           local cv = ScriptCompiler.compile2(e[2])
           local v = ScriptEngine.eval2({code=cv})
-          map(function(id) s.triggs[ID(id,e[3])..pn]={type='device', id=id, property=pn} end,type(v)=='table' and v or {v})
+          local typ = ttypes[e[3]] or 'device'
+          map(function(id) s.triggs[ID(id,e[3])..pn]={type=typ, id=id, property=pn} end,type(v)=='table' and v or {v})
         end,
       }
 
@@ -2076,7 +2085,7 @@ function Module.eventScript.init()
                 local name,r
                 if not log.print then return res end
                 if QA.EM.isRule(res) then name,r=res.doc,"OK" else name,r=escript,res end
-                pdebug("%s = %s",name,r or "nil") 
+                pdebug("%s = %s",name,tostring(r)) 
                 return res
               end
             end
