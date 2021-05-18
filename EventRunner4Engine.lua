@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix53"
+E_VERSION,E_FIX = 0.5,"fix54"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -1513,20 +1513,40 @@ function Module.eventScript.init()
 -- ER funs
     local getFuns,setFuns={},{}
     local _getFun = function(id,prop) return fibaro.get(id,prop) end
-    do
+
+    do -- Alarm handling
+      local alarmCache = {}
+      for _,p in ipairs(api.get("/alarms/v1/partitions") or {}) do -- prime alarm cache
+        alarmCache[p.id] = { 
+          armed = p.armed, breached = p.breached, breachDelay = p.breachDelay, armDelay = p.armDelay, secondsToArm = p.secondsToArm
+        }
+      end
+      QA:event({type='alarm'},function(env) -- update alarm cache
+          local e = env.event
+          local c = alarmCache[e.id or 0] or {}
+          c[e.property]=e.value
+          alarmCache[e.id or 0]  = c
+        end)
       local function alarm(id,prop) 
-        if id == 0 then
+        if id == 0 then -- Create combined "house partition"
           local ps = api.get("/alarms/v1/partitions") or {}
           if #ps == 0 then return {} end
-          local p = ps[1]
+          local p,c = {},alarmCache[ps[1].id]
+          p.devices = ps[1].devices
+          p.armed = c.armed
+          p.breached = c.breached
+          p.breachDelay = c.breachDelay
+          p.armDelay = c.armDelay
+          p.secondsToArm = c.secondsToArm
+          p.id = c.id
           local devMap = {}
           for _,d in ipairs(p.devices) do devMap[d]=true end
           for i=2,#ps do
-            local d = ps[i]
+            local d = alarmCache[ps[i].id] or {}
             p.breached = p.breached or d.breached
             p.armed = p.armed and d.armed
-            p.breachDelay = math.min(p.breachDelay,d.breachDelay)
-            p.armDelay = math.min(p.armDelay,d.armDelay)
+            p.breachDelay = math.min(p.breachDelay,d.breachDelay or 0)
+            p.armDelay = math.min(p.armDelay,d.armDelay or 0)
             for _,d0 in ipairs(d.devices) do devMap[d0]=true end
           end
           p.name="House"
@@ -1542,6 +1562,7 @@ function Module.eventScript.init()
       local alarmRef = nil
       local alarmWatchInterval = 2000
       local armedPs={}
+
       local function watchAlarms()
         for pid,_ in pairs(alarmsToWatch) do
           local p = api.get("/alarms/v1/partitions/"..pid) or {}
@@ -1551,13 +1572,13 @@ function Module.eventScript.init()
           armedPs[p.id] = p.secondsToArm
         end
       end
+
       local alarmFuns = {
         ['true']=function(id) fibaro.alarm(id,"arm") return true end,
         ['false']=function(id) fibaro.alarm(id,"disarm") return true end,
         ['watch']=function(id) 
           if id==0 then
-            local ps = api.get("/alarms/v1/partitions") or {}
-            for _,p in ipairs(ps) do alarmsToWatch[p.id]=true end
+            for id,_ in ipairs(alarmCache) do alarmsToWatch[id]=true end
           else alarmsToWatch[id]=true end
           if alarmRef==nil then alarmRef = setInterval(watchAlarms,alarmWatchInterval) end
           return true 
@@ -1570,7 +1591,7 @@ function Module.eventScript.init()
           return true 
         end, 
       }
-      local function gp(pid) return api.get("/alarms/v1/partitions/"..pid) or {} end
+      local function gp(pid) return alarmCache[pid] or {} end
       local function setAlarm(id,cmd,val)
         local action = tostring(val)
         if not alarmFuns[action] then error("Bad argument to :alarm") end
