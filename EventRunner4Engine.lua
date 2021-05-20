@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix55"
+E_VERSION,E_FIX = 0.5,"fix56"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -2292,8 +2292,8 @@ function Module.eventScript.init()
       if not stat then error("Main() ERROR:"..res) end
       Util.printBanner("Running")
       self:setView("ERname","text","EventRunner4 %s",_version)
-      quickApp:post({type='%startup%'})
+      quickApp:post({type='%startup%',_sh=true})
       local uptime = api.get("/settings/info").serverStatus or 0
-      if os.time()-uptime < 30 then quickApp:post({type='se-start'}) end
+      if os.time()-uptime < 30 then quickApp:post({type='se-start',_sh=true}) end
     end
   end
