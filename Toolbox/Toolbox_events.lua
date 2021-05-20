@@ -93,7 +93,7 @@ function Toolbox_Module.events.init(self)
     t = type(t)=='string' and toTime(t) or t or 0
     if t < 0 then return elseif t < now then t = t+now end
     local timer = makeTimer(nil,t)
-    if _debugFlags.post then self:tracef("Posting %s at %s",ev,timer) end
+    if _debugFlags.post and not ev._sh then self:tracef("Posting %s at %s",ev,timer) end
     if type(ev) == 'function' then
       timer.ref = setTimeout(function() timer.ref=nil; ev() end,1000*(t-now))
     else

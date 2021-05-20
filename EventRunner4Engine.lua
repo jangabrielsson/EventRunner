@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix54"
+E_VERSION,E_FIX = 0.5,"fix55"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -957,7 +957,7 @@ function Module.extras.init(self)
     dir,step = dir == 'down' and -1 or 1, step or 1
     start,stop = start or 0,stop or 99
     local t = dir == 1 and 0 or sec
-    self:post({type='%dimLight',id=id,sec=sec,dir=dir,fun=f,t=dir == 1 and 0 or sec,start=start,stop=stop,step=step})
+    self:post({type='%dimLight',id=id,sec=sec,dir=dir,fun=f,t=dir == 1 and 0 or sec,start=start,stop=stop,step=step,_sh=true})
   end
 
   self:event({type='%dimLight'},function(env)

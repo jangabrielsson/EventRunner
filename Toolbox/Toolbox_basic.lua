@@ -204,11 +204,12 @@ function Toolbox_Module.basic(self)
 -- tostring optionally converting tables to json or custom conversion
 -- If a table has a __tostring key bound to a function that function will be used to convert the table to a string
   local _tostring = tostring
+    local json2
   self._orgToString= tostring -- good to have sometimes....
   function tostring(obj) 
     if type(obj)=='table' then
       if obj.__tostring then return obj.__tostring(obj)
-      elseif self._2JSON then return json.encode(obj) end
+      elseif self._2JSON then return json2(obj) end
     end
     return  _tostring(obj) 
   end
@@ -499,7 +500,8 @@ function Toolbox_Module.basic(self)
       return table.concat(res,"")
     end
   end
-
+  json2 = self.prettyJsonStruct 
+  
   local IPaddress = nil
   function self:getHC3IPaddress(name)
     if IPaddress then return IPaddress end
