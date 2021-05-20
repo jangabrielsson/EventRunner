@@ -38,7 +38,7 @@ timerwheel     -- Credit https://github.com/Tieske/timerwheel.lua/blob/master/LI
 binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.305"
+local FIBAROAPIHC3_VERSION = "0.306"
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
 --[[
@@ -3334,6 +3334,16 @@ function module.Timer(hc3)
 
   local function countTimers() local t,n = timers,0; while t do n=n+1; t=t.next end return  n end --luacheck: ignore
 
+  local function kick()
+    if not timers then return end
+    if _debugFlags.timersSched then
+      Log(LOG.LOG,"Will run next timer at %s in %0.4fs",os.milliStr(timers.time),timers.time-os.milliTime())
+    end
+    if runT then runT:cancel(); runT=nil end
+    runT = os.setTimer2(runTimers,SPEED and 0 or max(timers.time-os.milliTime(),0))
+  end
+  self.kick = kick
+
   local function insertTimer(t) -- {fun,time,next}
     if _debugFlags.timersSched then Log(LOG.LOG,"Inserting timer %s",t) end
     if t.env and not t.env._ENVID then return end
@@ -3346,13 +3356,7 @@ function module.Timer(hc3)
       while tp.next and tp.next.time <= t.time do tp=tp.next end
       t.next,tp.next=tp.next,t
     end
-    if timers == t then
-      if _debugFlags.timersSched then
-        Log(LOG.LOG,"Will run next timer at %s in %0.4fs",os.milliStr(timers.time),timers.time-os.milliTime())
-      end
-      if runT then runT:cancel(); runT=nil end
-      runT = os.setTimer2(runTimers,SPEED and 0 or max(timers.time-os.milliTime(),0))
-    end
+    if self._started and timers == t then kick() end
     --dumpTimers()
     return t
   end
@@ -3497,6 +3501,7 @@ function module.Timer(hc3)
 
   function self.speedTime(speedTime) -- seconds
     maxTime = os.time()+speedTime*60*60
+    --print(os.date("%c",os.time()))
     os.speed(true)
   end
 
@@ -4501,7 +4506,6 @@ end
 
     assert(not(tonumber(self.id) and self.proxy),"Can't specify both id and proxy")
     assert(not(self.offline and self.proxy),"Can't specify both offline and proxy")
-
     os.setTimer(function()
         Log(LOG.HEADER,"Loading QuickApp '%s'...",self.name)
 
@@ -5631,9 +5635,11 @@ function module.Utilities(hc3)
         if type(v)=='table' and v['%CLASSPROP%'] then obj[k],props[k]=nil,v; trapF = true end
       end
       if trapF then trapIndex(props,cmt,obj) end
-      setmetatable(obj,cmt)
       local str = "Object "..name..":"..tostring(obj):match("%s(.*)")
-      function cmt:__tostring() return str end
+      setmetatable(obj,cmt)
+      if not obj.__tostring then 
+        function obj:__tostring() return str end
+      end
       return obj
     end
     function mt:__tostring() return "class "..name end
@@ -6710,7 +6716,7 @@ help - this text
     assert(i, msg)
     local function sockHandler(skt)
       if _debugFlags.socketServer then Log(LOG.SYS,"SocketServer: Connected") end
-       while true do
+      while true do
         local data,err,n = copas.receive(skt,patt)
         if err == "closed" then
           if _debugFlags.socketServer then Log(LOG.SYS,"SocketServer: Closed") end
@@ -6927,13 +6933,45 @@ tr:nth-child(even) {
 </html>
 ]]
 
+  function Pages.renderBinarySensor(d)
+    local ctrl =
+[[<tr >
+<td style="width:30px"><label>%s</label></td>
+<td style="width:150px"><label>%s</label></td>
+<td style="width:80px;" align="center"><span id="D%s" class="dot"></span></td>
+<td><button type="button" onClick="QAbutton(%s,'breachSensor');">Breach</button></td>
+<td><button type="button" onClick="QAbutton(%s,'safeSensor');">Safe</button></td>
+</tr>
+]]
+    return ctrl:format(d.id,d.name,d.id,d.id,d.id)
+  end
+  
+    function Pages.renderMultilevelSensor(d)
+    local ctrl =
+[[<tr >
+<td style="width:40px"><label>%s</label></td>
+<td style="width:200px"><label>%s</label></td>
+<td style="width:80px;" align="center"><span id="D%s" class="dot"></span></td>
+<td> </td><td><input type="range" class="form-control-range" max="99" min="0" value="%s"
+    onmouseup="QAslider(%s,this.value);"
+    onmouseup="QAslider(%s,this.value);"
+    oninput="$('#L%s').text(value);"
+    id="S%s">
+</td>
+<td><label id="L%s">0</label></td>
+</tr>
+]]
+    return
+    ctrl:format(d.id,d.name,d.id,d.id,d.id,fibaro.getValue(d.id,"value"),d.id,d.id,d.id,d.id,d.id)
+  end
+
   function Pages.renderSwitch(d)
     local ctrl =
 [[<tr >
 <td style="width:30px"><label>%s</label></td>
 <td style="width:150px"><label>%s</label></td>
 <td style="width:80px;" align="center"><span id="D%s" class="dot"></span></td>
-<td><button type="button" onClick="QAbutton(%s,'turnOn');">Turn ON</button></td>
+<td><button type="button" onClick="QAbutton(%s,'turnOn');">Turn On</button></td>
 <td><button type="button" onClick="QAbutton(%s,'turnOff');">Turn Off</button></td>
 </tr>
 ]]
@@ -6946,7 +6984,7 @@ tr:nth-child(even) {
 <td style="width:40px"><label>%s</label></td>
 <td style="width:200px"><label>%s</label></td>
 <td style="width:80px;" align="center"><span id="D%s" class="dot"></span></td>
-<td><button type="button" onClick="QAbutton(%s,'turnOn');">Turn ON</button></td>
+<td><button type="button" onClick="QAbutton(%s,'turnOn');">Turn On</button></td>
 <td><button type="button" onClick="QAbutton(%s,'turnOff');">Turn Off</button></td>
 <td> </td><td><input type="range" class="form-control-range" max="99" min="0" value="%s"
     onmouseup="QAslider(%s,this.value);"
@@ -6976,6 +7014,8 @@ tr:nth-child(even) {
         devs[#devs+1]={d.id,Pages.renderMultilevel(d)}
       elseif actions.turnOn then
         devs[#devs+1]={d.id,Pages.renderSwitch(d)}
+      elseif actions.breachSensor then
+        devs[#devs+1]={d.id,Pages.renderBinarySensor(d)}
       end
     end
     table.sort(devs,function(a,b) return a[1] <= b[1] end)
@@ -7807,6 +7847,13 @@ function module.Local(hc3)
   local function setValue(d,value) return setProp(d.id,'value',value) end
 
   local actions = {
+    ['com.fibaro.binarySensor'] = {
+      ['breachSensor'] = function(d) setProp(d.id,'value',true) end,
+      ['safeSensor'] = function(d) setProp(d.id,'value',false) end,
+    },    
+    ['com.fibaro.multilevelSensor'] = {
+      ['setValue'] = setValue,
+    },
     ['com.fibaro.doorLock'] = {
       ['secure'] = function() end,
       ['setDoorLockMode'] = function() end,
@@ -8006,6 +8053,10 @@ function module.Local(hc3)
       d.typeTemplateInitialized = nil
       d.apiVersion=nil
       d.quickAppVariables = nil
+      if d.type == 'com.fibaro.binarySensor' or d.baseType == 'com.fibaro.binarySensor'  then
+        d.actions.breachSensor = 0
+        d.actions.safeSensor = 0
+      end
     end
     return d
   end
@@ -8368,7 +8419,8 @@ function module.API(hc3)
   end
 
   local fFuns = {
-    interface=function(v,rsrc) return Util.member(v,rsrc.interfaces or {}) end
+    interface=function(v,rsrc) return Util.member(v,rsrc.interfaces or {}) end,
+    property=function(v,rsrc) return rsrc.properties[v:match("%[(.-),")]==v:match(",(.*)%]") end
   }
 
   local function filter(list,props)
@@ -8422,12 +8474,15 @@ function module.API(hc3)
       local d = gLoc.devices[id] or online and HC3call(method,url) or auto and Local.createDevice(id)
       if d then return d,200 else return nil,404 end
     end,
-    ["GET/devices/#id/properties/#name"] --Get device object
+    ["GET/devices/#id/properties/#name"] --Get device property
     = function(method,url,props,data,options,id,name)
-      if not gLoc.devices[id] and  offline and auto then Local.createDevice(id) end
-      local d = gLoc.devices[id]
+      local d = gLoc.devices[id] or (offline and auto and Local.createDevice(id))
       if d then return {value = d.properties[name], modified=d.modified},200
       else return HC3call(method,url) end
+--      if not gLoc.devices[id] and  offline and auto then Local.createDevice(id) end
+--      local d = gLoc.devices[id]
+--      if d then return {value = d.properties[name], modified=d.modified},200
+--      else return HC3call(method,url) end
     end,
 
     ["POST/devices"] --Create plugin
@@ -9070,6 +9125,7 @@ function module.API(hc3)
         HC3call(method,url,data)
       end
       local str,tag,typ = args.message,args.tag,args.messageType
+      assert(type(tag)=='string' and type(typ)=='string',"Bad arguments to debugMessages")
       if hc3.htmlDebug then -- A bit messy, but try to convert html tags to ZBSconsole equivalents
         str = html2color(str,'\027[0m')
         str=str:gsub("&nbsp;"," ")
@@ -9101,7 +9157,7 @@ function module.API(hc3)
 
   processAPI(API,pAPI)
 
-  local function redirect(method,url,data)
+  local function redirect(method,url,props, data) --fun,method,url,props,data
     if _debugFlags.api then
       Log(LOG.WARNING,"Unhandled API call '%s:%s'%s",method,url,
         online and ", redirecting to HC3" or  "") 
@@ -9329,6 +9385,7 @@ function hc3.module.Util.createEnvironment(envType, extras)
     env.require = require
     env.coroutine = coroutine
     env.setmetatable = setmetatable
+    env.getmetatable = getmetatable
     env.debug = debug
   end
   return env
@@ -9352,6 +9409,7 @@ local function startEmulator(file)
 
   API.setOffline(hc3_emulator.offline)
   local offline = hc3_emulator.offline
+  hc3_emulator.print = print 
 
   if not offline and not hc3_emulator.credentials then
     error("Missing HC3 credentials -- hc3_emulator.credentials{ip=<IP>,user=<string>,pwd=<string>}")
@@ -9454,6 +9512,8 @@ if hc3_emulator.sourceFile then
   end
   Timer.start(function()
       --setTimeout(function() profiler.report("profiler.log") end,60*1000)
+      Timer._started = true
+      Timer.kick()
       startEmulator(hc3_emulator.sourceFile) 
     end, 0)
 else
