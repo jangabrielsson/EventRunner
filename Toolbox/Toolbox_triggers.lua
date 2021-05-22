@@ -54,9 +54,10 @@ function Toolbox_Module.triggers.init(self)
   local INTERVAL = 1000 -- every second, could do more often...
   local propFilters = {}
 
-  function self:propDelta(id,prop,value)
+  function self:triggerDelta(id,prop,value)
     local d = propFilters[id] or {}
     d[prop] =  {delta = value}
+    propFilters[id] = d
   end
 
   local function filter(id,prop,new)
