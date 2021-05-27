@@ -38,7 +38,7 @@ timerwheel     -- Credit https://github.com/Tieske/timerwheel.lua/blob/master/LI
 binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.306"
+local FIBAROAPIHC3_VERSION = "0.308"
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
 --[[
@@ -749,8 +749,7 @@ function module.HTTP(hc3)
       for k,v in pairs(self.opts) do opts[k]=v end
       local err
       sock,err = socket.connect(ip,port)
-      sock:settimeout(0)
-      if err==nil and opts and opts.success then opts.success()
+      if err==nil and opts and opts.success then sock:settimeout(0) opts.success()
       elseif opts and opts.error then opts.error(err) end
     end
     function self:read(opts) -- I interpret this as reading as much as is available...?
@@ -4201,7 +4200,7 @@ end
     else
       local id = event.deviceId
       if id == self.id then
-        self:callAction(event.actionName, table.unpack(event.args))
+        return self:callAction(event.actionName, table.unpack(event.args))
       else
         local child = self.childDevices[id]
         if child then child:callAction(event.actionName, table.unpack(event.args))
@@ -6945,8 +6944,8 @@ tr:nth-child(even) {
 ]]
     return ctrl:format(d.id,d.name,d.id,d.id,d.id)
   end
-  
-    function Pages.renderMultilevelSensor(d)
+
+  function Pages.renderMultilevelSensor(d)
     local ctrl =
 [[<tr >
 <td style="width:40px"><label>%s</label></td>
@@ -8418,9 +8417,11 @@ function module.API(hc3)
     return rs
   end
 
+  local _fcont={['true']=true,['false']=false}
+  local function _fconv(s) return _fcont[s]==nil and s or _fcont[s] end
   local fFuns = {
     interface=function(v,rsrc) return Util.member(v,rsrc.interfaces or {}) end,
-    property=function(v,rsrc) return rsrc.properties[v:match("%[(.-),")]==v:match(",(.*)%]") end
+    property=function(v,rsrc) return rsrc.properties[v:match("%[(.-),")]==_fconv(v:match(",(.*)%]")) end
   }
 
   local function filter(list,props)
@@ -9466,10 +9467,13 @@ local function startEmulator(file)
 
   local code = OS.file.read(file)
   if code:match("hc3_emulator%.actions") then
+    hc3_emulator.codeType = 'Scene'
     hc3_emulator.loadScene(file,code):install()
   elseif code:match("QuickApp:") or hc3_emulator.quickAppPattern and code:match(hc3_emulator.quickAppPattern) then
+    hc3_emulator.codeType = 'QA'
     hc3_emulator.loadQA(file,code):install()
   else
+    hc3_emulator.codeType = 'QA'
     local env = Util.createEnvironment("QA",true)
     setContext(env)
 
