@@ -38,7 +38,7 @@ timerwheel     -- Credit https://github.com/Tieske/timerwheel.lua/blob/master/LI
 binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.308" 
+local FIBAROAPIHC3_VERSION = "0.309" 
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
 --[[
@@ -3651,6 +3651,8 @@ function module.QuickApp(hc3)
     api.post("/plugins/updateProperty",{deviceId = self.id, propertyName = prop, value = value, force=force})
   end
 
+  function QuickAppBase:setEnabled(bool) self.enabled=bool==true end
+  
   function QuickAppBase:callAction(fun, ...)
     if type(self[fun])=='function' then
       local args = {...}

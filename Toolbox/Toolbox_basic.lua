@@ -295,11 +295,11 @@ function Toolbox_Module.basic(self)
   local _debug,_trace,_error,_warning = self.debug,self.trace,self.error,self.warning
   function self:debug(...) if self._DEBUG then return _print(self,_debug,...) else return "" end end
   function self:trace(...) if self._TRACE then return _print(self,_trace,...) else return "" end end
-  function self:error(...) return notifyIf(self,"critical",_print(self,_error,...)) end
+  function self:error(...) return notifyIf(self,"alert",_print(self,_error,...)) end
   function self:warning(...) return notifyIf(self,"warning",_print(self,_warning,...)) end
   function self:debugf(fmt,...) if self._DEBUG then return _printf(self,_debug,fmt,...) else return "" end end
   function self:tracef(fmt,...) return _printf(self,_trace,fmt,...) end
-  function self:errorf(fmt,...) return notifyIf(self,"critical",_printf(self,_error,fmt,...)) end
+  function self:errorf(fmt,...) return notifyIf(self,"alert",_printf(self,_error,fmt,...)) end
   function self:warningf(fmt,...) return notifyIf(self,"warning",_printf(self,_warning,fmt,...)) end
 
 -- Like self:updateView but with formatting. Ex self:setView("label","text","Now %d days",days)
@@ -376,7 +376,7 @@ function Toolbox_Module.basic(self)
 -- Add notification to notification center
   local cachedNots = {}
   function self:notify(priority, title, text, reuse)
-    assert(({info=true,warning=true,critical=true})[priority],"Wrong 'priority' - info/warning/critical")
+    assert(({info=true,warning=true,alert=true})[priority],"Wrong 'priority' - info/warning/critical")
     if reuse==nil then reuse = self._NOTIFYREUSE end
     local msgId = nil
     local data = {
