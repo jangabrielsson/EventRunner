@@ -190,7 +190,11 @@ function Toolbox_Module.triggers.init(self)
             end
           end 
           firstRun = false
-          setTimeout(loop,INTERVAL or 0)
+          if not hc3_emulator then
+            setTimeout(loop,INTERVAL or 0)
+          else
+            hc3_emulator.orgOs.setTimer(loop,INTERVAL)
+          end
         end,
         error=function(res) 
           self:errorf("refreshStates:%s",res)

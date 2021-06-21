@@ -38,7 +38,7 @@ timerwheel     -- Credit https://github.com/Tieske/timerwheel.lua/blob/master/LI
 binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.309" 
+local FIBAROAPIHC3_VERSION = "0.310" 
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
 --[[
@@ -1098,6 +1098,8 @@ function module.HTTP(hc3)
     if hc3.apiHTTPS then
       req.url = "https"..req.url:sub(5)
     end
+    local ctx = getContext()
+    --if ctx._ENVID then ctx.setTimeout(function() end,250) end
     r,c,h = copas.http.request(req)
     if not r then
       Log(LOG.ERROR,"Error connnecting to HC3: '%s' - URL: '%s'.",c,req.url)
@@ -3399,7 +3401,7 @@ function module.Timer(hc3)
       end
       if timers then
         if SPEED then 
-          runT = os.setTimer2(runTimers,0)
+          runT = os.setTimer2(runTimers,1)
         elseif not SPEED then
           local s = max(timers.time-os.milliTime(),0)
           runT = os.setTimer2(runTimers,s)
@@ -3652,7 +3654,7 @@ function module.QuickApp(hc3)
   end
 
   function QuickAppBase:setEnabled(bool) self.enabled=bool==true end
-  
+
   function QuickAppBase:callAction(fun, ...)
     if type(self[fun])=='function' then
       local args = {...}
@@ -4089,7 +4091,6 @@ function module.QuickApp(hc3)
         pdevice = nil
       else id = pdevice.id end
     end
-
     local code = {}
     code[#code+1] = [[
   local function urlencode (str)
@@ -4493,7 +4494,6 @@ end
 
 -- Install QuickApp in the emulator
   function LQAinstall(self,args)
-
     -- A QA is a 7 step process
     -- 0. Initialization
     -- 1. Create proxy if wanted
@@ -4507,7 +4507,10 @@ end
 
     assert(not(tonumber(self.id) and self.proxy),"Can't specify both id and proxy")
     assert(not(self.offline and self.proxy),"Can't specify both offline and proxy")
-    os.setTimer(function()
+    Timer.setSystemTimeout(function()
+        --os.setTimer(function()
+        --Timer.kick()
+        --hc3_emulator.dumpTimers()
         Log(LOG.HEADER,"Loading QuickApp '%s'...",self.name)
 
         -- step 0. initialization, fix missing structures etc.
@@ -4537,7 +4540,6 @@ end
           local ip = makeInitialProperties(self.UI)
           self.viewLayout,self.uiCallbacks = ip.viewLayout,ip.uiCallbacks
         end
-
         -- step 1. create proxy
         if self.proxy and not self.offline then
           if tonumber(self.proxy) then
@@ -4610,16 +4612,15 @@ end
         quickVarsReal = vars2list(quickVars)
 
         function runQA(event) -- rest of the steps in a function that can be called
-
           -- step 2. create the environment
           codeEnv = Util.createEnvironment("QA",self.fullLua)
+          self._codeEnv = codeEnv
           setContext(codeEnv)
           local QAlock = copas.lock.new(60*60*30)
           function codeEnv._getLock() QAlock:get(60*60*30) end
           function codeEnv._releaseLock() QAlock:release() end
           codeEnv._ENVID = "QUICKAPP"..self.id -- used to find timers beloning to this QA
           codeEnv.plugin.mainDeviceId = self.id
-
           local st = codeEnv.setTimeout
           local function errHandler(err)
             Log(LOG.ERROR,"QuickApp timer %s for '%s', deviceId:%s, crashed - %s",codeEnv._lastTimer,self.name,self.id,err)
@@ -4630,7 +4631,7 @@ end
           codeEnv.fibaro.setTimeout = function(a,b,...) return st2(b,a,...) end
           codeEnv.print = function(...) codeEnv.fibaro.debug(codeEnv.__TAG,...) end
           codeEnv.__TAG = "QuickApp"..self.id
-
+          codeEnv.setTimeout(function() end,0)
           -- Step 3. load the files (we don't run them yet)
           local loadedFiles = {}
           self.paths = self.paths or {}
@@ -4699,6 +4700,7 @@ end
               Log(LOG.HEADER,"QuickApp '%s', deviceID:%s started at %s",device.name,device.id,os.date("%c"))
               Trigger.postTrigger({type=event, data = {id = self.id}, sourceType="system"},0)
               codeEnv.quickApp = codeEnv.QuickApp(device)
+              hc3._SYNC = false
               quickApps[self.id] = codeEnv.quickApp
             end,
             function(err)
@@ -4711,7 +4713,6 @@ end
           codeEnv.quickApp.deleteQA = deleteQA
           codeEnv.quickApp.runQA = runQA
         end
-
         runQA('DeviceCreatedEvent')
 
       end,0) -- os.setTimer
@@ -7650,12 +7651,16 @@ function module.Local(hc3)
     t.min,t.hour,t.sec=0,0,0
     t = os.time(t)+24*60*60
     local function midnight()
+      --print("S",os.date("%c"))
       setupSuntimes()
       t = t+24*60*60
       Timer.setSystemTimeout(midnight,1000*(t-os.time()))
     end
-    Timer.setSystemTimeout(midnight,1000*(t-os.time()))
-    Timer.setSystemTimeout(setupSuntimes,0)
+    function self.startSun()
+      Timer.setSystemTimeout(midnight,1000*(t-os.time()))
+      Timer.setSystemTimeout(setupSuntimes,1)
+    end
+    self.startSun()
   end
 
   local ROOM_IDS = 1100
@@ -8047,6 +8052,7 @@ function module.Local(hc3)
     end
     local d = deviceTemplates[typ] or baseType and deviceTemplates[baseType] or nil
     if d then
+      d = copy(d)
       d.id = nil
       d.interfaces = Util.remove('quickApp',d.interfaces or {})
       d.properties.uiCallbacks = nil
@@ -9300,7 +9306,7 @@ hc3.socketServer      = Web.socketServer
 function hc3.module.Util.createEnvironment(envType, extras)
   local env = {}
   local function copy(t) local res={} for k,v in pairs(t) do res[k]=v end  return res end
-
+  hc3.orgOs = os
   env._G = env
   env.hc3_emulator = copy(hc3)
   env.fibaro = copy(hc3.module.Fibaro.fibaro)  -- scenes may patch fibaro:*...
@@ -9409,7 +9415,6 @@ if arg[1] then
 end
 
 local function startEmulator(file)
-
   API.setOffline(hc3_emulator.offline)
   local offline = hc3_emulator.offline
   hc3_emulator.print = print 
@@ -9467,12 +9472,26 @@ local function startEmulator(file)
 
   if offline then api.put("/settings/info",{serverStatus=os.time()})  end -- Set the time
 
+  local t = os.time()
+  local function loop()
+    t=t+3600
+    --Log(LOG.SYS,"HOUR")
+    Timer.setSystemTimeout(loop,1000*(t-os.time()))
+  end
+  t = (t // 3600 +1)*3600
+  Timer.setSystemTimeout(loop,1000*(t-os.time()))
+
+  Timer.setSystemTimeout(function()
+      t = t+3600
+    end,1000*(t-os.time()))
+
   local code = OS.file.read(file)
   if code:match("hc3_emulator%.actions") then
     hc3_emulator.codeType = 'Scene'
     hc3_emulator.loadScene(file,code):install()
   elseif code:match("QuickApp:") or hc3_emulator.quickAppPattern and code:match(hc3_emulator.quickAppPattern) then
     hc3_emulator.codeType = 'QA'
+    hc3_emulator._SYNC = true
     hc3_emulator.loadQA(file,code):install()
   else
     hc3_emulator.codeType = 'QA'
@@ -9496,7 +9515,6 @@ local function startEmulator(file)
       return st(f,ms,tag,errHandler,env)
     end
     env.fibaro.setTimeout = function(a,b,...) return env.setTimeout(b,a,...) end
-
     load(code,file,"bt",env)()
   end
 end -- startEmulator

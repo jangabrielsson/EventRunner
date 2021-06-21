@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix59"
+E_VERSION,E_FIX = 0.5,"fix61"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -627,8 +627,11 @@ function Module.utilities.init()
     if date.isdst then utc = utc + 1 end
     local rise_time = os.date("*t", sunturnTime(date, true, lat, lon, zenith, utc))
     local set_time = os.date("*t", sunturnTime(date, false, lat, lon, zenith, utc))
-    local rise_time_t = os.date("*t", sunturnTime(date, true, lat, lon, zenith_twilight, utc))
-    local set_time_t = os.date("*t", sunturnTime(date, false, lat, lon, zenith_twilight, utc))
+    local rise_time_t,set_time_t = rise_time,set_time
+    pcall(function()
+        rise_time_t = os.date("*t", sunturnTime(date, true, lat, lon, zenith_twilight, utc))
+        set_time_t = os.date("*t", sunturnTime(date, false, lat, lon, zenith_twilight, utc))
+      end)
     local sunrise = format("%.2d:%.2d", rise_time.hour, rise_time.min)
     local sunset = format("%.2d:%.2d", set_time.hour, set_time.min)
     local sunrise_t = format("%.2d:%.2d", rise_time_t.hour, rise_time_t.min)
