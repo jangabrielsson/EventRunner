@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix61"
+E_VERSION,E_FIX = 0.5,"fix62"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -1722,6 +1722,9 @@ function Module.eventScript.init()
       setFuns.scheduleState={set,'setScheduleState'}
       setFuns.color={set2,'setColor'}
       setFuns.thermostatSetpoint={set2,'setThermostatSetpoint'}
+      setFuns.setThermostatMode={set,'setThermostatMode'}
+      setFuns.setCoolingThermostatSetpoint={set,'setCoolingThermostatSetpoint'}
+      setFuns.setThermostatFanMode={set,'setThermostatFanMode'}
       setFuns.schedule={set2,'setSchedule'}
       setFuns.dim={dim2,'dim'}
       setFuns.msg={pushMsg,'push'}
