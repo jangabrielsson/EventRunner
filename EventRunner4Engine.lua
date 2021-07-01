@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix62"
+E_VERSION,E_FIX = 0.5,"fix63"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -1003,7 +1003,7 @@ function Module.eventScript.init()
       ['-']={11,2},['*']={12,2},['/']={12,2},['%']={12,2},['==']={6,2},['<=']={6,2},
       ['>=']={6,2},['~=']={6,2},
       ['>']={6,2},['<']={6,2},['&']={5,2,'%and'},['|']={4,2,'%or'},['!']={5.1,1,'%not'},['=']={0,2},['+=']={0,2},['-=']={0,2},
-      ['*=']={0,2},[';']={-1,2,'%progn'},
+      ['*=']={0,2},[';']={-1,2,'%progn'},[';;']={-1,2,'%progn'},
     }
     local nopers = {['jmp']=true,}--['return']=true}
     local reserved={
@@ -1027,7 +1027,7 @@ function Module.eventScript.init()
       return res
     end
 
-    local pExpr,gExpr={}
+    local pExpr,gExpr,gStatement={}
     pExpr['lpar']=function(inp,st,ops,t,pt)
       if pt.value:match("^[%]%)%da-zA-Z]") then 
         while not ops.isEmpty() and opers[ops.peek().value][1] >= 12.9 do apply(ops.pop(),st) end
@@ -1046,8 +1046,8 @@ function Module.eventScript.init()
     end
     pExpr['lor']=function(inp,st,ops,t,pt) 
       local e = gExpr(inp,{['>>']=true}); inp.next()
-      local body,el = gExpr(inp,{[';;']=true,['||']=true})
-      if inp.peek().value == '||' then el = gExpr(inp) else inp.next() end
+      local body,el = gStatements(inp,{[';;']=true,['||']=true})
+      if inp.peek().value == '||' then el = gExpr(inp,{[';;']=true}) end
       st.push({'if',e,body,el})
     end
     pExpr['lcur']=function(inp,st,ops,t,pt) st.push({'%table',tablefy(self.gArgs(inp,'}'))}) end
@@ -1185,13 +1185,13 @@ function Module.eventScript.init()
       return traverse(e)
     end
 
-    local gStatements; local gElse; 
+    local gElse; 
     local function matchv(inp,t,v) local t0=inp.next(); _assert(t0.value==t,"Expected '%s' in %s",t,v); return t0 end
     local function matcht(inp,t,v) local t0=inp.next(); _assert(t0.type==t,"Expected %s",v); return t0 end
 
     local function mkVar(n) return {'%var',n and n or gensym("V"),'script'} end
     local function mkSet(v,e) return {'%set',v[1],v[2],v[3],e} end        
-    local function gStatement(inp,stop)
+    function gStatement(inp,stop)
       local t,vars,exprs = inp.peek(),{},{}
       if t.value=='local' then inp.next()
         vars[1] = matcht(inp,'name',"variable in 'local'").value
@@ -2071,7 +2071,7 @@ function Module.eventScript.init()
         local triggers,dailys,reps,dailyFlag = getTriggers(head)
         _assert(#triggers>0 or #dailys>0 or #reps>0, "no triggers found in header")
         --_assert(not(#dailys>0 and #reps>0), "can't have @daily and @@interval rules together in header")
-        local code = ScriptCompiler.compile({'%and',(_debugFlags.rule or _debugFlags.ruleTrue) and {'%logRule',head,src} or head,body})
+        local code = ScriptCompiler.compile({'%and',(_debugFlags.rule or _debugFlags.ruleTrue) and {'%logRule',head,src} or head,body},env.log)
         local action = compileAction(code,src,env.log)
         if #reps>0 then -- @@interval rules
           local event,env={type=Util.gensym("INTERV")},{code=reps[1]}
@@ -2163,7 +2163,16 @@ function Module.eventScript.init()
       end
 
       function self.macro(name,str) _macros['%$'..name..'%$'] = str end
-      function self.macroSubs(str) for m,s in pairs(_macros) do str = str:gsub(m,s) end return str end
+      function self.macroSubs(str)
+--        local  str0 = str
+--        str = str:gsub("||"," if ",1)
+--        if str0 ~= str and not str:find(";;") then str = str.." ;;" end
+--        str = str:gsub(">>"," then ")
+--        str = str:gsub("||"," elseif ")
+--        str = str:gsub(";;"," end; ")
+        
+        for m,s in pairs(_macros) do str = str:gsub(m,s) end return str 
+      end
 
       function self.recalcDailys(r,catch)
         if r==nil and catch==nil then
