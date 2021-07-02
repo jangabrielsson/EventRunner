@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix63"
+E_VERSION,E_FIX = 0.5,"fix64"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -1664,6 +1664,20 @@ function Module.eventScript.init()
       getFuns.isClosed={off,'value',mapAnd,true}
       getFuns.lux={get,'value',nil,true}
       getFuns.temp={get,'value',nil,true}
+      getFuns.coolingThermostatSetpoint={get,'coolingThermostatSetpoint',nil,true}
+      getFuns.coolingThermostatSetpointCapabilitiesMax={get,'coolingThermostatSetpointCapabilitiesMax',nil,true}
+      getFuns.coolingThermostatSetpointCapabilitiesMin={get,'coolingThermostatSetpointCapabilitiesMin',nil,true}
+      getFuns.coolingThermostatSetpointFuture={get,'coolingThermostatSetpointFuture',nil,true}
+      getFuns.coolingThermostatSetpointStep={get,'coolingThermostatSetpointStep',nil,true}
+      getFuns.heatingThermostatSetpoint={get,'heatingThermostatSetpoint',nil,true}
+      getFuns.heatingThermostatSetpointCapabilitiesMax={get,'heatingThermostatSetpointCapabilitiesMax',nil,true}
+      getFuns.heatingThermostatSetpointCapabilitiesMin={get,'heatingThermostatSetpointCapabilitiesMin',nil,true}
+      getFuns.heatingThermostatSetpointFuture={get,'heatingThermostatSetpointFuture',nil,true}
+      getFuns.heatingThermostatSetpointStep={get,'heatingThermostatSetpointStep',nil,true}
+      getFuns.thermostatFanMode={get,'thermostatFanMode',nil,true}
+      getFuns.thermostatFanOff={get,'thermostatFanOff',nil,true}
+      getFuns.thermostatMode={get,'thermostatMode',nil,true}
+      getFuns.thermostatModeFuture={get,'thermostatModeFuture',nil,true}
       getFuns.on={call,'turnOn',mapF,true}
       getFuns.off={call,'turnOff',mapF,true}
       getFuns.open={call,'open',mapF,true}
@@ -1722,9 +1736,10 @@ function Module.eventScript.init()
       setFuns.scheduleState={set,'setScheduleState'}
       setFuns.color={set2,'setColor'}
       setFuns.thermostatSetpoint={set2,'setThermostatSetpoint'}
-      setFuns.setThermostatMode={set,'setThermostatMode'}
-      setFuns.setCoolingThermostatSetpoint={set,'setCoolingThermostatSetpoint'}
-      setFuns.setThermostatFanMode={set,'setThermostatFanMode'}
+      setFuns.thermostatMode={set,'setThermostatMode'}
+      setFuns.heatingThermostatSetpoint={set,'setHeatingThermostatSetpoint'}
+      setFuns.coolingThermostatSetpoint={set,'setCoolingThermostatSetpoint'}
+      setFuns.thermostatFanMode={set,'setThermostatFanMode'}
       setFuns.schedule={set2,'setSchedule'}
       setFuns.dim={dim2,'dim'}
       setFuns.msg={pushMsg,'push'}
@@ -2170,146 +2185,146 @@ function Module.eventScript.init()
 --        str = str:gsub(">>"," then ")
 --        str = str:gsub("||"," elseif ")
 --        str = str:gsub(";;"," end; ")
-        
+
         for m,s in pairs(_macros) do str = str:gsub(m,s) end return str 
-      end
-
-      function self.recalcDailys(r,catch)
-        if r==nil and catch==nil then
-          for _,d in ipairs(dailysTab) do self.recalcDailys(d.rule) end
-          return
         end
-        if not r.dailys then return end
-        local dailys,newTimers,oldTimers,max = r.dailys,{},r.dailys.timers,math.max
-        for _,t in ipairs(oldTimers) do QA:cancel(t[2]) end
-        dailys.timers = newTimers
-        local times,m,ot,catchup1,catchup2 = compTimes(dailys.dailys),midnight(),os.time()
-        for i,t in ipairs(times) do _assert(tonumber(t),"@time not a number:%s",t)
-          t = math.floor(t+0.5)
-          if t <= 3600*24 or t == math.huge then 
-            local oldT = oldTimers[i] and oldTimers[i][1]
-            if t ~= CATCHUP then
-              if _MIDNIGHTADJUST and t==HOURS24 then t=t-1 end
-              if t+m >= ot then 
-                Debug(oldT ~= t and _debugFlags.dailys,"Rescheduling daily %s for %s",r.src or "",os.date("%c",t+m)); 
-                newTimers[#newTimers+1]={t,QA:post(dailys.event,max(os.time(),t+m),r.src)}
-              else catchup1=true end
-            else catchup2 = true end
+
+        function self.recalcDailys(r,catch)
+          if r==nil and catch==nil then
+            for _,d in ipairs(dailysTab) do self.recalcDailys(d.rule) end
+            return
           end
+          if not r.dailys then return end
+          local dailys,newTimers,oldTimers,max = r.dailys,{},r.dailys.timers,math.max
+          for _,t in ipairs(oldTimers) do QA:cancel(t[2]) end
+          dailys.timers = newTimers
+          local times,m,ot,catchup1,catchup2 = compTimes(dailys.dailys),midnight(),os.time()
+          for i,t in ipairs(times) do _assert(tonumber(t),"@time not a number:%s",t)
+            t = math.floor(t+0.5)
+            if t <= 3600*24 or t == math.huge then 
+              local oldT = oldTimers[i] and oldTimers[i][1]
+              if t ~= CATCHUP then
+                if _MIDNIGHTADJUST and t==HOURS24 then t=t-1 end
+                if t+m >= ot then 
+                  Debug(oldT ~= t and _debugFlags.dailys,"Rescheduling daily %s for %s",r.src or "",os.date("%c",t+m)); 
+                  newTimers[#newTimers+1]={t,QA:post(dailys.event,max(os.time(),t+m),r.src)}
+                else catchup1=true end
+              else catchup2 = true end
+            end
+          end
+          if catch and catchup2 and catchup1 then ptrace("Catching up:%s",r.src); QA:post(dailys.event) end
+          return r
         end
-        if catch and catchup2 and catchup1 then ptrace("Catching up:%s",r.src); QA:post(dailys.event) end
-        return r
-      end
 
-      -- Scheduler that every night posts 'daily' rules
-      Util.defvar('dayname',os.date("%a"))
-      QA:event({type='%MIDNIGHT'},function(env) 
-          Util.defvar('dayname',os.date("*t").wday)
-          for _,d in ipairs(dailysTab) do self.recalcDailys(d.rule) end 
-          QA:post(env.event,"n/00:00")
-        end)
-      QA:post({type='%MIDNIGHT',_sh=true},"n/00:00")
-      return self
-    end -- makeEventScriptRuleCompiler
+        -- Scheduler that every night posts 'daily' rules
+        Util.defvar('dayname',os.date("%a"))
+        QA:event({type='%MIDNIGHT'},function(env) 
+            Util.defvar('dayname',os.date("*t").wday)
+            for _,d in ipairs(dailysTab) do self.recalcDailys(d.rule) end 
+            QA:post(env.event,"n/00:00")
+          end)
+        QA:post({type='%MIDNIGHT',_sh=true},"n/00:00")
+        return self
+      end -- makeEventScriptRuleCompiler
 
 --- SceneActivation constants
-    Util.defvar('S1',Util.S1)
-    Util.defvar('S2',Util.S2)
-    Util.defvar('catch',math.huge)
-    Util.defvar("defvars",Util.defvars)
-    Util.defvar("mapvars",Util.reverseMapDef)
-    Util.defvar("print",function(...) quickApp:printTagAndColor(...) end)
-    Util.defvar("QA",quickApp)
+      Util.defvar('S1',Util.S1)
+      Util.defvar('S2',Util.S2)
+      Util.defvar('catch',math.huge)
+      Util.defvar("defvars",Util.defvars)
+      Util.defvar("mapvars",Util.reverseMapDef)
+      Util.defvar("print",function(...) quickApp:printTagAndColor(...) end)
+      Util.defvar("QA",quickApp)
 
-    ScriptParser   = makeEventScriptParser()
-    ScriptCompiler = makeEventScriptCompiler(ScriptParser)
-    ScriptEngine   = makeEventScriptRuntime()
-    Rule           = makeEventScriptRuleCompiler() 
-    Rule.ScriptParser   = ScriptParser
-    Rule.ScriptCompiler = ScriptCompiler
-    Rule.ScriptEngine   = ScriptEngine
-    function QA:evalScript(...) return Rule.eval(...) end
-    Module.eventScript.inited = Rule
-    return Rule
-  end
+      ScriptParser   = makeEventScriptParser()
+      ScriptCompiler = makeEventScriptCompiler(ScriptParser)
+      ScriptEngine   = makeEventScriptRuntime()
+      Rule           = makeEventScriptRuleCompiler() 
+      Rule.ScriptParser   = ScriptParser
+      Rule.ScriptCompiler = ScriptCompiler
+      Rule.ScriptEngine   = ScriptEngine
+      function QA:evalScript(...) return Rule.eval(...) end
+      Module.eventScript.inited = Rule
+      return Rule
+    end
 ----------------- Node-red support ----------------------------
-  Module.nodered={ name = "ER Nodered", version="0.5" }
-  function Module.nodered.init(self)
-    if Module.nodered.inited then return Module.nodered.inited end
-    Module.nodered.inited = true 
+    Module.nodered={ name = "ER Nodered", version="0.5" }
+    function Module.nodered.init(self)
+      if Module.nodered.inited then return Module.nodered.inited end
+      Module.nodered.inited = true 
 
-    local nr = { _nrr = {}, _timeout = 4000, _last=nil }
-    local isEvent,gensym,asyncCall,receiveAsync = self.EM.isEvent,Util.gensym,Util.asyncCall,Util.receiveAsync
-    function nr.connect(url) 
-      local self2 = { _url = url, _http=Util.netSync.HTTPClient("Nodered") }
-      function self2.post(event,sync)
-        _assert(isEvent(event),"Arg to nodered.post is not an event")
-        local tag, res
-        if sync then tag,res = asyncCall("NodeRed",50000) end
-        event._transID = tag
-        event._from = fibaro.ID
-        event._async = true
-        event._IP = Util.getIPaddress()
-        if hc3_emulator then event._IP=event._IP..":"..hc3_emulator.webPort end
-        local params =  {options = {
-            headers = {['Accept']='application/json',['Content-Type']='application/json'},
-            data = json.encode(event), timeout=4000, method = 'POST'},
-        }
-        self2._http:request(self2._url,params)
-        return sync and res or true
+      local nr = { _nrr = {}, _timeout = 4000, _last=nil }
+      local isEvent,gensym,asyncCall,receiveAsync = self.EM.isEvent,Util.gensym,Util.asyncCall,Util.receiveAsync
+      function nr.connect(url) 
+        local self2 = { _url = url, _http=Util.netSync.HTTPClient("Nodered") }
+        function self2.post(event,sync)
+          _assert(isEvent(event),"Arg to nodered.post is not an event")
+          local tag, res
+          if sync then tag,res = asyncCall("NodeRed",50000) end
+          event._transID = tag
+          event._from = fibaro.ID
+          event._async = true
+          event._IP = Util.getIPaddress()
+          if hc3_emulator then event._IP=event._IP..":"..hc3_emulator.webPort end
+          local params =  {options = {
+              headers = {['Accept']='application/json',['Content-Type']='application/json'},
+              data = json.encode(event), timeout=4000, method = 'POST'},
+          }
+          self2._http:request(self2._url,params)
+          return sync and res or true
+        end
+        nr._last = self2
+        return self2
       end
-      nr._last = self2
-      return self2
+
+      function nr.post(event,sync)
+        _assert(nr._last,"Missing nodered URL - run Nodered.connect(<url>)")
+        return nr._last.post(event,sync)
+      end
+
+      function self:fromNodeRed(ev)
+        local tag = ev._transID
+        ev._IP,ev._async,ev._from,ev._transID=nil,nil,nil,nil
+        if tag then return receiveAsync(tag,ev)
+        else self:post(ev) end
+      end
+      Nodered = nr
+      Module.nodered.inited = nr
+      return nr
     end
 
-    function nr.post(event,sync)
-      _assert(nr._last,"Missing nodered URL - run Nodered.connect(<url>)")
-      return nr._last.post(event,sync)
-    end
-
-    function self:fromNodeRed(ev)
-      local tag = ev._transID
-      ev._IP,ev._async,ev._from,ev._transID=nil,nil,nil,nil
-      if tag then return receiveAsync(tag,ev)
-      else self:post(ev) end
-    end
-    Nodered = nr
-    Module.nodered.inited = nr
-    return nr
-  end
-
-  modules = {
-    "events","childs","triggers","rpc","files","pubsub",
-    "utilities","autopatch","objects","device","extras","eventScript","nodered",--"doc"
-  }
+    modules = {
+      "events","childs","triggers","rpc","files","pubsub",
+      "utilities","autopatch","objects","device","extras","eventScript","nodered",--"doc"
+    }
 
 ----------------- Main ----------------------------------------
-  _version = "v"..E_VERSION..E_FIX
+    _version = "v"..E_VERSION..E_FIX
 
-  QuickApp._SILENT = true
-  function QuickApp:onInit()
-    fibaro.ID = self.id
-    local s = self._orgToString({})
-    if not s:match("%s(.*)") then
-      self:errorf("Bad table tostring: %s",s)
-      os.exit()
+    QuickApp._SILENT = true
+    function QuickApp:onInit()
+      fibaro.ID = self.id
+      local s = self._orgToString({})
+      if not s:match("%s(.*)") then
+        self:errorf("Bad table tostring: %s",s)
+        os.exit()
+      end
+      --psys("IP address:%s",Util.getIPaddress())  
+      local main = self.main
+      _IPADDRESS = self.getHC3IPaddress()
+      self:debug("IP:",_IPADDRESS)
+      self.main = function(self)
+        self:notify("info","Started",os.date("%c"),true)
+        psys("Sunrise:%s,  Sunset:%s",(fibaro.get(1,"sunriseHour")),(fibaro.get(1,"sunsetHour")))
+        Util.printBanner("Setting up rules (main)")
+        local stat,res = pcall(function()
+            main(quickApp) -- call main
+          end)
+        if not stat then error("Main() ERROR:"..res) end
+        Util.printBanner("Running")
+        self:setView("ERname","text","EventRunner4 %s",_version)
+        quickApp:post({type='%startup%',_sh=true})
+        local uptime = api.get("/settings/info").serverStatus or 0
+        if os.time()-uptime < 30 then quickApp:post({type='se-start',_sh=true}) end
+      end
     end
-    --psys("IP address:%s",Util.getIPaddress())  
-    local main = self.main
-    _IPADDRESS = self.getHC3IPaddress()
-    self:debug("IP:",_IPADDRESS)
-    self.main = function(self)
-      self:notify("info","Started",os.date("%c"),true)
-      psys("Sunrise:%s,  Sunset:%s",(fibaro.get(1,"sunriseHour")),(fibaro.get(1,"sunsetHour")))
-      Util.printBanner("Setting up rules (main)")
-      local stat,res = pcall(function()
-          main(quickApp) -- call main
-        end)
-      if not stat then error("Main() ERROR:"..res) end
-      Util.printBanner("Running")
-      self:setView("ERname","text","EventRunner4 %s",_version)
-      quickApp:post({type='%startup%',_sh=true})
-      local uptime = api.get("/settings/info").serverStatus or 0
-      if os.time()-uptime < 30 then quickApp:post({type='se-start',_sh=true}) end
-    end
-  end
