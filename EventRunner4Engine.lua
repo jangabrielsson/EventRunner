@@ -1078,7 +1078,11 @@ function Module.eventScript.init()
       end
       while not ops.isEmpty() do apply(ops.pop(),st) end
       --st.dump()
-      return st.pop()
+      local r = st.pop()
+      if not st.isEmpty() then
+        error("Bad expression "..json.encode(st.pop()))
+      end
+      return r
     end
 
     function self.gArgs(inp,stop)
@@ -1642,7 +1646,7 @@ function Module.eventScript.init()
       getFuns.isAllOn={on,'value',mapAnd,true}
       getFuns.isAnyOff={off,'value',mapOr,true}
       getFuns.last={last,'value',nil,true}
-      getFuns.alarm={alarm,nil,nil,false}
+      getFuns.alarm={alarm,nil,nil,true}
       getFuns.armed={function(id) return gp(id).armed end,'armed',mapOr,true}
       getFuns.allArmed={function(id) return gp(id).armed end,'armed',mapAnd,true,true}
       getFuns.disarmed={function(id,_,val) return not gp(id).armed end,'armed',mapAnd,true}

@@ -38,7 +38,7 @@ timerwheel     -- Credit https://github.com/Tieske/timerwheel.lua/blob/master/LI
 binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.310" 
+local FIBAROAPIHC3_VERSION = "0.311" 
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
 --[[
@@ -145,7 +145,7 @@ fibaro.setTimeout(ms, func)
 fibaro.clearTimeout(ref)
 fibaro.emitCustomEvent(name)
 fibaro.wakeUpDeadDevice
-fibaro.sleep(ms) -- simple busy wait...
+fibaro.sleep(ms) -- blocking wait...
 
 net.HTTPClient()
 net.TCPSocket()
@@ -4631,7 +4631,7 @@ end
           codeEnv.fibaro.setTimeout = function(a,b,...) return st2(b,a,...) end
           codeEnv.print = function(...) codeEnv.fibaro.debug(codeEnv.__TAG,...) end
           codeEnv.__TAG = "QuickApp"..self.id
-          codeEnv.setTimeout(function() end,0)
+          codeEnv.setTimeout(function() end,2000)
           -- Step 3. load the files (we don't run them yet)
           local loadedFiles = {}
           self.paths = self.paths or {}
@@ -6441,6 +6441,9 @@ function module.WebAPI(hc3)
     fibaro = hc3.module.Fibaro.fibaro
   end
 
+  local function redirect(method,client,call,body,headers)
+  end
+
   local function clientHandler(client,handler)
     local headers = {}
     while true do
@@ -6468,6 +6471,9 @@ function module.WebAPI(hc3)
           end
         until header == nil or e == 'closed'
         if _debugFlags.webServer or _debugFlags.webServerReq then Log(LOG.SYS,"WS: Request served:%s",l) end
+        if call:match("/REDIRECTHC3/") then
+          redirect(method,client,call,body,headers)
+        end
         if handler then handler(method,client,call,body,headers) end
         client:close()
         return
@@ -6627,6 +6633,12 @@ Connection: Closed
         client:send("HTTP/1.1 201 Created\r\nETag: \"c180de84f991g8\"\r\n\r\n")
         return true
       end,
+      ["/api/(.+)$"] = function(client,_,body,path)
+        local res,err = api.put(path,body)
+        if not res then error(format("Bad api.put(%s) - %s",path,err),4) end
+        client:send("HTTP/1.1 201 Created\r\nETag: \"c180de84f991g8\"\r\n\r\n")
+        return true
+        end
     }
   }
 
@@ -6738,7 +6750,7 @@ help - this text
   function Pages.register(path,page)
     local file = page:match("^file:(.*)")
     if file then
-      local f = io.open(file)
+      local f,err = io.open(file,"r")
       if not f then error("No such file:"..file) end
       page = f:read("*all")
       f:close()
@@ -6747,8 +6759,30 @@ help - this text
     return Pages.pages[path]
   end
 
+  local function addLocalPage(name,path,headers)
+    Pages.pages[name] = {fun = function()
+        local f,err = io.open(path,"r")
+        if not f then error("No such file:"..path) end
+        page = f:read("*all")
+        f:close()
+        return [[HTTP/1.1 200 OK
+Content-Type: text/html
+Origin: http://127.0.0.1:6872
+Access-Control-Allow-Origin: http://127.0.0.1:6872
+Access-Control-Allow-Methods: POST, GET
+Access-Control-Allow-Headers: X-Fibaro-Version, Authorization, Content-Type, access-control-allow-origin, access-control-allow-methods, access-control-allow-headers
+Cache-Control: no-cache, no-store, must-revalidate
+
+]]..(headers and  [[<!DOCTYPE html>]] or "")..page
+      end}
+  end
+
+  addLocalPage("webui2","web/index.html",true)
+  addLocalPage("script.js","web/script.js")
+
   function Pages.getPath(path,...)
     local p = Pages.pages[path]
+    if p and p.fun then return p.fun() end
     if p and not p.cpage then
       Pages.compile(p)
     end
@@ -9302,6 +9336,7 @@ hc3.downloadFile      = hc3.module.OS.downloadFile
 hc3.downloadResources = hc3.module.Local.downloadResources
 hc3.loadResources     = hc3.module.Local.loadResources
 hc3.socketServer      = Web.socketServer
+hc3.getmetatable      = getmetatable
 
 function hc3.module.Util.createEnvironment(envType, extras)
   local env = {}
@@ -9464,7 +9499,7 @@ local function startEmulator(file)
 
   if hc3_emulator.poll and not hc3_emulator.offline then
     local p = tonumber(hc3_emulator.poll) or 2000
-    Log(LOG.LOG,"Polling HC3 for triggers every %sms",p)
+    Log(LOG.LOG,"Polling HC3 for triggers every %s ms",p)
     Trigger.startPolling(p)
   end
 
