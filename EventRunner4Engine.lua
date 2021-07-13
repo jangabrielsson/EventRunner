@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix64"
+E_VERSION,E_FIX = 0.5,"fix65"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -919,7 +919,7 @@ function Module.extras.init(self)
       opts.headers["content-type"] = 'application/json'
     end
     if opts.user or opts.pwd then 
-      opts.headers['Authorization']= base64((opts.user or "")..":"..(opts.pwd or ""))
+      opts.headers['Authorization']= quickApp:basicAuthorization((opts.user or ""),(opts.pwd or ""))
       opts.user,opts.pwd=nil,nil
     end
     opts.data = data and json.encode(data)
