@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix65"
+E_VERSION,E_FIX = 0.5,"fix66"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -676,7 +676,7 @@ function Module.autopatch.init(self)
         ['EventRunner']="EventRunner4Engine.lua",
         ['Toolbox']="Toolbox/Toolbox_basic.lua",
         ['Toolbox_events']="Toolbox/Toolbox_events.lua",        
-        ['Toolbox_childs']="Toolbox/Toolbox_child.lua",
+        ['Toolbox_child']="Toolbox/Toolbox_child.lua",
         ['Toolbox_triggers']="Toolbox/Toolbox_triggers.lua",
         ['Toolbox_files']="Toolbox/Toolbox_files.lua",
         ['Toolbox_rpc']="Toolbox/Toolbox_rpc.lua",
@@ -726,7 +726,7 @@ function Module.autopatch.init(self)
     local n = 0;
     for _,_ in pairs(finfo.files) do n=n+1 end
     local function patcher(nfiles)
-      if hc3_emulator then return end  -- not in emulator
+      ---if hc3_emulator then return end  -- not in emulator
       local id,cfiles = self.id,{}
       local of = self:getFiles(id)
       for _,f in pairs(of) do
@@ -998,6 +998,7 @@ function Module.eventScript.init()
     local mkStack,mkStream,toTime,map,mapkk,gensym=Util.mkStack,Util.mkStream,Util.toTime,Util.map,Util.mapkk,Util.gensym
     local patterns,self = {},{}
     local opers = {['%neg']={14,1},['t/']={14,1,'%today'},['n/']={14,1,'%nexttime'},['+/']={14,1,'%plustime'},['$']={14,1,'%vglob'},
+      ['$$']={14,1,'%vquick'},
       ['.']={12.9,2},[':']= {13,2,'%prop'},['..']={9,2,'%betw'},['...']={9,2,'%betwo'},['@']={9,1,'%daily'},['jmp']={9,1},['::']={9,1},--['return']={-0.5,1},
       ['@@']={9,1,'%interv'},['+']={11,2},['++']={10,2},['===']={9,2},
       ['-']={11,2},['*']={12,2},['/']={12,2},['%']={12,2},['==']={6,2},['<=']={6,2},
@@ -1131,7 +1132,7 @@ function Module.eventScript.init()
     token("%-%-.*")  
     token("===",function (op) return {type="operator", sw=SW[op] or 'op', value=op} end)    
     token("%.%.%.",function (op) return {type="operator", sw=SW[op] or 'op', value=op} end)
-    token("[@%$=<>!+%.%-*&|/%^~;:][+@=<>&|;:%.]?", function (op) return {type="operator", sw=SW[op] or 'op', value=op} end)
+    token("[@%$=<>!+%.%-*&|/%^~;:][%$+@=<>&|;:%.]?", function (op) return {type="operator", sw=SW[op] or 'op', value=op} end)
     token("[{}%(%),%[%]#%%]", function (op) return {type="operator", sw=SW[op] or 'op', value=op} end)
 
 
@@ -1150,6 +1151,7 @@ function Module.eventScript.init()
       return r
     end
     postP['%vglob'] = function(e) return {'%var',e[2][2],'glob'} end
+    postP['%vquick'] = function(e) return {'%var',e[2][2],'quick'} end
     postP['='] = function(e) 
       local lv,rv = e[2],e[3]
       if type(lv) == 'table' and ({['%var']=true,['%prop']=true,['%aref']=true})[lv[1]] then
@@ -1454,8 +1456,20 @@ function Module.eventScript.init()
       if not _MARSHALL then return tostring(v) end
       if type(v)=='table' then return safeEncode(v) else return tostring(v) end
     end
-    local getVarFs = { script=getVar, glob=function(n,e) return marshallFrom(fibaro.getGlobalVariable(n)) end }
-    local setVarFs = { script=setVar, glob=function(n,v,e) fibaro.setGlobalVariable(n,marshallTo(v)) return v end }
+    local getVarFs = { 
+      script=getVar, 
+      glob=function(n,e) return marshallFrom(fibaro.getGlobalVariable(n)) end,
+      quick=function(n,e) 
+        local v = QA:getVariable(n)
+        if v == "" then v = nil end
+        return marshallFrom(v) 
+      end
+    }
+    local setVarFs = { 
+      script=setVar, 
+      glob=function(n,v,e) fibaro.setGlobalVariable(n,marshallTo(v)) return v end,
+      quick=function(n,v,e) QA:setVariable(n,marshallTo(v)) return v end 
+    }
     instr['%var'] = function(s,n,e,i) s.push(getVarFs[i[4]](i[3],e)) end
     instr['%setvar'] = function(s,n,e,i) if n==1 then setVarFs[i[4]](i[3],s.peek(),e) else s.push(setVarFs[i[4]](i[3],i[5],e)) end end
     instr['%local'] = function(s,n,e,i) local vn,ve = i[3],s.lift(n); e.locals = e.locals or {}
@@ -2003,6 +2017,7 @@ function Module.eventScript.init()
         end,
         ['%var'] = function(e,s) 
           if e[3]=='glob' then s.triggs[e[2] ] = {type='global-variable', name=e[2]} 
+          elseif e[3]=='quick' then s.triggs[e[2] ] = {type='quickvar', name=e[2]} 
           elseif triggerVar(e[2]) then s.triggs[e[2] ] = {type='variable', name=e[2]} end 
         end,
         ['%set'] = function(e,s) if isVar(e[2]) and triggerVar(e[2][2]) or isGlob(e[2]) then error("Can't assign variable in rule header") end end,
@@ -2113,7 +2128,7 @@ function Module.eventScript.init()
             self.recalcDailys({dailys=sdaily,src=src},true)
             local reaction = function() self.recalcDailys(res) end
             for _,tr in ipairs(triggers) do -- Add triggers to reschedule dailys when variables change...
-              if tr.type=='global-variable' then QA:event(tr,reaction,{doc=src})  end
+              if tr.type=='global-variable' or tr.type=='quickvar' then QA:event(tr,reaction,{doc=src})  end
             end
           end
           if not dailyFlag and #triggers > 0 then -- id/glob trigger or events
@@ -2305,7 +2320,7 @@ function Module.eventScript.init()
 ----------------- Main ----------------------------------------
     _version = "v"..E_VERSION..E_FIX
 
-    QuickApp._SILENT = true
+    --QuickApp._SILENT = true
     function QuickApp:onInit()
       fibaro.ID = self.id
       local s = self._orgToString({})

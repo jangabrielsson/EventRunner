@@ -20,7 +20,7 @@ Toolbox_Module.pubsub ={
 function Toolbox_Module.pubsub.init(self)
   if Toolbox_Module.pubsub.inited then return Toolbox_Module.pubsub.inited end
   Toolbox_Module.pubsub.inited = true
-
+  self.debugFlags.pubsub=true
   local SUB_VAR = "TPUBSUB"
   local function DEBUG(...) if self.debugFlags.pubsub then self:debugf(...) end end
   local mySubscriptions = {}

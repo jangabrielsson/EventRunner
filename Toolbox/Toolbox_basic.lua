@@ -361,10 +361,10 @@ function Toolbox_Module.basic(self)
   end
 
   local _updateProperty = self.updateProperty
-  function self:updateProperty(prop,value)
+  function self:updateProperty(prop,value,force)
     local _props = self.properties
     if _props==nil or _props[prop] ~= nil then
-      return _updateProperty(self,prop,value)
+      return _updateProperty(self,prop,value,force)
     elseif self._PROPWARN then self:warningf("Trying to update non-existing property - %s",prop) end
   end
 -- Change type of QA. Note, if types is changed the QA will restart
