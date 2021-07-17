@@ -2320,7 +2320,7 @@ function Module.eventScript.init()
 ----------------- Main ----------------------------------------
     _version = "v"..E_VERSION..E_FIX
 
-    --QuickApp._SILENT = true
+    QuickApp._SILENT = true
     function QuickApp:onInit()
       fibaro.ID = self.id
       local s = self._orgToString({})
