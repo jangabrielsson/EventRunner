@@ -1766,7 +1766,7 @@ do
   function fibaro.updateFibaroExtra(fname)
     fname = fname or fibaro._FIBAROEXTRA_NAME or "fibaroExtra.lua"
     local function fetch(url,cont)
-      fibaro.debug(__TAG,"Fetching ",url)
+      --fibaro.debug(__TAG,"Fetching ",url)
       net.HTTPClient():request(url,{
           options = {method = 'GET', checkCertificate = false, timeout=20000},
           success = function(res) 
@@ -1788,10 +1788,16 @@ do
           fetch(fibaro._URL_UPDATE_BASE..fname,
             function(code)
               local name=fname:match("(.*)%.[Ll][Uu][Aa]") or "library"
-              fibaro.debug(__TAG,"Updating ",name)
               local f = {isMain=false,type='lua',isOpen=false,name=name,content=code}
-              local _,res = api.put("/quickApp/"..plugin.mainDeviceId.."/files/"..name,f)
-              if res ~= 200 then fibaro.error(___TAG,"Updating ",name," - ",res) end
+              if api.get("/quickApp/"..plugin.mainDeviceId.."/files/"..name) then
+                fibaro.debug(__TAG,"Updating ",name)
+                local _,res = api.put("/quickApp/"..plugin.mainDeviceId.."/files/"..name,f)
+                if res ~= 200 then fibaro.error(___TAG,"Updating ",name," - ",res) end
+              else
+                fibaro.debug(__TAG,"Installing ",name)
+                local _,res = api.put("/quickApp/"..plugin.mainDeviceId.."/files",f)
+                if res ~= 200 then fibaro.error(__TAG,"Installing ",name," - ",res) end
+              end
             end)
         end
       end)
