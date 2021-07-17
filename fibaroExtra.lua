@@ -1,5 +1,5 @@
 fibaro = fibaro  or  {}
-fibaro.FIBARO_EXTRA = "v0.905"
+fibaro.FIBARO_EXTRA = "v0.906"
 
 local MID = plugin and plugin.mainDeviceId or sceneId or 0
 local format = string.format
@@ -1255,7 +1255,7 @@ do
           end
           local stat,res = pcall(f)
           if not stat then 
-            error(res,2)
+            fibaro.error(res)
           end
         end
         if ms > maxt then
@@ -1268,7 +1268,7 @@ do
         return setinterval(function()
             local stat,res = pcall(fun)
             if not stat then 
-              error(res,2)
+              fibaro.error(res)
             end
           end,math.floor(ms+0.5))
       end
