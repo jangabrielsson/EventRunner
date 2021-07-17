@@ -1,5 +1,5 @@
 fibaro = fibaro  or  {}
-fibaro.FIBARO_EXTRA = "v0.904"
+fibaro.FIBARO_EXTRA = "v0.905"
 
 local MID = plugin and plugin.mainDeviceId or sceneId or 0
 local format = string.format
@@ -246,6 +246,7 @@ do
   end
 
   local old_tostring = tostring
+  fibaro._orgToString = old_tostring
   if hc3_emulator then
     function tostring(obj)
       if type(obj)=='table' and not hc3_emulator.getmetatable(obj) then
@@ -969,6 +970,89 @@ do
       if d.visible ~= bool then api.put("/devices/"..self.id,{visible=bool}) end
     end
 
+    function QuickApp:post(...) return fibaro.post(...) end
+    function QuickApp:event(...) return fibaro.event(...) end
+
+    function fibaro.deleteFile(deviceId,file)
+      local name = type(file)=='table' and file.name or file
+      return api.delete("/quickApp/"..(deviceId or MID).."/files/"..name)
+    end
+
+    function fibaro.updateFile(deviceId,file,content)
+      if type(file)=='string' then
+        file = {isMain=false,type='lua',isOpen=false,name=file,content=""}
+      end
+      file.content = type(content)=='string' and content or file.content
+      return api.put("/quickApp/"..(deviceId or MID).."/files/"..file.name,file) 
+    end
+
+    function fibaro.updateFiles(deviceId,list)
+      if #list == 0 then return true end
+      return api.put("/quickApp/"..(deviceId or MID).."/files",list) 
+    end
+
+    function fibaro.createFile(deviceId,file,content)
+      if type(file)=='string' then
+        file = {isMain=false,type='lua',isOpen=false,name=file,content=""}
+      end
+      file.content = type(content)=='string' and content or file.content
+      return api.post("/quickApp/"..(deviceId or MID).."/files",file) 
+    end
+
+    function fibaro.getFile(deviceId,file)
+      local name = type(file)=='table' and file.name or file
+      return api.get("/quickApp/"..(deviceId or MID).."/files/"..name) 
+    end
+
+    function fibaro.getFiles(deviceId)
+      local res,code = api.get("/quickApp/"..(deviceId or MID).."/files")
+      return res or {},code
+    end
+
+    function fibaro.copyFileFromTo(fileName,deviceFrom,deviceTo)
+      deviceTo = deviceTo or (deviceId or MID)
+      local copyFile = fibaro.getFile(deviceFrom,fileName)
+      assert(copyFile,"File doesn't exists")
+      fibaro.addFileTo(copyFile.content,fileName,deviceTo)
+    end
+
+    function fibaro.addFileTo(fileContent,fileName,deviceId)
+      deviceId = deviceId or MID
+      local file = fibaro.getFile(deviceId,fileName)
+      if not file then
+        local stat,res = fibaro.createFile(deviceId,{   -- Create new file
+            name=fileName,
+            type="lua",
+            isMain=false,
+            isOpen=false,
+            content=fileContent
+          })
+        if res == 200 then
+          fibaro.debug(nil,"File '",fileName,"' added")
+        else self:error("Error:",res) end
+      elseif file.content ~= fileContent then
+        local stat,res = fibaro.updateFile(deviceId,{   -- Update existing file
+            name=file.name,
+            type="lua",
+            isMain=file.isMain,
+            isOpen=file.isOpen,
+            content=fileContent
+          })
+        if res == 200 then
+          fibaro.debug(nil,"File '",fileName,"' updated")
+        else fibaro.error(nil,"Error:",res) end
+      else
+        fibaro.debug(nil,"File '",fileName,"' not changed")
+      end
+    end
+
+    function fibaro.getFQA(deviceId) return api.get("/quickApp/export/"..deviceId) end
+
+    function fibaro.putFQA(content) -- Should be .fqa json
+      if type(content)=='table' then content = json.encode(content) end
+      return api.post("/quickApp/",content)
+    end
+
 -- Add interfaces to QA. Note, if interfaces are added the QA will restart
     local _addInterf = QuickApp.addInterfaces
     function QuickApp:addInterfaces(interfaces) 
@@ -1345,7 +1429,7 @@ end -- Misc
 
 --------------------- Events --------------------------------------------------
 do
-  local inited,initEvents
+  local inited,initEvents,_RECIEVE_EVENT
 
   function fibaro.postRemote(id,ev) if not inited then initEvents() end; return fibaro.postRemote(id,ev) end
   function fibaro.post(ev,t) if not inited then initEvents() end; return fibaro.post(ev,t) end
@@ -1353,6 +1437,7 @@ do
   function fibaro.event(ev,fun,doc) if not inited then initEvents() end; return fibaro.event(ev,fun,doc) end
   function fibaro.removeEvent(pattern,fun) if not inited then initEvents() end; return fibaro.removeEvent(pattern,fun) end
   function fibaro.HTTPEvent(args) if not inited then initEvents() end; return fibaro.HTTPEvent(args) end
+  function QuickApp:RECIEVE_EVENT(ev) if not inited then initEvents() end; return _RECIEVE_EVENT(self,ev) end
 
   function initEvents()
     local function DEBUG(...) if debugFlags.event then fibaro.debugf(nil,...) end end
@@ -1366,7 +1451,7 @@ do
     local function isRule(e) return type(e)=='table' and e[em.RULE] end
 
 -- This can be used to "post" an event into this QA... Ex. fibaro.call(ID,'RECIEVE_EVENT',{type='myEvent'})
-    function QuickApp:RECIEVE_EVENT(ev)
+    function _RECIEVE_EVENT(self,ev)
       assert(isEvent(ev),"Bad argument to remote event")
       local time = ev.ev._time
       ev,ev.ev._time = ev.ev,nil
@@ -1802,6 +1887,30 @@ do
         end
       end)
   end
+
+  function fibaro.installFibaroExtra()
+    local name = "fibaroExtra"
+    if fibaro.FIBARO_EXTRA then return end
+    local url = "https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/"..name..".lua"
+    net.HTTPClient():request(url,{
+        options = {method = 'GET', checkCertificate = false, timeout=20000},
+        success = function(res) 
+          if res.status == 200 then 
+            local f = {isMain=false,type='lua',isOpen=false,name=name,content=res.data}
+            fibaro.debug(__TAG,"Installing ",name)
+            local _,res = api.post("/quickApp/"..plugin.mainDeviceId.."/files",f)
+            if res ~= 200 then fibaro.error(__TAG,"Installing ",name," - ",res) end              
+          else fibaro.error(__TAG,"Error ",res.status," fetching ",url) end
+        end,
+        error  = function(res) 
+          fibaro.error(__TAG,"Error ",res," fetching ",url)
+        end
+      })
+  end
+
+--[[ Mini installer
+function fibaro.installFibaroExtra()local a="fibaroExtra"if fibaro.FIBARO_EXTRA then return end;local b="https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/"..a..".lua"net.HTTPClient():request(b,{options={method='GET',checkCertificate=false,timeout=20000},success=function(c)if c.status==200 then local d={isMain=false,type='lua',isOpen=false,name=a,content=c.data}fibaro.debug(__TAG,"Installing ",a)local e,c=api.post("/quickApp/"..plugin.mainDeviceId.."/files",d)if c~=200 then fibaro.error(__TAG,"Installing ",a," - ",c)end else fibaro.error(__TAG,"Error ",c.status," fetching ",b)end end,error=function(c)fibaro.error(__TAG,"Error ",c," fetching ",b)end})end
+--]]
 --[[
 local fileList = {
   {

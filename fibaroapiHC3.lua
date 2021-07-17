@@ -3627,13 +3627,14 @@ function module.QuickApp(hc3)
 
   function QuickAppBase:setVariable(name,value)
     __assert_type(name,'string')
-    local vs,flag = self.properties.quickAppVariables or {},false
+    local vs,vs2,flag = {},self.properties.quickAppVariables or {},false
+    for i=1,#vs2 do vs[i]=vs2[i] end
     for _,v in ipairs(vs) do
       if v.name==name then v.value=value; flag=true; break end
     end
     if not flag then -- variable not found, add it
       vs[#vs+1]={name=name,value=value}
-      self.properties.quickAppVariables = vs
+      --self.properties.quickAppVariables = vs
     end
     self:updateProperty('quickAppVariables', vs, true)
   end
@@ -4281,8 +4282,7 @@ end
     for k,v in pairs(quickVars) do
       assertf(type(k)=='string',"Corrupt quickVars table, key=%s, value=%s",k,json.encode(v))
       if type(v)=='string' and v:match("^%$CREDS") then
-        local p = "return hc3_emulator.credentials"..v:match("^%$CREDS(.*)")
-        v=load(p)()
+        v = hc3_emulator.credentials[v:match("^%$CREDS%.(.*)")]
       end
       quickVars[k]=v
     end
@@ -4382,8 +4382,9 @@ end
       self.type = env1.hc3_emulator.type or "com.fibaro.binarySwitch"
       self.baseType = env1.hc3_emulator.baseType
       self.fullLua = env1.hc3_emulator.fullLua
-      if env1.hc3_emulator.credentials and env1.hc3_emulator.credentials.ip then
-        hc3_emulator.credentials = env1.hc3_emulator.credentials
+      hc3_emulator.credentials = hc3_emulator.credentials or {}
+      for k,v in pairs(env1.hc3_emulator.credentials or {}) do 
+        hc3_emulator.credentials[k]=v
       end
       self.id = env1.hc3_emulator.id
       self.interfaces = env1.hc3_emulator.interfaces
@@ -5324,7 +5325,7 @@ function module.Trigger(hc3)
     GlobalVariableChangedEvent = function(d)
       cache.write('globals',0,d.variableName,{name=d.variableName, value = d.newValue, modified=os.time()})
       if d.variableName == hc3.emu.EMURUNNING then return true end
-      post({type='global-variable', property=d.variableName, value=d.newValue, old=d.oldValue})
+      post({type='global-variable', name=d.variableName, value=d.newValue, old=d.oldValue})
     end,
     DevicePropertyUpdatedEvent = function(d)
       if d.property=='quickAppVariables' then
@@ -5647,7 +5648,42 @@ function module.Utilities(hc3)
     function mt:__tostring() return "class "..name end
     setmetatable(cl,mt)
     getContext()[name] = cl
-    return function(p) parent = p end -- Class creation -- class <name>
+    return function(p) -- Class creation -- class <name>
+      parent = p 
+    end 
+  end
+
+  function self.class(name)       -- Version that tries to avoid __index & __newindex  to make debugging easier
+    local cl,mt,cmt,props,parent= {['_USERDATA']=true},{},{},{}  -- We still try to be Luabind class compatible
+    function cl.__copyObject(cl,obj)
+      for k,v in pairs(cl) do
+        if metas[k] then cmt[k]=v else obj[k]=v end
+      end
+      return obj
+    end
+    function mt.__call(tab,...)        -- Instantiation  <name>(...)
+      local obj = tab.__copyObject(tab,{})
+      if not tab.__init then error("Class "..name.." missing initialiser") end
+      tab.__init(obj,...)
+      local trapF = false
+      for k,v in pairs(obj) do
+        if type(v)=='table' and v['%CLASSPROP%'] then obj[k],props[k]=nil,v; trapF = true end
+      end
+      if trapF then trapIndex(props,cmt,obj) end
+      local str = "Object "..name..":"..tostring(obj):match("%s(.*)")
+      setmetatable(obj,cmt)
+      if not obj.__tostring then 
+        function obj:__tostring() return str end
+      end
+      return obj
+    end
+    function mt:__tostring() return "class "..name end
+    setmetatable(cl,mt)
+    getContext()[name] = cl
+    return function(p) -- Class creation -- class <name>
+      parent = p 
+      if parent then parent.__copyObject(parent,cl) end
+    end 
   end
 
   function self.urlencode(str)
@@ -6638,7 +6674,7 @@ Connection: Closed
         if not res then error(format("Bad api.put(%s) - %s",path,err),4) end
         client:send("HTTP/1.1 201 Created\r\nETag: \"c180de84f991g8\"\r\n\r\n")
         return true
-        end
+      end
     }
   }
 
