@@ -1,5 +1,5 @@
 fibaro = fibaro  or  {}
-fibaro.FIBARO_EXTRA = "v0.906"
+fibaro.FIBARO_EXTRA = "v0.907"
 
 local MID = plugin and plugin.mainDeviceId or sceneId or 0
 local format = string.format
@@ -1281,6 +1281,29 @@ do
         local stat,res = pcall(encode,...)
         if not stat then error(res,2) else return res end
       end
+    end
+
+    local httpClient = net.HTTPClient
+    function net.HTTPClient(args)
+      local http = httpClient(args)
+      return {
+        request = function(self,url,opts)
+          local success,err = opts.success,opts.error
+          if success then 
+            opts.success=function(res) 
+              local stat,r=pcall(success,res)
+              if not stat then fibaro.error(nil,r) end
+            end 
+          end
+          if err then 
+            opts.error=function(res) 
+              local stat,r=pcall(err,res)
+              if not stat then fibaro.error(nil,r) end
+            end 
+          end
+          return http:request(url,opts)
+        end
+      }
     end
   end
 
