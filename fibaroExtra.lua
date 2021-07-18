@@ -1224,87 +1224,85 @@ do
     return str	
   end
 
-  do
-    json = json or {}
-    local setinterval,encode,decode =  -- gives us a better error messages
-    setInterval, json.encode, json.decode
-    local oldClearTimout,oldSetTimout
+  json = json or {}
+  local setinterval,encode,decode =  -- gives us a better error messages
+  setInterval, json.encode, json.decode
+  local oldClearTimout,oldSetTimout
 
-    if not hc3_emulator then -- Patch short-sighthed setTimeout...
-      local function timer2str(t)
-        return format("[Timer:%d%s %s]",t.n,t.log or "",os.date('%T %D',t.expires or 0))
+  if not hc3_emulator then -- Patch short-sighthed setTimeout...
+    local function timer2str(t)
+      return format("[Timer:%d%s %s]",t.n,t.log or "",os.date('%T %D',t.expires or 0))
+    end
+    local N = 0
+    local function isTimer(timer) return type(timer)=='table' and timer['%TIMER%'] end
+    local function makeTimer(ref,log,exp) N=N+1 return {['%TIMER%']=(ref or 0),n=N,log=log and " ("..log..")",expires=exp or 0,__tostring=timer2str} end
+    local function updateTimer(timer,ref) timer['%TIMER%']=ref end
+    local function getTimer(timer) return timer['%TIMER%'] end
+
+    clearTimeout,oldClearTimout=function(ref)
+      if isTimer(ref) then ref=getTimer(ref)
+        oldClearTimout(ref)
       end
-      local N = 0
-      local function isTimer(timer) return type(timer)=='table' and timer['%TIMER%'] end
-      local function makeTimer(ref,log,exp) N=N+1 return {['%TIMER%']=(ref or 0),n=N,log=log and " ("..log..")",expires=exp or 0,__tostring=timer2str} end
-      local function updateTimer(timer,ref) timer['%TIMER%']=ref end
-      local function getTimer(timer) return timer['%TIMER%'] end
+    end,clearTimeout
 
-      clearTimeout,oldClearTimout=function(ref)
-        if isTimer(ref) then ref=getTimer(ref)
-          oldClearTimout(ref)
+    setTimeout,oldSetTimout=function(f,ms,log)
+      local ref,maxt=makeTimer(nil,log,math.floor(os.time()+ms/1000+0.5)),2147483648-1
+      local fun = function() -- wrap function to get error messages
+        if debugFlags.lateTimer then
+          local d = os.time() - ref.expires
+          if d > debugFlags.lateTimer then fibaro.warningf(nil,"Late timer (%ds):%s",d,ref) end
         end
-      end,clearTimeout
+        local stat,res = pcall(f)
+        if not stat then 
+          fibaro.error(res)
+        end
+      end
+      if ms > maxt then
+        updateTimer(ref,oldSetTimout(function() updateTimer(ref,getTimer(setTimeout(fun,ms-maxt))) end,maxt))
+      else updateTimer(ref,oldSetTimout(fun,math.floor(ms+0.5))) end
+      return ref
+    end,setTimeout
 
-      setTimeout,oldSetTimout=function(f,ms,log)
-        local ref,maxt=makeTimer(nil,log,math.floor(os.time()+ms/1000+0.5)),2147483648-1
-        local fun = function() -- wrap function to get error messages
-          if debugFlags.lateTimer then
-            local d = os.time() - ref.expires
-            if d > debugFlags.lateTimer then fibaro.warningf(nil,"Late timer (%ds):%s",d,ref) end
-          end
-          local stat,res = pcall(f)
+    function setInterval(fun,ms) -- can't manage looong intervals
+      return setinterval(function()
+          local stat,res = pcall(fun)
           if not stat then 
             fibaro.error(res)
           end
-        end
-        if ms > maxt then
-          updateTimer(ref,oldSetTimout(function() updateTimer(ref,getTimer(setTimeout(fun,ms-maxt))) end,maxt))
-        else updateTimer(ref,oldSetTimout(fun,math.floor(ms+0.5))) end
-        return ref
-      end,setTimeout
-
-      function setInterval(fun,ms) -- can't manage looong intervals
-        return setinterval(function()
-            local stat,res = pcall(fun)
-            if not stat then 
-              fibaro.error(res)
-            end
-          end,math.floor(ms+0.5))
-      end
-
-      function json.decode(...)
-        local stat,res = pcall(decode,...)
-        if not stat then error(res,2) else return res end
-      end
-      function json.encode(...)
-        local stat,res = pcall(encode,...)
-        if not stat then error(res,2) else return res end
-      end
+        end,math.floor(ms+0.5))
     end
 
-    local httpClient = net.HTTPClient
-    function net.HTTPClient(args)
-      local http = httpClient(args)
-      return {
-        request = function(self,url,opts)
-          local success,err = opts.success,opts.error
-          if success then 
-            opts.success=function(res) 
-              local stat,r=pcall(success,res)
-              if not stat then fibaro.error(nil,r) end
-            end 
-          end
-          if err then 
-            opts.error=function(res) 
-              local stat,r=pcall(err,res)
-              if not stat then fibaro.error(nil,r) end
-            end 
-          end
-          return http:request(url,opts)
-        end
-      }
+    function json.decode(...)
+      local stat,res = pcall(decode,...)
+      if not stat then error(res,2) else return res end
     end
+    function json.encode(...)
+      local stat,res = pcall(encode,...)
+      if not stat then error(res,2) else return res end
+    end
+  end
+
+  local httpClient = net.HTTPClient -- protect success/error with pcall and print error
+  function net.HTTPClient(args)
+    local http = httpClient(args)
+    return {
+      request = function(self,url,opts)
+        local success,err = opts.success,opts.error
+        if success then 
+          opts.success=function(res) 
+            local stat,r=pcall(success,res)
+            if not stat then fibaro.error(nil,r) end
+          end 
+        end
+        if err then 
+          opts.error=function(res) 
+            local stat,r=pcall(err,res)
+            if not stat then fibaro.error(nil,r) end
+          end 
+        end
+        return http:request(url,opts)
+      end
+    }
   end
 
   do

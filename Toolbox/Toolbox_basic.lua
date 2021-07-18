@@ -664,7 +664,7 @@ function Toolbox_Module.basic(self)
         local fun = function() -- wrap function to get error messages
           local stat,res = pcall(f)
           if not stat then 
-            error(res,2)
+            self:error(res)
           end
         end
         if ms > maxt then
@@ -677,7 +677,7 @@ function Toolbox_Module.basic(self)
         return setinterval(function()
             local stat,res = pcall(fun)
             if not stat then 
-              error(res,2)
+              self:error(res)
             end
           end,math.floor(ms+0.5))
       end
@@ -689,6 +689,28 @@ function Toolbox_Module.basic(self)
         local stat,res = pcall(encode,...)
         if not stat then error(res,2) else return res end
       end
+    end
+    local httpClient = net.HTTPClient -- protect success/error with pcall and print error
+    function net.HTTPClient(args)
+      local http = httpClient(args)
+      return {
+        request = function(self,url,opts)
+          local success,err = opts.success,opts.error
+          if success then 
+            opts.success=function(res) 
+              local stat,r=pcall(success,res)
+              if not stat then fibaro.error(nil,r) end
+            end 
+          end
+          if err then 
+            opts.error=function(res) 
+              local stat,r=pcall(err,res)
+              if not stat then fibaro.error(nil,r) end
+            end 
+          end
+          return http:request(url,opts)
+        end
+      }
     end
   end
 
