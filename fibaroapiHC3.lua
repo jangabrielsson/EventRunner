@@ -4196,7 +4196,8 @@ end
   end
 
   function onAction(event)
-    Debug(_debugFlags.onAction,"onAction: %s",json.encode(event))
+--    Debug(_debugFlags.onAction,"onAction: %s",json.encode(event))
+    if _debugFlags.onAction then print("onAction: "..json.encode(event)) end
     local self = quickApps[event.deviceId]
     if self.parentId then self = quickApps[self.parentId] end
     assert(self,"Unknown deviceID for onAction:"..event.deviceId)
@@ -4236,7 +4237,8 @@ end
       local actionName = ui2fun(self,event)
       return onAction({deviceId=event.deviceId,actionName=actionName,args=event.values})
     end
-    Debug(_debugFlags.UIEvent,"UIEvent: %s",json.encode(event))
+    --Debug(_debugFlags.UIEvent,"UIEvent: %s",json.encode(event))
+    if _debugFlags.UIEvent then print("UIEvent: "..json.encode(event)) end
     if parent.UIHandler then return parent:UIHandler(event) end
     local actionName = ui2fun(self,event)
     if actionName then return self:callAction(actionName, event) end
