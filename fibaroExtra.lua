@@ -1,5 +1,5 @@
 fibaro = fibaro  or  {}
-fibaro.FIBARO_EXTRA = "v0.908"
+fibaro.FIBARO_EXTRA = "v0.912"
 
 local MID = plugin and plugin.mainDeviceId or sceneId or 0
 local format = string.format
@@ -45,6 +45,11 @@ do
   end
   utils.equal=equal
 
+  if not table.maxn then 
+    function table.maxn(tbl) local c=0; for _ in pairs(tbl) do c=c+1 end return c end
+  end
+
+  function utils.gensym(s) return (s or "G")..fibaro._orgToString({}):match("%s(.*)") end
   function member(k,tab) for i,v in ipairs(tab) do if equal(v,k) then return i end end return false end
   function remove(obj,list) local i = member(obj,list); if i then table.remove(list,i) return true end end
   utils.member,utils.remove = member,remove
@@ -174,6 +179,7 @@ do
     elseif p == 't/' then return  hm2sec(time:sub(3))+midnight()
     else return hm2sec(time) end
   end
+  utils.toTime,utils.hm2sec = toTime,hm2sec
 
 end -- Time functions
 
@@ -236,6 +242,7 @@ do
       if d then cachedNots[nid] = d.id end
     end
   end
+  utils.notify = notify
 
   local oldPrint = print
   local inhibitPrint = {['onAction: ']='onaction', ['UIEvent: ']='uievent'}
@@ -1511,6 +1518,7 @@ do
         return res
       else return tf(obj) end
     end
+    utils.transform = transform
 
     local function coerce(x,y) local x1 = tonumber(x) if x1 then return x1,tonumber(y) else return x,y end end
     local constraints = {}
@@ -1522,6 +1530,7 @@ do
     constraints['<'] = function(val) return function(x) x,val=coerce(x,val) return x < val end end
     constraints['~='] = function(val) return function(x) x,val=coerce(x,val) return x ~= val end end
     constraints[''] = function(_) return function(x) return x ~= nil end end
+    em.coerce = coerce
 
     local function compilePattern2(pattern)
       if type(pattern) == 'table' then
@@ -1742,7 +1751,8 @@ do
         })
     end
 
-    fibaro.em = em
+    em.isEvent,em.isRule,em.comboEvent = isEvent,isRule,comboEvent
+    fibaro.EM = em
     fibaro.registerSourceTriggerCallback(handleEvent)
 
   end -- initEvents
@@ -1771,7 +1781,7 @@ do
   end
 
   if QuickApp then -- only subscribe if we are an QuickApp. Scenes can publish
-    function fibaro.subscribe(events)
+    function fibaro.subscribe(events,handler)
       if not inited then initPubSub() end
       if not events[1] then events = {events} end
       local subs = self:getVariable(SUB_VAR)
@@ -1782,6 +1792,9 @@ do
       end
       DEBUG("Setting subscription")
       self:setVariable(SUB_VAR,subs)
+      if handler then
+        fibaro.event(events,handler)
+      end
     end
   end
 
@@ -1793,8 +1806,8 @@ do
     DEBUG("Setting up pub/sub")
     inited = true
 
-    match = fibaro.em.match
-    compile = fibaro.em.compilePattern
+    match = fibaro.EM.match
+    compile = fibaro.EM.compilePattern
 
     function self:SUBSCRIPTION(e)
       self:post(e)
