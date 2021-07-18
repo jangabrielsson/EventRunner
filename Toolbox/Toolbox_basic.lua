@@ -690,28 +690,28 @@ function Toolbox_Module.basic(self)
         if not stat then error(res,2) else return res end
       end
     end
-    local httpClient = net.HTTPClient -- protect success/error with pcall and print error
-    function net.HTTPClient(args)
-      local http = httpClient(args)
-      return {
-        request = function(self,url,opts)
-          local success,err = opts.success,opts.error
-          if success then 
-            opts.success=function(res) 
-              local stat,r=pcall(success,res)
-              if not stat then self:error(r) end
-            end 
-          end
-          if err then 
-            opts.error=function(res) 
-              local stat,r=pcall(err,res)
-              if not stat then self:error(r) end
-            end 
-          end
-          return http:request(url,opts)
-        end
-      }
-    end
+--    local httpClient = net.HTTPClient -- protect success/error with pcall and print error
+--    function net.HTTPClient(args)
+--      local http = httpClient(args)
+--      return {
+--        request = function(self,url,opts)
+--          local success,err = opts.success,opts.error
+--          if success then 
+--            opts.success=function(res) 
+--              local stat,r=pcall(success,res)
+--              if not stat then self:error(r) end
+--            end 
+--          end
+--          if err then 
+--            opts.error=function(res) 
+--              local stat,r=pcall(err,res)
+--              if not stat then self:error(r) end
+--            end 
+--          end
+--          return http:request(url,opts)
+--        end
+--      }
+--    end
   end
 
   local traceFuns = {
