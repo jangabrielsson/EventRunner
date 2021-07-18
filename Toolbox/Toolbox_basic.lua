@@ -699,13 +699,13 @@ function Toolbox_Module.basic(self)
           if success then 
             opts.success=function(res) 
               local stat,r=pcall(success,res)
-              if not stat then fibaro.error(nil,r) end
+              if not stat then self:error(r) end
             end 
           end
           if err then 
             opts.error=function(res) 
               local stat,r=pcall(err,res)
-              if not stat then fibaro.error(nil,r) end
+              if not stat then self:error(r) end
             end 
           end
           return http:request(url,opts)
