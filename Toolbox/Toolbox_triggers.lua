@@ -102,6 +102,7 @@ function Toolbox_Module.triggers.init(self)
     AlarmPartitionBreachedEvent = function(d) post({type='alarm', property='breached', id = d.partitionId, value=d.breached}) end,
     HomeArmStateChangedEvent = function(d) post({type='alarm', property='homeArmed', value=d.newValue}) end,
     HomeBreachedEvent = function(d) post({type='alarm', property='homeBreached', value=d.breached}) end,
+    HomeDisarmStateChangedEvent = function(_) end,
     WeatherChangedEvent = function(d) post({type='weather',property=d.change, value=d.newValue, old=d.oldValue}) end,
     GlobalVariableChangedEvent = function(d) 
       if d.variableName=="ERTICK" then return end

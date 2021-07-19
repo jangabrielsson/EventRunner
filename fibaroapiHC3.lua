@@ -5323,6 +5323,7 @@ function module.Trigger(hc3)
     AlarmPartitionBreachedEvent = function(d) post({type='alarm', property='breached', id = d.partitionId, value=d.breached}) end,
     HomeArmStateChangedEvent = function(d) post({type='alarm', property='homeArmed', value=d.newValue}) end,
     HomeBreachedEvent = function(d) post({type='alarm', property='homeBreached', value=d.breached}) end,
+    HomeDisarmStateChangedEvent = function(_) end,
     WeatherChangedEvent = function(d) post({type='weather',property=d.change, value=d.newValue, old=d.oldValue}) end,
     GlobalVariableChangedEvent = function(d)
       cache.write('globals',0,d.variableName,{name=d.variableName, value = d.newValue, modified=os.time()})

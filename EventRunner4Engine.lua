@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix68"
+E_VERSION,E_FIX = 0.5,"fix69"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -1544,6 +1544,10 @@ function Module.eventScript.init()
       end
       QA:event({type='alarm'},function(env) -- update alarm cache
           local e = env.event
+          if e.property=='homeArmed' then
+              e.id=0
+              e.property='armed' 
+          end
           local c = alarmCache[e.id or 0] or {}
           c[e.property]=e.value
           alarmCache[e.id or 0]  = c
@@ -1568,7 +1572,7 @@ function Module.eventScript.init()
             p.armed = p.armed and d.armed
             p.breachDelay = math.min(p.breachDelay,d.breachDelay or 0)
             p.armDelay = math.min(p.armDelay,d.armDelay or 0)
-            for _,d0 in ipairs(d.devices) do devMap[d0]=true end
+            for _,d0 in ipairs(d.devices or {}) do devMap[d0]=true end
           end
           p.name="House"
           p.id = 0
