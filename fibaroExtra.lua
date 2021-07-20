@@ -1,5 +1,7 @@
 fibaro = fibaro  or  {}
-fibaro.FIBARO_EXTRA = "v0.912"
+fibaro.FIBARO_EXTRA = "v0.914"
+FILES = FILES or {}
+FILES['fibaroExtra']=fibaro.FIBARO_EXTRA
 
 local MID = plugin and plugin.mainDeviceId or sceneId or 0
 local format = string.format
@@ -662,7 +664,7 @@ do
   function post(ev)
     if ENABLEDSOURCETRIGGERS[ev.type] then
       if #sourceTriggerCallbacks==0 then return end
-      if debugFlags.sourceTrigger then fibaro.debugf("Incoming sourceTrigger:%s",ev) end
+      if debugFlags.sourceTrigger then fibaro.debugf(nil,"Incoming sourceTrigger:%s",ev) end
       ev._trigger=true
       for _,cb in ipairs(sourceTriggerCallbacks) do
         setTimeout(function() cb(ev) end,0) 
@@ -743,9 +745,9 @@ do
   function fibaro.registerRefreshStatesCallback(callback)
     __assert_type(callback,"function")
     if member(callback,refreshCallbacks) then return end
-    refreshCallbacks[#refreshCallbacks] = callback
+    refreshCallbacks[#refreshCallbacks+1] = callback
     if not refreshRef then refreshRef = setTimeout(pollRefresh,0) end
-    if debugFlags._refreshStates then fibaro.debug(nil,"Polling for refreshStates") end
+    if debugFlags._refreshStates then fibaro.debug(__TAG,"Polling for refreshStates") end
   end
 
   function fibaro.unregisterRefreshStatesCallback(callback)
@@ -1470,6 +1472,7 @@ do
   function fibaro.removeEvent(pattern,fun) if not inited then initEvents() end; return fibaro.removeEvent(pattern,fun) end
   function fibaro.HTTPEvent(args) if not inited then initEvents() end; return fibaro.HTTPEvent(args) end
   function QuickApp:RECIEVE_EVENT(ev) if not inited then initEvents() end; return _RECIEVE_EVENT(self,ev) end
+  function fibaro.initEvents() if not inited then initEvents() end end
 
   function initEvents()
     local function DEBUG(...) if debugFlags.event then fibaro.debugf(nil,...) end end
@@ -1767,11 +1770,11 @@ do
   local inited,initPubSub,match,compile
 
   function fibaro.publish(event)
-    if not inited then initPubSub() end
+    if not inited then initPubSub(quickApp) end
     assert(type(event)=='table' and event.type,"Not an event")
     local subs = idSubs[event.type] or {}
     for _,e in ipairs(subs) do
-      if match(event,e.pattern) then
+      if match(e.pattern,event) then
         for id,_ in pairs(e.ids) do 
           DEBUG("Sending sub QA:%s",id)
           fibaro.call(id,"SUBSCRIPTION",event)
@@ -1782,16 +1785,16 @@ do
 
   if QuickApp then -- only subscribe if we are an QuickApp. Scenes can publish
     function fibaro.subscribe(events,handler)
-      if not inited then initPubSub() end
+      if not inited then initPubSub(quickApp) end
       if not events[1] then events = {events} end
-      local subs = self:getVariable(SUB_VAR)
+      local subs = quickApp:getVariable(SUB_VAR)
       if subs == "" then subs = {} end
       for _,e in ipairs(events) do
         assert(type(e)=='table' and e.type,"Not an event")
         if not member(e,subs) then subs[#subs+1]=e end
       end
       DEBUG("Setting subscription")
-      self:setVariable(SUB_VAR,subs)
+      quickApp:setVariable(SUB_VAR,subs)
       if handler then
         fibaro.event(events,handler)
       end
@@ -1802,9 +1805,11 @@ do
 --    <type> = { { ids = {... }, event=..., pattern = ... }, ... }
 --  }
 
-  function initPubSub()
+  function initPubSub(self)
     DEBUG("Setting up pub/sub")
     inited = true
+
+    fibaro.initEvents()
 
     match = fibaro.EM.match
     compile = fibaro.EM.compilePattern
