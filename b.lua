@@ -1,0 +1,1 @@
+function B() print("B") end
