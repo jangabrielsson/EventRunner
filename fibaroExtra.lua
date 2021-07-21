@@ -1,5 +1,5 @@
 fibaro = fibaro  or  {}
-fibaro.FIBARO_EXTRA = "v0.914"
+fibaro.FIBARO_EXTRA = "v0.915"
 FILES = FILES or {}
 FILES['fibaroExtra']=fibaro.FIBARO_EXTRA
 
@@ -7,7 +7,7 @@ local MID = plugin and plugin.mainDeviceId or sceneId or 0
 local format = string.format
 local function assertf(test,fmt,...) if not test then error(format(fmt,...),2) end end
 local debugFlags = {}
-local toTime,copy,equal,member,remove
+local toTime,copy,equal,member,remove,protectFun
 
 -------------------- Utilities ----------------------------------------------
 do
@@ -58,6 +58,8 @@ do
   function utils.remove(k,tab) local r = {}; for _,v in ipairs(tab) do if not equal(v,k) then r[#r+1]=v end end return r end
   function utils.map(f,l) local r={}; for _,e in ipairs(l) do r[#r+1]=f(e) end; return r end
   function utils.mapf(f,l) for _,e in ipairs(l) do f(e) end; end
+  function utils.mapAnd(f,l) for _,e in ipairs(l) do if f(e) then return false end end return true end
+  function utils.mapOr(f,l) for i,e in ipairs(l) do if f(e) then return i end end end
   function utils.reduce(f,l) local r = {}; for _,e in ipairs(l) do if f(e) then r[#r+1]=e end end; return r end
   function utils.mapk(f,l) local r={}; for k,v in pairs(l) do r[k]=f(v) end; return r end
   function utils.mapkv(f,l) local r={}; for k,v in pairs(l) do k,v=f(k,v) r[k]=v end; return r end
@@ -286,12 +288,9 @@ do
 
   function fformat(fmt,...)
     local args = {...}
-    local stat,res = pcall(function() 
-        if #args == 0 then return tostring(fmt) end
-        for i,v in ipairs(args) do if type(v)=='table' then args[i]=tostring(v) end end
-        return (debugFlags.html and not hc3_emulator) and htmlTransform(format(fmt,table.unpack(args))) or format(fmt,table.unpack(args))
-      end)
-    if not stat then error(res,4) else return res end
+    if #args == 0 then return tostring(fmt) end
+    for i,v in ipairs(args) do if type(v)=='table' then args[i]=tostring(v) end end
+    return (debugFlags.html and not hc3_emulator) and htmlTransform(format(fmt,table.unpack(args))) or format(fmt,table.unpack(args))
   end
 
   local function arr2str(...)
@@ -348,6 +347,20 @@ do
     local str = print_debug('warning',tag,fformat(fmt,...)) 
     if debugFlags.notifyWarning then notify("warning",str) end
     return str
+  end
+
+  function protectFun(fun,f,level)
+    return function(...)
+      local stat,res = pcall(fun,...)
+      if not stat then
+        res = res:gsub("fibaroExtra.lua:%d+:","").."("..f..")"
+        error(res,level) 
+      else return res end
+    end
+  end
+
+  for _,f in ipairs({'debugf','tracef','warningf','errorf'}) do
+    fibaro[f] = protectFun(fibaro[f],f,2)
   end
 
 end -- Debug functions
@@ -934,6 +947,10 @@ do
     function QuickApp:warningf2(tl,...) fibaro.warningf(tl,...) end
     function QuickApp:errorf2(tl,...) fibaro.errorf(tl,...) end
 
+    for _,f in ipairs({'debugf','tracef','warningf','errorf','debugf2','tracef2','warningf2','errorf2'}) do
+      QuickApp[f]=protectFun(QuickApp[f],f,2)
+    end
+
 -- Like self:updateView but with formatting. Ex self:setView("label","text","Now %d days",days)
     function QuickApp:setView(elm,prop,fmt,...)
       local str = format(fmt,...)
@@ -1093,7 +1110,7 @@ do
     for _,child in pairs(self.childDevices or {}) do 
       if child[method] then 
         local stat,res = pcall(child[method],child,...)  
-        if not stat then self:debug(res) end
+        if not stat then self:debug(res,2) end
       end
     end
   end
