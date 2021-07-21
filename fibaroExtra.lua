@@ -210,7 +210,7 @@ do
     local idt = plugin and "deviceId" or "sceneId"
     local name = quickApp and quickApp.name or tag or "Scene"
     assert(({info=true,warning=true,alert=true})[priority],"Wrong 'priority' - info/warning/alert")
-    local title = text:match("(.-)[:%s]") or format("%s deviceId:%d",name,idt,id)
+    local title = text:match("(.-)[:%s]") or format("%s deviceId:%d",name,id)
 
     if reuse==nil then reuse = debugFlags.reuseNotifies end
     local msgId = nil
