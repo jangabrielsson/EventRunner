@@ -67,6 +67,15 @@ function main()
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
+--  Event.SECTION = 'winter'
+--  rule("@@00:00:04 =>  log('Winter')").disable()
+
+--  Event.SECTION = 'summer'
+--  rule("@@00:00:04 =>  log('Summer')").disable()
+  
+--  Event.SECTION = nil
+--  rule("wait(2); enable('winter',true); wait(10); enable('summer',true)")
+  
 --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
 
 --Nodered.connect(_NodeRed)                    -- Setup nodered functionality
