@@ -1,5 +1,5 @@
 fibaro = fibaro  or  {}
-fibaro.FIBARO_EXTRA = "v0.915"
+fibaro.FIBARO_EXTRA = "v0.916"
 FILES = FILES or {}
 FILES['fibaroExtra']=fibaro.FIBARO_EXTRA
 
@@ -1280,7 +1280,7 @@ do
         end
         local stat,res = pcall(f)
         if not stat then 
-          fibaro.error(res)
+          fibaro.error(nil,res)
         end
       end
       if ms > maxt then
@@ -1293,7 +1293,7 @@ do
       return setinterval(function()
           local stat,res = pcall(fun)
           if not stat then 
-            fibaro.error(res)
+            fibaro.error(nil,res)
           end
         end,math.floor(ms+0.5))
     end
