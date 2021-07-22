@@ -1,5 +1,5 @@
 fibaro = fibaro  or  {}
-fibaro.FIBARO_EXTRA = "v0.916"
+fibaro.FIBARO_EXTRA = "v0.917"
 FILES = FILES or {}
 FILES['fibaroExtra']=fibaro.FIBARO_EXTRA
 
@@ -1321,13 +1321,13 @@ do
         if success then 
           opts.success=function(res) 
             local stat,r=pcall(success,res)
-            if not stat then self:error(r) end
+            if not stat then self:error(nil,r) end
           end 
         end
         if err then 
           opts.error=function(res) 
             local stat,r=pcall(err,res)
-            if not stat then self:error(r) end
+            if not stat then self:error(nil,r) end
           end 
         end
         return http:request(url,opts)
