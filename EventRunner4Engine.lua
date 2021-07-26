@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix69"
+E_VERSION,E_FIX = 0.5,"fix71"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -1664,7 +1664,7 @@ function Module.eventScript.init()
       getFuns.isAllOn={on,'value',mapAnd,true}
       getFuns.isAnyOff={off,'value',mapOr,true}
       getFuns.last={last,'value',nil,true}
-      getFuns.alarm={alarm,nil,nil,true}
+      getFuns.alarm={alarm,nil,'alarm',true}
       getFuns.armed={function(id) return gp(id).armed end,'armed',mapOr,true}
       getFuns.allArmed={function(id) return gp(id).armed end,'armed',mapAnd,true,true}
       getFuns.disarmed={function(id,_,val) return not gp(id).armed end,'armed',mapAnd,true}
@@ -1895,17 +1895,26 @@ function Module.eventScript.init()
         e.rule._event = e.event
         local flags = i[5] or {}; i[5]=flags
         if val then
-          if flags.expired then s.push(val); flags.expired=nil; return end
+          if flags.expired then 
+            s.push(val); 
+            flags.expired=nil;
+            return 
+            end
           if flags.timer then s.push(false); return end
           flags.timer = setTimeout(function() 
               --  Event._callTimerFun(function()
               flags.expired,flags.timer=true,nil; 
+              quickApp:post({type='trueFor',stop=true,expired=true,rule=e.rule,_sh=true})
               e.rule.start(e.rule._event) 
               --      end)
-            end,1000*time); 
+            end,1000*time);
+          quickApp:post({type='trueFor',start=true,rule=e.rule,_sh=true})
           s.push(false); return
         else
-          if flags.timer then flags.timer=clearTimeout(flags.timer) end
+          if flags.timer then 
+            flags.timer=clearTimeout(flags.timer)
+            quickApp:post({type='trueFor',stop=true,rule=e.rule,_sh=true})
+          end
           s.push(false)
         end
       end
@@ -2008,7 +2017,7 @@ function Module.eventScript.init()
 
       local function ID(id,p) _assert(tonumber(id),"bad deviceID '%s' for '%s'",id,p or "") return id end
       local ttypes = {
-        armed='alarm',disarmed='alarm',alarmSafe='alarm',alarmBreached='alarm', 
+        armed='alarm',alarm='alarm',disarmed='alarm',alarmSafe='alarm',alarmBreached='alarm', 
         allArmed='alarm',anyDisarmed='alarm',anyAlarmSafe='alarm',allAlarmBreached='alarm', 
         willArm='alarm',allWillArm='alarm',
       }
@@ -2032,7 +2041,7 @@ function Module.eventScript.init()
           local v = ScriptEngine.eval2({code=cv})
           local typ = ttypes[e[3]] or 'device'
           local tval = getFuns[e[3]][5] 
-          map(function(id) s.triggs[ID(id,e[3])..pn]={type=typ, id=id, property=pn, value=tval} end,type(v)=='table' and v or {v})
+          map(function(id) s.triggs[ID(id,e[3])..(pn or '')]={type=typ, id=id, property=pn, value=tval} end,type(v)=='table' and v or {v})
         end,
       }
 
