@@ -27,6 +27,7 @@ json           -- Copyright (c) 2020 rxi
 --]]
 
 local PARAMS=...
+local embedded = PARAMS
 PARAMS = PARAMS or { 
   user="admin", pwd="admin", host="192.168.1.57",
   -- ,temp = 'temp/' -- If not present will try to use temp env variables
@@ -59,7 +60,7 @@ function QuickApp:onInit()
     self:debugf("Name1:%s",fibaro.getName(self.id))
     self:debugf("Name2:%s",api.get("/devices/"..self.id).name)
     self:debugf("Name3:%s",__fibaro_get_device(self.id).name)
-    hc3_emulator.installQA(nil,"MuQA",nil,testQA) -- install another QA and run it
+    hc3_emulator.installQA{name="MuQA",code=testQA} -- install another QA and run it
 end
 --]],env={testQA=testQA}}
 
@@ -126,9 +127,9 @@ function module.builtin()
   }
 
   function HC3call2(method,path,data) -- Used to call out to the real HC3
-    local _,status,res = net.HTTPClient():request("http://"..PARAMS.HOST.."/api"..path,{
-        options = { method = method, data=data and json.encode(data), user=PARAMS.USER, password=PARAMS.PWD, sync=true,
-          headers = { ["Accept"] = '*/*',["X-Fibaro-Version"] = 2, ["Fibaro-User-PIN"] = PARAMS.PIN }}
+    local _,status,res = net.HTTPClient():request("http://"..PARAMS.host.."/api"..path,{
+        options = { method = method, data=data and json.encode(data), user=PARAMS.user, password=PARAMS.pwd, sync=true,
+          headers = { ["Accept"] = '*/*',["X-Fibaro-Version"] = 2, ["Fibaro-User-PIN"] = PARAMS.pin }}
       })
     if tonumber(status) and status < 300 then return res[1] and json.decode(table.concat(res)) or nil,status else return nil,status end
   end
@@ -767,9 +768,8 @@ function module.files()
 
   local function loadLua(fileName) return loadSource(readFile(fileName),fileName) end
 
-  local function loadFQA(fileName)  -- Load FQA
-    local fqa,files,main = readFile(fileName),{}
-    fqa = json.decode(fqa)
+  local function loadFQA(fqa)  -- Load FQA
+    local files,main = {}
     for _,f in ipairs(fqa.files) do
       local fname = createTemp(f.name,f.content) or f.name -- Create temp files for fqa files, easier to debug
       if f.isMain then f.fname=fname main=f
@@ -781,9 +781,11 @@ function module.files()
 
   function loadFile(code,file)
     if file and not code then
-      if file:match("%.fqa$") then return loadFQA(file)
+      if file:match("%.fqa$") then return loadFQA(json.decode(readFile(file)))
       elseif file:match("%.lua$") then return loadLua(file)
       else error("No such file:"..file) end
+    elseif type(code)=='table' then  -- fqa table
+      return loadFQA(code)
     elseif code then
       local fname = file or createTemp("main",code) or "main" -- Create temp file for string code easier to debug
       return loadSource(code,fname)
@@ -897,7 +899,8 @@ function module.emulator()
     end
   end
 
-  local function installQA(id,name,typ,code,file,e) -- code can be string or file
+  local function installQA(qa) -- code can be string or file
+    local id,name,typ,code,file,e = qa.id,qa.name,qa.type,qa.code,qa.file,qa.env
     local env = {          -- QA environment, all Lua functions available for  QA, 
       plugin={}, fibaro=copy(fibaro), os=copy(os), json=json, hc3_emulator={getmetatable=getmetatable,installQA=installQA},
       __assert_type=__assert_type, __fibaro_get_device=__fibaro_get_device, __fibaro_get_devices=__fibaro_get_devices,
@@ -938,7 +941,7 @@ function module.emulator()
   end
 
   local function run(QAs) 
-    for _,qa in ipairs(QAs[1] and QAs or {QAs}) do installQA(qa.id,qa.name,qa.type,qa.code,qa.file,qa.env) end -- Create QAs given
+    for _,qa in ipairs(QAs[1] and QAs or {QAs}) do installQA(qa) end -- Create QAs given
     -- Timer loop - core of emulator, run each coroutine until none left or all locked
     while(true) do                     -- Loop and execute tasks when their time is up
       local i,time,co = peek()         -- Look at first enabled/unlocked task in queue
@@ -967,7 +970,7 @@ module.files()
 local run = module.emulator()
 print(fmt("Tiny QuickAppEmulator (TQAE) v%s",version))
 
-if startCaller then                -- Embedded call...
+if embedded then                -- Embedded call...
   local file = debug.getinfo(2)    -- Find out what file that called us
   if file and file.source then
     if not file.source:sub(1,1)=='@' then error("Can't locate file:"..file.source) end
