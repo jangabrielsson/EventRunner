@@ -915,10 +915,10 @@ function module.emulator()
     -- Setup device struct
     local files,info = loadFile(code,file)
     local dev = {}
-    dev.id = info.id or id or gID; gID=gID+1
+    dev.id = id or info.id or gID; gID=gID+1
     env.plugin.mainDeviceId = dev.id
-    dev.name = info.name or name or "MyQuickApp"
-    dev.type = info.type or typ or "com.fibaro.binarySensor"
+    dev.name = name or info.name or "MyQuickApp"
+    dev.type = type or info.type or "com.fibaro.binarySensor"
     dev.properties = info.properties or {}
     dev.properties.quickAppVariables = dev.properties.quickAppVariables or {}
     for k,v in pairs(info.quickVars or {}) do table.insert(dev.properties.quickAppVariables,{name=k,value=v}) end
