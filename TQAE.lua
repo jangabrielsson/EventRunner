@@ -29,7 +29,7 @@ json           -- Copyright (c) 2020 rxi
 local PARAMS=...
 PARAMS = PARAMS or { 
   user="admin", pwd="admin", host="192.168.1.57",
-  -- ,temp = 'temp/' -- If not present will try to use temp env variables or 'temp/'
+  -- ,temp = 'temp/' -- If not present will try to use temp env variables
 } 
 
 local function main(run) -- playground
@@ -831,7 +831,10 @@ module.QuickApp = [[
   
   function QuickApp:updateProperty(prop,val) self.properties[prop]=val end
   
-  function QuickApp:updateView(elm,typ,val) self._view[elm]=self._view[elm] or {} self._view[elm][typ]=val end
+  function QuickApp:updateView(elm,typ,val) 
+    self:debug("View:",elm,typ,val)
+    self._view[elm]=self._view[elm] or {} self._view[elm][typ]=val 
+  end
   
   function onAction(self,event)
     print("onAction: ", json.encode(event))
