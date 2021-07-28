@@ -32,9 +32,9 @@ PARAMS = PARAMS or {
   user="admin", pwd="admin", host="192.168.1.57",
   -- ,temp = 'temp/' -- If not present will try to use temp env variables
 } 
+local verbose = true
 
 local function main(run) -- playground
-
 
 --  run{file='GEA_v7.20.fqa'}
   local testQA = [[
@@ -73,7 +73,7 @@ if stat then mobdebug.coro() end
 local http    = require("socket.http")
 local socket  = require("socket")
 local ltn12   = require("ltn12")
-local version = "0.2"
+local version = "0.3"
 
 local fmt,module,fibaro,net,api,setContext,getContext,getQA,xpresume,call,lock,class,json,loadFile,property=string.format,{} -- Shared between modules
 local __assert_type
@@ -731,10 +731,13 @@ function module.files()
   end
 
   local TEMP = PARAMS.temp or os.getenv("TMPDIR") or os.getenv("TEMP") or os.getenv("TMP") or "temp/" -- Try
-  local function createTemp(name,content) -- Storing code fragments on disk will help debugging. TBD
-    local fname = TEMP..name..".lua"  
+  local firstTemp = true
+  local function createTemp(name,content,suffix) -- Storing code fragments on disk will help debugging. TBD
+    if firstTemp and verbose then print("Using "..TEMP.." for temporary files") firstTemp=false end
+    local fname = TEMP..name.."_"..suffix..".lua"  
     local f,res = io.open(fname,"w+")
-    if not f then print("Warning - couldn't create temp files in "..TEMP.." "..res) return end
+    if not f then print("Warning - couldn't create temp files in "..TEMP.." "..res) return 
+    elseif verbose then print("Created temp file "..fname) end
     f:write(content) 
     f:close()
     return fname
@@ -768,10 +771,10 @@ function module.files()
 
   local function loadLua(fileName) return loadSource(readFile(fileName),fileName) end
 
-  local function loadFQA(fqa)  -- Load FQA
+  local function loadFQA(fqa,suffix)  -- Load FQA
     local files,main = {}
     for _,f in ipairs(fqa.files) do
-      local fname = createTemp(f.name,f.content) or f.name -- Create temp files for fqa files, easier to debug
+      local fname = createTemp(f.name,f.content,suffix) or f.name -- Create temp files for fqa files, easier to debug
       if f.isMain then f.fname=fname main=f
       else files[#files+1] = {name=f.name,content=f.content,isMain=f.isMain,fname=fname} end
     end
@@ -780,14 +783,15 @@ function module.files()
   end
 
   function loadFile(code,file)
+    local suffix = tostring({}):match("%s(.*)")
     if file and not code then
-      if file:match("%.fqa$") then return loadFQA(json.decode(readFile(file)))
+      if file:match("%.fqa$") then return loadFQA(json.decode(readFile(file)),suffix)
       elseif file:match("%.lua$") then return loadLua(file)
       else error("No such file:"..file) end
     elseif type(code)=='table' then  -- fqa table
-      return loadFQA(code)
+      return loadFQA(code,suffix)
     elseif code then
-      local fname = file or createTemp("main",code) or "main" -- Create temp file for string code easier to debug
+      local fname = file or createTemp("main",code,suffix) or "main"..suffix -- Create temp file for string code easier to debug
       return loadSource(code,fname)
     end
   end
