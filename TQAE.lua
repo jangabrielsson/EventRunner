@@ -27,7 +27,10 @@ json           -- Copyright (c) 2020 rxi
 --]]
 
 local PARAMS=...
-PARAMS = PARAMS or { USER="admin", PWD="admin", HOST="192.168.1.57" }
+PARAMS = PARAMS or { 
+  user="admin", pwd="admin", host="192.168.1.57",
+  -- ,temp = 'temp/' -- If not present will try to use temp env variables or 'temp/'
+} 
 
 local function main(run) -- playground
 
