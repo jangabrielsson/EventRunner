@@ -37,8 +37,10 @@ local function main(run) -- playground
 
 --  run{file='GEA_v7.20.fqa'}
   local testQA = [[
+  --%%quickVars={x='Hello'}
   function QuickApp:onInit()
     self:debug(self.name,self.id)
+    self:debug("quickVar","x=",self:getVariable("x"))
     local n = 5
     setInterval(function() 
        self:debug("PP") 
@@ -915,6 +917,8 @@ function module.emulator()
     dev.name = info.name or name or "MyQuickApp"
     dev.type = info.type or typ or "com.fibaro.binarySensor"
     dev.properties = info.properties or {}
+    dev.properties.quickAppVariables = dev.properties.quickAppVariables or {}
+    for k,v in pairs(info.quickVars or {}) do table.insert(dev.properties.quickAppVariables,{name=k,value=v}) end
 
     env.os.exit=function() print("exit(0)") tasks={} coroutine.yield() end
     local _,_ = load(module.QuickApp,nil,"t",env)() -- Load QuickApp code
