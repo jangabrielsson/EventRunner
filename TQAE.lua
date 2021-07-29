@@ -86,9 +86,9 @@ local http   = require("socket.http")
 local https  = require("ssl.https") 
 local ltn12  = require("ltn12")
 
-local fmt,loadModules,xpresume,class,property,lock=string.format 
+local fmt,loadFile,loadModules,xpresume,lock=string.format 
 --Exports: setContext,getContext,call,getQA,LOG,
---Imports: loadFile,fibaro,net,api,json
+--Imports: fibaro,json,api,net
 
 ------------------------ Builtin functions ------------------------------------------------------
 local function builtins()
@@ -145,6 +145,10 @@ local function builtins()
   function __fibaroSleep(ms) -- We lock all timers/coroutines except the one resuming the sleep for us
     local r,qa,co; co,r = coroutine.running(),setTimeout(function() setContext(co,qa) lock(r,false) xpresume(co) end,ms) 
     qa = getContext() lock(r,true); coroutine.yield(co)
+  end
+  -- Non standard
+  function __fibaro_call(id,name,path,data)
+    return getQA(id) and call(id,name,table.unpack(data.args)) or HC3Request("POST",path,data)
   end
 
   function __fibaro_add_debug_message(tag,type,str)
@@ -208,6 +212,16 @@ local function builtins()
     end 
   end
 
+  local function setLocal(name,v)
+    local idx,ln,lv = 1,true
+    while ln do
+      ln, lv = debug.getlocal(5, idx)
+      if ln == name then if verbose then Log("Importing "..name) end debug.setlocal(5,idx,v) return  end
+      idx=idx+1
+    end
+    error("Import "..name.." not found")
+  end
+
   function loadModules(ms,env)
     ms = type(ms)=='table' and ms or {ms}
     local stat,res = pcall(function()
@@ -215,7 +229,8 @@ local function builtins()
           if verbose then LOG("Loading  %s module %s",env and "local" or "global",m) end
           local code,res=loadfile(gParams.modPath..m,"t",env or _G)
           assert(code,res)
-          code(gParams)
+          local imports = code(gParams) or {}
+          for k,v in pairs(imports.globals or {}) do setLocal(k,v) end
         end
       end)
     if not stat then error("Loading module "..res) end
@@ -259,7 +274,7 @@ local function emulator()
 
   function clearInterval(ref) clearTimeout(ref) end
 
-  -- Used by fibaro.call to hand over to called QA's thread
+  -- Used by api/devices/<id>/action/<name> to call and hand over to called QA's thread
   function call(id,name,...)
     local args,QA = {...},QADir[id]
     runProc(QA,function() QA.env.onAction(QA.QA,{deviceId=id,actionName=name,args=args}) end) -- sim. call in another process/QA
@@ -278,7 +293,7 @@ local function emulator()
   local function installQA(qa) -- code can be string or file
     local id,name,typ,code,file,e = qa.id,qa.name,qa.type,qa.code,qa.file,qa.env
     local env = {          -- QA environment, all Lua functions available for  QA, 
-      plugin={}, fibaro=copy(fibaro), os=copy(os), json=json, hc3_emulator={getmetatable=getmetatable,installQA=installQA},
+      plugin={}, os=copy(os), json=json, fibaro=copy(fibaro), hc3_emulator={getmetatable=getmetatable,installQA=installQA},
       __assert_type=__assert_type, __fibaro_get_device=__fibaro_get_device, __fibaro_get_devices=__fibaro_get_devices,
       __fibaro_get_room=__fibaro_get_room, __fibaro_get_scene=__fibaro_get_scene, 
       __fibaro_get_global_variable=__fibaro_get_global_variable, __fibaro_get_device_property=__fibaro_get_device_property,

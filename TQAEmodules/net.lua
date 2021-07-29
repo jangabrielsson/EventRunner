@@ -19,7 +19,7 @@ function net.HTTPClient(i_options)
 end
 
 local aHC3call
-apiIntercepts = { -- Intercept some api calls to the api to include emulated QAs, could be deeper a tree...
+local apiIntercepts = { -- Intercept some api calls to the api to include emulated QAs, could be deeper a tree...
   ["GET"] = {
     ["/devices$"] = function(_,_,_,...) return __fibaro_get_devices() end,
     ["/devices/(%d+)$"] = function(_,_,_,id) return __fibaro_get_device(tonumber(id)) end,
@@ -27,8 +27,7 @@ apiIntercepts = { -- Intercept some api calls to the api to include emulated QAs
   },
   ["POST"] = {
     ["/devices/(%d+)/action/([%w_]+)$"] = function(_,path,data,id,action)
-      id=tonumber(id)
-      return getQA(id) and call(id,action,table.unpack(data.args)) or HC3Request("POST",path,data)
+      return __fibaro_call(tonumber(id),action,path,data)
     end,
   }
 }

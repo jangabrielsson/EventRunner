@@ -86,7 +86,7 @@ local function loadFQA(fqa)  -- Load FQA
   return files,{name=fqa.name,type=fqa.type,properties=fqa.initialProperties}
 end
 
-function loadFile(code,file)
+local function loadFile(code,file)
   if file and not code then
     if file:match("%.fqa$") then return loadFQA(json.decode(readFile(file)))
     elseif file:match("%.lua$") then return loadLua(file)
@@ -98,3 +98,5 @@ function loadFile(code,file)
     return loadSource(code,fname)
   end
 end
+
+return { globals = { loadFile = loadFile }}
