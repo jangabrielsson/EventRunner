@@ -26,15 +26,22 @@ Sources included:
 json           -- Copyright (c) 2020 rxi
 --]]
 
-local PARAMS1=...
-local embedded = PARAMS1
-PARAMS = PARAMS1 or { 
-  user="admin", pwd="admin", host="192.168.1.57",
-  -- ,temp = 'temp/' -- If not present will try to use temp env variables
-} 
-local verbose = true
-local MPATH = "TQAEmodules/"           -- directory where TQAE modules are stored
-local defaulModules = {"QuickApp.lua"} -- default modules loaded into QA environment
+local embedded=...
+local gParams = embedded or {}
+local function DEF(x,y) if x==nil then return y else return x end end
+gParams.paramsFile  = DEF(gParams.paramsFile,"TQAEparams.lua")
+do 
+  local pf = loadfile(gParams.paramsFile); if pf then local p = pf() or {}; for k,v in pairs(gParams) do p[ k ]=v end gParams=p end 
+end
+gParams.verbose  = DEF(gParams.verbose,false)
+gParams.modPath  = DEF(gParams.modpath,"TQAEmodules/")   -- directory where TQAE modules are stored
+gParams.temp     = DEF(gParams.temp,os.getenv("TMPDIR") or os.getenv("TEMP") or os.getenv("TMP") or "temp/") -- temp directory
+local verbose    = gParams.verbose
+
+-- default global modules loaded into emulator environment
+local globalModules = { "net.lua","json.lua","fibaro.lua","files.lua" }
+-- default local modules loaded into QA environment
+local localModules = { "QuickApp.lua" }  
 
 local function main(run) -- playground
 
@@ -72,14 +79,45 @@ end
 ---------------------------------------- TQAE -------------------------------------------------------------
 local stat,mobdebug = pcall(require,'mobdebug'); -- If we have mobdebug, enable coroutine debugging
 if stat then mobdebug.coro() end
-local version = "0.4"
+local version = "0.5"
 
-fmt=string.format -- Globals
-socket,loadModules,setContext,getContext,getQA,LOG,xpresume,call,lock,class,loadFile,property,fibaro,net,api,json=nil
+local socket = require("socket")
+local http   = require("socket.http")
+local https  = require("ssl.https") 
+local ltn12  = require("ltn12")
+
+local fmt,loadModules,xpresume,class,property,lock=string.format 
+--Exports: setContext,getContext,call,getQA,LOG,
+--Imports: loadFile,fibaro,net,api,json
 
 ------------------------ Builtin functions ------------------------------------------------------
-function builtins()
-  -- These functions are dependent on the net module, specifically HC3call and HC3call2
+local function builtins()
+
+  function httpRequest(reqs,extra)
+    local resp,req,status,h,_={},{} 
+    for k,v in pairs(extra or {}) do req[k]=v end; for k,v in pairs(reqs) do req[k]=v end
+    req.sink,req.headers = ltn12.sink.table(resp), req.headers or {}
+    if req.method=="PUT" or req.method=="POST" then
+      req.data = req.data or {}
+      req.headers["Content-Length"] = #req.data
+      req.source = ltn12.source.string(req.data)
+    else req.headers["Content-Length"]=0 end
+    if req.url:sub(1,5)=="https" then
+      _,status,h = https.request(req)
+    else
+      _,status,h = http.request(req)
+    end
+    if tonumber(status) and status < 300 then return resp[1] and json.decode(table.concat(resp)) or nil,status,h else return nil,status,h end
+  end
+
+  local base = "http://"..gParams.host.."/api"
+  function HC3Request(method,path,data) 
+    return httpRequest({method=method, url=base..path,
+        user=gParams.user, password=gParams.pwd, data=data and json.encode(data),
+        headers = {["Accept"] = '*/*',["X-Fibaro-Version"] = 2, ["Fibaro-User-PIN"] = gParams.pin},
+      })
+  end
+
   function __assert_type(value,typeOfValue )
     if type(value) ~= typeOfValue then  -- Wrong parameter type, string required. Provided param 'nil' is type of nil
       error(fmt("Wrong parameter type, %s required. Provided param '%s' is type of %s",
@@ -89,22 +127,22 @@ function builtins()
   end
   function __ternary(test, a1, a2) if test then return a1 else return a2 end end
 -- basic api functions, tries to deal with local emulated QAs too. Local QAs have precedence over HC3 QAs.
-  function __fibaro_get_device(id) __assert_type(id,"number") return getQA(id) or HC3call2("GET","/devices/"..id) end
+  function __fibaro_get_device(id) __assert_type(id,"number") return getQA(id) or HC3Request("GET","/devices/"..id) end
   function __fibaro_get_devices() 
-    local ds = HC3call2("GET","/devices") or {}
+    local ds = HC3Request("GET","/devices") or {}
     for _,qa in pairs(getQA()) do ds[#ds+1]=qa.QA end -- Add emulated QAs
     return ds 
   end 
-  function __fibaro_get_room (id) __assert_type(id,"number") return HC3call2("GET","/rooms/"..id) end
-  function __fibaro_get_scene(id) __assert_type(id,"number") return HC3call2("GET","/scenes/"..id) end
-  function __fibaro_get_global_variable(name) __assert_type(name ,"string") return HC3call2("GET","/globalVariables/"..name) end
+  function __fibaro_get_room (id) __assert_type(id,"number") return HC3Request("GET","/rooms/"..id) end
+  function __fibaro_get_scene(id) __assert_type(id,"number") return HC3Request("GET","/scenes/"..id) end
+  function __fibaro_get_global_variable(name) __assert_type(name ,"string") return HC3Request("GET","/globalVariables/"..name) end
   function __fibaro_get_device_property(id ,prop) 
     __assert_type(id,"number") __assert_type(prop,"string")
     local qa = getQA(id) -- Is it a local QA?
     if qa then return qa.properties[prop] and { value = qa.properties[prop], modified=0} or nil
-    else return HC3call2("GET","/devices/"..id.."/properties/"..prop) end
+    else return HC3Request("GET","/devices/"..id.."/properties/"..prop) end
   end
-  function __fibaroSleep(ms) -- We lock all timers/coroutines except the one resuming the sleep after ms
+  function __fibaroSleep(ms) -- We lock all timers/coroutines except the one resuming the sleep for us
     local r,qa,co; co,r = coroutine.running(),setTimeout(function() setContext(co,qa) lock(r,false) xpresume(co) end,ms) 
     qa = getContext() lock(r,true); coroutine.yield(co)
   end
@@ -175,9 +213,9 @@ function builtins()
     local stat,res = pcall(function()
         for _,m in ipairs(ms) do 
           if verbose then LOG("Loading  %s module %s",env and "local" or "global",m) end
-          local code,res=loadfile(MPATH..m,"t",env or _G)
+          local code,res=loadfile(gParams.modPath..m,"t",env or _G)
           assert(code,res)
-          code()
+          code(gParams)
         end
       end)
     if not stat then error("Loading module "..res) end
@@ -186,10 +224,10 @@ function builtins()
   function LOG(...) print(fmt("%s |SYS  |: %s",os.date("[%d.%m.%Y] [%H:%M:%S]"),fmt(...))) end
 end
 ------------------------ Emulator core ----------------------------------------------------------
-function emulator()
+local function emulator()
   local QADir,tasks,procs,CO,clock,insert,gID = {},{},{},coroutine,socket.gettime,table.insert,1001
-  function getQA(id) if id==nil then return QADir else local qa = QADir[id] if qa then return qa.QA,qa.env end end end
   local function copy(t) local r={} for k,v in pairs(t) do r[k]=v end return r end
+  function getQA(id) if id==nil then return QADir else local qa = QADir[id] if qa then return qa.QA,qa.env end end end
   -- meta table to print threads like "thread ..."
   local tmt={ __tostring = function(t) return t[4] end}
   -- Insert timer in queue, sorted on ascending absolute time
@@ -260,8 +298,8 @@ function emulator()
     dev.properties = info.properties or {}
     dev.properties.quickAppVariables = dev.properties.quickAppVariables or {}
     for k,v in pairs(info.quickVars or {}) do table.insert(dev.properties.quickAppVariables,{name=k,value=v}) end
-    loadModules(defaulModules or {},env)            -- Load default QA specfic modules into environment
-    loadModules(PARAMS.userModules or {},env)       -- Load optional user specified module into environment
+    loadModules(localModules or {},env)             -- Load default QA specfic modules into environment
+    loadModules(gParams.localModules or {},env)      -- Load optional user specified module into environment
     env.os.exit=function() LOG("exit(0)") tasks={} coroutine.yield() end        
     local self=env.QuickApp
     QADir[dev.id]={QA=self,env=env}
@@ -301,11 +339,14 @@ function emulator()
 end -- emulator
 
 
-builtins()
-loadModules({"net.lua","json.lua","fibaro.lua","files.lua"})
-local run = emulator()
-print(fmt("----------------Tiny QuickAppEmulator (TQAE) v%s-------------",version))
 
+
+builtins()                                  -- Define built-ins
+loadModules(globalModules or {})            -- Load global modules
+loadModules(gParams.globalModules or {})     -- Load optional user specified module into environment
+local run = emulator()                      -- Setup emulator core - returns run function
+
+print(fmt("---------------- Tiny QuickAppEmulator (TQAE) v%s -------------",version)) -- Get going...
 if embedded then                -- Embedded call...
   local file = debug.getinfo(2)    -- Find out what file that called us
   if file and file.source then
