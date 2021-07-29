@@ -48,6 +48,8 @@ local function main(run) -- playground
 --  run{file='GEA_v7.20.fqa'}
   local testQA = [[
   --%%quickVars={x='Hello'}
+  --%%interfaces={"power"}
+  --%%save="temp/foo.fqa"
   function QuickApp:onInit()
     self:debug(self.name,self.id)
     self:debug("quickVar","x=",self:getVariable("x"))
@@ -79,14 +81,14 @@ end
 ---------------------------------------- TQAE -------------------------------------------------------------
 local stat,mobdebug = pcall(require,'mobdebug'); -- If we have mobdebug, enable coroutine debugging
 if stat then mobdebug.coro() end
-local version = "0.5"
+local version = "0.6"
 
 local socket = require("socket")
 local http   = require("socket.http")
 local https  = require("ssl.https") 
 local ltn12  = require("ltn12")
 
-local fmt,loadFile,loadModules,xpresume,lock=string.format 
+local fmt,loadFile,saveFQA,loadModules,xpresume,lock=string.format 
 --Exports: setContext,getContext,call,getQA,LOG,
 --Imports: fibaro,json,api,net
 
@@ -290,6 +292,10 @@ local function emulator()
     end
   end
 
+  local function saveQA(qa)
+    LOG("Saving %s in %s",qa.QA.name,qa.save)
+  end
+
   local function installQA(qa) -- code can be string or file
     local id,name,typ,code,file,e = qa.id,qa.name,qa.type,qa.code,qa.file,qa.env
     local env = {          -- QA environment, all Lua functions available for  QA, 
@@ -310,6 +316,7 @@ local function emulator()
     env.plugin.mainDeviceId = dev.id
     dev.name = name or info.name or "MyQuickApp"
     dev.type = typ or info.type or "com.fibaro.binarySensor"
+    dev.interfaces = info.interfaces
     dev.properties = info.properties or {}
     dev.properties.quickAppVariables = dev.properties.quickAppVariables or {}
     for k,v in pairs(info.quickVars or {}) do table.insert(dev.properties.quickAppVariables,{name=k,value=v}) end
@@ -317,7 +324,7 @@ local function emulator()
     loadModules(gParams.localModules or {},env)      -- Load optional user specified module into environment
     env.os.exit=function() LOG("exit(0)") tasks={} coroutine.yield() end        
     local self=env.QuickApp
-    QADir[dev.id]={QA=self,env=env}
+    QADir[dev.id]={QA=self,env=env,save=qa.save or info.save,files=files}
     LOG("Loading  QA:%s - ID:%s",dev.name,dev.id)
     local k = coroutine.create(function()
         for _,f in ipairs(files) do                                     -- for every file we got, load it..
@@ -348,13 +355,12 @@ local function emulator()
     end                                   
     if #tasks > 0 then LOG("All threads locked - terminating") 
     else LOG("No threads left - terminating") end
+    for id,QA in pairs(QADir) do if QA.save then saveFQA(QA) end end
     QADir = {}                         -- Clear directory of QAs
   end
   return run
+
 end -- emulator
-
-
-
 
 builtins()                                  -- Define built-ins
 loadModules(globalModules or {})            -- Load global modules

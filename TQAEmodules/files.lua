@@ -99,4 +99,31 @@ local function loadFile(code,file)
   end
 end
 
-return { globals = { loadFile = loadFile }}
+local function saveFQA(qa)
+  local QA = qa.QA
+  for _,f in ipairs(  qa.files) do f.fname=nil end
+  local fqa = {
+    name = QA.name,
+    type = QA.type,
+    apiVersion="1.2",
+    initialInterfaces = QA.interfaces,
+    initialProperties = {
+      viewLayout=
+      json.decode([[{"$jason":{"body":{"header":{"style":{"height":"0"},"title":"quickApp_device_403"},"sections":{"items":[]}},"head":{"title":"quickApp_device_403"}}}]]),
+      uiCallbacks = {},
+      quickAppVariables = QA.properties.quickAppVariables,
+    },
+    typeTemplateInitialized=true,
+    files = qa.files
+  }
+  local stat,res = pcall(function()
+      local f = io.open(qa.save,"w+")
+      assert(f,"Can't open file "..qa.save)
+      f:write((json.encode(fqa)))
+      f:close()
+    end)
+  if not stat then LOG("Error save .fqa "..res) 
+  else LOG("Saved "..qa.save) end
+end
+
+return { globals = { loadFile = loadFile, saveFQA=saveFQA }}

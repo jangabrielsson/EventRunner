@@ -7,6 +7,7 @@
     self.type = dev.type
     self.enabled = true
     self.properties = dev.properties
+    self.interfaces = dev.interfaces
     self._view = {} -- TBD
     if self.onInit then self:onInit() end
     quickApp = self

@@ -1,5 +1,5 @@
 do 
-  -- The is a PoC showing that we can get synchronous fibaro.call with return values if 
+  -- This is a PoC showing that we can get synchronous fibaro.call with return values if 
   -- we have access to coroutines -- Note TQAE supports coroutine for QAs...
   -- Support for synchronous actionHandler and fibaro.call
   -- support for sync net.HTTPClient, and non-blocking fibaro.sleep
