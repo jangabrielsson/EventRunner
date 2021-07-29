@@ -29,7 +29,7 @@ json           -- Copyright (c) 2020 rxi
 local embedded=...
 local gParams = embedded or {}
 local function DEF(x,y) if x==nil then return y else return x end end
-gParams.paramsFile  = DEF(gParams.paramsFile,"TQAEparams.lua")
+gParams.paramsFile  = DEF(gParams.paramsFile,"TQAEconfigs.lua")
 do 
   local pf = loadfile(gParams.paramsFile); if pf then local p = pf() or {}; for k,v in pairs(gParams) do p[ k ]=v end gParams=p end 
 end
