@@ -75,7 +75,7 @@ function QuickApp:onInit()
 end
 --]],env={testQA=testQA}}
 
-  loadfile("emu_tests.lua")(run)
+--loadfile("emu_tests.lua")(run)
 end
 
 ---------------------------------------- TQAE -------------------------------------------------------------
