@@ -38,7 +38,7 @@ timerwheel     -- Credit https://github.com/Tieske/timerwheel.lua/blob/master/LI
 binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.312" 
+local FIBAROAPIHC3_VERSION = "0.314" 
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
 --[[
@@ -8952,7 +8952,7 @@ function module.API(hc3)
     = function(method,url,props,data,options)
       local args = type(data)=='string' and json.decode(data) or data
       local parent = QA.quickApps[args.parentId or 0]
-      if (not online) or (parent and not parent._proxy) then
+      if (not online) or (parent and not parent._emu.proxy) then
         local dev = Local.createDevice({name=args.name,type=args.type})
         -- name,parentId,type,initialProperties,initialInterfaces
         if not dev then return nil,500 end
