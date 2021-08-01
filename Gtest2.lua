@@ -1,1 +1,0 @@
-return { foo = function() print("OK") end }
