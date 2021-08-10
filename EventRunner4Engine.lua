@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix71"
+E_VERSION,E_FIX = 0.5,"fix73"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -140,10 +140,15 @@ function Module.device.init(self)
   end
 
   -- Patch fibaro.call to track manual switches
-  local lastID = {}
+  local lastID,switchMap = {},{}
   local oldFibaroCall = fibaro.call
   function fibaro.call(id,action,...)
     if ({turnOff=true,turnOn=true,on=true,toggle=true,off=true,setValue=true})[action] then lastID[id]={script=true,time=os.time()} end
+    if action=='setValue' and switchMap[id]==nil then
+      local actions = (__fibaro_get_device(id) or {}).actions or {}
+      switchMap[id] = actions.turnOff and not actions.setValue
+    end
+    if switchMap[id] then action=({...})[1] and 'turnOn' or 'turnOff' end
     return oldFibaroCall(id,action,...)
   end
   local function lastHandler(ev)
@@ -254,9 +259,9 @@ function Module.utilities.init()
       if co.state=='dead' then return false,"cannot resume dead coroutine" end
       if co.state=='running' then return false,"cannot resume running coroutine" end
       co.state='running' 
-      local status,res = Rule.ScriptEngine.eval(co.context)
-      co.state= status=='suspended' and status or 'dead'
-      return true,table.unpack(res)
+      local status = {pcall(Rule.ScriptEngine.eval,co.context)}
+      co.state= status[2]=='suspended' and status[2] or 'dead'
+      return true,select(2,table.unpack(status))
     end,
     status = function(co) return co.state end,
     _reset = function(co) co.state,co.context.cp='suspended',1; co.context.stack.clear(); return co.context end
@@ -1509,7 +1514,10 @@ function Module.eventScript.init()
     instr['yield'] = function(s,n,e,i) local r = s.lift(n); s.push(nil); return 'suspended',r end
     instr['return'] = function(s,n,e,i) return 'dead',s.lift(n) end
     instr['wait'] = function(s,n,e,i) local t,co=s.pop(),e.co; t=t < os.time() and t or t-os.time(); s.push(t);
-      setTimeout(function() resume(co,e) end,t*1000); return 'suspended',{}
+      setTimeout(function() 
+          resume(co,e) 
+        end,t*1000);
+      return 'suspended',{}
     end
     instr['%not'] = function(s,n) s.push(not s.pop()) end
     instr['%neg'] = function(s,n) s.push(-tonumber(s.pop())) end
@@ -1545,8 +1553,8 @@ function Module.eventScript.init()
       QA:event({type='alarm'},function(env) -- update alarm cache
           local e = env.event
           if e.property=='homeArmed' then
-              e.id=0
-              e.property='armed' 
+            e.id=0
+            e.property='armed' 
           end
           local c = alarmCache[e.id or 0] or {}
           c[e.property]=e.value
@@ -1794,7 +1802,7 @@ function Module.eventScript.init()
     instr['%setprop'] = function(s,n,e,i) local id,val,prop=s.pop(),getArg(s,i[3]),getArg(s,i[4])
       local f = setFuns[prop] _assert(f,"bad property '%s'",prop or "") 
       local vp = 0
-      local vf = prop=="value" and type(val) == 'table' and type(id)=='table' and val[1] and function() vp=vp+1 return val[vp] end or function() return val end 
+      local vf = prop=="value" and type(val) == 'table' and type(id)=='table' and val[1]~=nil and function() vp=vp+1 return val[vp] end or function() return val end 
       if type(id)=='table' then Util.mapF(function(id) f[1](ID(id,i,e._lastR),f[2],vf(),e) end,id); s.push(true)
       else s.push(f[1](ID(id,i,e._lastR),f[2],val,e)) end
     end
@@ -1899,7 +1907,7 @@ function Module.eventScript.init()
             s.push(val); 
             flags.expired=nil;
             return 
-            end
+          end
           if flags.timer then s.push(false); return end
           flags.timer = setTimeout(function() 
               --  Event._callTimerFun(function()
