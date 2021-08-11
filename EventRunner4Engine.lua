@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix73"
+E_VERSION,E_FIX = 0.5,"fix74"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -261,7 +261,7 @@ function Module.utilities.init()
       co.state='running' 
       local status = {pcall(Rule.ScriptEngine.eval,co.context)}
       co.state= status[2]=='suspended' and status[2] or 'dead'
-      return true,select(2,table.unpack(status))
+      return true,table.unpack(status[3])
     end,
     status = function(co) return co.state end,
     _reset = function(co) co.state,co.context.cp='suspended',1; co.context.stack.clear(); return co.context end
