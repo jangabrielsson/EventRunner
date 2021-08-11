@@ -3,7 +3,7 @@ E_VERSION,E_FIX = 0.5,"fix73"
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
 Util = nil
-triggerInterval = 500 
+triggerInterval = 500
 
 --[[ Supported events:
 
