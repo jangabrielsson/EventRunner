@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix74"
+E_VERSION,E_FIX = 0.5,"fix75"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -260,6 +260,7 @@ function Module.utilities.init()
       if co.state=='running' then return false,"cannot resume running coroutine" end
       co.state='running' 
       local status = {pcall(Rule.ScriptEngine.eval,co.context)}
+      if status[1]==false then return status[2] end
       co.state= status[2]=='suspended' and status[2] or 'dead'
       return true,table.unpack(status[3])
     end,
