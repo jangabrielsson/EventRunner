@@ -1,5 +1,5 @@
 fibaro = fibaro  or  {}
-fibaro.FIBARO_EXTRA = "v0.919"
+fibaro.FIBARO_EXTRA = "v0.920"
 FILES = FILES or {}
 FILES['fibaroExtra']=fibaro.FIBARO_EXTRA
 
@@ -1528,7 +1528,7 @@ do
         if t < 0 then return elseif t < now then t = t+now end
         if debugFlags.post and not ev._sh then fibaro.tracef(nil,"Posting %s at %s",ev,os.date("%c",t)) end
         if type(ev) == 'function' then
-          return setTimeout(ev,1000*(t-now))
+          return setTimeout(function() ev(ev) end,1000*(t-now))
         else
           return setTimeout(function() handleEvent(ev) end,1000*(t-now))
         end
