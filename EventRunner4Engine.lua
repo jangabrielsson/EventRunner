@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix75"
+E_VERSION,E_FIX = 0.5,"fix76"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -1694,6 +1694,7 @@ function Module.eventScript.init()
       getFuns.isOpen={on,'value',mapOr,true}
       getFuns.isClosed={off,'value',mapAnd,true}
       getFuns.lux={get,'value',nil,true}
+      getFuns.volume={get,'volume',nil,true}
       getFuns.temp={get,'value',nil,true}
       getFuns.coolingThermostatSetpoint={get,'coolingThermostatSetpoint',nil,true}
       getFuns.coolingThermostatSetpointCapabilitiesMax={get,'coolingThermostatSetpointCapabilitiesMax',nil,true}
@@ -1766,6 +1767,7 @@ function Module.eventScript.init()
       setFuns.defaultPartyTime={set,'setDefaultPartyTime'}
       setFuns.scheduleState={set,'setScheduleState'}
       setFuns.color={set2,'setColor'}
+      setFuns.volume={set,'setVolume'}
       setFuns.thermostatSetpoint={set2,'setThermostatSetpoint'}
       setFuns.thermostatMode={set,'setThermostatMode'}
       setFuns.heatingThermostatSetpoint={set,'setHeatingThermostatSetpoint'}
