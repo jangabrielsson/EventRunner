@@ -34,7 +34,8 @@
 -- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 -- SOFTWARE.
 --
-json = { _version = "0.1.2" }
+local EM,FB=...
+local json = { _version = "0.1.2" }
 -------------------------------------------------------------------------------
 -- Encode
 -------------------------------------------------------------------------------
@@ -284,3 +285,5 @@ function json.decode(str)
     error(string.format("json.encode, %s, called from %s line:%s",res[2],info.short_src,info.currentline))
   end
 end
+
+FB.json = json

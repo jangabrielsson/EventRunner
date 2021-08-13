@@ -1,3 +1,4 @@
+-- Local module, loaded into each QA's environment
 fibaro = {}
 function fibaro.alarm(arg1, action)
   if type(arg1) == "string" then fibaro.__houseAlarm(arg1)
@@ -158,6 +159,11 @@ function fibaro.profile(action, profileId)
   api.post("/profiles/"..availableActions[action].."/"..profileId)
 end
 
+function getPartition(id) 
+  __assert_type(id, "number")
+  return __fibaro_get_partition(id)
+end
+
 function fibaro.setTimeout(timeout, action)
   __assert_type(timeout, "number") __assert_type(action, "function")
   return setTimeout(action, timeout)
@@ -186,5 +192,5 @@ function fibaro.error(tag,...) __assert_type(tag,"string") __fibaro_add_debug_me
 
 function fibaro.useAsyncHandler(value)
   __assert_type(value, "boolean")
-  --__fibaroUseAsyncHandler(value) -- TBD
+  __fibaroUseAsyncHandler(value) 
 end

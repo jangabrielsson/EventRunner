@@ -1,0 +1,29 @@
+<html>
+<head>
+<h1>Tiny QuickApp Emulator</h1>
+</head>
+<body>
+{{{ 
+    out("Started %s</br>",os.date("%c",EM._info.started))
+    out("Running for %ss</br>",os.time()-EM._info.started)
+    out("HC3 at %s</br>",EM.IPAddress)
+}}}
+<h2>Global modules</h2>
+<ul>
+{{{ for _,m in ipairs(EM._info.modules.global) do out("<li>%s</li>",m) end }}}
+</ul>
+<h2>Local modules</h2>
+<ul>
+{{{ for _,m in ipairs(EM._info.modules["local"]) do out("<li>%s</li>",m) end }}}
+</ul>
+<h2>Loaded QuickApps</h2>
+<ul>
+{{{
+for id,QA in pairs(EM.QAs) do
+ local qa = QA.QA
+ out("<li>%s - %s</li>",qa.id,qa.name)
+end
+}}}
+</ul>
+</body>
+</html>

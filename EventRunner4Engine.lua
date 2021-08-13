@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix76"
+E_VERSION,E_FIX = 0.5,"fix77"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -1712,6 +1712,8 @@ function Module.eventScript.init()
       getFuns.thermostatModeFuture={get,'thermostatModeFuture',nil,true}
       getFuns.on={call,'turnOn',mapF,true}
       getFuns.off={call,'turnOff',mapF,true}
+      getFuns.play={call,'play',mapF,nil}
+      getFuns.pause={call,'pause',mapF,nil}
       getFuns.open={call,'open',mapF,true}
       getFuns.close={call,'close',mapF,true}
       getFuns.stop={call,'stop',mapF,true}
@@ -1768,6 +1770,7 @@ function Module.eventScript.init()
       setFuns.scheduleState={set,'setScheduleState'}
       setFuns.color={set2,'setColor'}
       setFuns.volume={set,'setVolume'}
+      setFuns.volume={set,'setMute'}
       setFuns.thermostatSetpoint={set2,'setThermostatSetpoint'}
       setFuns.thermostatMode={set,'setThermostatMode'}
       setFuns.heatingThermostatSetpoint={set,'setHeatingThermostatSetpoint'}

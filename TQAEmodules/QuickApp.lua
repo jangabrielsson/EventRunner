@@ -1,3 +1,4 @@
+  -- Local module, loaded into each QA's environment
   __TAG="QUICKAPP"..plugin.mainDeviceId
   
   QuickApp = {['_TYPE']='userdata'}
@@ -35,7 +36,12 @@
     vars[#vars+1]={name=name,value==value}
   end
   
-  function QuickApp:updateProperty(prop,val) self.properties[prop]=val end
+  function QuickApp:updateProperty(prop,val) 
+    if self.properties[prop] ~= val then
+      self.properties[prop]=val 
+      api.post("/plugins/updateProperty", {deviceId=self.id, propertyName=prop, value=val})
+    end
+  end
   
   function QuickApp:updateView(elm,typ,val) 
     self:debug("View:",elm,typ,val)
