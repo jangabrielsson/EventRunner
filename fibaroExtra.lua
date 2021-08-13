@@ -1,5 +1,5 @@
 fibaro = fibaro  or  {}
-fibaro.FIBARO_EXTRA = "v0.917"
+fibaro.FIBARO_EXTRA = "v0.919"
 FILES = FILES or {}
 FILES['fibaroExtra']=fibaro.FIBARO_EXTRA
 
@@ -300,11 +300,7 @@ do
   end 
 
   local function print_debug(typ,tag,str)
-    api.post("/debugMessages",{
-        messageType=typ or "debug",
-        message = str or "",
-        tag = tag or __TAG
-      })
+    __fibaro_add_debug_message(tag or __TAG,typ or "debug",str or "") 
     return str
   end
 
@@ -629,6 +625,7 @@ do
     SceneFinishedEvent = function(d)  post({type='sceneEvent', id=d.id, value='finished'})end,
     SceneRunningInstancesEvent = function(d) post({type='sceneEvent', id=d.id, value='instance', instance=d}) end,
     SceneRemovedEvent = function(d)  post({type='sceneEvent', id=d.id, value='removed'}) end,
+    SceneModifiedEvent = function(d)  post({type='sceneEvent', id=d.id, value='modified'}) end,
     SceneCreatedEvent = function(d)  post({type='sceneEvent', id=d.id, value='created'}) end,
     OnlineStatusUpdatedEvent = function(d) post({type='onlineEvent', value=d.online}) end,
     --onUIEvent = function(d) post({type='uievent', deviceID=d.deviceId, name=d.elementName}) end,
@@ -784,6 +781,7 @@ do
   function fibaro._postSourceTrigger(trigger) post(trigger) end
 
   function fibaro._postRefreshState(event)
+    if debugFlags._allRefreshStates then fibaro.debugf(nil,"RefreshState %s",event) end
     if #refreshCallbacks>0 and not DISABLEDREFRESH[event.type] then
       for i=1,#refreshCallbacks do
         setTimeout(function() refreshCallbacks[i](event) end,0)
@@ -896,6 +894,10 @@ do
     __assert_type(id,"number")
     local dev = api.get("/devices/"..(id or MID))
     return (dev or {}).enabled
+  end
+
+  function fibaro.setQAValue(device, property, value)
+    fibaro.call(device, "updateProperty", property, (json.encode(value)))
   end
 
   function fibaro.enableQA(id,enable)
@@ -1438,306 +1440,309 @@ do
   end
 
   function fibaro.sequence(...)
-    local args,i = {...},1
+    local args,i,ref = {...},1,{}
     local function stepper()
       if i <= #args then
         local arg = args[i]
         i=i+1
         if type(arg)=='number' then 
-          setTimeout(stepper,arg)
+          ref[1]=setTimeout(stepper,arg)
         elseif type(arg)=='table' and type(arg[1])=='function' then
           pcall(table.unpack(arg))
-          setTimeout(stepper,0)
+          ref[1]=setTimeout(stepper,0)
         end
       end
     end
-    setTimeout(stepper,0)
+    ref[1]=setTimeout(stepper,0)
+    return ref
   end
+  
+  function fibaro.stopSequence(ref) clearTimeout(ref[1]) end
 
-  function fibaro.trueFor(time,test,action,delay)
-    delay = delay or 1000
-    local state = false
-    local  function loop()
-      if test() then
-        if state == false then
-          state=os.time()+time
-        elseif state == true then
-        elseif state <=  os.time() then
-          if action() then
-            state = os.time()+time
-          else
-            state = true 
-          end
-        end
-      else
-        state=false
-      end
-      setTimeout(loop,delay)
-    end
-  end
-
-end -- Misc
-
---------------------- Events --------------------------------------------------
-do
-  local inited,initEvents,_RECIEVE_EVENT
-
-  function fibaro.postRemote(id,ev) if not inited then initEvents() end; return fibaro.postRemote(id,ev) end
-  function fibaro.post(ev,t) if not inited then initEvents() end; return fibaro.post(ev,t) end
-  function fibaro.cancel(ref) if not inited then initEvents() end; return fibaro.cancel(ref) end
-  function fibaro.event(ev,fun,doc) if not inited then initEvents() end; return fibaro.event(ev,fun,doc) end
-  function fibaro.removeEvent(pattern,fun) if not inited then initEvents() end; return fibaro.removeEvent(pattern,fun) end
-  function fibaro.HTTPEvent(args) if not inited then initEvents() end; return fibaro.HTTPEvent(args) end
-  function QuickApp:RECIEVE_EVENT(ev) if not inited then initEvents() end; return _RECIEVE_EVENT(self,ev) end
-  function fibaro.initEvents() if not inited then initEvents() end end
-
-  function initEvents()
-    local function DEBUG(...) if debugFlags.event then fibaro.debugf(nil,...) end end
-    DEBUG("Setting up events")
-    inited = true 
-
-    local em,handlers = { sections = {}, stats={tried=0,matched=0}},{}
-    em.BREAK, em.TIMER, em.RULE = '%%BREAK%%', '%%TIMER%%', '%%RULE%%'
-    local handleEvent,invokeHandler,post
-    local function isEvent(e) return type(e)=='table' and e.type end
-    local function isRule(e) return type(e)=='table' and e[em.RULE] end
-
--- This can be used to "post" an event into this QA... Ex. fibaro.call(ID,'RECIEVE_EVENT',{type='myEvent'})
-    function _RECIEVE_EVENT(self,ev)
-      assert(isEvent(ev),"Bad argument to remote event")
-      local time = ev.ev._time
-      ev,ev.ev._time = ev.ev,nil
-      if time and time+5 < os.time() then fibaro.warningf(nil,"Slow events %s, %ss",ev,os.time()-time) end
-      fibaro.post(ev)
-    end
-
-    function fibaro.postRemote(id,ev)
-      assert(tonumber(id) and isEvent(ev),"Bad argument to postRemote")
-      ev._from,ev._time = MID,os.time()
-      fibaro.call(id,'RECIEVE_EVENT',{type='EVENT',ev=ev}) -- We need this as the system converts "99" to 99 and other "helpful" conversions
-    end
-
-    function fibaro.post(ev,t)
-      local now = os.time()
-      t = type(t)=='string' and toTime(t) or t or 0
-      if t < 0 then return elseif t < now then t = t+now end
-      if debugFlags.post and not ev._sh then fibaro.tracef(nil,"Posting %s at %s",ev,os.date("%c",t)) end
-      if type(ev) == 'function' then
-        return setTimeout(ev,1000*(t-now))
-      else
-        return setTimeout(function() handleEvent(ev) end,1000*(t-now))
-      end
-    end
-
--- Cancel post in the future
-    function fibaro.cancel(ref) clearTimeout(ref) end
-
-    local function transform(obj,tf)
-      if type(obj) == 'table' then
-        local res = {} for l,v in pairs(obj) do res[l] = transform(v,tf) end 
-        return res
-      else return tf(obj) end
-    end
-    utils.transform = transform
-
-    local function coerce(x,y) local x1 = tonumber(x) if x1 then return x1,tonumber(y) else return x,y end end
-    local constraints = {}
-    constraints['=='] = function(val) return function(x) x,val=coerce(x,val) return x == val end end
-    constraints['<>'] = function(val) return function(x) return tostring(x):match(val) end end
-    constraints['>='] = function(val) return function(x) x,val=coerce(x,val) return x >= val end end
-    constraints['<='] = function(val) return function(x) x,val=coerce(x,val) return x <= val end end
-    constraints['>'] = function(val) return function(x) x,val=coerce(x,val) return x > val end end
-    constraints['<'] = function(val) return function(x) x,val=coerce(x,val) return x < val end end
-    constraints['~='] = function(val) return function(x) x,val=coerce(x,val) return x ~= val end end
-    constraints[''] = function(_) return function(x) return x ~= nil end end
-    em.coerce = coerce
-
-    local function compilePattern2(pattern)
-      if type(pattern) == 'table' then
-        if pattern._var_ then return end
-        for k,v in pairs(pattern) do
-          if type(v) == 'string' and v:sub(1,1) == '$' then
-            local var,op,val = v:match("$([%w_]*)([<>=~]*)(.*)")
-            var = var =="" and "_" or var
-            local c = constraints[op](tonumber(val) or val)
-            pattern[k] = {_var_=var, _constr=c, _str=v}
-          else compilePattern2(v) end
-        end
-      end
-      return pattern
-    end
-
-    local function compilePattern(pattern)
-      pattern = compilePattern2(copy(pattern))
-      if pattern.type and type(pattern.id)=='table' and not pattern.id._constr then
-        local m = {}; for _,id in ipairs(pattern.id) do m[id]=true end
-        pattern.id = {_var_='_', _constr=function(val) return m[val] end, _str=pattern.id}
-      end
-      return pattern
-    end
-    em.compilePattern = compilePattern
-
-    local function match(pattern, expr)
-      local matches = {}
-      local function unify(pattern,expr)
-        if pattern == expr then return true
-        elseif type(pattern) == 'table' then
-          if pattern._var_ then
-            local var, constr = pattern._var_, pattern._constr
-            if var == '_' then return constr(expr)
-            elseif matches[var] then return constr(expr) and unify(matches[var],expr) -- Hmm, equal?
-            else matches[var] = expr return constr(expr) end
-          end
-          if type(expr) ~= "table" then return false end
-          for k,v in pairs(pattern) do if not unify(v,expr[k]) then return false end end
-          return true
-        else return false end
-      end
-      return unify(pattern,expr) and matches or false
-    end
-    em.match = match
-
-    function invokeHandler(env)
-      local t = os.time()
-      env.last,env.rule.time = t-(env.rule.time or 0),t
-      local status, res = pcall(env.rule.action,env) -- call the associated action
-      if not status then
-        fibaro.errorf(nil,"in %s: %s",env.rule.doc,res)
-        env.rule._disabled = true -- disable rule to not generate more errors
-      else return res end
-    end
-
-    local toHash,fromHash={},{}
-    fromHash['device'] = function(e) return {"device"..e.id..e.property,"device"..e.id,"device"..e.property,"device"} end
-    fromHash['global-variable'] = function(e) return {'global-variable'..e.name,'global-variable'} end
-    fromHash['quickvar'] = function(e) return {"quickvar"..e.id..e.name,"quickvar"..e.id,"quickvar"..e.name,"quickvar"} end
-    fromHash['profile'] = function(e) return {'profile'..e.property,'profile'} end
-    fromHash['weather'] = function(e) return {'weather'..e.property,'weather'} end
-    fromHash['custom-event'] = function(e) return {'custom-event'..e.name,'custom-event'} end
-    fromHash['deviceEvent'] = function(e) return {"deviceEvent"..e.id..e.value,"deviceEvent"..e.id,"deviceEvent"..e.value,"deviceEvent"} end
-    fromHash['sceneEvent'] = function(e) return {"sceneEvent"..e.id..e.value,"sceneEvent"..e.id,"sceneEvent"..e.value,"sceneEvent"} end
-    toHash['device'] = function(e) return "device"..(e.id or "")..(e.property or "") end   
-    toHash['global-variable'] = function(e) return 'global-variable'..(e.name or "") end
-    toHash['quickvar'] = function(e) return 'quickvar'..(e.id or "")..(e.name or "") end
-    toHash['profile'] = function(e) return 'profile'..(e.property or "") end
-    toHash['weather'] = function(e) return 'weather'..(e.property or "") end
-    toHash['custom-event'] = function(e) return 'custom-event'..(e.name or "") end
-    toHash['deviceEvent'] = function(e) return 'deviceEvent'..(e.id or "")..(e.value or "") end
-    toHash['sceneEvent'] = function(e) return 'sceneEvent'..(e.id or "")..(e.value or "") end
-
-    if not table.maxn then 
-      function table.maxn(tbl)local c=0; for _ in pairs(tbl) do c=c+1 end return c end
-    end
-
-    local function rule2str(rule) return rule.doc end
-    local function comboToStr(r)
-      local res = { r.src }
-      for _,s in ipairs(r.subs) do res[#res+1]="   "..tostring(s) end
-      return table.concat(res,"\n")
-    end
-    function map(f,l,s) s = s or 1; local r={} for i=s,table.maxn(l) do r[#r+1] = f(l[i]) end return r end
-    function mapF(f,l,s) s = s or 1; local e=true for i=s,table.maxn(l) do e = f(l[i]) end return e end
-
-    local function comboEvent(e,action,rl,doc)
-      local rm = {[em.RULE]=e, action=action, doc=doc, subs=rl}
-      rm.enable = function() mapF(function(e) e.enable() end,rl) return rm end
-      rm.disable = function() mapF(function(e) e.disable() end,rl) return rm end
-      rm.start = function(event) invokeHandler({rule=rm,event=event}) return rm end
-      rm.__tostring = comboToStr
-      return rm
-    end
-
-    function fibaro.event(pattern,fun,doc)
-      doc = doc or format("Event(%s) => ..",json.encode(pattern))
-      if type(pattern) == 'table' and pattern[1] then 
-        return comboEvent(pattern,fun,map(function(es) return fibaro.event(es,fun) end,pattern),doc) 
-      end
-      if isEvent(pattern) then
-        if pattern.type=='device' and pattern.id and type(pattern.id)=='table' then
-          return fibaro.event(map(function(id) local e1 = copy(pattern); e1.id=id return e1 end,pattern.id),fun,doc)
-        end
-      else error("Bad event pattern, needs .type field") end
-      assert(type(fun)=='function',"Second argument must be Lua function")
-      local cpattern = compilePattern(pattern)
-      local hashKey = toHash[pattern.type] and toHash[pattern.type](pattern) or pattern.type
-      handlers[hashKey] = handlers[hashKey] or {}
-      local rules = handlers[hashKey]
-      local rule,fn = {[em.RULE]=cpattern, event=pattern, action=fun, doc=doc}, true
-      for _,rs in ipairs(rules) do -- Collect handlers with identical patterns. {{e1,e2,e3},{e1,e2,e3}}
-        if equal(cpattern,rs[1].event) then 
-          rs[#rs+1] = rule
-          fn = false break 
-        end
-      end
-      if fn then rules[#rules+1] = {rule} end
-      rule.enable = function() rule._disabled = nil return rule end
-      rule.disable = function() rule._disabled = true return rule end
-      rule.start = function(event) invokeHandler({rule=rule, event=event, p={}}) return rule end
-      rule.__tostring = rule2str
-      if em.SECTION then
-        local s = em.sections[em.SECTION] or {}
-        s[#s+1] = rule
-        em.sections[em.SECTION] = s
-      end
-      return rule
-    end
-
-    function fibaro.removeEvent(pattern,fun)
-      local hashKey = toHash[pattern.type] and toHash[pattern.type](pattern) or pattern.type
-      local rules,i,j= handlers[hashKey] or {},1,1
-      while j <= #rules do
-        local rs = rules[j]
-        while i <= #rs do
-          if rs[i].action==fun then
-            table.remove(rs,i)
-          else i=i+i end
-        end
-        if #rs==0 then table.remove(rules,j) else j=j+1 end
-      end
-    end
-
-    function handleEvent(ev)
-      local hasKeys = fromHash[ev.type] and fromHash[ev.type](ev) or {ev.type}
-      for _,hashKey in ipairs(hasKeys) do
-        for _,rules in ipairs(handlers[hashKey] or {}) do -- Check all rules of 'type'
-          local i,m=1,nil
-          em.stats.tried=em.stats.tried+1
-          for i=1,#rules do
-            if not rules[i]._disabled then    -- find first enabled rule, among rules with same head
-              m = match(rules[i][em.RULE],ev) -- and match against that rule
-              break
+    function fibaro.trueFor(time,test,action,delay)
+      delay = delay or 1000
+      local state = false
+      local  function loop()
+        if test() then
+          if state == false then
+            state=os.time()+time
+          elseif state == true then
+          elseif state <=  os.time() then
+            if action() then
+              state = os.time()+time
+            else
+              state = true 
             end
           end
-          if m then                           -- we have a match
-            for i=i,#rules do                 -- executes all rules with same head
-              local rule=rules[i]
-              if not rule._disabled then 
-                em.stats.matched=em.stats.matched+1
-                if invokeHandler({event = ev, p=m, rule=rule}) == em.BREAK then return end
+        else
+          state=false
+        end
+        setTimeout(loop,delay)
+      end
+    end
+
+  end -- Misc
+
+--------------------- Events --------------------------------------------------
+  do
+    local inited,initEvents,_RECIEVE_EVENT
+
+    function fibaro.postRemote(id,ev) if not inited then initEvents() end; return fibaro.postRemote(id,ev) end
+    function fibaro.post(ev,t) if not inited then initEvents() end; return fibaro.post(ev,t) end
+    function fibaro.cancel(ref) if not inited then initEvents() end; return fibaro.cancel(ref) end
+    function fibaro.event(ev,fun,doc) if not inited then initEvents() end; return fibaro.event(ev,fun,doc) end
+    function fibaro.removeEvent(pattern,fun) if not inited then initEvents() end; return fibaro.removeEvent(pattern,fun) end
+    function fibaro.HTTPEvent(args) if not inited then initEvents() end; return fibaro.HTTPEvent(args) end
+    function QuickApp:RECIEVE_EVENT(ev) if not inited then initEvents() end; return _RECIEVE_EVENT(self,ev) end
+    function fibaro.initEvents() if not inited then initEvents() end end
+
+    function initEvents()
+      local function DEBUG(...) if debugFlags.event then fibaro.debugf(nil,...) end end
+      DEBUG("Setting up events")
+      inited = true 
+
+      local em,handlers = { sections = {}, stats={tried=0,matched=0}},{}
+      em.BREAK, em.TIMER, em.RULE = '%%BREAK%%', '%%TIMER%%', '%%RULE%%'
+      local handleEvent,invokeHandler,post
+      local function isEvent(e) return type(e)=='table' and e.type end
+      local function isRule(e) return type(e)=='table' and e[em.RULE] end
+
+-- This can be used to "post" an event into this QA... Ex. fibaro.call(ID,'RECIEVE_EVENT',{type='myEvent'})
+      function _RECIEVE_EVENT(self,ev)
+        assert(isEvent(ev),"Bad argument to remote event")
+        local time = ev.ev._time
+        ev,ev.ev._time = ev.ev,nil
+        if time and time+5 < os.time() then fibaro.warningf(nil,"Slow events %s, %ss",ev,os.time()-time) end
+        fibaro.post(ev)
+      end
+
+      function fibaro.postRemote(id,ev)
+        assert(tonumber(id) and isEvent(ev),"Bad argument to postRemote")
+        ev._from,ev._time = MID,os.time()
+        fibaro.call(id,'RECIEVE_EVENT',{type='EVENT',ev=ev}) -- We need this as the system converts "99" to 99 and other "helpful" conversions
+      end
+
+      function fibaro.post(ev,t)
+        local now = os.time()
+        t = type(t)=='string' and toTime(t) or t or 0
+        if t < 0 then return elseif t < now then t = t+now end
+        if debugFlags.post and not ev._sh then fibaro.tracef(nil,"Posting %s at %s",ev,os.date("%c",t)) end
+        if type(ev) == 'function' then
+          return setTimeout(ev,1000*(t-now))
+        else
+          return setTimeout(function() handleEvent(ev) end,1000*(t-now))
+        end
+      end
+
+-- Cancel post in the future
+      function fibaro.cancel(ref) clearTimeout(ref) end
+
+      local function transform(obj,tf)
+        if type(obj) == 'table' then
+          local res = {} for l,v in pairs(obj) do res[l] = transform(v,tf) end 
+          return res
+        else return tf(obj) end
+      end
+      utils.transform = transform
+
+      local function coerce(x,y) local x1 = tonumber(x) if x1 then return x1,tonumber(y) else return x,y end end
+      local constraints = {}
+      constraints['=='] = function(val) return function(x) x,val=coerce(x,val) return x == val end end
+      constraints['<>'] = function(val) return function(x) return tostring(x):match(val) end end
+      constraints['>='] = function(val) return function(x) x,val=coerce(x,val) return x >= val end end
+      constraints['<='] = function(val) return function(x) x,val=coerce(x,val) return x <= val end end
+      constraints['>'] = function(val) return function(x) x,val=coerce(x,val) return x > val end end
+      constraints['<'] = function(val) return function(x) x,val=coerce(x,val) return x < val end end
+      constraints['~='] = function(val) return function(x) x,val=coerce(x,val) return x ~= val end end
+      constraints[''] = function(_) return function(x) return x ~= nil end end
+      em.coerce = coerce
+
+      local function compilePattern2(pattern)
+        if type(pattern) == 'table' then
+          if pattern._var_ then return end
+          for k,v in pairs(pattern) do
+            if type(v) == 'string' and v:sub(1,1) == '$' then
+              local var,op,val = v:match("$([%w_]*)([<>=~]*)(.*)")
+              var = var =="" and "_" or var
+              local c = constraints[op](tonumber(val) or val)
+              pattern[k] = {_var_=var, _constr=c, _str=v}
+            else compilePattern2(v) end
+          end
+        end
+        return pattern
+      end
+
+      local function compilePattern(pattern)
+        pattern = compilePattern2(copy(pattern))
+        if pattern.type and type(pattern.id)=='table' and not pattern.id._constr then
+          local m = {}; for _,id in ipairs(pattern.id) do m[id]=true end
+          pattern.id = {_var_='_', _constr=function(val) return m[val] end, _str=pattern.id}
+        end
+        return pattern
+      end
+      em.compilePattern = compilePattern
+
+      local function match(pattern, expr)
+        local matches = {}
+        local function unify(pattern,expr)
+          if pattern == expr then return true
+          elseif type(pattern) == 'table' then
+            if pattern._var_ then
+              local var, constr = pattern._var_, pattern._constr
+              if var == '_' then return constr(expr)
+              elseif matches[var] then return constr(expr) and unify(matches[var],expr) -- Hmm, equal?
+              else matches[var] = expr return constr(expr) end
+            end
+            if type(expr) ~= "table" then return false end
+            for k,v in pairs(pattern) do if not unify(v,expr[k]) then return false end end
+            return true
+          else return false end
+        end
+        return unify(pattern,expr) and matches or false
+      end
+      em.match = match
+
+      function invokeHandler(env)
+        local t = os.time()
+        env.last,env.rule.time = t-(env.rule.time or 0),t
+        local status, res = pcall(env.rule.action,env) -- call the associated action
+        if not status then
+          fibaro.errorf(nil,"in %s: %s",env.rule.doc,res)
+          env.rule._disabled = true -- disable rule to not generate more errors
+        else return res end
+      end
+
+      local toHash,fromHash={},{}
+      fromHash['device'] = function(e) return {"device"..e.id..e.property,"device"..e.id,"device"..e.property,"device"} end
+      fromHash['global-variable'] = function(e) return {'global-variable'..e.name,'global-variable'} end
+      fromHash['quickvar'] = function(e) return {"quickvar"..e.id..e.name,"quickvar"..e.id,"quickvar"..e.name,"quickvar"} end
+      fromHash['profile'] = function(e) return {'profile'..e.property,'profile'} end
+      fromHash['weather'] = function(e) return {'weather'..e.property,'weather'} end
+      fromHash['custom-event'] = function(e) return {'custom-event'..e.name,'custom-event'} end
+      fromHash['deviceEvent'] = function(e) return {"deviceEvent"..e.id..e.value,"deviceEvent"..e.id,"deviceEvent"..e.value,"deviceEvent"} end
+      fromHash['sceneEvent'] = function(e) return {"sceneEvent"..e.id..e.value,"sceneEvent"..e.id,"sceneEvent"..e.value,"sceneEvent"} end
+      toHash['device'] = function(e) return "device"..(e.id or "")..(e.property or "") end   
+      toHash['global-variable'] = function(e) return 'global-variable'..(e.name or "") end
+      toHash['quickvar'] = function(e) return 'quickvar'..(e.id or "")..(e.name or "") end
+      toHash['profile'] = function(e) return 'profile'..(e.property or "") end
+      toHash['weather'] = function(e) return 'weather'..(e.property or "") end
+      toHash['custom-event'] = function(e) return 'custom-event'..(e.name or "") end
+      toHash['deviceEvent'] = function(e) return 'deviceEvent'..(e.id or "")..(e.value or "") end
+      toHash['sceneEvent'] = function(e) return 'sceneEvent'..(e.id or "")..(e.value or "") end
+
+      if not table.maxn then 
+        function table.maxn(tbl)local c=0; for _ in pairs(tbl) do c=c+1 end return c end
+      end
+
+      local function rule2str(rule) return rule.doc end
+      local function comboToStr(r)
+        local res = { r.src }
+        for _,s in ipairs(r.subs) do res[#res+1]="   "..tostring(s) end
+        return table.concat(res,"\n")
+      end
+      function map(f,l,s) s = s or 1; local r={} for i=s,table.maxn(l) do r[#r+1] = f(l[i]) end return r end
+      function mapF(f,l,s) s = s or 1; local e=true for i=s,table.maxn(l) do e = f(l[i]) end return e end
+
+      local function comboEvent(e,action,rl,doc)
+        local rm = {[em.RULE]=e, action=action, doc=doc, subs=rl}
+        rm.enable = function() mapF(function(e) e.enable() end,rl) return rm end
+        rm.disable = function() mapF(function(e) e.disable() end,rl) return rm end
+        rm.start = function(event) invokeHandler({rule=rm,event=event}) return rm end
+        rm.__tostring = comboToStr
+        return rm
+      end
+
+      function fibaro.event(pattern,fun,doc)
+        doc = doc or format("Event(%s) => ..",json.encode(pattern))
+        if type(pattern) == 'table' and pattern[1] then 
+          return comboEvent(pattern,fun,map(function(es) return fibaro.event(es,fun) end,pattern),doc) 
+        end
+        if isEvent(pattern) then
+          if pattern.type=='device' and pattern.id and type(pattern.id)=='table' then
+            return fibaro.event(map(function(id) local e1 = copy(pattern); e1.id=id return e1 end,pattern.id),fun,doc)
+          end
+        else error("Bad event pattern, needs .type field") end
+        assert(type(fun)=='function',"Second argument must be Lua function")
+        local cpattern = compilePattern(pattern)
+        local hashKey = toHash[pattern.type] and toHash[pattern.type](pattern) or pattern.type
+        handlers[hashKey] = handlers[hashKey] or {}
+        local rules = handlers[hashKey]
+        local rule,fn = {[em.RULE]=cpattern, event=pattern, action=fun, doc=doc}, true
+        for _,rs in ipairs(rules) do -- Collect handlers with identical patterns. {{e1,e2,e3},{e1,e2,e3}}
+          if equal(cpattern,rs[1].event) then 
+            rs[#rs+1] = rule
+            fn = false break 
+          end
+        end
+        if fn then rules[#rules+1] = {rule} end
+        rule.enable = function() rule._disabled = nil return rule end
+        rule.disable = function() rule._disabled = true return rule end
+        rule.start = function(event) invokeHandler({rule=rule, event=event, p={}}) return rule end
+        rule.__tostring = rule2str
+        if em.SECTION then
+          local s = em.sections[em.SECTION] or {}
+          s[#s+1] = rule
+          em.sections[em.SECTION] = s
+        end
+        return rule
+      end
+
+      function fibaro.removeEvent(pattern,fun)
+        local hashKey = toHash[pattern.type] and toHash[pattern.type](pattern) or pattern.type
+        local rules,i,j= handlers[hashKey] or {},1,1
+        while j <= #rules do
+          local rs = rules[j]
+          while i <= #rs do
+            if rs[i].action==fun then
+              table.remove(rs,i)
+            else i=i+i end
+          end
+          if #rs==0 then table.remove(rules,j) else j=j+1 end
+        end
+      end
+
+      function handleEvent(ev)
+        local hasKeys = fromHash[ev.type] and fromHash[ev.type](ev) or {ev.type}
+        for _,hashKey in ipairs(hasKeys) do
+          for _,rules in ipairs(handlers[hashKey] or {}) do -- Check all rules of 'type'
+            local i,m=1,nil
+            em.stats.tried=em.stats.tried+1
+            for i=1,#rules do
+              if not rules[i]._disabled then    -- find first enabled rule, among rules with same head
+                m = match(rules[i][em.RULE],ev) -- and match against that rule
+                break
+              end
+            end
+            if m then                           -- we have a match
+              for i=i,#rules do                 -- executes all rules with same head
+                local rule=rules[i]
+                if not rule._disabled then 
+                  em.stats.matched=em.stats.matched+1
+                  if invokeHandler({event = ev, p=m, rule=rule}) == em.BREAK then return end
+                end
               end
             end
           end
         end
       end
-    end
 
-    local function handlerEnable(t,handle)
-      if type(handle) == 'string' then utils.mapf(em[t],em.sections[handle] or {})
-      elseif isRule(handle) then handle[t]()
-      elseif type(handle) == 'table' then utils.mapf(em[t],handle) 
-      else error('Not an event handler') end
-      return true
-    end
-
-    function em.enable(handle,opt)
-      if type(handle)=='string' and opt then 
-        for s,e in pairs(em.sections or {}) do 
-          if s ~= handle then handlerEnable('disable',e) end
-        end
+      local function handlerEnable(t,handle)
+        if type(handle) == 'string' then utils.mapf(em[t],em.sections[handle] or {})
+        elseif isRule(handle) then handle[t]()
+        elseif type(handle) == 'table' then utils.mapf(em[t],handle) 
+        else error('Not an event handler') end
+        return true
       end
-      return handlerEnable('enable',handle) 
-    end
-    function em.disable(handle) return handlerEnable('disable',handle) end
+
+      function em.enable(handle,opt)
+        if type(handle)=='string' and opt then 
+          for s,e in pairs(em.sections or {}) do 
+            if s ~= handle then handlerEnable('disable',e) end
+          end
+        end
+        return handlerEnable('enable',handle) 
+      end
+      function em.disable(handle) return handlerEnable('disable',handle) end
 
 --[[
   Event.http{url="foo",tag="55",
@@ -1748,174 +1753,218 @@ do
     method="GET"}
 --]]
 
-    function fibaro.HTTPEvent(args)
-      local options,url = {},args.url
-      options.headers = args.headers or {}
-      options.timeout = args.timeout
-      options.method = args.method or "GET"
-      options.data = args.data or options.data
-      options.checkCertificate=options.checkCertificate
-      if args.basicAuthorization then 
-        options.headers['Authorization'] = 
-        utils.basicAuthorization(args.basicAuthorization.user,args.basicAuthorization.password)
+      function fibaro.HTTPEvent(args)
+        local options,url = {},args.url
+        options.headers = args.headers or {}
+        options.timeout = args.timeout
+        options.method = args.method or "GET"
+        options.data = args.data or options.data
+        options.checkCertificate=options.checkCertificate
+        if args.basicAuthorization then 
+          options.headers['Authorization'] = 
+          utils.basicAuthorization(args.basicAuthorization.user,args.basicAuthorization.password)
+        end
+        if args.accept then options.headers['Accept'] = args.accept end
+        net.HTTPClient():request(url,{
+            options = options,
+            success=function(resp)
+              post({type='HTTPEvent',status=resp.status,data=resp.data,headers=resp.headers,tag=args.tag})
+            end,
+            error=function(resp)
+              post({type='HTTPEvent',result=resp,tag=args.tag})
+            end
+          })
       end
-      if args.accept then options.headers['Accept'] = args.accept end
-      net.HTTPClient():request(url,{
-          options = options,
-          success=function(resp)
-            post({type='HTTPEvent',status=resp.status,data=resp.data,headers=resp.headers,tag=args.tag})
-          end,
-          error=function(resp)
-            post({type='HTTPEvent',result=resp,tag=args.tag})
-          end
-        })
-    end
 
-    em.isEvent,em.isRule,em.comboEvent = isEvent,isRule,comboEvent
-    fibaro.EM = em
-    fibaro.registerSourceTriggerCallback(handleEvent)
+      em.isEvent,em.isRule,em.comboEvent = isEvent,isRule,comboEvent
+      fibaro.EM = em
+      fibaro.registerSourceTriggerCallback(handleEvent)
 
-  end -- initEvents
+    end -- initEvents
 
-end -- Events
+  end -- Events
 
 --------------------- PubSub ---------------------------------------------------
-do
-  local SUB_VAR = "TPUBSUB"
-  local idSubs = {}
-  local function DEBUG(...) if debugFlags.pubsub then fibaro.debugf(nil,...) end end
-  local inited,initPubSub,match,compile
+  do
+    local SUB_VAR = "TPUBSUB"
+    local idSubs = {}
+    local function DEBUG(...) if debugFlags.pubsub then fibaro.debugf(nil,...) end end
+    local inited,initPubSub,match,compile
 
-  function fibaro.publish(event)
-    if not inited then initPubSub(quickApp) end
-    assert(type(event)=='table' and event.type,"Not an event")
-    local subs = idSubs[event.type] or {}
-    for _,e in ipairs(subs) do
-      if match(e.pattern,event) then
-        for id,_ in pairs(e.ids) do 
-          DEBUG("Sending sub QA:%s",id)
-          fibaro.call(id,"SUBSCRIPTION",event)
+    function fibaro.publish(event)
+      if not inited then initPubSub(quickApp) end
+      assert(type(event)=='table' and event.type,"Not an event")
+      local subs = idSubs[event.type] or {}
+      for _,e in ipairs(subs) do
+        if match(e.pattern,event) then
+          for id,_ in pairs(e.ids) do 
+            DEBUG("Sending sub QA:%s",id)
+            fibaro.call(id,"SUBSCRIPTION",event)
+          end
         end
       end
     end
-  end
 
-  if QuickApp then -- only subscribe if we are an QuickApp. Scenes can publish
-    function fibaro.subscribe(events,handler)
-      if not inited then initPubSub(quickApp) end
-      if not events[1] then events = {events} end
-      local subs = quickApp:getVariable(SUB_VAR)
-      if subs == "" then subs = {} end
-      for _,e in ipairs(events) do
-        assert(type(e)=='table' and e.type,"Not an event")
-        if not member(e,subs) then subs[#subs+1]=e end
-      end
-      DEBUG("Setting subscription")
-      quickApp:setVariable(SUB_VAR,subs)
-      if handler then
-        fibaro.event(events,handler)
+    if QuickApp then -- only subscribe if we are an QuickApp. Scenes can publish
+      function fibaro.subscribe(events,handler)
+        if not inited then initPubSub(quickApp) end
+        if not events[1] then events = {events} end
+        local subs = quickApp:getVariable(SUB_VAR)
+        if subs == "" then subs = {} end
+        for _,e in ipairs(events) do
+          assert(type(e)=='table' and e.type,"Not an event")
+          if not member(e,subs) then subs[#subs+1]=e end
+        end
+        DEBUG("Setting subscription")
+        quickApp:setVariable(SUB_VAR,subs)
+        if handler then
+          fibaro.event(events,handler)
+        end
       end
     end
-  end
 
 --  idSubs = {
 --    <type> = { { ids = {... }, event=..., pattern = ... }, ... }
 --  }
 
-  function initPubSub(self)
-    DEBUG("Setting up pub/sub")
-    inited = true
+    function initPubSub(self)
+      DEBUG("Setting up pub/sub")
+      inited = true
 
-    fibaro.initEvents()
+      fibaro.initEvents()
 
-    match = fibaro.EM.match
-    compile = fibaro.EM.compilePattern
+      match = fibaro.EM.match
+      compile = fibaro.EM.compilePattern
 
-    function self:SUBSCRIPTION(e)
-      self:post(e)
-    end
-
-    local function updateSubscriber(id,events)
-      if not idSubs[id] then DEBUG("New subscriber, QA:%s",id) end
-      for _,ev in ipairs(events) do
-        local subs = idSubs[ev.type] or {}
-        for _,s in ipairs(subs) do s.ids[id]=nil end
+      function self:SUBSCRIPTION(e)
+        self:post(e)
       end
-      for _,ev in ipairs(events) do
-        local subs = idSubs[ev.type]
-        if subs == nil then
-          subs = {}
-          idSubs[ev.type]=subs
+
+      local function updateSubscriber(id,events)
+        if not idSubs[id] then DEBUG("New subscriber, QA:%s",id) end
+        for _,ev in ipairs(events) do
+          local subs = idSubs[ev.type] or {}
+          for _,s in ipairs(subs) do s.ids[id]=nil end
         end
-        for _,e in ipairs(subs) do
-          if equal(ev,e.event) then
-            e.ids[id]=true
-            goto nxt
+        for _,ev in ipairs(events) do
+          local subs = idSubs[ev.type]
+          if subs == nil then
+            subs = {}
+            idSubs[ev.type]=subs
           end
+          for _,e in ipairs(subs) do
+            if equal(ev,e.event) then
+              e.ids[id]=true
+              goto nxt
+            end
+          end
+          subs[#subs+1] = { ids={[id]=true}, event=copy(ev), pattern=compile(ev) }
+          ::nxt::
         end
-        subs[#subs+1] = { ids={[id]=true}, event=copy(ev), pattern=compile(ev) }
-        ::nxt::
       end
-    end
 
-    local function checkVars(id,vars)
-      for _,var in ipairs(vars or {}) do 
-        if var.name==SUB_VAR then return updateSubscriber(id,var.value) end
+      local function checkVars(id,vars)
+        for _,var in ipairs(vars or {}) do 
+          if var.name==SUB_VAR then return updateSubscriber(id,var.value) end
+        end
       end
-    end
 
 -- At startup, check all QAs for subscriptions
-    for _,d in ipairs(api.get("/devices?interface=quickApp") or {}) do
-      checkVars(d.id,d.properties.quickAppVariables)
+      for _,d in ipairs(api.get("/devices?interface=quickApp") or {}) do
+        checkVars(d.id,d.properties.quickAppVariables)
+      end
+
+      fibaro.event({type='quickvar',name=SUB_VAR},            -- If some QA changes subscription
+        function(env) 
+          local id = env.event.id
+          DEBUG("QA:%s updated quickvar sub",id)
+          updateSubscriber(id,env.event.value)       -- update
+        end) 
+
+      fibaro.event({type='deviceEvent',value='removed'},      -- If some QA is removed
+        function(env) 
+          local id = env.event.id
+          if id ~= self.id then
+            DEBUG("QA:%s removed",id)
+            updateSubscriber(env.event.id,{})               -- update
+          end
+        end)
+
+      fibaro.event({
+          {type='deviceEvent',value='created'},              -- If some QA is added or modified
+          {type='deviceEvent',value='modified'}
+        },
+        function(env)                                             -- update
+          local id = env.event.id
+          if id ~= self.id then
+            DEBUG("QA:%s created/modified",id)
+            checkVars(id,api.get("/devices/"..id).properties.quickAppVariables)
+          end
+        end)
     end
 
-    fibaro.event({type='quickvar',name=SUB_VAR},            -- If some QA changes subscription
-      function(env) 
-        local id = env.event.id
-        DEBUG("QA:%s updated quickvar sub",id)
-        updateSubscriber(id,env.event.value)       -- update
-      end) 
-
-    fibaro.event({type='deviceEvent',value='removed'},      -- If some QA is removed
-      function(env) 
-        local id = env.event.id
-        if id ~= self.id then
-          DEBUG("QA:%s removed",id)
-          updateSubscriber(env.event.id,{})               -- update
-        end
-      end)
-
-    fibaro.event({
-        {type='deviceEvent',value='created'},              -- If some QA is added or modified
-        {type='deviceEvent',value='modified'}
-      },
-      function(env)                                             -- update
-        local id = env.event.id
-        if id ~= self.id then
-          DEBUG("QA:%s created/modified",id)
-          checkVars(id,api.get("/devices/"..id).properties.quickAppVariables)
-        end
-      end)
-  end
-
-end -- PubSub
+  end -- PubSub
 
 --------------------- HTTP stuff ----------------------------------------------
 -- How can we make it easier?
 ----------------- Auto update stuff ---------------------------------------------
-do
-  fibaro._URL_UPDATE_BASE = "https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/"
-  fibaro._UPDATE_MANIFEST = "VERSION4.json"
-  fibaro._FIBAROEXTRA_NAME = "fibaroExtra.lua"
+  do
+    fibaro._URL_UPDATE_BASE = "https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/"
+    fibaro._UPDATE_MANIFEST = "VERSION4.json"
+    fibaro._FIBAROEXTRA_NAME = "fibaroExtra.lua"
 
-  function fibaro.updateFibaroExtra(fname)
-    fname = fname or fibaro._FIBAROEXTRA_NAME or "fibaroExtra.lua"
-    local function fetch(url,cont)
-      --fibaro.debug(__TAG,"Fetching ",url)
+    function fibaro.updateFibaroExtra(fname)
+      fname = fname or fibaro._FIBAROEXTRA_NAME or "fibaroExtra.lua"
+      local function fetch(url,cont)
+        --fibaro.debug(__TAG,"Fetching ",url)
+        net.HTTPClient():request(url,{
+            options = {method = 'GET', checkCertificate = false, timeout=20000},
+            success = function(res) 
+              if res.status == 200 then cont(res.data)
+              else fibaro.error(__TAG,"Error ",res.status," fetching ",url) end
+            end,
+            error  = function(res) 
+              fibaro.error(__TAG,"Error ",res," fetching ",url)
+            end
+          })
+      end
+      local base = fibaro._URL_UPDATE_BASE or "https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/"
+      local manifest = fibaro._UPDATE_MANIFEST or "VERSION4.json"
+      fetch(base..manifest,
+        function(manifest)
+          manifest = json.decode(manifest)
+          if fibaro.FIBARO_EXTRA == nil or manifest[fname] > fibaro.FIBARO_EXTRA then
+            fibaro.debug(__TAG,"New version of ",fname)
+            fetch(fibaro._URL_UPDATE_BASE..fname,
+              function(code)
+                local name=fname:match("(.*)%.[Ll][Uu][Aa]") or "library"
+                local f = {isMain=false,type='lua',isOpen=false,name=name,content=code}
+                if api.get("/quickApp/"..plugin.mainDeviceId.."/files/"..name) then
+                  fibaro.debug(__TAG,"Updating ",name)
+                  local _,res = api.put("/quickApp/"..plugin.mainDeviceId.."/files/"..name,f)
+                  if res ~= 200 then fibaro.error(___TAG,"Updating ",name," - ",res) end
+                else
+                  fibaro.debug(__TAG,"Installing ",name)
+                  local _,res = api.put("/quickApp/"..plugin.mainDeviceId.."/files",f)
+                  if res ~= 200 then fibaro.error(__TAG,"Installing ",name," - ",res) end
+                end
+              end)
+          end
+        end)
+    end
+
+    function fibaro.installFibaroExtra()
+      local name = "fibaroExtra"
+      if fibaro.FIBARO_EXTRA then return end
+      local url = "https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/"..name..".lua"
       net.HTTPClient():request(url,{
           options = {method = 'GET', checkCertificate = false, timeout=20000},
           success = function(res) 
-            if res.status == 200 then cont(res.data)
+            if res.status == 200 then 
+              local f = {isMain=false,type='lua',isOpen=false,name=name,content=res.data}
+              fibaro.debug(__TAG,"Installing ",name)
+              local _,res = api.post("/quickApp/"..plugin.mainDeviceId.."/files",f)
+              if res ~= 200 then fibaro.error(__TAG,"Installing ",name," - ",res) end              
             else fibaro.error(__TAG,"Error ",res.status," fetching ",url) end
           end,
           error  = function(res) 
@@ -1923,50 +1972,6 @@ do
           end
         })
     end
-    local base = fibaro._URL_UPDATE_BASE or "https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/"
-    local manifest = fibaro._UPDATE_MANIFEST or "VERSION4.json"
-    fetch(base..manifest,
-      function(manifest)
-        manifest = json.decode(manifest)
-        if fibaro.FIBARO_EXTRA == nil or manifest[fname] > fibaro.FIBARO_EXTRA then
-          fibaro.debug(__TAG,"New version of ",fname)
-          fetch(fibaro._URL_UPDATE_BASE..fname,
-            function(code)
-              local name=fname:match("(.*)%.[Ll][Uu][Aa]") or "library"
-              local f = {isMain=false,type='lua',isOpen=false,name=name,content=code}
-              if api.get("/quickApp/"..plugin.mainDeviceId.."/files/"..name) then
-                fibaro.debug(__TAG,"Updating ",name)
-                local _,res = api.put("/quickApp/"..plugin.mainDeviceId.."/files/"..name,f)
-                if res ~= 200 then fibaro.error(___TAG,"Updating ",name," - ",res) end
-              else
-                fibaro.debug(__TAG,"Installing ",name)
-                local _,res = api.put("/quickApp/"..plugin.mainDeviceId.."/files",f)
-                if res ~= 200 then fibaro.error(__TAG,"Installing ",name," - ",res) end
-              end
-            end)
-        end
-      end)
-  end
-
-  function fibaro.installFibaroExtra()
-    local name = "fibaroExtra"
-    if fibaro.FIBARO_EXTRA then return end
-    local url = "https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/"..name..".lua"
-    net.HTTPClient():request(url,{
-        options = {method = 'GET', checkCertificate = false, timeout=20000},
-        success = function(res) 
-          if res.status == 200 then 
-            local f = {isMain=false,type='lua',isOpen=false,name=name,content=res.data}
-            fibaro.debug(__TAG,"Installing ",name)
-            local _,res = api.post("/quickApp/"..plugin.mainDeviceId.."/files",f)
-            if res ~= 200 then fibaro.error(__TAG,"Installing ",name," - ",res) end              
-          else fibaro.error(__TAG,"Error ",res.status," fetching ",url) end
-        end,
-        error  = function(res) 
-          fibaro.error(__TAG,"Error ",res," fetching ",url)
-        end
-      })
-  end
 
 --[[ Mini installer
 function fibaro.installFibaroExtra()local a="fibaroExtra"if fibaro.FIBARO_EXTRA then return end;local b="https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/"..a..".lua"net.HTTPClient():request(b,{options={method='GET',checkCertificate=false,timeout=20000},success=function(c)if c.status==200 then local d={isMain=false,type='lua',isOpen=false,name=a,content=c.data}fibaro.debug(__TAG,"Installing ",a)local e,c=api.post("/quickApp/"..plugin.mainDeviceId.."/files",d)if c~=200 then fibaro.error(__TAG,"Installing ",a," - ",c)end else fibaro.error(__TAG,"Error ",c.status," fetching ",b)end end,error=function(c)fibaro.error(__TAG,"Error ",c," fetching ",b)end})end
@@ -1985,4 +1990,4 @@ local fileList = {
 checkForUpdate(fileList)
 --]]
 
-end -- Auto update
+  end -- Auto update

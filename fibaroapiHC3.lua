@@ -8026,7 +8026,7 @@ function module.Local(hc3)
       ['stop'] = function() end,
     },
     ['com.fibaro.binarySwitch'] = {
-      ['turnOff'] = function(d) setProp(d.id,'value',true) end,
+      ['turnOff'] = function(d) setProp(d.id,'value',false) end,
       ['turnOn'] = function(d) setProp(d.id,'value',true) end,
       ['toggle'] = function(d) setProp(d.id,'value',not d.properties.value) end,
     },
