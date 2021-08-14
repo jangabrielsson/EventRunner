@@ -400,14 +400,14 @@ function module.Fibaro(hc3)
     --if ctx.releaseeLock then ctx.releaseLock() end
   end
 
-  local function __fibaro_add_debug_message(tag,type,str)
+  local function __fibaro_add_debug_message(tag,str,typ)
     assert(str,"Missing tag for debug")
-    POST_DEBUGMESSAGE({message=str,messageType=type,tag=tag},"/debugMessages")
+    POST_DEBUGMESSAGE({message=str,messageType=typ,tag=tag},"/debugMessages")
   end
-  function fibaro.debug(tag,...)  __fibaro_add_debug_message(tag,"DEBUG",d2str(...)) end
-  function fibaro.warning(tag,...) __fibaro_add_debug_message(tag,"WARNING",d2str(...)) end
-  function fibaro.trace(tag,...) __fibaro_add_debug_message(tag,"TRACE",d2str(...)) end
-  function fibaro.error(tag,...) __fibaro_add_debug_message(tag,"ERROR",d2str(...)) end
+  function fibaro.debug(tag,...)  __fibaro_add_debug_message(tag,d2str(...),"DEBUG") end
+  function fibaro.warning(tag,...) __fibaro_add_debug_message(tag,d2str(...),"WARNING") end
+  function fibaro.trace(tag,...) __fibaro_add_debug_message(tag,d2str(...),"TRACE") end
+  function fibaro.error(tag,...) __fibaro_add_debug_message(tag,d2str(...),"ERROR") end
 
   function fibaro.getName(deviceID)
     __assert_type(deviceID,'number')

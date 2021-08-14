@@ -39,7 +39,7 @@ EM.modPath       = DEF(EM.modpath,"TQAEmodules/")   -- directory where TQAE modu
 EM.temp          = DEF(EM.temp,os.getenv("TMPDIR") or os.getenv("TEMP") or os.getenv("TMP") or "temp/") -- temp directory
 
 local globalModules = { "net.lua","json.lua","files.lua", "webserver.lua" } -- default global modules loaded into emulator environment
-local localModules  = { "fibaro.lua", "QuickApp.lua" }     -- default local modules loaded into QA environment
+local localModules  = { "class.lua", "fibaro.lua", "QuickApp.lua" } -- default local modules loaded into QA environment
 
 local function main(run) -- playground
 
@@ -165,66 +165,12 @@ local function builtins()
   function FB.__fibaro_call(id,name,path,data)
     return Devices[id] and call(id,name,table.unpack(data.args)) or HC3Request("POST",path,data)
   end
+  function FB.__fibaro_local(bool) EM.locl = bool end
 
   function FB.__fibaro_add_debug_message(tag,type,str)
     assert(str,"Missing tag for debug")
     str=str:gsub("(</?font.->)","") str=str:gsub("(&nbsp;)"," ") -- Remove HTML tags
     print(fmt("%s [%s] [%s]: %s",os.date("[%d.%m.%Y] [%H:%M:%S]"),type,tag,str))
-  end
-
--- Class support, mimicking LuaBind's class implementation
-  local metas = {}
-  for _,m in ipairs({
-      "__add","__sub","__mul","__div","__mod","__pow","__unm","__idiv","__band","__bor",
-      "__bxor","__bnot","__shl","__shr","__concat","__len","__eq","__lt","__le","__call",
-      "__tostring"
-      }) do
-    metas[m]=true
-  end
-
-  function FB.property(get,set)
-    assert(type(get)=='function' and type(set)=="function","Property need function set and get")
-    return {['%CLASSPROP%']=true, get=get, set=set}
-  end
-
-  local function trapIndex(props,cmt,obj)
-    function cmt.__index(_,key)
-      if props[key] then return props[key].get(obj) else return rawget(obj,key) end
-    end
-    function cmt.__newindex(_,key,val)
-      if props[key] then return props[key].set(obj,val) else return rawset(obj,key,val) end
-    end
-  end
-
-  function FB.class(name)       -- Version that tries to avoid __index & __newindex to make debugging easier
-    local cl,mt,cmt,props,parent= {['_TYPE']='userdata'},{},{},{}  -- We still try to be Luabind class compatible
-    function cl.__copyObject(clo,obj)
-      for k,v in pairs(clo) do if metas[k] then cmt[k]=v else obj[k]=v end end
-      return obj
-    end
-    function mt.__call(tab,...)        -- Instantiation  <name>(...)
-      local obj = tab.__copyObject(tab,{})
-      if not tab.__init then error("Class "..name.." missing initialiser") end
-      tab.__init(obj,...)
-      local trapF = false
-      for k,v in pairs(obj) do
-        if type(v)=='table' and v['%CLASSPROP%'] then obj[k],props[k]=nil,v; trapF = true end
-      end
-      if trapF then trapIndex(props,cmt,obj) end
-      local str = "Object "..name..":"..tostring(obj):match("%s(.*)")
-      setmetatable(obj,cmt)
-      if not obj.__tostring then 
-        function obj:__tostring() local _=self return str end
-      end
-      return obj
-    end
-    function mt:__tostring() local _=self return "class "..name end
-    setmetatable(cl,mt)
-    getContext().env[name] = cl
-    return function(p) -- Class creation -- class <name>
-      parent = p 
-      if parent then parent.__copyObject(parent,cl) end
-    end 
   end
 
   function loadModules(ms,env,args)
@@ -310,25 +256,31 @@ local function emulator()
   local installQA,runQA
   local function restartQA(QA) clearTasks(QA.QA.id) runQA(Devices[QA.QA.id]) coroutine.yield() end
 
+  function EM.createDevice(id,name,typ,properties,interfaces)
+    local dev = {}
+    if id then dev.id = id else dev.id = gID; gID=gID+1 end
+    dev.name = name or "MyQuickApp"
+    dev.type = typ or "com.fibaro.binarySensor"
+    dev.interfaces = interfaces or {}
+    dev.properties = properties or {}
+    dev.properties.quickAppVariables = dev.properties.quickAppVariables or {}
+    Devices[dev.id]=dev
+    return dev
+  end
+
   local function addQA(qa) -- Creates the device structure and save the QA files
     local id,name,typ,code,file,e = qa.id,qa.name,qa.type,qa.code,qa.file,qa.env
     local files,info = EM.loadFile(code,file)
-    local dev = {}
-    dev.id = id or info.id or gID; gID=gID+1
-    dev.name = name or info.name or "MyQuickApp"
-    dev.type = typ or info.type or "com.fibaro.binarySensor"
-    dev.interfaces = info.interfaces
-    dev.properties = info.properties or {}
-    dev.properties.quickAppVariables = dev.properties.quickAppVariables or {}
+    local dev = EM.createDevice(id or info.id,name or info.name,info.properties,info.interfaces)
     for k,v in pairs(info.quickVars or {}) do table.insert(dev.properties.quickAppVariables,{name=k,value=v}) end
-    Devices[dev.id]=dev
     QAs[dev.id]={files=files,save=qa.save or info.save, extras=e, restart=restartQA }
     return dev
   end
 
   function runQA(dev)      -- Creates an environment and load file modules and starts QuickApp (:onInit())
     local env = {          -- QA environment, all Lua functions available for  QA, 
-      plugin={ mainDeviceId = dev.id }, os=copy(os), hc3_emulator={getmetatable=getmetatable,installQA=installQA},
+      plugin={ mainDeviceId = dev.id }, os=copy(os), 
+      hc3_emulator={getmetatable=getmetatable,setmetatable=setmetatable,installQA=installQA},
       coroutine=CO,table=table,select=select,pcall=pcall,print=print,string=string,error=error,
       type=type2,pairs=pairs,ipairs=ipairs,tostring=tostring,tonumber=tonumber,math=math,assert=assert,_VERBOSE=verbose
     }
