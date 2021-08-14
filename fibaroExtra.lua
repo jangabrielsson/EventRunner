@@ -1,5 +1,5 @@
 fibaro = fibaro  or  {}
-fibaro.FIBARO_EXTRA = "v0.921"
+fibaro.FIBARO_EXTRA = "v0.922"
 FILES = FILES or {}
 FILES['fibaroExtra']=fibaro.FIBARO_EXTRA
 
@@ -300,7 +300,8 @@ do
   end 
 
   local function print_debug(typ,tag,str)
-    __fibaro_add_debug_message(tag or __TAG,str or "",typ or "debug") 
+    --__fibaro_add_debug_message(tag or __TAG,str or "",typ or "debug")
+    api.post("/debugMessages",{message=str,messageType=typ or "debug",tag=tag or __TAG})
     return str
   end
 
