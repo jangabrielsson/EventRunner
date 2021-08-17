@@ -163,11 +163,11 @@ local function builtins()
   end
   -- Non standard
   function FB.__fibaro_call(id,name,path,data)
-    return Devices[id] and call(id,name,table.unpack(data.args)) or HC3Request("POST",path,data)
+    return Devices[id] and call(id,name,data.args and table.unpack(data.args)) or HC3Request("POST",path,data)
   end
   function FB.__fibaro_local(bool) EM.locl = bool end
 
-  function FB.__fibaro_add_debug_message(tag,type,str)
+  function FB.__fibaro_add_debug_message(tag,str,type)
     assert(str,"Missing tag for debug")
     str=str:gsub("(</?font.->)","") str=str:gsub("(&nbsp;)"," ") -- Remove HTML tags
     print(fmt("%s [%s] [%s]: %s",os.date("[%d.%m.%Y] [%H:%M:%S]"),type,tag,str))
@@ -239,18 +239,24 @@ local function emulator()
 
   -- Used by api/devices/<id>/action/<name> to call and hand over to called QA's thread
   function call(id,name,...)
-    local args,QA = {...},QAs[id]
+    local args,QA = {...},QAs[id] or QAs[Devices[id].parentId]
     runProc(QA,function() QA.env.onAction(QA.QA,{deviceId=id,actionName=name,args=args}) end) -- sim. call in another process/QA
   end
   local function type2(o) local t = type(o) return t=='table' and o._TYPE or t end
   -- Check arguments and print a QA error message 
-  local function check(name,stat,err) if not stat then FB.__fibaro_add_debug_message(name,"ERROR",err) end return stat end
+  local function check(name,stat,err) if not stat then FB.__fibaro_add_debug_message(name,err,"ERROR") end return stat end
   -- Resume a coroutine and handle errors
   function xpresume(co)  
     local stat,res = CO.resume(co)
     if not stat then 
       check(procs[co].env.__TAG,stat,res) debug.traceback(co) 
     end
+  end
+  function EM.getQA(id)
+    id = tonumber(id) or 0
+    if QAs[id] then return QAs[id].QA end
+    local d = Devices[id]
+    return d and QAs[d.parentId].QA.childDevices[id]
   end
 
   local installQA,runQA

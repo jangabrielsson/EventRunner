@@ -22,10 +22,44 @@ function net.HTTPClient(i_options)
   return self
 end
 
+local function parseOptions(str)
+  local res = {}
+  str:gsub("([^&]-)=([^&]+)",function(k,v) res[k]=tonumber(v) or (v=='true' and true) or (v=='false' and false) or v end)
+  return res
+end
+
+local _fcont={['true']=true,['false']=false}
+local function _fconv(s) return _fcont[s]==nil and s or _fcont[s] end
+local fFuns = {
+  interface=function(v,rsrc) return Util.member(v,rsrc.interfaces or {}) end,
+  property=function(v,rsrc) return rsrc.properties[v:match("%[(.-),")]==_fconv(v:match(",(.*)%]")) end
+}
+
+local function filter(list,props)
+  if next(props)==nil then return list end
+  local res = {}
+  for _,rsrc in ipairs(list) do
+    local flag = false
+    for k,v in pairs(props) do
+      if fFuns[k] then flag = fFuns[k](v,rsrc)
+      else flag = rsrc[k]==v end
+      if not flag then break end 
+    end
+    if flag then res[#res+1]=rsrc end
+  end
+  return res
+end
+
 local aHC3call
 local apiIntercepts = { -- Intercept some api calls to the api to include emulated QAs, could be deeper a tree...
   ["GET"] = {
     ["/devices$"] = function(_,_,_) return __fibaro_get_devices() end,
+    ["/devices%?(.*)"] = function(_,path,data,opts)
+      local ds = __fibaro_get_devices() 
+      opts = parseOptions(opts)
+      return filter(ds,opts)
+    end,
+--   api.get("/devices?parentId="..self.id) or {}
     ["/devices/(%d+)$"] = function(_,_,_,id) return __fibaro_get_device(tonumber(id)) end,
     ["/devices/(%d+)/properties/(%w+)$"] = function(_,_,_,id,prop) return __fibaro_get_device_property(tonumber(id),prop) end,
   },
@@ -44,6 +78,13 @@ local apiIntercepts = { -- Intercept some api calls to the api to include emulat
         return true,200
       else return HC3Request(method,path,data) end
     end,
+    ["/plugins/createChildDevice"] = function(method,path,props)
+      if EM.locl then
+        local d = EM.createDevice(nil,props.name,props.type,props.initialProperties,props.initialInterfaces)
+        d.parentId = props.parentId
+        return d,200
+      else return HC3Request(method,path,props) end
+    end,    
   },
   ["PUT"] = {
     ["/devices/(%d+)"] = function(method,path,data,id)
@@ -60,6 +101,15 @@ local apiIntercepts = { -- Intercept some api calls to the api to include emulat
         return data,202
       end
       return HC3Request(method,path,data)
+    end,
+  },
+  ["DELETE"] = { 
+    ["/plugins/removeChildDevice/(%d+)"] = function(method,path,data,id)
+      id = tonumber(id)
+      if Devices[id] then
+        Devices[id]=nil
+        return true,200
+      else return HC3Request(method,path,data) end
     end,
   }
 }

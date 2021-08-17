@@ -4348,7 +4348,7 @@ end
       assert(ff.dir(dir),"Not a directory: "..tostring(dir))
       for d,n in ff.dir(dir) do -- read unpacked files
         if d:match(prefix) then
-          local id,name = d:match("(%d+)_([^_]+)%.lua")
+          local QID,Qname,id,name = d:match("(%d+)_([^_]+)_(%d+)_(.-)%.lua")
           assert(name,"Bad unpacked file "..d)
           local content  = ff.read(dir..d)
           files[tonumber(id)]={name=name, content=content, type="lua", isMain=name == 'main', isOpen=false}

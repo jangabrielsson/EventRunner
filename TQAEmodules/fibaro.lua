@@ -185,10 +185,10 @@ function fibaro.sleep(ms)
 end
 
 local function d2str(...) local r,s={...},{} for i=1,#r do if r[i]~=nil then s[#s+1]=tostring(r[i]) end end return table.concat(s," ") end
-function fibaro.debug(tag,...)  __assert_type(tag,"string") __fibaro_add_debug_message(tag,"DEBUG",d2str(...)) end
-function fibaro.warning(tag,...) __assert_type(tag,"string") __fibaro_add_debug_message(tag,"WARNING",d2str(...)) end
-function fibaro.trace(tag,...) __assert_type(tag,"string") __fibaro_add_debug_message(tag,"TRACE",d2str(...)) end
-function fibaro.error(tag,...) __assert_type(tag,"string") __fibaro_add_debug_message(tag,"ERROR",d2str(...)) end
+function fibaro.debug(tag,...)  __assert_type(tag,"string") __fibaro_add_debug_message(tag,d2str(...),"DEBUG") end
+function fibaro.warning(tag,...) __assert_type(tag,"string") __fibaro_add_debug_message(tag,d2str(...),"WARNING") end
+function fibaro.trace(tag,...) __assert_type(tag,"string") __fibaro_add_debug_message(tag,d2str(...),"TRACE") end
+function fibaro.error(tag,...) __assert_type(tag,"string") __fibaro_add_debug_message(tag,d2str(...),"ERROR") end
 
 function fibaro.useAsyncHandler(value)
   __assert_type(value, "boolean")

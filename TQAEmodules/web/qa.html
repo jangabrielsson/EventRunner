@@ -1,0 +1,44 @@
+<html>
+<head>
+<h1>QuickApp {{{ local qa = EM.getQA(opts.id); out(qa.name)}}}</h1>
+</head>
+<body>
+{{{
+    local qa = EM.getQA(opts.id)
+    if next(qa._view)==nil then return end
+    out("<h2>View</h2>")
+    out("<ul>")
+    for elm,e in pairs(qa._view) do
+      out("%s",elm)
+      out("<ul>")
+      for tp,v in pairs(e) do
+        out("<li>%s = %s</li>",tp,v)
+      end
+      out("</ul>")
+    end
+    out("</ul>")
+}}}
+<h2>Methods</h2>
+<ul>
+{{{ 
+     local qa,fs = EM.getQA(opts.id),{}
+     for k,v in pairs(qa) do
+       if type(v)=='function' then fs[#fs+1]=k end
+     end
+     table.sort(fs)
+     for _,n in ipairs(fs) do out("<li>self:%s</li>",n) end
+}}}
+</ul>
+<h2>QuickAppVariables</h2>
+<ul>
+{{{ 
+     local qa,vars = EM.getQA(opts.id),{}
+     for _,v in ipairs(qa.properties.quickAppVariables or {}) do vars[#vars+1]=v end
+     table.sort(vars,function(a,b) return a.name < b.name end)
+     for _,v in ipairs(vars) do 
+       out("<li>%s = %s</li>",v.name,v.value)
+     end
+}}}
+</ul>
+</body>
+</html>

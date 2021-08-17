@@ -47,9 +47,7 @@ local function clientHandler(client,handlers)
         if b and b~="" then body=b end
         referer = header and header:match("^[Rr]eferer:%s*(.*)") or referer
       until header == nil or e == 'closed'
-      if method=='POST' and handlers.POST then handlers.POST(method,client,call,body,referer)
-      elseif method=='PUT' and handlers.PUT then handlers.PUT(method,client,call,body,referer) 
-      elseif method=='GET' and handlers.GET then handlers.GET(method,client,call,body,referer) end
+      if handlers[method] then handlers[method](method,client,call,body,referer) end
       --client:flush()
       client:close()
       return
@@ -92,7 +90,7 @@ local GUI_HANDLERS = {
       end
       id = tonumber(id)
       local stat,err=pcall(FB.__fibaro_call,id,action,table.unpack(args))
-      if not stat then LOG("Bad eventCall:%s",err) end
+      if not stat then LOG("Bad callAction:%s",err) end
       client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n\n")
       return true
     end,
@@ -136,7 +134,7 @@ local function compilePage(html,fname)
   for i=1,#res do
     local code,rest,src = res[i]:match(endTag)
     if code then 
-      src,code = code,fmt("return function(EM,FB,out) %s end",code)
+      src,code = code,fmt("return function(EM,FB,opts,out) %s end",code)
       src = src:gsub("<","&lt;")
       code,err = load(code)
       if err then return 
@@ -145,10 +143,10 @@ local function compilePage(html,fname)
         end
       end
       code,err = code()
-      res2[#res2+1]=function(EM,FB)
+      res2[#res2+1]=function(EM,FB,opts)
         local r = {}
         local function out(fm,...) r[#r+1] =  #({...})==0 and fm or fmt(fm,...) end
-        code(EM,FB,out)
+        code(EM,FB,opts,out)
         return table.concat(r)
       end
       source[#res2]=src
@@ -158,10 +156,10 @@ local function compilePage(html,fname)
       res2[#res2+1]=function() return c end
     end
   end
-  return function(EM,FB,out)
+  return function(EM,FB,opts)
     local res,i = {},1
     local stat,err = pcall(function()
-        while i<#res2 do res[#res+1] = res2[i](EM,FB,out) i=i+1 end
+        while i<#res2 do res[#res+1] = res2[i](EM,FB,opts) i=i+1 end
       end)
     return stat and table.concat(res) or fmt("Error: Page %s - %s</br><pre>%s</pre>",fname,err,source[i])
   end
@@ -184,14 +182,22 @@ local function getPage(fname)
   return c.page
 end
 
+local function parseOptions(str)
+  local res = {}
+  str:gsub("([^&]-)=([^&]+)",function(k,v) res[k]=v end)
+  return res
+end
+
 local function renderPage(path,dir,client,ref)
+  local opts,p,o = {},path:match("(.-)%?(.*)")
+  if p then path,opts = p,parseOptions(o) end
   if path:sub(1,1)=="/" then path = path:sub(2) end
   if path=="" or path=="/" then path="main.html" end
   if not path:match("%.html?") then path=path..".html" end
   local fname = dir..path
   local page = getPage(fname)
   if page then
-    page = page(EM,FB)
+    page = page(EM,FB,opts)
     client:send(
 [[HTTP/1.1 200 OK
 Access-Control-Allow-Origin: *
