@@ -8,7 +8,7 @@
 {{{
   local p = EM.timers.get()
   while p do
-    out("<tr><td>%s</td><td>Expires:%s</td><td>ID:%s</td><td>Tag:%s</td></tr>",
+    out("<tr><td>%s</td><td>,Expires:%s</td><td>,ID:%s</td><td>,Tag:%s</td></tr>",
         p,html.milliStr(p.t),p.qa and p.qa.QA.id or 0,p.tag or "<notag>")
     p=p.next
   end
