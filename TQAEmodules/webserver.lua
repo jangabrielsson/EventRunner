@@ -83,15 +83,19 @@ local GUI_HANDLERS = {
   ["GET"] = {
     ["/api/callAction%?deviceID=(%d+)&name=(%w+)(.*)"] = function(client,ref,body,id,action,arg)
       local args = {}
-      arg = arg:split("&")
-      for _,a in ipairs(arg) do
-        local i,v = a:match("^arg(%d+)=(.*)")
-        args[tonumber(i)]=json.decode(urldecode(v))
+      if arg and arg:sub(1,1)=='?' then
+        arg=arg:sub(2)
+        arg = arg:split("&")
+        for _,a in ipairs(arg) do
+          local i,v = a:match("^arg(%d+)=(.*)")
+          args[tonumber(i)]=json.decode(FB.urldecode(v))
+        end
       end
-      id = tonumber(id)
-      local stat,err=pcall(FB.__fibaro_call,id,action,table.unpack(args))
-      if not stat then LOG("Bad callAction:%s",err) end
-      client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\n\n")
+      id = tonumber(id) ---id,name,path,data)
+      local stat,err=pcall(FB.__fibaro_call,id,action,"",{args=args})
+      if not stat then LOG("Bad callAction:%s",err) end --\nLocation: "..(headers['referer'] or "/web/main").."\n")
+     -- client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\nLocation: "..ref.."\n\n")
+      client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
       return true
     end,
   },
@@ -121,6 +125,16 @@ local function GUIhandler(method,client,call,body,ref)
   end
 end
 
+local htmlfuns = {}
+function htmlfuns.call(out,id,fun,...)
+  local args = "" 
+  for i,v in  ipairs ({...})  do args = args.. '&arg'..tostring(i)..'='..urlencode(tostring(v)) end 
+  out("http://%s:%s/api/callAction?deviceID=%s&name=%s?%s",IPAddress,port,id,fun,args)
+end
+function htmlfuns.home(out)
+  out('<a href="http://%s:%s/web/main">Main</a>',IPAddress,port)
+end
+
 local startTag,endTag = "{{{","(.*)}}}(.*)"
 local function compilePage(html,fname)
   local res,start,err={},1
@@ -134,7 +148,7 @@ local function compilePage(html,fname)
   for i=1,#res do
     local code,rest,src = res[i]:match(endTag)
     if code then 
-      src,code = code,fmt("return function(EM,FB,opts,out) %s end",code)
+      src,code = code,fmt("return function(EM,FB,opts,out,html) %s end",code)
       src = src:gsub("<","&lt;")
       code,err = load(code)
       if err then return 
@@ -146,7 +160,7 @@ local function compilePage(html,fname)
       res2[#res2+1]=function(EM,FB,opts)
         local r = {}
         local function out(fm,...) r[#r+1] =  #({...})==0 and fm or fmt(fm,...) end
-        code(EM,FB,opts,out)
+        code(EM,FB,opts,out,htmlfuns)
         return table.concat(r)
       end
       source[#res2]=src

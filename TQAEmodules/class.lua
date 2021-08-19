@@ -1,5 +1,4 @@
 -- Class support, mimicking LuaBind's class implementation
-local getmetatable = hc3_emulator.getmetatable
 local setmetatable = hc3_emulator.setmetatable
 
 local metas = {}

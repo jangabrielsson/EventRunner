@@ -1,0 +1,18 @@
+<html>
+<head>
+<h1>Timers</h1>
+</head>
+<body>
+<ul>
+{{{
+  local p = EM.timers.get()
+  while p do
+    out("<li>%s %s %s %s</li>",p,os.date("%c",math.floor(p.t)),p.qa and p.qa.QA.id or 0,p.tag or "<notag>")
+    p=p.next
+  end
+}}}
+
+</ul>
+{{{ html.home(out) }}}
+</body>
+</html>

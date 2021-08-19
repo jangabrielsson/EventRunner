@@ -6,7 +6,8 @@ do
   
   local dir,timeout = {},60*1000  -- One minute default?
   local oldCall = fibaro.call
-
+  local function coprotect(stat,res) if not stat then fibaro.error(__TAG,res) end end
+  
   function QuickApp:callAction(name,...)      -- Redefine callAction to return value
     if self[name] then return self[name](self,...) end
   end
@@ -24,21 +25,21 @@ do
   function fibaro.setCallTimeout(ms) timeout = ms end
 
   function fibaro.sleep(ms) -- sleep that doesn't block other threads
-    local co = coroutine.running(); setTimeout(function() coroutine.resume(co) end,ms); coroutine.yield()
+    local co = coroutine.running(); setTimeout(function() coprotect(coroutine.resume(co)) end,ms); coroutine.yield()
   end
 
   function netFHttp(method,url) -- synchronous http call
     local co = coroutine.running()
     net.HTTPClient():request(url,
       { options = { method = method },
-        success = function(res) coroutine.resume(co,res) end,
-        error = function(res) coroutine.resume(co,res) end
+        success = function(res) coprotect(coroutine.resume(co,res)) end,
+        error = function(res) coprotect(coroutine.resume(co,res)) end
       })
     return coroutine.yield()
   end
 
   local function returnHandler(tag,vals)
-    if dir[tag] then local co = dir[tag]; dir[tag]=nil; coroutine.resume(co,vals) end
+    if dir[tag] then local co = dir[tag]; dir[tag]=nil; coprotect(coroutine.resume(co,vals)) end
   end
 
   function fibaro.call(id,method,...)

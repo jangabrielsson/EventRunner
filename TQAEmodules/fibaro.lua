@@ -1,5 +1,12 @@
 -- Local module, loaded into each QA's environment
 fibaro = {}
+
+function string.split(str, sep)
+  local fields,s = {},sep or "%s"
+  str:gsub("([^"..s.."]+)", function(c) fields[#fields + 1] = c end)
+  return fields
+end
+
 function fibaro.alarm(arg1, action)
   if type(arg1) == "string" then fibaro.__houseAlarm(arg1)
   else

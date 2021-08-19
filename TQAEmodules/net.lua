@@ -18,6 +18,7 @@ function net.HTTPClient(i_options)
     elseif args.error then FB.setTimeout(function() args.error(status) end,math.random(0,2)) end
   end
   self._str = tostring(self):match("%s(.*)")
+  
   setmetatable(self,httpMeta)
   return self
 end
@@ -30,8 +31,9 @@ end
 
 local _fcont={['true']=true,['false']=false}
 local function _fconv(s) return _fcont[s]==nil and s or _fcont[s] end
+local function member(e,l) for i=1,#l do if e==l[i] then return i end end end
 local fFuns = {
-  interface=function(v,rsrc) return Util.member(v,rsrc.interfaces or {}) end,
+  interface=function(v,rsrc) return member(v,rsrc.interfaces or {}) end,
   property=function(v,rsrc) return rsrc.properties[v:match("%[(.-),")]==_fconv(v:match(",(.*)%]")) end
 }
 
@@ -41,8 +43,7 @@ local function filter(list,props)
   for _,rsrc in ipairs(list) do
     local flag = false
     for k,v in pairs(props) do
-      if fFuns[k] then flag = fFuns[k](v,rsrc)
-      else flag = rsrc[k]==v end
+      if fFuns[k] then flag = fFuns[k](v,rsrc) else flag = rsrc[k]==v end
       if not flag then break end 
     end
     if flag then res[#res+1]=rsrc end
@@ -54,7 +55,7 @@ local aHC3call
 local apiIntercepts = { -- Intercept some api calls to the api to include emulated QAs, could be deeper a tree...
   ["GET"] = {
     ["/devices$"] = function(_,_,_) return __fibaro_get_devices() end,
-    ["/devices%?(.*)"] = function(_,path,data,opts)
+    ["/devices%?(.*)"] = function(_,_,_,opts)
       local ds = __fibaro_get_devices() 
       opts = parseOptions(opts)
       return filter(ds,opts)

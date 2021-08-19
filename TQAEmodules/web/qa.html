@@ -1,36 +1,84 @@
 <html>
 <head>
 <h1>QuickApp {{{ local qa = EM.getQA(opts.id); out(qa.name)}}}</h1>
+<style>
+table, td, th {
+  border: 1px solid black;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+td {
+  height: 50px;
+  text-align: left;
+  vertical-align: top;
+}
+</style>
 </head>
 <body>
 {{{
+local qa = EM.getQA(opts.id)
+    out("<ul>")
+    out("<li>DeviceID: %s</li>",qa.id)
+    out("<li>Type: %s</li>",qa.type)
+    out("<li>BaseType: %s</li>",EM.Devices[qa.id].baseType or "no base type")
+    out("<li>Interfaces: %s</li>",FB.json.encode(qa.interfaces))
+    out("</ul>")
+}}}
+<table>
+<tr><th>View</th><th>Methods</th><th>Properties</th><th>QuickAppVariables</th></tr>
+<tr><td>
+{{{
     local qa = EM.getQA(opts.id)
-    if next(qa._view)==nil then return end
-    out("<h2>View</h2>")
     out("<ul>")
     for elm,e in pairs(qa._view) do
-      out("%s",elm)
+      out("<li>%s",elm)
       out("<ul>")
       for tp,v in pairs(e) do
         out("<li>%s = %s</li>",tp,v)
       end
-      out("</ul>")
+      out("</ul></li>")
     end
     out("</ul>")
 }}}
-<h2>Methods</h2>
-<ul>
+</td>
+<td>
 {{{ 
      local qa,fs = EM.getQA(opts.id),{}
      for k,v in pairs(qa) do
-       if type(v)=='function' then fs[#fs+1]=k end
+       if type(v)=='function' and k~="__copyObject" then fs[#fs+1]={k,v} end
      end
-     table.sort(fs)
-     for _,n in ipairs(fs) do out("<li>self:%s</li>",n) end
+     table.sort(fs,function(a,b) return a[1] < b[1] end)
+     local function single(f,n) 
+         local v1,inf = debug.getlocal(f,1),debug.getinfo(f)
+         local np = inf.nparams + (inf.isvararg and 1 or 0)
+         print(n,v1,np)
+         return (np==1 and v1=='self') or np==0
+     end
+     for _,n in ipairs(fs) do
+       if single(n[2],n[1]) then
+        out('<li><a href="')
+        html.call(out,qa.id,n[1])
+        out('">self:%s</a></li>',n[1]) 
+       else
+         out("<li>self:%s</li>",n[1])
+       end
+     end
 }}}
-</ul>
-<h2>QuickAppVariables</h2>
-<ul>
+</td>
+<td>
+{{{ 
+     local qa,fs = EM.getQA(opts.id),{}
+     local excludes={quickAppVariables=true,viewLayout=true}
+     for k,v in pairs(qa.properties) do if not excludes[k] then fs[#fs+1]={k,v} end end
+     table.sort(fs,function(a,b) return a[1] < b[1] end)
+     for _,n in ipairs(fs) do out("<li>%s = %s</li>",n[1],FB.json.encode(n[2])) end
+}}}
+</td>
+<td>
 {{{ 
      local qa,vars = EM.getQA(opts.id),{}
      for _,v in ipairs(qa.properties.quickAppVariables or {}) do vars[#vars+1]=v end
@@ -39,6 +87,9 @@
        out("<li>%s = %s</li>",v.name,v.value)
      end
 }}}
-</ul>
+</td>
+</tr>
+</table>
+{{{ html.home(out) }}}
 </body>
 </html>
