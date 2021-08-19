@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix77"
+E_VERSION,E_FIX = 0.5,"fix78"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -1770,7 +1770,7 @@ function Module.eventScript.init()
       setFuns.scheduleState={set,'setScheduleState'}
       setFuns.color={set2,'setColor'}
       setFuns.volume={set,'setVolume'}
-      setFuns.volume={set,'setMute'}
+      setFuns.mute={set,'setMute'}
       setFuns.thermostatSetpoint={set2,'setThermostatSetpoint'}
       setFuns.thermostatMode={set,'setThermostatMode'}
       setFuns.heatingThermostatSetpoint={set,'setHeatingThermostatSetpoint'}
