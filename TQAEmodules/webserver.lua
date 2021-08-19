@@ -134,6 +134,7 @@ end
 function htmlfuns.home(out)
   out('<a href="http://%s:%s/web/main">Main</a>',IPAddress,port)
 end
+function htmlfuns.milliStr(t) return os.date("%H:%M:%S",math.floor(t))..string.format(":%03d",math.floor((t%1)*1000+0.5)) end
 
 local startTag,endTag = "{{{","(.*)}}}(.*)"
 local function compilePage(html,fname)

@@ -3,16 +3,17 @@
 <h1>Timers</h1>
 </head>
 <body>
-<ul>
+{{{ out("Current time:%s",html.milliStr(EM.clock())) }}}
+<table>
 {{{
   local p = EM.timers.get()
   while p do
-    out("<li>%s %s %s %s</li>",p,os.date("%c",math.floor(p.t)),p.qa and p.qa.QA.id or 0,p.tag or "<notag>")
+    out("<tr><td>%s</td><td>Expires:%s</td><td>ID:%s</td><td>Tag:%s</td></tr>",
+        p,html.milliStr(p.t),p.qa and p.qa.QA.id or 0,p.tag or "<notag>")
     p=p.next
   end
 }}}
-
-</ul>
+</table>
 {{{ html.home(out) }}}
 </body>
 </html>

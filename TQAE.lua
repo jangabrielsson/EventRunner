@@ -247,7 +247,7 @@ end
 
 ------------------------ Emulator core ----------------------------------------------------------
 local function emulator()
-
+  EM.clock = socket.gettime
   local procs,CO,clock,gID = {},coroutine,socket.gettime,1001
   local function copy(t) local r={} for k,v in pairs(t) do r[k]=v end return r end
   local function merge(dest,src) for k,v in ipairs(src) do dest[k]=v end end
