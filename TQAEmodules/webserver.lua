@@ -94,17 +94,38 @@ local GUI_HANDLERS = {
       id = tonumber(id) ---id,name,path,data)
       local stat,err=pcall(FB.__fibaro_call,id,action,"",{args=args})
       if not stat then LOG("Bad callAction:%s",err) end --\nLocation: "..(headers['referer'] or "/web/main").."\n")
-     -- client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\nLocation: "..ref.."\n\n")
+      -- client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\nLocation: "..ref.."\n\n")
+      client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
+      return true
+    end,
+    ["/TQAE/method%?(.*)"] = function(client,ref,body,args)
+      args = args:split("&")
+      local keys = {}
+      for _,a in ipairs(args) do k,v = a:match("(.-)=(.*)") keys[k]=FB.urldecode(v) end
+      local arg = keys.Args
+      local stat,res = pcall(function()
+          arg = json.decode("["..arg.."]")
+          local QA = EM.getQA(tonumber(keys.qaID))
+          local res = {QA[keys.method](QA,table.unpack(arg))}
+          LOG("Web call: QA(%s):%s%s = %s",keys.qaID,keys.method,json.encode(arg),json.encode(res))
+        end)
+      if not stat then 
+        LOG("Error: Web call: QA(%s):%s%s - %s",keys.qaID,keys.method,json.encode(arg),res)
+      end
+      client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
+      return true
+    end,
+    ["/TQAE/lua%?(.*)"] = function(client,ref,body,code)
+      EM.QAs[99].env.plugin.restart()
+      code = load(code,nil,"t",{EM=EM,FB=FB})
+      code()
       client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
       return true
     end,
   },
   ["POST"] = {
-    ["/fibaroapiHC3/event"] = function(client,ref,body,id,action,args)
-      --- ToDo
-    end,
-    ["/fibaroapiHC3/action/(.+)$"] = function(client,ref,body,id) onAction(json.decode(body)) end,
-    ["/fibaroapiHC3/ui/(.+)$"] = function(client,ref,body,id) onUIEvent(json.decode(body)) end,
+    ["/TQAE/action/(.+)$"] = function(client,ref,body,id) onAction(json.decode(body)) end,
+    ["/TQAE/ui/(.+)$"] = function(client,ref,body,id) onUIEvent(json.decode(body)) end,
   }
 }
 

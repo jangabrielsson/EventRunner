@@ -98,8 +98,8 @@ local ltn12  = require("ltn12")
 -- EM.x internal emulator functions, HTTP, LOG etc. Plugins can add to this...
 
 local FB,QAs,Devices = {},{},{}  -- id->QA map, id->Device map
-local fmt,LOG,call,loadModules,timers,setTimeout,getContext,setContext,xpresume = string.format 
-EM._info = { started=os.time(), modules = { ["local"] = {}, global= {} } }
+local fmt,LOG,call,loadModules,timers,setTimeout,getContext,setContext,xpresume = string.format
+EM._info = { modules = { ["local"] = {}, global= {} } }
 local verbose = EM.verbose
 
 ------------------------ Builtin functions ------------------------------------------------------
@@ -172,7 +172,7 @@ local function builtins()
   function FB.__fibaro_add_debug_message(tag,str,type)
     assert(str,"Missing tag for debug")
     str=str:gsub("(</?font.->)","") str=str:gsub("(&nbsp;)"," ") -- Remove HTML tags
-    print(fmt("%s [%s] [%s]: %s",os.date("[%d.%m.%Y] [%H:%M:%S]"),type,tag,str))
+    print(fmt("%s [%s] [%s]: %s",EM.osDate("[%d.%m.%Y] [%H:%M:%S]"),type,tag,str))
   end
   function FB.urldecode(str) return str:gsub('%%(%x%x)',function (x) return string.char(tonumber(x,16)) end) end
 
@@ -191,10 +191,27 @@ local function builtins()
     if not stat then error("Loading module "..res) end
   end
 
+  local offset=0
+  function EM.setDate(str)
+    local function tn(str,v) return tonumber(str) or v end
+    local d,hour,min,sec = str:match("(.-)%-?(%d+):(%d+):?(%d*)")
+    local month,day,year=d:match("(%d*)/?(%d*)/?(%d*)")
+    local t = os.date("*t")
+    t.year,t.month,t.day=tn(year,t.year),tn(month,t.month),tn(day,t.day)
+    t.hour,t.min,t.sec=tn(hour,t.hour),tn(min,t.min),tn(sec,0)
+    local t1 = os.time(t)
+    local t2 = os.date("*t",t1)
+    if t.isdst ~= t2.isdst then t.isdst = t2.isdst t1 = os.time(t) end
+    offset = t1-os.time()
+  end
+  function EM.clock() return socket.gettime()+offset end
+  function EM.osTime(a) return a and os.time(a) or os.time()+offset end
+  function EM.osDate(a,b) return os.date(a,b or EM.osTime()) end
+  
   local EMEvents = {}
   function EM.EMEvents(callback) EMEvents[#EMEvents+1]=callback end
   function EM.postEMEvent(ev) for _,m in ipairs(EMEvents) do m(ev) end end
-  function LOG(...) print(fmt("%s |SYS  |: %s",os.date("[%d.%m.%Y] [%H:%M:%S]"),fmt(...))) end
+  function LOG(...) print(fmt("%s |SYS  |: %s",EM.osDate("[%d.%m.%Y] [%H:%M:%S]"),fmt(...))) end
   EM.LOG,EM.httpRequest,EM.HC3Request = LOG,httpRequest,HC3Request
   EM.Devices,EM.QAs=Devices,QAs
   FB.__assert_type = __assert_type
@@ -207,7 +224,7 @@ local function timerQueue() -- A sorted timer queue...
 
   function tq.queue(t,tag,co,qa)    -- Insert timer
     tag = tag or "user"; pcounter[tag] = (pcounter[tag] or 0)+1
-    local v={t=t+os.time(),co=co,qa=qa,descr=tostring(co),tag=tag} setmetatable(v,tmt) 
+    local v={t=t+EM.osTime(),co=co,qa=qa,descr=tostring(co),tag=tag} setmetatable(v,tmt) 
     if ptr == nil then ptr = v
     elseif v.t < ptr.t then v.next=ptr; ptr.prev = v; ptr = v
     else
@@ -222,7 +239,7 @@ local function timerQueue() -- A sorted timer queue...
   function tq.dequeue(v) -- remove a timer
     local n = v.next
     pcounter[v.tag]=pcounter[v.tag]-1
-    if v==ptr then ptr = v.next else v.prev.next,v.next.prev = v.next,v.prev end
+    if v==ptr then ptr = v.next else v.prev.next = v.next if v.next then v.next.prev=v.prev end end
     v.next,v.prev=nil,nil
     return n
   end
@@ -247,8 +264,7 @@ end
 
 ------------------------ Emulator core ----------------------------------------------------------
 local function emulator()
-  EM.clock = socket.gettime
-  local procs,CO,clock,gID = {},coroutine,socket.gettime,1001
+  local procs,CO,clock,gID = {},coroutine,EM.clock,1001
   local function copy(t) local r={} for k,v in pairs(t) do r[k]=v end return r end
   local function merge(dest,src) for k,v in ipairs(src) do dest[k]=v end end
   function setContext(co,qa) procs[co]= qa or procs[coroutine.running()]; return co,procs[co] end
@@ -320,7 +336,8 @@ local function emulator()
 
   function runQA(dev)      -- Creates an environment and load file modules and starts QuickApp (:onInit())
     local env = {          -- QA environment, all Lua functions available for  QA, 
-      plugin={ mainDeviceId = dev.id }, os=copy(os), 
+      plugin={ mainDeviceId = dev.id }, 
+      os={time=EM.osTime, date=EM.osDate, exit=function() LOG("exit(0)") timers.reset() coroutine.yield() end},
       hc3_emulator={getmetatable=getmetatable,setmetatable=setmetatable,installQA=installQA},
       coroutine=CO,table=table,select=select,pcall=pcall,xpcall=xpcall,print=print,string=string,error=error,
       pairs=pairs,ipairs=ipairs,tostring=tostring,tonumber=tonumber,math=math,assert=assert,_VERBOSE=verbose
@@ -329,8 +346,7 @@ local function emulator()
     for s,v in pairs(FB) do env[s]=v end                        -- Copy local exports to QA environment
     for s,v in pairs(QAs[dev.id].extras or {}) do env[s]=v end  -- Copy user provided environment symbols
     loadModules(localModules or {},env)                         -- Load default QA specfic modules into environment
-    loadModules(EM.localModules or {},env)                      -- Load optional user specified module into environment
-    env.os.exit=function() LOG("exit(0)") timers.reset() coroutine.yield() end        
+    loadModules(EM.localModules or {},env)                      -- Load optional user specified module into environment     
     local self=env.QuickApp
     qa.QA,qa.env=self,env
     LOG("Loading  QA:%s - ID:%s",dev.name,dev.id)
@@ -380,6 +396,8 @@ loadModules(EM.globalModules or {})    -- Load optional user specified module in
 local run = emulator()                 -- Setup emulator core - returns run function
 
 print(fmt("---------------- Tiny QuickAppEmulator (TQAE) v%s -------------",version)) -- Get going...
+if EM.startTime then EM.setDate(EM.startTime) end
+EM._info.started = EM.osTime()
 EM.postEMEvent{type='start'}
 
 if embedded then                   -- Embedded call...
@@ -389,5 +407,5 @@ if embedded then                   -- Embedded call...
     run({file=file.source:sub(2)}) -- Run that file
   end
 else main(run) end                 -- Else call our playground...
-LOG("End - runtime %.2f min",(os.time()-EM._info.started)/60)
+LOG("End - runtime %.2f min",(EM.osTime()-EM._info.started)/60)
 os.exit()

@@ -1,6 +1,12 @@
 -- Local module, loaded into each QA's environment
 __TAG="QUICKAPP"..plugin.mainDeviceId
 
+function plugin.deleteDevice(deviceId) return api.delete("/devices/"..deviceId) end
+function plugin.restart(deviceId) return api.post("/plugins/restart",{deviceId=deviceId or quickApp.id}) end
+function plugin.getProperty(id,prop) return api.get("/devices/"..id.."/property/"..prop) end
+function plugin.getChildDevices(id) return api.get("/devices?parentId="..(id or quickApp.id)) end
+function plugin.createChildDevice(props) return api.post("/plugins/createChildDevice",props) end
+
 class 'QuickAppBase'
 
 function QuickAppBase:__init(dev)
