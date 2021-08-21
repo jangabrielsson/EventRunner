@@ -25,7 +25,7 @@ function QuickAppBase:warning(...) fibaro.warning(__TAG,...) end
 function QuickAppBase:trace(...)   fibaro.trace(__TAG,...) end
 
 function QuickAppBase:callAction(name,...)
-  __assert_type(self[name],'function')
+  assert(self[name],"callAction: No such method "..tostring(name))
   self[name](self,...) 
 end
 

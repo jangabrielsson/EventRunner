@@ -38,7 +38,7 @@ EM.verbose       = DEF(EM.verbose,false)
 EM.modPath       = DEF(EM.modpath,"TQAEmodules/")   -- directory where TQAE modules are stored
 EM.temp          = DEF(EM.temp,os.getenv("TMPDIR") or os.getenv("TEMP") or os.getenv("TMP") or "temp/") -- temp directory
 
-local globalModules = { "net.lua","json.lua","files.lua", "webserver.lua" } -- default global modules loaded into emulator environment
+local globalModules = { "net.lua","json.lua","files.lua", "webserver.lua", "proxy.lua" } -- default global modules loaded into emulator environment
 local localModules  = { "class.lua", "fibaro.lua", "QuickApp.lua" } -- default local modules loaded into QA environment
 
 local function main(run) -- playground
@@ -167,14 +167,15 @@ local function builtins()
     local args = data.args or {}
     return Devices[id] and call(id,name,table.unpack(args)) or HC3Request("POST",path,data)
   end
-  function FB.__fibaro_local(bool) EM.locl = bool end
+  function FB.__fibaro_local(bool) local l = EM.locl==true; EM.locl = bool; return l end
 
   function FB.__fibaro_add_debug_message(tag,str,type)
     assert(str,"Missing tag for debug")
     str=str:gsub("(</?font.->)","") str=str:gsub("(&nbsp;)"," ") -- Remove HTML tags
     print(fmt("%s [%s] [%s]: %s",EM.osDate("[%d.%m.%Y] [%H:%M:%S]"),type,tag,str))
   end
-  function FB.urldecode(str) return str:gsub('%%(%x%x)',function (x) return string.char(tonumber(x,16)) end) end
+  function FB.urldecode(str) return str and str:gsub('%%(%x%x)',function (x) return string.char(tonumber(x,16)) end) end
+  function FB.urlencode(str) return str and str:gsub("([^% w])",function(c) return string.format("%%% 02X",string.byte(c))  end) end
 
   function loadModules(ms,env,args)
     ms = type(ms)=='table' and ms or {ms}
@@ -330,7 +331,8 @@ local function emulator()
     local files,info = EM.loadFile(code,file)
     local dev = EM.createDevice(id or info.id,name or info.name,typ or info.type,info.properties,info.interfaces)
     for k,v in pairs(info.quickVars or {}) do table.insert(dev.properties.quickAppVariables,{name=k,value=v}) end
-    QAs[dev.id]={files=files,save=qa.save or info.save, extras=e, restart=restartQA, noterminate=info.noterminate }
+    QAs[dev.id]={files=files,save=qa.save or info.save, extras=e, restart=restartQA, noterminate=info.noterminate, info=info }
+    EM.postEMEvent({type='deviceCreated',dev=Devices[dev.id]})
     return dev
   end
 
@@ -383,7 +385,8 @@ local function emulator()
     if timers.tags('user') > 0 then LOG("All threads locked - terminating") 
     else LOG("No threads left - terminating") end
     for _,qa in pairs(QAs) do if qa.save then EM.saveFQA(qa) end end
-    QAs = {}                         -- Clear directory of QAs
+    for k,_ in pairs(Devices) do Devices[k]=nil end -- Clear directory of Devices and QAs
+    for k,_ in pairs(QAs) do QAs[k]=nil end -- Clear directory of Devices and QAs                     
   end
   return run
 

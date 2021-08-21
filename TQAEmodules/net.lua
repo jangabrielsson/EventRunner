@@ -25,7 +25,7 @@ end
 
 local function parseOptions(str)
   local res = {}
-  str:gsub("([^&]-)=([^&]+)",function(k,v) res[k]=tonumber(v) or (v=='true' and true) or (v=='false' and false) or v end)
+  str:gsub("([^&]-)=([^&]+)",function(k,v) res[k]=tonumber(v) or (v=='true' and true) or (v=='false' and false) or FB.urldecode(v) end)
   return res
 end
 

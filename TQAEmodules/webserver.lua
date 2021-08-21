@@ -116,7 +116,6 @@ local GUI_HANDLERS = {
       return true
     end,
     ["/TQAE/lua%?(.*)"] = function(client,ref,body,code)
-      EM.QAs[99].env.plugin.restart()
       code = load(code,nil,"t",{EM=EM,FB=FB})
       code()
       client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
@@ -124,8 +123,16 @@ local GUI_HANDLERS = {
     end,
   },
   ["POST"] = {
-    ["/TQAE/action/(.+)$"] = function(client,ref,body,id) onAction(json.decode(body)) end,
-    ["/TQAE/ui/(.+)$"] = function(client,ref,body,id) onUIEvent(json.decode(body)) end,
+    ["/TQAE/action/(.+)$"] = function(client,ref,body,id) 
+      local QAs = EM.QAs[tonumber(id)]
+      local QA  = EM.getQA(tonumber(id))
+      QAs.env.onAction(QA,json.decode(body)) 
+    end,
+    ["/TQAE/ui/(.+)$"] = function(client,ref,body,id) 
+      local QAs = EM.QAs[tonumber(id)]
+      local QA  = EM.getQA(tonumber(id))
+      QAs.env.onUIEvent(QA,json.decode(body)) 
+    end,
   }
 }
 
@@ -261,4 +268,4 @@ EM.EMEvents(function(e)
     end
   end)
 
-EM.createWebServer,EM.IPAddress = createServer,IPAddress
+EM.createWebServer,EM.IPAddress,EM.PORT = createServer,IPAddress,port
