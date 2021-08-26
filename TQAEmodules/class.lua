@@ -31,7 +31,7 @@ function class(name)    -- Version that tries to avoid __index & __newindex to m
     return obj
   end
   function mt.__call(tab,...)        -- Instantiation  <name>(...)
-    local obj = tab.__copyObject(tab,{})
+    local obj = tab.__copyObject(tab,tab.__obj or {}) tab.__obj = nil
     if not tab.__init then error("Class "..name.." missing initialiser") end
     tab.__init(obj,...)
     local trapF = false

@@ -49,6 +49,14 @@ local function createTemp(name,content) -- Storing code fragments on disk will h
   return fname
 end
 
+local function mergeUI(info)
+  local ui,res = {},{}
+  for k,v in pairs(info) do if k:match("u%d+$") then ui[#ui+1]={k,v} end end
+  table.sort(ui,function(a,b) return a[1] < b[1] end)
+  for _,u in ipairs(ui) do res[#res+1]=u[2] info[u[1]]=nil end
+  info.UI = res
+end
+
 local function loadSource(code,fileName) -- Load code and resolve info and --FILE directives
   local files = {}
   local function gf(pattern)
@@ -72,6 +80,7 @@ local function loadSource(code,fileName) -- Load code and resolve info and --FIL
     info,res = icode()
     if res then error(res) end
   end
+  mergeUI(info)
   return files,(info or {})
 end
 

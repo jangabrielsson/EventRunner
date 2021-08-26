@@ -121,6 +121,27 @@ local GUI_HANDLERS = {
       client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
       return true
     end,
+    ["/TQAE/slider/(%d+)/(.-)/(.*)"] = function(client,ref,body,id,slider,val)
+      id = tonumber(id)
+      local stat,err = pcall(function()
+          local qa = EM.QAs[id]
+          qa.QA:updateView(slider,"value",tostring(val))
+          qa.env.onUIEvent(qa.QA,{deviceId=id,elementName=slider,eventType="onChanged",values={tonumber(val)}})
+        end)
+      if not stat then LOG("ERROR %s",err) end
+      client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
+      return true
+    end,   
+    ["/TQAE/ui/button/(%d+)/(.*)"] = function(client,ref,body,id,btn)
+      id = tonumber(id)
+      local stat,err = pcall(function()
+          local qa = EM.QAs[id]
+          qa.env.onAction(qa.QA,{deviceId=id,actionName=btn,args={}})
+        end)
+      if not stat then LOG("ERROR %s",err) end
+      client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
+      return true
+    end,
   },
   ["POST"] = {
     ["/TQAE/action/(.+)$"] = function(client,ref,body,id) 
@@ -261,11 +282,9 @@ local function addPath(path,dir)
   end
 end
 
-EM.EMEvents(function(e) 
-    if e.type == 'start' then 
-      createServer(name,port,{ ['GET'] = GUIhandler,['POST'] = GUIhandler, ['PUT'] = GUIhandler,})
-      addPath("/web",ARGS.web or EM.modPath.."web/")
-    end
+EM.EMEvents('start',function(e) 
+    createServer(name,port,{ ['GET'] = GUIhandler,['POST'] = GUIhandler, ['PUT'] = GUIhandler,})
+    addPath("/web",ARGS.web or EM.modPath.."web/")
   end)
 
 EM.createWebServer,EM.IPAddress,EM.PORT = createServer,IPAddress,port

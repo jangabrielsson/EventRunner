@@ -33,21 +33,18 @@ local qa = EM.getQA(opts.id)
 }}}
 <button onclick="window.location.href='/TQAE/lua?{{{out("EM.QAs[%s].env.plugin.restart()",opts.id)}}}'">Restart</button>
 <button onclick="window.location.href='/TQAE/lua?{{{out("EM.saveFQA(EM.QAs[%s])",opts.id)}}}'">Save</button>
+<button onclick="window.location.href='/web/ui?id={{{out("%s",opts.id)}}}'">UI</button>
 <table>
 <tr><th>View</th><th>Methods</th><th>Properties</th><th>QuickAppVariables</th></tr>
 <tr><td>
 {{{
     local qa = EM.getQA(opts.id)
-    out("<ul>")
     for elm,e in pairs(qa._view) do
-      out("<li>%s",elm)
-      out("<ul>")
+      out("%s</br>",elm)
       for tp,v in pairs(e) do
-        out("<li>%s = %s</li>",tp,v)
+        out("- %s = %s</br>",tp,v)
       end
-      out("</ul></li>")
     end
-    out("</ul>")
 }}}
 </td>
 <td>
@@ -72,7 +69,7 @@ local qa = EM.getQA(opts.id)
      local excludes={quickAppVariables=true,viewLayout=true}
      for k,v in pairs(qa.properties) do if not excludes[k] then fs[#fs+1]={k,v} end end
      table.sort(fs,function(a,b) return a[1] < b[1] end)
-     for _,n in ipairs(fs) do out("<li>%s = %s</li>",n[1],FB.json.encode(n[2])) end
+     for _,n in ipairs(fs) do out("%s = %s</br>",n[1],FB.json.encode(n[2])) end
 }}}
 </td>
 <td>
@@ -81,7 +78,7 @@ local qa = EM.getQA(opts.id)
      for _,v in ipairs(qa.properties.quickAppVariables or {}) do vars[#vars+1]=v end
      table.sort(vars,function(a,b) return a.name < b.name end)
      for _,v in ipairs(vars) do 
-       out("<li>%s = %s</li>",v.name,v.value)
+       out("%s = %s</br>",v.name,v.value)
      end
 }}}
 </td>

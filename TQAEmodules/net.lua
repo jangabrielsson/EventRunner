@@ -18,7 +18,7 @@ function net.HTTPClient(i_options)
     elseif args.error then FB.setTimeout(function() args.error(status) end,math.random(0,2)) end
   end
   self._str = tostring(self):match("%s(.*)")
-  
+
   setmetatable(self,httpMeta)
   return self
 end
@@ -128,5 +128,63 @@ function api.get(cmd) return aHC3call("GET",cmd) end
 function api.post(cmd,data) return aHC3call("POST",cmd,data) end
 function api.put(cmd,data) return aHC3call("PUT",cmd,data) end
 function api.delete(cmd) return aHC3call("DELETE",cmd) end
+
+function net.TCPSocket(opts) 
+  local self = { opts = opts or {} }
+  local sock = socket.tcp()
+  function self:connect(ip, port, opts) 
+    for k,v in pairs(self.opts) do opts[k]=v end
+    local sock, err = sock:connect(ip,port)
+    if err==nil and opts.success then opts.success()
+    elseif opts.error then opts.error(err) end
+  end
+  function self:read(opts) 
+    local data,err = sock:receive() 
+    if data and opts.success then opts.success(data)
+    elseif data==nil and opts.error then opts.error(err) end
+  end
+  function self:readUntil(delimiter, callbacks) end
+  function self:write(data, opts) 
+    local res,err = sock:send(data)
+    if res and opts.success then opts.success(res)
+    elseif res==nil and opts.error then opts.error(err) end
+  end
+  function self:close() sock:close() end
+  local pstr = "TCPSocket object: "..tostring(self):match("%s(.*)")
+  setmetatable(self,{__tostring = function(s) return pstr end})
+  return self
+end
+
+function net.UDPSocket(opts) 
+  local self = { opts = opts or {} }
+  local sock = socket.udp()
+  if self.opts.broadcast~=nil then 
+    sock:setsockname(Util.getIPaddress(), 0)
+    sock:setoption("broadcast", self.opts.broadcast) 
+  end
+  if opts.timeout~=nil then sock:settimeout(opts.timeout / 1000) end
+
+  function self:sendTo(datagram, ip,port, callbacks)
+    local stat, res = sock:sendto(datagram, ip, port)
+    if stat and callbacks.success then 
+      pcall(function() callbacks.success(1) end)
+    elseif stat==nil and callbacks.error then
+      pcall(function() callbacks.error(res) end)
+    end
+  end 
+  function self:bind(ip,port) sock:setsockname(ip,port) end
+  function self:receive(callbacks) 
+    local stat, res = sock:receivefrom()
+    if stat and callbacks.success then 
+      pcall(function() callbacks.success(stat, res) end)
+    elseif stat==nil and callbacks.error then
+      pcall(function() callbacks.error(res) end)
+    end
+  end
+  function self:close() sock:close() end
+  local pstr = "UDPSocket object: "..tostring(self):match("%s(.*)")
+  setmetatable(self,{__tostring = function(s) return pstr end})
+  return self
+end
 
 FB.net,FB.api = net, api

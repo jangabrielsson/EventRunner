@@ -16,7 +16,12 @@ function QuickAppBase:__init(dev)
   self.enabled    = true
   self.properties = dev.properties
   self.interfaces = dev.interfaces
-  self._view = {} -- TBD
+  self._view      = {} -- TBD
+  self.uiCallbacks = {}
+  for _,e in ipairs(dev.uiCallbacks or {}) do
+    self.uiCallbacks[e.name] = self.uiCallbacks[e.name] or {} 
+    self.uiCallbacks[e.name][e.eventType]=e.callback
+  end
 end
 
 function QuickAppBase:debug(...)   fibaro.debug(__TAG,...) end
@@ -54,7 +59,7 @@ end
 function QuickAppBase:updateView(elm,typ,val)
   __assert_type(elm,'string')
   __assert_type(typ,'string')
-  self:debug("View:",elm,typ,val)
+  self:debug("updateView:",elm,typ,val)
   self._view[elm]=self._view[elm] or {} self._view[elm][typ]=val 
 end
 
@@ -113,14 +118,25 @@ function QuickAppChild:__init(device)
   if self.onInit then self:onInit() end
 end
 
-function onAction(self,event)
+function onAction(id,event)
   if _VERBOSE then print("onAction: ", json.encode(event)) end
-  if self.actionHandler then self:actionHandler(event)
+  if quickApp.actionHandler then self:actionHandler(event)
   else 
-    if event.deviceId == self.id then
-      self:callAction(event.actionName, table.unpack(event.args)) 
-    elseif self.childDevices[event.deviceId] then
-      self.childDevices[event.deviceId]:callAction(event.actionName, table.unpack(event.args)) 
+    if event.deviceId == quickApp.id then
+      return quickApp:callAction(event.actionName, table.unpack(event.args)) 
+    elseif quickApp.childDevices[event.deviceId] then
+      return quickApp.childDevices[event.deviceId]:callAction(event.actionName, table.unpack(event.args)) 
     end
+    quickApp:warning(format("Child with id:%s not found",id))
   end
+end
+
+function onUIEvent(id, event)
+  if _VERBOSE then print("UIEvent: ", json.encode(UIEvent)) end
+  if quickApp.UIHandler then quickApp:UIHandler(UIEvent) return end
+  if quickApp.uiCallbacks[event.elementName] and quickApp.uiCallbacks[event.elementName][event.eventType] then 
+    quickApp:callAction(quickApp.uiCallbacks[event.elementName][event.eventType], event)
+  else
+    quickApp:warning(format("UI callback for element:%s not found.", event.elementName))
+  end 
 end

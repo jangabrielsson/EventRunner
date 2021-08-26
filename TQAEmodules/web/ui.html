@@ -1,0 +1,76 @@
+<html>
+<head>
+<h1>QuickApp {{{ local qa = EM.getQA(opts.id); out(qa.name)}}} UI</h1>
+<style>
+td, th {
+  padding: 2px;
+  height: 40px;
+}
+table {
+  border-collapse: collapse;
+}
+.myButton {
+	box-shadow: 0px 1px 0px 0px #ffffff;
+	background:linear-gradient(to bottom, #e6e6e6 5%, #f6f6f6 100%);
+	background-color:#e6e6e6;
+	border-radius:6px;
+	border:1px solid #dcdcdc;
+	display:inline-block;
+	cursor:pointer;
+	color:#666666;
+	font-family:Arial;
+	font-size:15px;
+  height: 100%;
+  width: 100%;
+	text-decoration:none;
+	text-shadow:0px 1px 0px #ffffff;
+}
+.myButton:hover {
+	background:linear-gradient(to bottom, #f6f6f6 5%, #e6e6e6 100%);
+	background-color:#f6f6f6;
+}
+.myButton:active {
+	position:relative;
+	top:1px;
+}
+</style>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+<script>
+ function myFunction(id) { document.getElementById(id).submit(); }
+ function QAslider(id,val) {
+  $.get('http://{{{out("%s:%s/TQAE/slider/%s/",EM.IPAddress,EM.PORT,opts.id)}}}'+id+'/'+val)
+ }
+</script>
+</head>
+<body>
+<table style="width:500px;">
+{{{
+  local UI = EM.QAs[tonumber(opts.id)].info.UI or {}
+  local view = EM.QAs[tonumber(opts.id)].QA._view or {}
+  local render = {
+     ['button'] = function(out,c)
+        out('<button class="myButton" onclick="window.location.href=\'/TQAE/ui/button/%s/%s\'">%s</button>',opts.id,c.name,view[c.name]['text'])
+     end,
+     ['slider'] = function(out,c)
+        out([[<input style="width:100%%" type="range" onmouseup="QAslider('%s',value);" class="form-control-range" max="99" min="0" value="%s">]],
+        c.name,view[c.name]['value'] or 0)
+     end,
+     ['label'] = function(out,c)
+        out('<label style="width:100%%">%s</label>',view[c.name]['text'])
+     end,
+  }
+  for i,rows in ipairs(UI) do
+    out('<tr><td><table style="width:100%;"><tr>')
+    local cols = rows[1] and rows or {rows}
+    for j,col in ipairs(cols) do
+      out('<td>')
+      render[col.type](out,col)
+      out("</td>")
+    end
+    out("</tr></table></td></tr>")
+  end
+}}}
+</table>
+{{{ html.home(out) }}}
+</body>
+</html>

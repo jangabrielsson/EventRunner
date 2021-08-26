@@ -38,7 +38,9 @@ EM.verbose       = DEF(EM.verbose,false)
 EM.modPath       = DEF(EM.modpath,"TQAEmodules/")   -- directory where TQAE modules are stored
 EM.temp          = DEF(EM.temp,os.getenv("TMPDIR") or os.getenv("TEMP") or os.getenv("TMP") or "temp/") -- temp directory
 
-local globalModules = { "net.lua","json.lua","files.lua", "webserver.lua", "proxy.lua" } -- default global modules loaded into emulator environment
+local globalModules = { -- default global modules loaded into emulator environment
+  "net.lua","json.lua","files.lua", "webserver.lua", "proxy.lua", "ui.lua" 
+} 
 local localModules  = { "class.lua", "fibaro.lua", "QuickApp.lua" } -- default local modules loaded into QA environment
 
 local function main(run) -- playground
@@ -86,7 +88,7 @@ do
   local stat,mobdebug = pcall(require,'mobdebug'); -- If we have mobdebug, enable coroutine debugging
   if stat then mobdebug.coro() end
 end
-local version = "0.10"
+local version = "0.11"
 
 local socket = require("socket")
 local http   = require("socket.http")
@@ -208,10 +210,14 @@ local function builtins()
   function EM.clock() return socket.gettime()+offset end
   function EM.osTime(a) return a and os.time(a) or os.time()+offset end
   function EM.osDate(a,b) return os.date(a,b or EM.osTime()) end
-  
+
   local EMEvents = {}
-  function EM.EMEvents(callback) EMEvents[#EMEvents+1]=callback end
-  function EM.postEMEvent(ev) for _,m in ipairs(EMEvents) do m(ev) end end
+  function EM.EMEvents(typ,callback,front)
+    local evs = EMEvents[typ] or {}
+    if front then table.insert(evs,1,callback) else evs[#evs+1]=callback end 
+    EMEvents[typ] = evs
+  end
+  function EM.postEMEvent(ev) for _,m in ipairs(EMEvents[ev.type] or {}) do m(ev) end end
   function LOG(...) print(fmt("%s |SYS  |: %s",EM.osDate("[%d.%m.%Y] [%H:%M:%S]"),fmt(...))) end
   EM.LOG,EM.httpRequest,EM.HC3Request = LOG,httpRequest,HC3Request
   EM.Devices,EM.QAs=Devices,QAs
@@ -349,8 +355,9 @@ local function emulator()
     for s,v in pairs(QAs[dev.id].extras or {}) do env[s]=v end  -- Copy user provided environment symbols
     loadModules(localModules or {},env)                         -- Load default QA specfic modules into environment
     loadModules(EM.localModules or {},env)                      -- Load optional user specified module into environment     
-    local self=env.QuickApp
-    qa.QA,qa.env=self,env
+    local self={}
+    qa.QA,qa.env,env.QuickApp.__obj=self,env,self               -- This is ugly but we need the object before we create it
+    qa.env=env
     LOG("Loading  QA:%s - ID:%s",dev.name,dev.id)
     local k = coroutine.create(function()
         for _,f in ipairs(qa.files) do                                     -- for every file we got, load it..
@@ -361,7 +368,8 @@ local function emulator()
       end)
     procs[k]=QAs[dev.id] coroutine.resume(k) procs[k]=nil
     LOG("Starting QA:%s - ID:%s",dev.name,dev.id)
-    runProc(QAs[dev.id],function() env.QuickApp:__init(dev) end)  -- Start QA by "creating instance"
+    -- Start QA by "creating instance"
+    runProc(QAs[dev.id],function() env.QuickApp(dev) EM.postEMEvent({type='QACreated',qa=env.quickApp}) end)  
     if QAs[dev.id].noterminate then runProc(QAs[dev.id],function() env.setInterval(function() end,5000) end) end -- keep alive...
   end
 
