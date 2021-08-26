@@ -120,20 +120,18 @@ end
 
 function onAction(id,event)
   if _VERBOSE then print("onAction: ", json.encode(event)) end
-  if quickApp.actionHandler then self:actionHandler(event)
-  else 
-    if event.deviceId == quickApp.id then
-      return quickApp:callAction(event.actionName, table.unpack(event.args)) 
-    elseif quickApp.childDevices[event.deviceId] then
-      return quickApp.childDevices[event.deviceId]:callAction(event.actionName, table.unpack(event.args)) 
-    end
-    quickApp:warning(format("Child with id:%s not found",id))
+  if quickApp.actionHandler then return self:actionHandler(event) end
+  if event.deviceId == quickApp.id then
+    return quickApp:callAction(event.actionName, table.unpack(event.args)) 
+  elseif quickApp.childDevices[event.deviceId] then
+    return quickApp.childDevices[event.deviceId]:callAction(event.actionName, table.unpack(event.args)) 
   end
+  quickApp:warning(format("Child with id:%s not found",id))
 end
 
 function onUIEvent(id, event)
-  if _VERBOSE then print("UIEvent: ", json.encode(UIEvent)) end
-  if quickApp.UIHandler then quickApp:UIHandler(UIEvent) return end
+  if _VERBOSE then print("UIEvent: ", json.encode(event)) end
+  if quickApp.UIHandler then quickApp:UIHandler(event) return end
   if quickApp.uiCallbacks[event.elementName] and quickApp.uiCallbacks[event.elementName][event.eventType] then 
     quickApp:callAction(quickApp.uiCallbacks[event.elementName][event.eventType], event)
   else

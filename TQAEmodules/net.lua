@@ -86,6 +86,11 @@ local apiIntercepts = { -- Intercept some api calls to the api to include emulat
         return d,200
       else return HC3Request(method,path,props) end
     end,    
+    ["/debugMessages"] = function(method,path,args)
+      local str,tag,typ = args.message,args.tag,args.messageType
+      FB.__fibaro_add_debug_message(tag,str,typ)
+      return 200
+    end
   },
   ["PUT"] = {
     ["/devices/(%d+)"] = function(method,path,data,id)
