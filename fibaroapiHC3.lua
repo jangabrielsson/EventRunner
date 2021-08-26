@@ -7014,7 +7014,6 @@ tr:nth-child(even) {
 <td style="width:80px;" align="center"><span id="D%s" class="dot"></span></td>
 <td> </td><td><input type="range" class="form-control-range" max="99" min="0" value="%s"
     onmouseup="QAslider(%s,this.value);"
-    onmouseup="QAslider(%s,this.value);"
     oninput="$('#L%s').text(value);"
     id="S%s">
 </td>

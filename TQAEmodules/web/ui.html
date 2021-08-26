@@ -52,8 +52,13 @@ table {
         out('<button class="myButton" onclick="window.location.href=\'/TQAE/ui/button/%s/%s\'">%s</button>',opts.id,c.name,view[c.name]['text'])
      end,
      ['slider'] = function(out,c)
-        out([[<input style="width:100%%" type="range" onmouseup="QAslider('%s',value);" class="form-control-range" max="99" min="0" value="%s">]],
-        c.name,view[c.name]['value'] or 0)
+        out([[<input style="width:100%%" 
+            type="range" 
+            onmouseup="QAslider('%s',value);" 
+            oninput="$('#L%s').text(value);"
+            class="form-control-range" max="99" min="0" value="%s">
+        ]],c.name,c.name,view[c.name]['value'] or 0)
+        out([[</td><td><label id="L%s">%s</label>]],c.name,view[c.name]['value'] or 0)
      end,
      ['label'] = function(out,c)
         out('<label style="width:100%%">%s</label>',view[c.name]['text'])
