@@ -121,7 +121,7 @@ end
 
 function onAction(id,event)
   if _VERBOSE then print("onAction: ", json.encode(event)) end
-  if quickApp.actionHandler then return self:actionHandler(event) end
+  if quickApp.actionHandler then return quickApp:actionHandler(event) end
   if event.deviceId == quickApp.id then
     return quickApp:callAction(event.actionName, table.unpack(event.args)) 
   elseif quickApp.childDevices[event.deviceId] then

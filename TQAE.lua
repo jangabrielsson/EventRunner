@@ -297,7 +297,7 @@ local function emulator()
 -- Used by api/devices/<id>/action/<name> to call and hand over to called QA's thread
   function call(id,name,...)
     local args,QA = {...},QAs[id] or QAs[Devices[id].parentId]
-    runProc(QA,function() QA.env.onAction(QA.QA,{deviceId=id,actionName=name,args=args}) end) -- sim. call in another process/QA
+    runProc(QA,function() QA.env.onAction(id,{deviceId=id,actionName=name,args=args}) end) -- sim. call in another process/QA
   end
   function FB.type(o) local t = type(o) return t=='table' and o._TYPE or t end
 -- Check arguments and print a QA error message 
@@ -375,9 +375,7 @@ local function emulator()
           check(env.__TAG,pcall(code))                                  -- Run the QA code, check runtime errors
         end
       end)
-    print("R1",dev.id,k)
     procs[k]=QAs[dev.id] coroutine.resume(k) procs[k]=nil
-    print("R2",dev.id,k)
     LOG("Starting QA:%s - ID:%s",dev.name,dev.id)
     -- Start QA by "creating instance"
     runProc(QAs[dev.id],function() env.QuickApp(dev) end)  
