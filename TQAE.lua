@@ -39,7 +39,7 @@ EM.modPath       = DEF(EM.modpath,"TQAEmodules/")   -- directory where TQAE modu
 EM.temp          = DEF(EM.temp,os.getenv("TMPDIR") or os.getenv("TEMP") or os.getenv("TMP") or "temp/") -- temp directory
 
 local globalModules = { -- default global modules loaded into emulator environment
-  "net2.lua","json.lua","files.lua", "webserver.lua", "api.lua", "proxy.lua", "ui.lua",
+  "net.lua","json.lua","files.lua", "webserver.lua", "api.lua", "proxy.lua", "ui.lua",
 } 
 local localModules  = { "class.lua", "fibaro.lua", "QuickApp.lua" } -- default local modules loaded into QA environment
 
@@ -88,7 +88,7 @@ do
   local stat,mobdebug = pcall(require,'mobdebug'); -- If we have mobdebug, enable coroutine debugging
   if stat then mobdebug.coro() end
 end
-local version = "0.14"
+local version = "0.15"
 
 local socket = require("socket")
 local http   = require("socket.http")
@@ -326,7 +326,7 @@ local function emulator()
       local f = io.open(EM.modPath.."devices.json")
       if f then deviceTemplates=FB.json.decode(f:read("*all")) f:close() else deviceTemplates={} end
     end
-    local dev = deviceTemplates[typ] or {
+    local dev = deviceTemplates[typ] and copy(deviceTemplates[typ]) or {
       actions = { turnOn=0,turnOff=0,setValue=1,toggle=0 }
     }
     if id then dev.id = id else dev.id = gID; gID=gID+1 end
@@ -375,14 +375,16 @@ local function emulator()
           check(env.__TAG,pcall(code))                                  -- Run the QA code, check runtime errors
         end
       end)
+    print("R1",dev.id,k)
     procs[k]=QAs[dev.id] coroutine.resume(k) procs[k]=nil
+    print("R2",dev.id,k)
     LOG("Starting QA:%s - ID:%s",dev.name,dev.id)
     -- Start QA by "creating instance"
     runProc(QAs[dev.id],function() env.QuickApp(dev) end)  
     if QAs[dev.id].noterminate then runProc(QAs[dev.id],function() env.setInterval(function() end,5000) end) end -- keep alive...
   end
 
-  function installQA(qa) runQA(addQA(qa)) end
+  function installQA(qa) setTimeout(function() runQA(addQA(qa)) end,0) end
 
   local function run(QA) 
     for _,qa in ipairs(QA[1] and QA or {QA}) do installQA(qa) end -- Create QAs given
