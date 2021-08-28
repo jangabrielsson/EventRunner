@@ -80,7 +80,8 @@ function QuickApp:onInit()
 end
 ]],env={testQA=testQA}} -- we can add extra variables to our QA's environment
 
-  loadfile("emu_tests.lua")(run) -- more extensive tests.
+  local et = loadfile("emu_tests.lua") -- more extensive tests.
+  if et then et(run) end 
 end
 
 ---------------------------------------- TQAE -------------------------------------------------------------
