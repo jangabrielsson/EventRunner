@@ -52,7 +52,7 @@ local GUI_HANDLERS = {
     id = tonumber(id)
     local stat,err = pcall(function()
         local qa = EM.QAs[id]
-        qa.env.onAction(qa.QA,{deviceId=id,actionName=btn,args={}})
+        qa.env.onUIEvent(qa.QA,{deviceId=id,elementName=btn,eventType="onReleased",values={}})
       end)
     if not stat then LOG("ERROR %s",err) end
     client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")

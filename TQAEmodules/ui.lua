@@ -128,10 +128,31 @@ local function uiStruct2uiCallbacks(UI)
   return cb
 end
 
+local customUI = {}
+customUI['com.fibaro.binarySwitch'] = 
+{{{button='__turnon', text="Turn On",onReleased="turnOn"},{button='__turnoff', text="Turn Off",onReleased="turnOff"}}}
+customUI['com.fibaro.multilevelSwitch'] = 
+{{{button='__turnon', text="Turn On",onReleased="turnOn"},{button='__turnoff', text="Turn Off",onReleased="turnOff"}},
+  {{label='__lab1',text='Value'},{slider='__value', min=0, max=99, onChanged='setValue'}},
+  {
+    {button='__sli', text="&#8679;",onReleased="startLevelIncrease"},
+    {button='__sld', text="&#8681;",onReleased="startLevelIncrease"},
+    {button='__sls', text="&Vert;",onReleased="stopLevelChange"},
+  }
+}
+customUI['com.fibaro.binarySensor']     = customUI['com.fibaro.binarySwitch']      -- For debugging
+customUI['com.fibaro.multilevelSensor'] = customUI['com.fibaro.multilevelSwitch']  -- For debugging
+
 EM.EMEvents('deviceCreated',function(ev) -- Intercept device created and add viewLayout and uiCallbacks
     local dev = ev.dev
     local QA = EM.QAs[dev.id]
     if QA.info.UI and next(QA.info.UI)~= nil then
+      local UI = QA.info.UI
+      transformUI(UI)
+      dev.viewLayout = mkViewLayout(UI)
+      dev.uiCallbacks = uiStruct2uiCallbacks(UI)
+    elseif not dev.viewLayout and customUI[dev.type] then
+      QA.info.UI = customUI[dev.type]
       local UI = QA.info.UI
       transformUI(UI)
       dev.viewLayout = mkViewLayout(UI)

@@ -59,7 +59,7 @@ end
 function QuickAppBase:updateView(elm,typ,val)
   __assert_type(elm,'string')
   __assert_type(typ,'string')
-  self:debug("updateView:",elm,typ,val)
+  if _VERBOSE then self:debug("updateView:",elm,typ,'"'..val..'"') end
   self._view[elm]=self._view[elm] or {} self._view[elm][typ]=val 
 end
 
