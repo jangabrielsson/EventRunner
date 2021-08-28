@@ -9,7 +9,7 @@ _=loadfile and loadfile("TQAE.lua"){
   terminate = false,
 }
 
---%%quickVars = {['HueID'] = "q6eLpWdYiMGq0kdQWFZB1NZHSlLvKL0GsNPJeEa-", ['HueIP'] = "192.168.1.153" }
+--%%quickVars = {['HueID'] = "q6eLpWdYiMGq0kdQWFZB1NZHSlLvXL0GsNPJeEa-", ['HueIP'] = "192.168.1.153" }
 --%%proxy = true
 
 _version = "0.1"

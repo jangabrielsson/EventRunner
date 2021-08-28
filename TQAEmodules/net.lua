@@ -1,195 +1,81 @@
 local EM,FB=...
 
-local httpRequest,HC3Request,LOG,Devices,QAs = EM.httpRequest,EM.HC3Request,EM.LOG,EM.Devices,EM.QAs
-local __fibaro_get_devices,__fibaro_get_device,__fibaro_get_device_property,__fibaro_call=
-FB.__fibaro_get_devices,FB.__fibaro_get_device,FB.__fibaro_get_device_property,FB.__fibaro_call
-
-local net, api = {},{}
+local httpRequest = EM.httpRequest
+local net = {}
 
 local httpMeta = { __tostring = function(http) return "HTTPClient object: "..http._str end }
 function net.HTTPClient(i_options)   
-  local self = {}                   
-  function self:request(url,args)
-    args.url=url
-    local res,status,headers = httpRequest(args,i_options)
-    args.url=nil
+  local self2 = {}                   
+  function self2.request(_,url,args)
+    local args2 = args.options or {}
+    args2.url=url
+    local res,status,headers = httpRequest(args2,i_options)
+    args2.url=nil
     if tonumber(status) and status < 205 and args.success then 
       FB.setTimeout(function() args.success({status=status,headers=headers,data=res}) end,math.random(0,2))
     elseif args.error then FB.setTimeout(function() args.error(status) end,math.random(0,2)) end
   end
-  self._str = tostring(self):match("%s(.*)")
-
-  setmetatable(self,httpMeta)
-  return self
+  self2._str = tostring(self2):match("%s(.*)")
+  setmetatable(self2,httpMeta)
+  return self2
 end
 
-local function parseOptions(str)
-  local res = {}
-  str:gsub("([^&]-)=([^&]+)",function(k,v) res[k]=tonumber(v) or (v=='true' and true) or (v=='false' and false) or FB.urldecode(v) end)
-  return res
-end
-
-local _fcont={['true']=true,['false']=false}
-local function _fconv(s) return _fcont[s]==nil and s or _fcont[s] end
-local function member(e,l) for i=1,#l do if e==l[i] then return i end end end
-local fFuns = {
-  interface=function(v,rsrc) return member(v,rsrc.interfaces or {}) end,
-  property=function(v,rsrc) return rsrc.properties[v:match("%[(.-),")]==_fconv(v:match(",(.*)%]")) end
-}
-
-local function filter(list,props)
-  if next(props)==nil then return list end
-  local res = {}
-  for _,rsrc in ipairs(list) do
-    local flag = false
-    for k,v in pairs(props) do
-      if fFuns[k] then flag = fFuns[k](v,rsrc) else flag = rsrc[k]==v end
-      if not flag then break end 
-    end
-    if flag then res[#res+1]=rsrc end
-  end
-  return res
-end
-
-local aHC3call
-local apiIntercepts = { -- Intercept some api calls to the api to include emulated QAs, could be deeper a tree...
-  ["GET"] = {
-    ["/devices$"] = function(_,_,_) return __fibaro_get_devices() end,
-    ["/devices%?(.*)"] = function(_,_,_,opts)
-      local ds = __fibaro_get_devices() 
-      opts = parseOptions(opts)
-      return filter(ds,opts)
-    end,
---   api.get("/devices?parentId="..self.id) or {}
-    ["/devices/(%d+)$"] = function(_,_,_,id) return __fibaro_get_device(tonumber(id)) end,
-    ["/devices/(%d+)/properties/(%w+)$"] = function(_,_,_,id,prop) return __fibaro_get_device_property(tonumber(id),prop) end,
-  },
-  ["POST"] = {
-    ["/devices/(%d+)/action/([%w_]+)$"] = function(_,path,data,id,action)
-      return __fibaro_call(tonumber(id),action,path,data)
-    end,
-    ["/plugins/updateProperty"] = function(method,path,data)
-      if Devices[data.deviceId] then Devices[data.deviceId].properties[data.propertyName]=data.value return data.value,202
-      else return HC3Request(method,path,data)
-      end
-    end,
-    ["/plugins/restart"] = function(method,path,data)
-      if Devices[data.deviceId] then
-        QAs[data.deviceId]:restart()
-        return true,200
-      else return HC3Request(method,path,data) end
-    end,
-    ["/plugins/createChildDevice"] = function(method,path,props)
-      if EM.locl then
-        local d = EM.createDevice(nil,props.name,props.type,props.initialProperties,props.initialInterfaces)
-        d.parentId = props.parentId
-        return d,200
-      else return HC3Request(method,path,props) end
-    end,    
-    ["/debugMessages"] = function(method,path,args)
-      local str,tag,typ = args.message,args.tag,args.messageType
-      FB.__fibaro_add_debug_message(tag,str,typ)
-      return 200
-    end
-  },
-  ["PUT"] = {
-    ["/devices/(%d+)"] = function(method,path,data,id)
-      id=tonumber(id)
-      if Devices[id] then
-        local dev = Devices[id]
-        for k,v in pairs(data) do
-          if k=='properties' then
-            for m,n in pairs(v) do dev.properties[m]=n end
-          else
-            dev[k]=v
-          end
-        end
-        return data,202
-      end
-      return HC3Request(method,path,data)
-    end,
-  },
-  ["DELETE"] = { 
-    ["/plugins/removeChildDevice/(%d+)"] = function(method,path,data,id)
-      id = tonumber(id)
-      if Devices[id] then
-        Devices[id]=nil
-        return true,200
-      else return HC3Request(method,path,data) end
-    end,
-  }
-}
-
-function aHC3call(method,path,data) -- Intercepts some cmds to handle local resources
-  for p,f in pairs(apiIntercepts[method] or {}) do
-    local m = {path:match(p)}
-    if #m>0 then local res,code = f(method,path,data,table.unpack(m)) if code~=false then return res,code end end
-  end
-  return HC3Request(method,path,data) -- Call without intercept
-end
-
--- Normal user calls to api will have pass==nil and the cmd will be intercepted if needed. __fibaro_* will always pass
-function api.get(cmd) return aHC3call("GET",cmd) end
-function api.post(cmd,data) return aHC3call("POST",cmd,data) end
-function api.put(cmd,data) return aHC3call("PUT",cmd,data) end
-function api.delete(cmd) return aHC3call("DELETE",cmd) end
-
-function net.TCPSocket(opts) 
-  local self = { opts = opts or {} }
-  local sock = socket.tcp()
-  function self:connect(ip, port, opts) 
+function net.TCPSocket(opts2) 
+  local self2 = { opts = opts2 or {} }
+  self2.sock = EM.socket.tcp()
+  function self2:connect(ip, port, opts) 
     for k,v in pairs(self.opts) do opts[k]=v end
-    local sock, err = sock:connect(ip,port)
+    local _, err = self.sock:connect(ip,port)
     if err==nil and opts.success then opts.success()
     elseif opts.error then opts.error(err) end
   end
-  function self:read(opts) 
-    local data,err = sock:receive() 
+  function self2:read(opts) 
+    local data,err = self.sock:receive() 
     if data and opts.success then opts.success(data)
     elseif data==nil and opts.error then opts.error(err) end
   end
-  function self:readUntil(delimiter, callbacks) end
-  function self:write(data, opts) 
-    local res,err = sock:send(data)
-    if res and opts.success then opts.success(res)
-    elseif res==nil and opts.error then opts.error(err) end
+  function self2.readUntil(_,delimiter, callbacks) end
+  function self2:write(data, _) 
+    local res,err = self.sock:send(data)
+    if res and self.opts.success then self.opts.success(res)
+    elseif res==nil and self.opts.error then self.opts.error(err) end
   end
-  function self:close() sock:close() end
-  local pstr = "TCPSocket object: "..tostring(self):match("%s(.*)")
-  setmetatable(self,{__tostring = function(s) return pstr end})
-  return self
+  function self2:close() self.sock:close() end
+  local pstr = "TCPSocket object: "..tostring(self2):match("%s(.*)")
+  setmetatable(self2,{__tostring = function(_) return pstr end})
+  return self2
 end
 
-function net.UDPSocket(opts) 
-  local self = { opts = opts or {} }
-  local sock = socket.udp()
-  if self.opts.broadcast~=nil then 
-    sock:setsockname(Util.getIPaddress(), 0)
-    sock:setoption("broadcast", self.opts.broadcast) 
+function net.UDPSocket(opts2) 
+  local self2 = { opts = opts2 or {} }
+  self2.sock = EM.socket.udp()
+  if self2.opts.broadcast~=nil then 
+    self2.sock:setsockname(EM.IPAddress, 0)
+    self2.sock:setoption("broadcast", self2.opts.broadcast) 
   end
-  if opts.timeout~=nil then sock:settimeout(opts.timeout / 1000) end
+  if self2.opts.timeout~=nil then self2.sock:settimeout(self2.opts.timeout / 1000) end
 
-  function self:sendTo(datagram, ip,port, callbacks)
-    local stat, res = sock:sendto(datagram, ip, port)
+  function self2:sendTo(datagram, ip,port, callbacks)
+    local stat, res = self.sock:sendto(datagram, ip, port)
     if stat and callbacks.success then 
-      pcall(function() callbacks.success(1) end)
+      pcall(callbacks.success,1)
     elseif stat==nil and callbacks.error then
-      pcall(function() callbacks.error(res) end)
+      pcall(callbacks.error,res)
     end
   end 
-  function self:bind(ip,port) sock:setsockname(ip,port) end
-  function self:receive(callbacks) 
-    local stat, res = sock:receivefrom()
+  function self2:bind(ip,port) self.sock:setsockname(ip,port) end
+  function self2:receive(callbacks) 
+    local stat, res = self.sock:receivefrom()
     if stat and callbacks.success then 
-      pcall(function() callbacks.success(stat, res) end)
+      pcall(callbacks.success,stat, res)
     elseif stat==nil and callbacks.error then
-      pcall(function() callbacks.error(res) end)
+      pcall(callbacks.error,res)
     end
   end
-  function self:close() sock:close() end
-  local pstr = "UDPSocket object: "..tostring(self):match("%s(.*)")
-  setmetatable(self,{__tostring = function(s) return pstr end})
-  return self
+  function self2:close() self.sock:close() end
+  local pstr = "UDPSocket object: "..tostring(self2):match("%s(.*)")
+  setmetatable(self2,{__tostring = function(_) return pstr end})
+  return self2
 end
 
-FB.net,FB.api = net, api
+FB.net = net
