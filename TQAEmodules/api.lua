@@ -22,8 +22,8 @@ local GUI_HANDLERS = {
     local stat,res = pcall(function()
         arg = json.decode("["..(arg or "").."]")
         local QA = EM.getQA(tonumber(opts.qaID))
-        local res = {QA[opts.method](QA,table.unpack(arg))}
         LOG("Web call: QA(%s):%s%s = %s",opts.qaID,opts.method,json.encode(arg),json.encode(res))
+        local res = {QA[opts.method](QA,table.unpack(arg))}
       end)
     if not stat then 
       LOG("Error: Web call: QA(%s):%s%s - %s",opts.qaID,opts.method,json.encode(arg),res)

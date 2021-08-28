@@ -5,10 +5,10 @@ _=loadfile and loadfile("TQAE.lua"){
   verbose=false,
   modPath = "TQAEmodules/",
   temp = "temp/",
-  startTime="12/24/2024-07:00", 
-  terminate = false,
+  startTime="12/24/2024-07:00",
 }
 
+--%%name="Hue"
 --%%quickVars = {['HueID'] = "q6eLpWdYiMGq0kdQWFZB1NZHSlLvXL0GsNPJeEa-", ['HueIP'] = "192.168.1.153" }
 --%%proxy = true
 
