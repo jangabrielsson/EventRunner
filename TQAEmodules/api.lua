@@ -40,9 +40,15 @@ local GUI_HANDLERS = {
   ["GET/TQAE/slider/#id/#name/#id"] = function(_,client,ref,_,_,id,slider,val)
     id = tonumber(id)
     local stat,err = pcall(function()
-        local qa = EM.QAs[id]
-        qa.QA:updateView(slider,"value",tostring(val))
-        qa.env.onUIEvent(qa.QA,{deviceId=id,elementName=slider,eventType="onChanged",values={tonumber(val)}})
+        local qa = EM.getQA(id)
+        local QAst = EM.QAs[qa.id] or EM.QAs[EM.Devices[qa.id].parentId]
+        qa:updateView(slider,"value",tostring(val))
+        if not qa.parent then
+          QAst.env.onUIEvent(id,{deviceId=id,elementName=slider,eventType='onChanged',values={tonumber(val)}})
+        else 
+          local action = qa.uiCallbacks[slider]['onChanged']
+          QAst.env.onAction(id,{deviceId=id,actionName=action,args={tonumber(val)}})
+        end
       end)
     if not stat then LOG("ERROR %s",err) end
     client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
@@ -51,8 +57,14 @@ local GUI_HANDLERS = {
   ["GET/TQAE/button/#id/#name"] = function(_,client,ref,_,_,id,btn)
     id = tonumber(id)
     local stat,err = pcall(function()
-        local qa = EM.QAs[id]
-        qa.env.onUIEvent(qa.QA,{deviceId=id,elementName=btn,eventType="onReleased",values={}})
+        local qa = EM.getQA(id)
+        local QAst = EM.QAs[qa.id] or EM.QAs[EM.Devices[qa.id].parentId]
+        if not qa.parent then 
+          QAst.env.onUIEvent(id,{deviceId=id,elementName=btn,eventType='onReleased',values={tonumber(val)}})
+        else
+          local action = qa.uiCallbacks[btn]['onReleased']
+          QAst.env.onAction(id,{deviceId=id,actionName=action,args={}})
+        end
       end)
     if not stat then LOG("ERROR %s",err) end
     client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
@@ -60,14 +72,14 @@ local GUI_HANDLERS = {
   end,
   ["POST/TQAE/action/#id"] = function(_,client,ref,body,_,id) 
     local QAst = EM.QAs[tonumber(id)]
-    local QA   = EM.getQA(tonumber(id))
-    QAst.env.onAction(QA,json.decode(body))
+    local args = json.decode(body)
+    QAst.env.onAction(id,args) 
     client:send("HTTP/1.1 302 Found\nLocation: "..(ref or "").."\n\n")
   end,
   ["POST/TQAE/ui/#id"] = function(_,client,ref,body,_,id) 
     local QAst = EM.QAs[tonumber(id)]
-    local QA   = EM.getQA(tonumber(id))
-    QAst.env.onUIEvent(QA,json.decode(body)) 
+    local args = json.decode(body)
+    QAst.env.onUIEvent(id,args) 
     client:send("HTTP/1.1 302 Found\nLocation: "..(ref or "").."\n\n")
   end,
 }
@@ -126,7 +138,10 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
   end,
   ["POST/plugins/createChildDevice"] = function(method,path,props,_)
     local QA = EM.QAs[props.parentId]
-    if EM.locl or not QA.info.proxy then
+    if props.initialProperties and next(props.initialProperties)==nil then 
+      props.initialProperties = nil
+    end
+    if not QA.info.proxy then
       local d = EM.createDevice(nil,props.name,props.type,props.initialProperties,props.initialInterfaces)
       d.parentId = props.parentId
       return d,200

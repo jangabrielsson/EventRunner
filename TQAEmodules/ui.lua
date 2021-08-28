@@ -145,23 +145,21 @@ customUI['com.fibaro.multilevelSensor'] = customUI['com.fibaro.multilevelSwitch'
 
 EM.EMEvents('deviceCreated',function(ev) -- Intercept device created and add viewLayout and uiCallbacks
     local dev = ev.dev
-    local QA = EM.QAs[dev.id]
-    if QA.info.UI and next(QA.info.UI)~= nil then
-      local UI = QA.info.UI
+    if dev._info and dev._info.UI and next(dev._info.UI)~= nil then
+      local UI = dev._info.UI
       transformUI(UI)
       dev.viewLayout = mkViewLayout(UI)
       dev.uiCallbacks = uiStruct2uiCallbacks(UI)
-    elseif not dev.viewLayout and customUI[dev.type] then
-      QA.info.UI = customUI[dev.type]
-      local UI = QA.info.UI
+    elseif (not dev.viewLayout) and customUI[dev.type] then
+      dev._info = dev._info or {}
+      dev._info.UI = customUI[dev.type]
+      local UI = dev._info.UI
       transformUI(UI)
       dev.viewLayout = mkViewLayout(UI)
       dev.uiCallbacks = uiStruct2uiCallbacks(UI)
     elseif not dev.viewLayout then
       dev.viewLayout= json.decode(
-
 [[{"$jason":{"body":{"header":{"style":{"height":"0"},"title":"quickApp_device_403"},"sections":{"items":[]}},"head":{"title":"quickApp_device_403"}}}]]
-
       )
       dev.uiCallbacks = {}
     end
@@ -172,13 +170,15 @@ local initElm = {
   ['slider'] = function(e,qa) qa:updateView(e.slider,'text',e.text) qa:updateView(e.slider,'value',e.value) end,
   ['label'] = function(e,qa)  qa:updateView(e.label,'text',e.text) end,
 }
+
 EM.EMEvents('QACreated',function(ev) -- Intercept QA created
-    local QA = EM.QAs[ev.qa.id]
-    local UI = QA.info.UI or {}
+    local QA = ev.QA
+    if not EM.Devices[QA.id] then return end
+    local UI = EM.Devices[QA.id]._info.UI or {}
     for i,r in ipairs(UI) do
       r = r[1] and r or {r}
       for j,c in ipairs(r) do
-        if initElm[c.type] then initElm[c.type](c,QA.QA) end
+        if initElm[c.type] then initElm[c.type](c,QA) end
       end
     end
   end,true)

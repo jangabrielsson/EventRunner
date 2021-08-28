@@ -45,8 +45,9 @@ table {
 <body>
 <table style="width:500px;">
 {{{
-  local UI = EM.QAs[tonumber(opts.id)].info.UI or {}
-  local view = EM.QAs[tonumber(opts.id)].QA._view or {}
+  local UI = EM.Devices[tonumber(opts.id)]._info.UI or {}
+  local qa = EM.getQA(tonumber(opts.id))
+  local view = qa._view or {}
   local render = {
      ['button'] = function(out,c)
         out('<button class="myButton" onclick="window.location.href=\'/TQAE/button/%s/%s\'">%s</button>',opts.id,c.name,view[c.name]['text'])

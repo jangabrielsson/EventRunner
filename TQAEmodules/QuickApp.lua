@@ -17,6 +17,7 @@ function QuickAppBase:__init(dev)
   self.properties = dev.properties
   self.interfaces = dev.interfaces
   self._view      = {} -- TBD
+  hc3_emulator.EM.postEMEvent({type='QACreated',QA=self})
   self.uiCallbacks = {}
   for _,e in ipairs(dev.uiCallbacks or {}) do
     self.uiCallbacks[e.name] = self.uiCallbacks[e.name] or {} 
@@ -126,7 +127,7 @@ function onAction(id,event)
   elseif quickApp.childDevices[event.deviceId] then
     return quickApp.childDevices[event.deviceId]:callAction(event.actionName, table.unpack(event.args)) 
   end
-  quickApp:warning(format("Child with id:%s not found",id))
+  quickApp:warning(string.format("Child with id:%s not found",id))
 end
 
 function onUIEvent(id, event)
@@ -135,6 +136,6 @@ function onUIEvent(id, event)
   if quickApp.uiCallbacks[event.elementName] and quickApp.uiCallbacks[event.elementName][event.eventType] then 
     quickApp:callAction(quickApp.uiCallbacks[event.elementName][event.eventType], event)
   else
-    quickApp:warning(format("UI callback for element:%s not found.", event.elementName))
+    quickApp:warning(string.format("UI callback for element:%s not found.", event.elementName))
   end 
 end

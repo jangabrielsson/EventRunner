@@ -278,14 +278,13 @@ end
 
 EM.EMEvents('deviceCreated',function(ev)
     local dev = ev.dev
-    local QA = EM.QAs[dev.id]
-    if QA.info.proxy then
+    if dev._info and dev._info.proxy then
       local l = FB.__fibaro_local(false)
       local stat,res = pcall(createProxy,dev,QA)
       FB.__fibaro_local(l)
       if not stat then 
         LOG("Error: Proxy: %s",res)
-        QA.info.proxy = false
+        dev._info.proxy = false
       else
         local newId,oldId = res.id,dev.id
         EM.Devices[oldId] = nil

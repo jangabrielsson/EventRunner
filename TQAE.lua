@@ -184,7 +184,7 @@ local function builtins()
     str:gsub("([^"..s.."]+)", function(c) fields[#fields + 1] = c end)
     return fields
   end
-  
+
   function loadModules(ms,env,args)
     ms = type(ms)=='table' and ms or {ms}
     local stat,res = pcall(function()
@@ -320,7 +320,7 @@ local function emulator()
   local function restartQA(QA) timers.clearTimers(QA.QA.id) runQA(Devices[QA.QA.id]) coroutine.yield() end
 
   local deviceTemplates
-  function EM.createDevice(id,name,typ,properties,interfaces)
+  function EM.createDevice(id,name,typ,properties,interfaces,info)
     typ = typ or "com.fibaro.binarySensor"
     if deviceTemplates == nil then 
       local f = io.open(EM.modPath.."devices.json")
@@ -331,21 +331,23 @@ local function emulator()
     }
     if id then dev.id = id else dev.id = gID; gID=gID+1 end
     dev.name = name or "MyQuickApp"
+    dev._info = info
     merge(dev.interfaces,interfaces or {})
     merge(dev.properties,properties or {})
-    dev.properties.quickAppVariables = dev.properties.quickAppVariables or {}
     Devices[dev.id]=dev
     LOG("Created device %s",dev.id)
+    EM.postEMEvent({type='deviceCreated',dev=dev})
     return dev
   end
 
   local function addQA(qa) -- Creates the device structure and save the QA files
     local id,name,typ,code,file,e = qa.id,qa.name,qa.type,qa.code,qa.file,qa.env
     local files,info = EM.loadFile(code,file)
-    local dev = EM.createDevice(id or info.id,name or info.name,typ or info.type,info.properties,info.interfaces)
-    for k,v in pairs(info.quickVars or {}) do table.insert(dev.properties.quickAppVariables,{name=k,value=v}) end
+    info.properties = info.properties or {}
+    info.properties.quickAppVariables = info.properties.quickAppVariables or {}
+    for k,v in pairs(info.quickVars or {}) do table.insert(info.properties.quickAppVariables,1,{name=k,value=v}) end
+    local dev = EM.createDevice(id or info.id,name or info.name,typ or info.type,info.properties,info.interfaces,info)
     QAs[dev.id]={files=files,save=qa.save or info.save, extras=e, restart=restartQA, noterminate=info.noterminate, info=info }
-    EM.postEMEvent({type='deviceCreated',dev=Devices[dev.id]})
     return dev
   end
 
@@ -353,7 +355,7 @@ local function emulator()
     local env = {          -- QA environment, all Lua functions available for  QA, 
       plugin={ mainDeviceId = dev.id },
       os={time=EM.osTime, date=EM.osDate, exit=function() LOG("exit(0)") timers.reset() coroutine.yield() end},
-      hc3_emulator={getmetatable=getmetatable,setmetatable=setmetatable,installQA=installQA},
+      hc3_emulator={getmetatable=getmetatable,setmetatable=setmetatable,installQA=installQA,EM=EM},
       coroutine=CO,table=table,select=select,pcall=pcall,xpcall=xpcall,print=print,string=string,error=error,
       pairs=pairs,ipairs=ipairs,tostring=tostring,tonumber=tonumber,math=math,assert=assert,_VERBOSE=verbose
     }
@@ -376,7 +378,7 @@ local function emulator()
     procs[k]=QAs[dev.id] coroutine.resume(k) procs[k]=nil
     LOG("Starting QA:%s - ID:%s",dev.name,dev.id)
     -- Start QA by "creating instance"
-    runProc(QAs[dev.id],function() env.QuickApp(dev) EM.postEMEvent({type='QACreated',qa=env.quickApp}) end)  
+    runProc(QAs[dev.id],function() env.QuickApp(dev) end)  
     if QAs[dev.id].noterminate then runProc(QAs[dev.id],function() env.setInterval(function() end,5000) end) end -- keep alive...
   end
 
