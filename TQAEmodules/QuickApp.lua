@@ -79,7 +79,7 @@ function QuickApp:createChildDevice(props,deviceClass)
   props.initialInterfaces = props.initialInterfaces or {}
   table.insert(props.initialInterfaces,'quickAppChild')
   local device,res = api.post("/plugins/createChildDevice",props)
-  assert(res==200,"Can't create child device "..res.." - "..json.encode(props))
+  assert(res==200,"Can't create child device "..tostring(res).." - "..json.encode(props))
   deviceClass = deviceClass or QuickAppChild
   local child = deviceClass(device)
   child.parent = self

@@ -49,7 +49,7 @@ table {
   local view = EM.QAs[tonumber(opts.id)].QA._view or {}
   local render = {
      ['button'] = function(out,c)
-        out('<button class="myButton" onclick="window.location.href=\'/TQAE/ui/button/%s/%s\'">%s</button>',opts.id,c.name,view[c.name]['text'])
+        out('<button class="myButton" onclick="window.location.href=\'/TQAE/button/%s/%s\'">%s</button>',opts.id,c.name,view[c.name]['text'])
      end,
      ['slider'] = function(out,c)
         out([[<input style="width:100%%" 

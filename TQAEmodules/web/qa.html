@@ -31,8 +31,8 @@ local qa = EM.getQA(opts.id)
     out("<li>Interfaces: %s</li>",FB.json.encode(qa.interfaces))
     out("</ul>")
 }}}
-<button onclick="window.location.href='/TQAE/lua?{{{out("EM.QAs[%s].env.plugin.restart()",opts.id)}}}'">Restart</button>
-<button onclick="window.location.href='/TQAE/lua?{{{out("EM.saveFQA(EM.QAs[%s])",opts.id)}}}'">Save</button>
+<button onclick="window.location.href='/TQAE/lua?code={{{out("EM.QAs[%s].env.plugin.restart()",opts.id)}}}'">Restart</button>
+<button onclick="window.location.href='/TQAE/lua?code={{{out("EM.saveFQA(EM.QAs[%s])",opts.id)}}}'">Save</button>
 <button onclick="window.location.href='/web/ui?id={{{out("%s",opts.id)}}}'">UI</button>
 <table>
 <tr><th>Methods</th><th>Properties</th><th>QuickAppVariables</th><th>View</th></tr>
@@ -45,7 +45,7 @@ local qa = EM.getQA(opts.id)
      end
      table.sort(fs)
      for i,n in ipairs(fs) do
-       out('<form id="M%s" action="TQAE/method" method="GET">',i)
+       out('<form id="M%s" action="/TQAE/method" method="GET">',i)
        out('<a href="#" onclick="myFunction(\'%s\')">self:%s</a>',"M"..i,n)
        out('<input type="hidden" id="M%s" name="qaID" value="%s">',i,opts.id)
        out('<input type="hidden" id="M%s" name="method" value="%s">',i,n)

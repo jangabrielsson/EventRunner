@@ -39,7 +39,7 @@ EM.modPath       = DEF(EM.modpath,"TQAEmodules/")   -- directory where TQAE modu
 EM.temp          = DEF(EM.temp,os.getenv("TMPDIR") or os.getenv("TEMP") or os.getenv("TMP") or "temp/") -- temp directory
 
 local globalModules = { -- default global modules loaded into emulator environment
-  "net.lua","json.lua","files.lua", "webserver.lua", "proxy.lua", "ui.lua" 
+  "net2.lua","json.lua","files.lua", "webserver.lua", "api.lua", "proxy.lua", "ui.lua",
 } 
 local localModules  = { "class.lua", "fibaro.lua", "QuickApp.lua" } -- default local modules loaded into QA environment
 
@@ -88,7 +88,7 @@ do
   local stat,mobdebug = pcall(require,'mobdebug'); -- If we have mobdebug, enable coroutine debugging
   if stat then mobdebug.coro() end
 end
-local version = "0.12"
+local version = "0.14"
 
 local socket = require("socket")
 local http   = require("socket.http")
@@ -122,16 +122,17 @@ local function builtins()
       _,status,h = http.request(req)
     end
     if tonumber(status) and status < 300 then 
-      return resp[1] and FB.json.decode(table.concat(resp)) or nil,status,h 
+      return resp[1] and table.concat(resp) or nil,status,h 
     else return nil,status,h end
   end
 
   local base = "http://"..EM.host.."/api"
   local function HC3Request(method,path,data) 
-    return httpRequest({method=method, url=base..path,
+    local res,stat,h = httpRequest({method=method, url=base..path,
         user=EM.user, password=EM.pwd, data=data and FB.json.encode(data),
         headers = {["Accept"] = '*/*',["X-Fibaro-Version"] = 2, ["Fibaro-User-PIN"] = EM.pin},
       })
+    return res~=nil and FB.json.decode(res),stat,nil
   end
 
   local function __assert_type(value,typeOfValue )
@@ -178,7 +179,12 @@ local function builtins()
   end
   function FB.urldecode(str) return str and str:gsub('%%(%x%x)',function (x) return string.char(tonumber(x,16)) end) end
   function FB.urlencode(str) return str and str:gsub("([^% w])",function(c) return string.format("%%% 02X",string.byte(c))  end) end
-
+  function string.split(str, sep)
+    local fields,s = {},sep or "%s"
+    str:gsub("([^"..s.."]+)", function(c) fields[#fields + 1] = c end)
+    return fields
+  end
+  
   function loadModules(ms,env,args)
     ms = type(ms)=='table' and ms or {ms}
     local stat,res = pcall(function()
@@ -273,7 +279,7 @@ end
 local function emulator()
   local procs,CO,clock,gID = {},coroutine,EM.clock,1001
   local function copy(t) local r={} for k,v in pairs(t) do r[k]=v end return r end
-  local function merge(dest,src) for k,v in ipairs(src) do dest[k]=v end end
+  local function merge(dest,src) for k,v in pairs(src) do dest[k]=v end end
   function setContext(co,qa) procs[co]= qa or procs[coroutine.running()]; return co,procs[co] end
   function getContext(co) co=co or coroutine.running() return procs[co] end
   function setTimeout(fun,ms,tag) return timers.queue(ms/1000,tag,setContext(CO.create(fun))) end
@@ -326,9 +332,10 @@ local function emulator()
     if id then dev.id = id else dev.id = gID; gID=gID+1 end
     dev.name = name or "MyQuickApp"
     merge(dev.interfaces,interfaces or {})
-    merge(dev.interfaces,properties or {})
+    merge(dev.properties,properties or {})
     dev.properties.quickAppVariables = dev.properties.quickAppVariables or {}
     Devices[dev.id]=dev
+    LOG("Created device %s",dev.id)
     return dev
   end
 
@@ -344,7 +351,7 @@ local function emulator()
 
   function runQA(dev)      -- Creates an environment and load file modules and starts QuickApp (:onInit())
     local env = {          -- QA environment, all Lua functions available for  QA, 
-      plugin={ mainDeviceId = dev.id }, 
+      plugin={ mainDeviceId = dev.id },
       os={time=EM.osTime, date=EM.osDate, exit=function() LOG("exit(0)") timers.reset() coroutine.yield() end},
       hc3_emulator={getmetatable=getmetatable,setmetatable=setmetatable,installQA=installQA},
       coroutine=CO,table=table,select=select,pcall=pcall,xpcall=xpcall,print=print,string=string,error=error,
@@ -357,7 +364,7 @@ local function emulator()
     loadModules(EM.localModules or {},env)                      -- Load optional user specified module into environment     
     local self={}
     qa.QA,qa.env,env.QuickApp.__obj=self,env,self               -- This is ugly but we need the object before we create it
-    qa.env=env
+    qa.env,env._G=env,env
     LOG("Loading  QA:%s - ID:%s",dev.name,dev.id)
     local k = coroutine.create(function()
         for _,f in ipairs(qa.files) do                                     -- for every file we got, load it..
@@ -404,6 +411,7 @@ timers = timerQueue(); EM.timers=timers-- Create timer queue
 builtins()                             -- Define built-ins
 loadModules(globalModules or {})       -- Load global modules
 loadModules(EM.globalModules or {})    -- Load optional user specified module into environment
+EM.postEMEvent({type='init'})
 local run = emulator()                 -- Setup emulator core - returns run function
 
 print(fmt("---------------- Tiny QuickAppEmulator (TQAE) v%s -------------",version)) -- Get going...

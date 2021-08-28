@@ -3,7 +3,7 @@ local EM,FB,ARGS=...
 local lfs = require("lfs")
 local LOG,port,name = EM.LOG, ARGS.port or 8976, ARGS.name or "WebAPI"
 local socket = require("socket")
-local fmt,json = string.format,FB.json
+local fmt = string.format
 
 local IPAddress
 do
@@ -30,7 +30,7 @@ local function coprocess(ms,fun,tag,...)
   process()
 end
 
-local function clientHandler(client,handlers)
+local function clientHandler(client,handler)
   client:settimeout(0,'b')
   client:setoption('keepalive',true)
   --local ip=client:getpeername()
@@ -47,7 +47,7 @@ local function clientHandler(client,handlers)
         if b and b~="" then body=b end
         referer = header and header:match("^[Rr]eferer:%s*(.*)") or referer
       until header == nil or e == 'closed'
-      if handlers[method] then handlers[method](method,client,call,body,referer) end
+      handler(method,client,call,body,referer)
       --client:flush()
       client:close()
       return
@@ -56,18 +56,18 @@ local function clientHandler(client,handlers)
   end
 end
 
-local function socketServer(server,handlers)
+local function socketServer(server,handler)
   while true do
     local client,err
     repeat
       client, err = server:accept()
       if err == 'timeout' then coroutine.yield() end
     until err ~= 'timeout'
-    coprocess(10,clientHandler,"Web:client",client,handlers)
+    coprocess(10,clientHandler,"Web:client",client,handler)
   end
 end
 
-local function createServer(name,port,handlers)
+local function createServer(name,port,handler)
   local server,c,err=socket.bind("*", port)
   --print(err,c,server)
   local i, p = server:getsockname()
@@ -75,109 +75,29 @@ local function createServer(name,port,handlers)
   --printf("http://%s:%s/test",ipAdress,port)
   server:settimeout(0,'b')
   server:setoption('keepalive',true)
-  coprocess(10,socketServer,"Web:server",server,handlers)
+  coprocess(10,socketServer,"Web:server",server,handler)
   LOG("Created %s at %s:%s",name,IPAddress,port)
 end
 
-local GUI_HANDLERS = {
-  ["GET"] = {
-    ["/api/callAction%?deviceID=(%d+)&name=(%w+)(.*)"] = function(client,ref,body,id,action,arg)
-      local args = {}
-      if arg and arg:sub(1,1)=='?' then
-        arg=arg:sub(2)
-        arg = arg:split("&")
-        for _,a in ipairs(arg) do
-          local i,v = a:match("^arg(%d+)=(.*)")
-          args[tonumber(i)]=json.decode(FB.urldecode(v))
-        end
-      end
-      id = tonumber(id) ---id,name,path,data)
-      local stat,err=pcall(FB.__fibaro_call,id,action,"",{args=args})
-      if not stat then LOG("Bad callAction:%s",err) end --\nLocation: "..(headers['referer'] or "/web/main").."\n")
-      -- client:send("HTTP/1.1 201 Created\nETag: \"c180de84f991g8\"\nLocation: "..ref.."\n\n")
-      client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
-      return true
-    end,
-    ["/TQAE/method%?(.*)"] = function(client,ref,body,args)
-      args = args:split("&")
-      local keys = {}
-      for _,a in ipairs(args) do k,v = a:match("(.-)=(.*)") keys[k]=FB.urldecode(v) end
-      local arg = keys.Args
-      local stat,res = pcall(function()
-          arg = json.decode("["..arg.."]")
-          local QA = EM.getQA(tonumber(keys.qaID))
-          local res = {QA[keys.method](QA,table.unpack(arg))}
-          LOG("Web call: QA(%s):%s%s = %s",keys.qaID,keys.method,json.encode(arg),json.encode(res))
-        end)
-      if not stat then 
-        LOG("Error: Web call: QA(%s):%s%s - %s",keys.qaID,keys.method,json.encode(arg),res)
-      end
-      client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
-      return true
-    end,
-    ["/TQAE/lua%?(.*)"] = function(client,ref,body,code)
-      code = load(code,nil,"t",{EM=EM,FB=FB})
-      code()
-      client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
-      return true
-    end,
-    ["/TQAE/slider/(%d+)/(.-)/(.*)"] = function(client,ref,body,id,slider,val)
-      id = tonumber(id)
-      local stat,err = pcall(function()
-          local qa = EM.QAs[id]
-          qa.QA:updateView(slider,"value",tostring(val))
-          qa.env.onUIEvent(qa.QA,{deviceId=id,elementName=slider,eventType="onChanged",values={tonumber(val)}})
-        end)
-      if not stat then LOG("ERROR %s",err) end
-      client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
-      return true
-    end,   
-    ["/TQAE/ui/button/(%d+)/(.*)"] = function(client,ref,body,id,btn)
-      id = tonumber(id)
-      local stat,err = pcall(function()
-          local qa = EM.QAs[id]
-          qa.env.onAction(qa.QA,{deviceId=id,actionName=btn,args={}})
-        end)
-      if not stat then LOG("ERROR %s",err) end
-      client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
-      return true
-    end,
-  },
-  ["POST"] = {
-    ["/TQAE/action/(.+)$"] = function(client,ref,body,id) 
-      local QAs = EM.QAs[tonumber(id)]
-      local QA  = EM.getQA(tonumber(id))
-      QAs.env.onAction(QA,json.decode(body)) 
-    end,
-    ["/TQAE/ui/(.+)$"] = function(client,ref,body,id) 
-      local QAs = EM.QAs[tonumber(id)]
-      local QA  = EM.getQA(tonumber(id))
-      QAs.env.onUIEvent(QA,json.decode(body)) 
-    end,
-  }
-}
-
-local function GUIhandler(method,client,call,body,ref) 
-  local stat,res = pcall(function()
-      for p,h in pairs(GUI_HANDLERS[method] or {}) do
-        local match = {call:match(p)}
-        if match and #match>0 then
-          if h(client,ref,body,table.unpack(match)) then return end
-        end
-      end
-      client:send("HTTP/1.1 501 Not Implemented\nLocation: "..(ref or call).."\n")
-    end)
-  if not stat then 
-    LOG("Bad API call:%s",res)
-    --local p = Pages.renderError(res)
-    --client:send(p) 
+local GUI_MAP = { GET={}, PUT={}, POST={}, DELETE={}}
+local function GUIhandler(method,client,call,body,ref)
+  local fun,args,opts,path = EM.lookupPath(method,call,GUI_MAP)
+  if type(fun)=='function' then
+    local stat,res = pcall(fun,path,client,ref,body,opts,table.unpack(args))
+    if not stat then
+      LOG("Bad API call:%s",res)
+    end
+  elseif fun==nil then
+    client:send("HTTP/1.1 501 Not Implemented\nLocation: "..(ref or call).."\n")
+  else 
+    LOG("Bad API call:%s",fun)
   end
 end
 
 local htmlfuns = {}
 function htmlfuns.call(out,id,fun,...)
   local args = "" 
-  for i,v in  ipairs ({...})  do args = args.. '&arg'..tostring(i)..'='..urlencode(tostring(v)) end 
+  for i,v in  ipairs ({...})  do args = args.. '&arg'..tostring(i)..'='..FB.urlencode(tostring(v)) end 
   out("http://%s:%s/api/callAction?deviceID=%s&name=%s?%s",IPAddress,port,id,fun,args)
 end
 function htmlfuns.home(out)
@@ -246,15 +166,7 @@ local function getPage(fname)
   return c.page
 end
 
-local function parseOptions(str)
-  local res = {}
-  str:gsub("([^&]-)=([^&]+)",function(k,v) res[k]=v end)
-  return res
-end
-
-local function renderPage(path,dir,client,ref)
-  local opts,p,o = {},path:match("(.-)%?(.*)")
-  if p then path,opts = p,parseOptions(o) end
+local function renderPage(path,dir,client,opts,ref)
   if path:sub(1,1)=="/" then path = path:sub(2) end
   if path=="" or path=="/" then path="main.html" end
   if not path:match("%.html?") then path=path..".html" end
@@ -275,16 +187,57 @@ Content-Type: text/html
   end
 end
 
-local function addPath(path,dir)
-  GUI_HANDLERS["GET"][path.."(.*)"] = 
-  function(client,ref,body,path)
-    return renderPage(path,dir,client,ref)
-  end
+local function addPagePath(path,dir)
+  local wpath = path:match("GET(/.*)")
+  wpath = (#wpath:match("(.-)/#rest") or #wpath)+1
+  EM.addPath(path,
+    function(path,client,ref,body,opts)
+      return renderPage(path:sub(wpath),dir,client,opts,ref)
+    end,
+    GUI_MAP)
 end
 
+local var = {["#id"]=true,["#name"]=true}
+local function addPath(p,f,map)
+  local t,sp0,t0 = map
+  for _,sp in ipairs(p:split("/")) do
+    if t[sp]==nil or var[sp] then t[sp] = t[sp] or {} end 
+    sp0,t0,t=sp,t,t[sp]
+  end
+  if sp0=="#rest" then t0["#rest"]=f else t["#fun"]=f end
+end
+
+local function processPathMap(pmap,map)
+  for p,f in pairs(pmap) do addPath(p,f,map or GUI_MAP) end
+end
+
+local function lookup(method,path,map)
+  local t,args = map[method],{}
+  local opts,pa,op = {},path:match("(.*)%?(.*)")
+  if pa then
+    path = pa
+    op:gsub("([^&]-)=([^&]+)",function(k,v) opts[k]=tonumber(v) or (v=='true' and true) or (v=='false' and false) or FB.urldecode(v) end)
+  end
+  for _,p in ipairs(path:split("/")) do
+    if t[p] then t=t[p]
+    elseif tonumber(p) then t=t["#id"] args[#args+1]=tonumber(p)
+    elseif t["#name"] then t=t["#name"] args[#args+1]=p
+    elseif not t["#rest"] then
+      return nil
+      --error("Bad path: "..path)
+    end
+  end
+  return t["#fun"] or t["#rest"],args,opts,path
+end
+local function lookupPath(method,path,map) local stat,f,a,o,p = pcall(lookup,method,path,map) if stat then return f,a,o,p else return f end end
+
 EM.EMEvents('start',function(e) 
-    createServer(name,port,{ ['GET'] = GUIhandler,['POST'] = GUIhandler, ['PUT'] = GUIhandler,})
-    addPath("/web",ARGS.web or EM.modPath.."web/")
+    createServer(name,port,GUIhandler)
+    addPagePath("GET/web/#rest",ARGS.web or EM.modPath.."web/")
   end)
 
 EM.createWebServer,EM.IPAddress,EM.PORT = createServer,IPAddress,port
+EM.lookupPath = lookupPath
+EM.processPathMap = processPathMap
+EM.addPath = addPath
+EM.addPagePath = addPagePath
