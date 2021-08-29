@@ -111,18 +111,18 @@ local function loadFile(code,file)
 end
 
 local function saveFQA(qa)
-  local QA = qa.QA
-  for _,f in ipairs(  qa.files) do f.fname=nil end
+  local dev = qa.dev
+  for _,f in ipairs(qa.files) do f.fname=nil end
   local fqa = {
-    name = QA.name,
-    type = QA.type,
+    name = dev.name,
+    type = dev.type,
     apiVersion="1.2",
-    initialInterfaces = QA.interfaces,
+    initialInterfaces = dev.interfaces,
     initialProperties = {
       viewLayout=
       json.decode([[{"$jason":{"body":{"header":{"style":{"height":"0"},"title":"quickApp_device_403"},"sections":{"items":[]}},"head":{"title":"quickApp_device_403"}}}]]),
       uiCallbacks = {},
-      quickAppVariables = QA.properties.quickAppVariables,
+      quickAppVariables = dev.properties.quickAppVariables,
     },
     typeTemplateInitialized=true,
     files = qa.files

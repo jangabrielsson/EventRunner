@@ -27,7 +27,7 @@ local qa = EM.getQA(opts.id)
     out("<ul>")
     out("<li>DeviceID: %s</li>",qa.id)
     out("<li>Type: %s</li>",qa.type)
-    out("<li>BaseType: %s</li>",EM.Devices[qa.id].baseType or "no base type")
+    out("<li>BaseType: %s</li>",EM.Devices[qa.id].dev.baseType or "no base type")
     out("<li>Interfaces: %s</li>",FB.json.encode(qa.interfaces))
     out("</ul>")
 }}}

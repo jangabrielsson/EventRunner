@@ -1,6 +1,6 @@
 local EM,FB=...
 
-local LOG,json,api = EM.LOG,FB.json,FB.api
+local LOG,json,api,Devices = EM.LOG,FB.json,FB.api,EM.Devices
 local createQuickApp, updateHC3QAFiles
 local format = string.format
 local function copy(t) local r ={}; for k,v in pairs(t) do r[k]=v end return r end
@@ -277,21 +277,19 @@ function updateHC3QAFiles(newFiles,id)
 end
 
 EM.EMEvents('deviceCreated',function(ev)
-    local dev = ev.dev
-    if dev._info and dev._info.proxy then
+    local dev = Devices[ev.id]
+    if dev.info and dev.info.proxy then
       local l = FB.__fibaro_local(false)
-      local stat,res = pcall(createProxy,dev,QA)
+      local stat,res = pcall(createProxy,dev.dev)
       FB.__fibaro_local(l)
       if not stat then 
         LOG("Error: Proxy: %s",res)
-        dev._info.proxy = false
+        dev.info.proxy = false
       else
-        local newId,oldId = res.id,dev.id
-        EM.Devices[oldId] = nil
-        EM.Devices[newId] = dev
-        dev.id = newId
-        EM.QAs[oldId] = nil
-        EM.QAs[newId] = QA
+        local newId,oldId = res.id,dev.dev.id
+        Devices[oldId] = nil
+        Devices[newId] = dev
+        dev.dev.id = newId
       end
     end
   end)

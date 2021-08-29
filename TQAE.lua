@@ -89,7 +89,7 @@ do
   local stat,mobdebug = pcall(require,'mobdebug'); -- If we have mobdebug, enable coroutine debugging
   if stat then mobdebug.coro() end
 end
-local version = "0.15"
+local version = "0.16"
 
 local socket = require("socket")
 local http   = require("socket.http")
@@ -100,7 +100,7 @@ local ltn12  = require("ltn12")
 -- FB.x exported native fibaro functions. Ex- __fibaro_get_device, setTimeout etc. Plugins can add to this, ex. net.*
 -- EM.x internal emulator functions, HTTP, LOG etc. Plugins can add to this...
 
-local FB,QAs,Devices = {},{},{}  -- id->QA map, id->Device map
+local FB,Devices = {},{}  -- id->Device map
 local fmt,LOG,call,loadModules,timers,setTimeout,getContext,setContext,xpresume = string.format
 EM._info = { modules = { ["local"] = {}, global= {} } }
 local verbose = EM.verbose
@@ -145,10 +145,10 @@ local function builtins()
   end
   function FB.__ternary(test, a1, a2) if test then return a1 else return a2 end end
 -- basic api functions, tries to deal with local emulated Devices too. Local Device have precedence over HC3 Devices.
-  function FB.__fibaro_get_device(id) __assert_type(id,"number") return Devices[id] or HC3Request("GET","/devices/"..id) end
+  function FB.__fibaro_get_device(id) __assert_type(id,"number") return Devices[id] and Devices[id].dev or HC3Request("GET","/devices/"..id) end
   function FB.__fibaro_get_devices() 
     local ds = HC3Request("GET","/devices") or {}
-    for _,dev in pairs(Devices) do ds[#ds+1]=dev end -- Add emulated Devices
+    for _,dev in pairs(Devices) do ds[#ds+1]=dev.dev end -- Add emulated Devices
     return ds 
   end 
   function FB.__fibaro_get_room (id) __assert_type(id,"number") return HC3Request("GET","/rooms/"..id) end
@@ -156,7 +156,7 @@ local function builtins()
   function FB.__fibaro_get_global_variable(name) __assert_type(name ,"string") return HC3Request("GET","/globalVariables/"..name) end
   function FB.__fibaro_get_device_property(id ,prop) 
     __assert_type(id,"number") __assert_type(prop,"string")
-    local dev = Devices[id] -- Is it a local Device?
+    local dev = Devices[id] and Devices[id].dev -- Is it a local Device?
     if dev then return dev.properties[prop] and { value = dev.properties[prop], modified=0} or nil
     else return HC3Request("GET","/devices/"..id.."/properties/"..prop) end
   end
@@ -227,7 +227,7 @@ local function builtins()
   function EM.postEMEvent(ev) for _,m in ipairs(EMEvents[ev.type] or {}) do m(ev) end end
   function LOG(...) print(fmt("%s |SYS  |: %s",EM.osDate("[%d.%m.%Y] [%H:%M:%S]"),fmt(...))) end
   EM.LOG,EM.httpRequest,EM.HC3Request = LOG,httpRequest,HC3Request
-  EM.Devices,EM.QAs=Devices,QAs
+  EM.Devices=Devices
   FB.__assert_type = __assert_type
 end
 
@@ -260,7 +260,7 @@ local function timerQueue() -- A sorted timer queue...
 
   function tq.clearTimers(id) -- Clear all timers belonging to QA with id
     local p = ptr
-    while p do if p.qa and p.qa.QA.id == id then p=tq.dequeue(p) else p=p.next end end
+    while p do if p.qa and p.qa.dev.id == id then p=tq.dequeue(p) else p=p.next end end
   end
 
   function tq.peek() -- Return next unlocked timer
@@ -297,8 +297,8 @@ local function emulator()
 
 -- Used by api/devices/<id>/action/<name> to call and hand over to called QA's thread
   function call(id,name,...)
-    local args,QA = {...},QAs[id] or QAs[Devices[id].parentId]
-    runProc(QA,function() QA.env.onAction(id,{deviceId=id,actionName=name,args=args}) end) -- sim. call in another process/QA
+    local args,dev = {...},Devices[id]
+    runProc(dev,function() dev.env.onAction(id,{deviceId=id,actionName=name,args=args}) end) -- sim. call in another process/QA
   end
   function FB.type(o) local t = type(o) return t=='table' and o._TYPE or t end
 -- Check arguments and print a QA error message 
@@ -312,13 +312,12 @@ local function emulator()
   end
   function EM.getQA(id)
     id = tonumber(id) or 0
-    if QAs[id] then return QAs[id].QA end
-    local d = Devices[id]
-    return d and QAs[d.parentId].QA.childDevices[id]
+    local dev = Devices[id]
+    return dev.dev.parentId==0 and dev.env.quickApp or Devices[dev.dev.parentId].env.quickApp.childDevices[id],dev.env
   end
 
   local installQA,runQA
-  local function restartQA(QA) timers.clearTimers(QA.QA.id) runQA(Devices[QA.QA.id]) coroutine.yield() end
+  local function restartQA(dev) timers.clearTimers(dev.dev.id) runQA(dev) coroutine.yield() end
 
   local deviceTemplates
   function EM.createDevice(id,name,typ,properties,interfaces,info)
@@ -331,14 +330,13 @@ local function emulator()
       actions = { turnOn=0,turnOff=0,setValue=1,toggle=0 }
     }
     if id then dev.id = id else dev.id = gID; gID=gID+1 end
-    dev.name = name or "MyQuickApp"
-    dev._info = info
+    dev.name,dev.parentId = name or "MyQuickApp",0
     merge(dev.interfaces,interfaces or {})
     merge(dev.properties,properties or {})
-    Devices[dev.id]=dev
+    Devices[dev.id] = {dev=dev,info=info or {}}
     LOG("Created device %s",dev.id)
-    EM.postEMEvent({type='deviceCreated',dev=dev})
-    return dev
+    EM.postEMEvent({type='deviceCreated',id=dev.id})
+    return Devices[dev.id]
   end
 
   local function addQA(qa) -- Creates the device structure and save the QA files
@@ -347,40 +345,37 @@ local function emulator()
     info.properties = info.properties or {}
     info.properties.quickAppVariables = info.properties.quickAppVariables or {}
     for k,v in pairs(info.quickVars or {}) do table.insert(info.properties.quickAppVariables,1,{name=k,value=v}) end
-    local dev = EM.createDevice(id or info.id,name or info.name,typ or info.type,info.properties,info.interfaces,info)
-    QAs[dev.id]={files=files,save=qa.save or info.save, extras=e, restart=restartQA, noterminate=info.noterminate, info=info }
+    local dev = EM.createDevice(id or info.id,name or info.name,typ or info.type,info.properties,info.interfaces, info)
+    dev.files,dev.save,dev.extras,dev.restart=files,qa.save or info.save,e,restartQA
     return dev
   end
 
   function runQA(dev)      -- Creates an environment and load file modules and starts QuickApp (:onInit())
     local env = {          -- QA environment, all Lua functions available for  QA, 
-      plugin={ mainDeviceId = dev.id },
+      plugin={ mainDeviceId = dev.dev.id },
       os={time=EM.osTime, date=EM.osDate, exit=function() LOG("exit(0)") timers.reset() coroutine.yield() end},
       hc3_emulator={getmetatable=getmetatable,setmetatable=setmetatable,installQA=installQA,EM=EM},
       coroutine=CO,table=table,select=select,pcall=pcall,xpcall=xpcall,print=print,string=string,error=error,
       pairs=pairs,ipairs=ipairs,tostring=tostring,tonumber=tonumber,math=math,assert=assert,_VERBOSE=verbose
     }
-    local qa = QAs[dev.id]
     for s,v in pairs(FB) do env[s]=v end                        -- Copy local exports to QA environment
-    for s,v in pairs(QAs[dev.id].extras or {}) do env[s]=v end  -- Copy user provided environment symbols
+    for s,v in pairs(dev.extras or {}) do env[s]=v end  -- Copy user provided environment symbols
     loadModules(localModules or {},env)                         -- Load default QA specfic modules into environment
     loadModules(EM.localModules or {},env)                      -- Load optional user specified module into environment     
-    local self={}
-    qa.QA,qa.env,env.QuickApp.__obj=self,env,self               -- This is ugly but we need the object before we create it
-    qa.env,env._G=env,env
-    LOG("Loading  QA:%s - ID:%s",dev.name,dev.id)
+    dev.env,env._G=env,env
+    LOG("Loading  QA:%s - ID:%s",dev.dev.name,dev.dev.id)
     local k = coroutine.create(function()
-        for _,f in ipairs(qa.files) do                                     -- for every file we got, load it..
+        for _,f in ipairs(dev.files) do                                     -- for every file we got, load it..
           if verbose then LOG("         ...%s",f.name) end
           local code = check(env.__TAG,load(f.content,f.fname,"t",env)) -- Load our QA code, check syntax errors
           check(env.__TAG,pcall(code))                                  -- Run the QA code, check runtime errors
         end
       end)
-    procs[k]=QAs[dev.id] coroutine.resume(k) procs[k]=nil
-    LOG("Starting QA:%s - ID:%s",dev.name,dev.id)
+    procs[k]=dev coroutine.resume(k) procs[k]=nil
+    LOG("Starting QA:%s - ID:%s",dev.dev.name,dev.dev.id)
     -- Start QA by "creating instance"
-    runProc(QAs[dev.id],function() env.QuickApp(dev) end)  
-    if QAs[dev.id].noterminate then runProc(QAs[dev.id],function() env.setInterval(function() end,5000) end) end -- keep alive...
+    runProc(dev,function() env.QuickApp(dev.dev) end)  
+    if dev.info.noterminate then runProc(dev,function() env.setInterval(function() end,5000) end) end -- keep alive...
   end
 
   function installQA(qa) setTimeout(function() runQA(addQA(qa)) end,0) end
@@ -402,9 +397,8 @@ local function emulator()
     end                                   
     if timers.tags('user') > 0 then LOG("All threads locked - terminating") 
     else LOG("No threads left - terminating") end
-    for _,qa in pairs(QAs) do if qa.save then EM.saveFQA(qa) end end
-    for k,_ in pairs(Devices) do Devices[k]=nil end -- Clear directory of Devices and QAs
-    for k,_ in pairs(QAs) do QAs[k]=nil end -- Clear directory of Devices and QAs                     
+    for _,dev in pairs(Devices) do if dev.save then EM.saveFQA(dev) end end
+    for k,_ in pairs(Devices) do Devices[k]=nil end -- Clear directory of Devices                  
   end
   return run
 

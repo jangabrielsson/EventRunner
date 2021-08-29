@@ -1,6 +1,6 @@
 local EM,FB = ...
 
-local json,verbose,LOG = FB.json,EM.verbose,EM.LOG
+local json,verbose,LOG,Devices = FB.json,EM.verbose,EM.LOG,EM.Devices
 local format = string.format
 
 local function map(f,l) for _,v in ipairs(l) do f(v) end end
@@ -133,7 +133,7 @@ customUI['com.fibaro.binarySwitch'] =
 {{{button='__turnon', text="Turn On",onReleased="turnOn"},{button='__turnoff', text="Turn Off",onReleased="turnOff"}}}
 customUI['com.fibaro.multilevelSwitch'] = 
 {{{button='__turnon', text="Turn On",onReleased="turnOn"},{button='__turnoff', text="Turn Off",onReleased="turnOff"}},
-  {{label='__lab1',text='Value'},{slider='__value', min=0, max=99, onChanged='setValue'}},
+  {{slider='__value', min=0, max=99, onChanged='setValue'}},
   {
     {button='__sli', text="&#8679;",onReleased="startLevelIncrease"},
     {button='__sld', text="&#8681;",onReleased="startLevelIncrease"},
@@ -144,24 +144,24 @@ customUI['com.fibaro.binarySensor']     = customUI['com.fibaro.binarySwitch']   
 customUI['com.fibaro.multilevelSensor'] = customUI['com.fibaro.multilevelSwitch']  -- For debugging
 
 EM.EMEvents('deviceCreated',function(ev) -- Intercept device created and add viewLayout and uiCallbacks
-    local dev = ev.dev
-    if dev._info and dev._info.UI and next(dev._info.UI)~= nil then
-      local UI = dev._info.UI
+    local dev = Devices[ev.id]
+    if dev.info and dev.info.UI and next(dev.info.UI)~= nil then
+      local UI = dev.info.UI
       transformUI(UI)
-      dev.viewLayout = mkViewLayout(UI)
-      dev.uiCallbacks = uiStruct2uiCallbacks(UI)
-    elseif (not dev.viewLayout) and customUI[dev.type] then
-      dev._info = dev._info or {}
-      dev._info.UI = customUI[dev.type]
-      local UI = dev._info.UI
+      dev.dev.viewLayout = mkViewLayout(UI)
+      dev.dev.uiCallbacks = uiStruct2uiCallbacks(UI)
+    elseif (not dev.dev.viewLayout) and customUI[dev.dev.type] then
+      dev.info = dev.info or {}
+      dev.info.UI = customUI[dev.dev.type]
+      local UI = dev.info.UI
       transformUI(UI)
-      dev.viewLayout = mkViewLayout(UI)
-      dev.uiCallbacks = uiStruct2uiCallbacks(UI)
-    elseif not dev.viewLayout then
-      dev.viewLayout= json.decode(
+      dev.dev.viewLayout = mkViewLayout(UI)
+      dev.dev.uiCallbacks = uiStruct2uiCallbacks(UI)
+    elseif not dev.dev.viewLayout then
+      dev.dev.viewLayout= json.decode(
 [[{"$jason":{"body":{"header":{"style":{"height":"0"},"title":"quickApp_device_403"},"sections":{"items":[]}},"head":{"title":"quickApp_device_403"}}}]]
       )
-      dev.uiCallbacks = {}
+      dev.dev.uiCallbacks = {}
     end
   end,true)
 
@@ -172,13 +172,13 @@ local initElm = {
 }
 
 EM.EMEvents('QACreated',function(ev) -- Intercept QA created
-    local QA = ev.QA
-    if not EM.Devices[QA.id] then return end
-    local UI = EM.Devices[QA.id]._info.UI or {}
+    local dev = Devices[ev.QA.id]
+    if not dev then return end
+    local UI = dev.info and dev.info.UI or {}
     for i,r in ipairs(UI) do
       r = r[1] and r or {r}
       for j,c in ipairs(r) do
-        if initElm[c.type] then initElm[c.type](c,QA) end
+        if initElm[c.type] then initElm[c.type](c,ev.QA) end
       end
     end
   end,true)

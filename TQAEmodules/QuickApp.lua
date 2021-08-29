@@ -104,7 +104,7 @@ function QuickApp:initChildDevices(map)
     if childDevices[c.id]==nil and map[c.type] then
       childDevices[c.id]=map[c.type](c)
     elseif childDevices[c.id]==nil then
-      self:error("Class for the child device: %s, with type: %s not found. Using base class: QuickAppChild",c.id,c.type)
+      self:error(string.format("Class for the child device: %s, with type: %s not found. Using base class: QuickAppChild",c.id,c.type))
       childDevices[c.id]=QuickAppChild(c)
     end
     childDevices[c.id].parent = self

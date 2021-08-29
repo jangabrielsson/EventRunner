@@ -1,7 +1,7 @@
 local EM,FB = ...
 
 local json = FB.json
-local HC3Request,LOG,Devices,QAs = EM.HC3Request,EM.LOG,EM.Devices,EM.QAs
+local HC3Request,LOG,Devices = EM.HC3Request,EM.LOG,EM.Devices
 local __fibaro_get_devices,__fibaro_get_device,__fibaro_get_device_property,__fibaro_call=
 FB.__fibaro_get_devices,FB.__fibaro_get_device,FB.__fibaro_get_device_property,FB.__fibaro_call
 
@@ -40,14 +40,13 @@ local GUI_HANDLERS = {
   ["GET/TQAE/slider/#id/#name/#id"] = function(_,client,ref,_,_,id,slider,val)
     id = tonumber(id)
     local stat,err = pcall(function()
-        local qa = EM.getQA(id)
-        local QAst = EM.QAs[qa.id] or EM.QAs[EM.Devices[qa.id].parentId]
+        local qa,env = EM.getQA(id)
         qa:updateView(slider,"value",tostring(val))
         if not qa.parent then
-          QAst.env.onUIEvent(id,{deviceId=id,elementName=slider,eventType='onChanged',values={tonumber(val)}})
+          env.onUIEvent(id,{deviceId=id,elementName=slider,eventType='onChanged',values={tonumber(val)}})
         else 
           local action = qa.uiCallbacks[slider]['onChanged']
-          QAst.env.onAction(id,{deviceId=id,actionName=action,args={tonumber(val)}})
+          env.onAction(id,{deviceId=id,actionName=action,args={tonumber(val)}})
         end
       end)
     if not stat then LOG("ERROR %s",err) end
@@ -57,13 +56,12 @@ local GUI_HANDLERS = {
   ["GET/TQAE/button/#id/#name"] = function(_,client,ref,_,_,id,btn)
     id = tonumber(id)
     local stat,err = pcall(function()
-        local qa = EM.getQA(id)
-        local QAst = EM.QAs[qa.id] or EM.QAs[EM.Devices[qa.id].parentId]
+        local qa,env = EM.getQA(id)
         if not qa.parent then 
-          QAst.env.onUIEvent(id,{deviceId=id,elementName=btn,eventType='onReleased',values={tonumber(val)}})
+          env.onUIEvent(id,{deviceId=id,elementName=btn,eventType='onReleased',values={tonumber(val)}})
         else
           local action = qa.uiCallbacks[btn]['onReleased']
-          QAst.env.onAction(id,{deviceId=id,actionName=action,args={}})
+          env.onAction(id,{deviceId=id,actionName=action,args={}})
         end
       end)
     if not stat then LOG("ERROR %s",err) end
@@ -71,15 +69,15 @@ local GUI_HANDLERS = {
     return true
   end,
   ["POST/TQAE/action/#id"] = function(_,client,ref,body,_,id) 
-    local QAst = EM.QAs[tonumber(id)]
+    local _,env = EM.getQA(tonumber(id))
     local args = json.decode(body)
-    QAst.env.onAction(id,args) 
+    env.onAction(id,args) 
     client:send("HTTP/1.1 302 Found\nLocation: "..(ref or "").."\n\n")
   end,
   ["POST/TQAE/ui/#id"] = function(_,client,ref,body,_,id) 
-    local QAst = EM.QAs[tonumber(id)]
+    local _,env = EM.getQA(tonumber(id))
     local args = json.decode(body)
-    QAst.env.onUIEvent(id,args) 
+    env.onUIEvent(id,args) 
     client:send("HTTP/1.1 302 Found\nLocation: "..(ref or "").."\n\n")
   end,
 }
@@ -126,26 +124,52 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
   ["GET/devices/#ud/properties/#name"] = function(_,_,_,_,id,prop) return __fibaro_get_device_property(tonumber(id),prop) end,
   ["POST/devices/#id/action/#name"] = function(_,path,data,_,id,action) return __fibaro_call(tonumber(id),action,path,data) end,
   ["POST/plugins/updateProperty"] = function(method,path,data,_)
-    if Devices[data.deviceId] then Devices[data.deviceId].properties[data.propertyName]=data.value return data.value,202
-    else return HC3Request(method,path,data)
+    local dev = Devices[data.deviceId]
+    if dev then 
+      dev.dev.properties[data.propertyName]=data.value 
+      --return data.value,202
+      if dev.info and (dev.info.proxy or dev.info.childProxy) then
+        return HC3Request(method,path,data)
+      else return data.value,202 end
+    else
+      return HC3Request(method,path,data)
     end
+  end,
+  ["POST/plugins/updateView"] = function(method,path,data,_)
+    local dev = Devices[data.deviceId]
+--    local data = {
+--      deviceId = self.id,
+--      componentName = componentName,
+--      propertyName = propertyName,
+--      newValue = newValue
+--    }
+--    api.post("/plugins/updateView", data)
   end,
   ["POST/plugins/restart"] = function(method,path,data,_)
     if Devices[data.deviceId] then
-      QAs[data.deviceId]:restart()
+      Devices[data.deviceId]:restart()
       return true,200
     else return HC3Request(method,path,data) end
   end,
   ["POST/plugins/createChildDevice"] = function(method,path,props,_)
-    local QA = EM.QAs[props.parentId]
+    local pdev = Devices[props.parentId]
     if props.initialProperties and next(props.initialProperties)==nil then 
       props.initialProperties = nil
     end
-    if not QA.info.proxy then
+    if not pdev.info.proxy then
       local d = EM.createDevice(nil,props.name,props.type,props.initialProperties,props.initialInterfaces)
-      d.parentId = props.parentId
-      return d,200
-    else return HC3Request(method,path,props) end
+      d.info.childProxy,d.env = true,pdev.env
+      d.dev.parentId = props.parentId
+      return d.dev,200
+    else 
+      local dev,err = HC3Request(method,path,props)
+      if dev then
+        Devices[dev.id] = { info= { childProxy = true }, env=pdev.env, dev=dev}
+        LOG("Created device %s",dev.id)
+        EM.postEMEvent({type='deviceCreated',id=dev.id})
+      end
+      return dev,err
+    end
   end,    
   ["POST/debugMessages"] = function(_,_,args,_)
     local str,tag,typ = args.message,args.tag,args.messageType
@@ -155,7 +179,7 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
   ["PUT/devices/#id"] = function(method,path,data,_,id)
     id=tonumber(id)
     if Devices[id] then
-      local dev = Devices[id]
+      local dev = Devices[id].dev
       for k,v in pairs(data) do
         if k=='properties' then
           for m,n in pairs(v) do dev.properties[m]=n end

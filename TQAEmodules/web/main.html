@@ -20,15 +20,17 @@
 <h2>Loaded QuickApps</h2>
 <ul>
 {{{
-for id,QA in pairs(EM.QAs) do
- local qa = QA.QA
- out('<li>%s - <a href="qa?id=%s">%s</a></li>',qa.id,qa.id,qa.name)
- if next(qa.childDevices) then
-    out("<ul>")
-    for ic,child in pairs(qa.childDevices) do
-      out('<li>%s - <a href="qa?id=%s">%s</a></li>',ic,ic,child.name) 
-    end
-    out("</ul>")
+for id,dev in pairs(EM.Devices) do
+ if dev.dev.parentId==nil or dev.dev.parentId == 0 then
+   local qa = dev.env.quickApp
+   out('<li>%s - <a href="qa?id=%s">%s</a></li>',qa.id,qa.id,qa.name)
+   if next(qa.childDevices) then
+     out("<ul>")
+     for ic,child in pairs(qa.childDevices) do
+       out('<li>%s - <a href="qa?id=%s">%s</a></li>',ic,ic,child.name) 
+     end
+     out("</ul>")
+   end
  end
 end
 }}}
