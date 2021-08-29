@@ -110,9 +110,9 @@ local function loadFile(code,file)
   end
 end
 
-local function saveFQA(qa)
-  local dev = qa.dev
-  for _,f in ipairs(qa.files) do f.fname=nil end
+local function saveFQA(D)
+  local dev = D.dev
+  for _,f in ipairs(D.files or {}) do f.fname=nil end
   local fqa = {
     name = dev.name,
     type = dev.type,
@@ -125,16 +125,16 @@ local function saveFQA(qa)
       quickAppVariables = dev.properties.quickAppVariables,
     },
     typeTemplateInitialized=true,
-    files = qa.files
+    files = D.files
   }
   local stat,res = pcall(function()
-      local f = io.open(qa.save,"w+")
-      assert(f,"Can't open file "..qa.save)
+      local f = io.open(D.save,"w+")
+      assert(f,"Can't open file "..D.save)
       f:write((json.encode(fqa)))
       f:close()
     end)
   if not stat then LOG("Error save .fqa "..res) 
-  else LOG("Saved "..qa.save) end
+  else LOG("Saved "..D.save) end
 end
 
 EM.loadFile, EM.saveFQA = loadFile, saveFQA

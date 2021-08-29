@@ -277,19 +277,19 @@ function updateHC3QAFiles(newFiles,id)
 end
 
 EM.EMEvents('deviceCreated',function(ev)
-    local dev = Devices[ev.id]
-    if dev.info and dev.info.proxy then
+    local D = Devices[ev.id]
+    if D.info and D.info.proxy then
       local l = FB.__fibaro_local(false)
-      local stat,res = pcall(createProxy,dev.dev)
+      local stat,res = pcall(createProxy,D.dev)
       FB.__fibaro_local(l)
       if not stat then 
         LOG("Error: Proxy: %s",res)
-        dev.info.proxy = false
+        D.info.proxy = false
       else
-        local newId,oldId = res.id,dev.dev.id
+        local newId,oldId = res.id,D.dev.id
         Devices[oldId] = nil
-        Devices[newId] = dev
-        dev.dev.id = newId
+        Devices[newId] = D
+        D.dev.id = newId
       end
     end
   end)

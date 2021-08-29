@@ -20,9 +20,9 @@
 <h2>Loaded QuickApps</h2>
 <ul>
 {{{
-for id,dev in pairs(EM.Devices) do
- if dev.dev.parentId==nil or dev.dev.parentId == 0 then
-   local qa = dev.env.quickApp
+for id,D in pairs(EM.Devices) do
+ if D.dev.parentId == 0 then
+   local qa = D.env.quickApp
    out('<li>%s - <a href="qa?id=%s">%s</a></li>',qa.id,qa.id,qa.name)
    if next(qa.childDevices) then
      out("<ul>")

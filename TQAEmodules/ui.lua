@@ -172,13 +172,14 @@ local initElm = {
 }
 
 EM.EMEvents('QACreated',function(ev) -- Intercept QA created
-    local dev = Devices[ev.QA.id]
-    if not dev then return end
-    local UI = dev.info and dev.info.UI or {}
+    local qa = ev.qa
+    local D = Devices[qa.id]
+    if not D then return end
+    local UI = D.info and D.info.UI or {}
     for i,r in ipairs(UI) do
       r = r[1] and r or {r}
       for j,c in ipairs(r) do
-        if initElm[c.type] then initElm[c.type](c,ev.QA) end
+        if initElm[c.type] then initElm[c.type](c,qa) end
       end
     end
   end,true)

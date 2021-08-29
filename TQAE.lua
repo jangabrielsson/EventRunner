@@ -156,15 +156,15 @@ local function builtins()
   function FB.__fibaro_get_global_variable(name) __assert_type(name ,"string") return HC3Request("GET","/globalVariables/"..name) end
   function FB.__fibaro_get_device_property(id ,prop) 
     __assert_type(id,"number") __assert_type(prop,"string")
-    local dev = Devices[id] and Devices[id].dev -- Is it a local Device?
-    if dev then return dev.properties[prop] and { value = dev.properties[prop], modified=0} or nil
+    local D = Devices[id]  -- Is it a local Device?
+    if D then return D.dev.properties[prop] and { value = D.dev.properties[prop], modified=0} or nil
     else return HC3Request("GET","/devices/"..id.."/properties/"..prop) end
   end
   function FB.__fibaro_get_partition(id) return HC3Request("GET",'/alarms/v1/partitions/' .. id) end
   function FB.__fibaroUseAsyncHandler(_) end -- TBD
   function FB.__fibaroSleep(ms) -- We lock all timers/coroutines except the one resuming the sleep for us
-    local r,qa,co; co,r = coroutine.running(),setTimeout(function() setContext(co,qa) timers.lock(r,false) xpresume(co) end,ms) 
-    qa = getContext() timers.lock(r,true); coroutine.yield(co)
+    local r,D,co; co,r = coroutine.running(),setTimeout(function() setContext(co,D) timers.lock(r,false) xpresume(co) end,ms) 
+    D = getContext() timers.lock(r,true); coroutine.yield(co)
   end
   -- Non standard
   function FB.__fibaro_call(id,name,path,data)
@@ -236,9 +236,9 @@ local function timerQueue() -- A sorted timer queue...
   local tq,pcounter,ptr = {},{}
   local tmt={ __tostring = function(t) return t.descr end}
 
-  function tq.queue(t,tag,co,qa)    -- Insert timer
+  function tq.queue(t,tag,co,D)    -- Insert timer
     tag = tag or "user"; pcounter[tag] = (pcounter[tag] or 0)+1
-    local v={t=t+EM.osTime(),co=co,qa=qa,descr=tostring(co),tag=tag} setmetatable(v,tmt) 
+    local v={t=t+EM.osTime(),co=co,D=D,descr=tostring(co),tag=tag} setmetatable(v,tmt) 
     if ptr == nil then ptr = v
     elseif v.t < ptr.t then v.next=ptr; ptr.prev = v; ptr = v
     else
@@ -260,7 +260,7 @@ local function timerQueue() -- A sorted timer queue...
 
   function tq.clearTimers(id) -- Clear all timers belonging to QA with id
     local p = ptr
-    while p do if p.qa and p.qa.dev.id == id then p=tq.dequeue(p) else p=p.next end end
+    while p do if p.D and p.D.dev.id == id then p=tq.dequeue(p) else p=p.next end end
   end
 
   function tq.peek() -- Return next unlocked timer
@@ -268,8 +268,8 @@ local function timerQueue() -- A sorted timer queue...
     while p do if not tq.locked(p) then return p,p.t,p.co end p=p.next end 
   end
 
-  function tq.lock(t,b) if t.qa then t.qa.env.locked = b and t.co or nil end end
-  function tq.locked(t) local l = t.qa and t.qa.env.locked; return l and l~=t.co end
+  function tq.lock(t,b) if t.D then t.D.env.locked = b and t.co or nil end end
+  function tq.locked(t) local l = t.D and t.D.env.locked; return l and l~=t.co end
   function tq.tags(tag) return pcounter[tag] or 0 end
   function tq.reset() ptr=nil; for k,_ in pairs(pcounter) do pcounter[k]=0 end end
   function tq.get() return ptr end
@@ -281,24 +281,24 @@ local function emulator()
   local procs,CO,clock,gID = {},coroutine,EM.clock,1001
   local function copy(t) local r={} for k,v in pairs(t) do r[k]=v end return r end
   local function merge(dest,src) for k,v in pairs(src) do dest[k]=v end end
-  function setContext(co,qa) procs[co]= qa or procs[coroutine.running()]; return co,procs[co] end
+  function setContext(co,D) procs[co]= D or procs[coroutine.running()]; return co,procs[co] end
   function getContext(co) co=co or coroutine.running() return procs[co] end
   function setTimeout(fun,ms,tag) return timers.queue(ms/1000,tag,setContext(CO.create(fun))) end
   FB.setTimeout=setTimeout
 -- Like setTimeout but sets another QA's context - used when starting up and fibaro.cal
-  local function runProc(qa,fun) procs[coroutine.running()]=qa setTimeout(fun,0) return qa end
+  local function runProc(D,fun) procs[coroutine.running()]=D setTimeout(fun,0) return D end
   function FB.clearTimeout(ref) timers.dequeue(ref) end
   function FB.setInterval(fun,ms) 
     local r={} 
-    local function loop() fun() local r2 = setTimeout(loop,ms) r.t,r.co,r.qa,r.tag,r.descr=r2.t,r2.co,r2.qa,r2.tag,r2.descr end 
+    local function loop() fun() local r2 = setTimeout(loop,ms) r.t,r.co,r.D,r.tag,r.descr=r2.t,r2.co,r2.D,r2.tag,r2.descr end 
     loop(); return r 
   end
   function FB.clearInterval(ref) FB.clearTimeout(ref) end
 
 -- Used by api/devices/<id>/action/<name> to call and hand over to called QA's thread
   function call(id,name,...)
-    local args,dev = {...},Devices[id]
-    runProc(dev,function() dev.env.onAction(id,{deviceId=id,actionName=name,args=args}) end) -- sim. call in another process/QA
+    local args,D = {...},Devices[id]
+    runProc(dev,function() D.env.onAction(id,{deviceId=id,actionName=name,args=args}) end) -- sim. call in another process/QA
   end
   function FB.type(o) local t = type(o) return t=='table' and o._TYPE or t end
 -- Check arguments and print a QA error message 
@@ -311,13 +311,13 @@ local function emulator()
     end
   end
   function EM.getQA(id)
-    id = tonumber(id) or 0
-    local dev = Devices[id]
-    return dev.dev.parentId==0 and dev.env.quickApp or Devices[dev.dev.parentId].env.quickApp.childDevices[id],dev.env
+    local D = Devices[tonumber(id) or 0] if not D then return end
+    if D.dev.parentId==0 then return D.env.quickApp,D.env,true 
+    else return D.env.quickApp.childDevices[id],D.env,false end
   end
 
   local installQA,runQA
-  local function restartQA(dev) timers.clearTimers(dev.dev.id) runQA(dev) coroutine.yield() end
+  local function restartQA(D) timers.clearTimers(D.dev.id) runQA(D) coroutine.yield() end
 
   local deviceTemplates
   function EM.createDevice(id,name,typ,properties,interfaces,info)
@@ -333,52 +333,52 @@ local function emulator()
     dev.name,dev.parentId = name or "MyQuickApp",0
     merge(dev.interfaces,interfaces or {})
     merge(dev.properties,properties or {})
-    Devices[dev.id] = {dev=dev,info=info or {}}
+    Devices[dev.id] = {dev=dev, info=info or {}}
     LOG("Created device %s",dev.id)
     EM.postEMEvent({type='deviceCreated',id=dev.id})
-    return Devices[dev.id]
+    return Devices[dev.id].dev,Devices[dev.id]
   end
 
-  local function addQA(qa) -- Creates the device structure and save the QA files
-    local id,name,typ,code,file,e = qa.id,qa.name,qa.type,qa.code,qa.file,qa.env
+  local function addDevice(spec) -- Creates the device structure and save the QA/device files
+    local id,name,typ,code,file,e = spec.id,spec.name,spec.type,spec.code,spec.file,spec.env
     local files,info = EM.loadFile(code,file)
     info.properties = info.properties or {}
     info.properties.quickAppVariables = info.properties.quickAppVariables or {}
     for k,v in pairs(info.quickVars or {}) do table.insert(info.properties.quickAppVariables,1,{name=k,value=v}) end
-    local dev = EM.createDevice(id or info.id,name or info.name,typ or info.type,info.properties,info.interfaces, info)
-    dev.files,dev.save,dev.extras,dev.restart=files,qa.save or info.save,e,restartQA
-    return dev
+    local _,D = EM.createDevice(id or info.id,name or info.name,typ or info.type,info.properties,info.interfaces, info)
+    D.files,D.save,D.extras,D.restart=files,spec.save or info.save,e,restartQA
+    return D
   end
 
-  function runQA(dev)      -- Creates an environment and load file modules and starts QuickApp (:onInit())
+  function runQA(D)        -- Creates an environment and load file modules and starts QuickApp (:onInit())
     local env = {          -- QA environment, all Lua functions available for  QA, 
-      plugin={ mainDeviceId = dev.dev.id },
+      plugin={ mainDeviceId = D.dev.id },
       os={time=EM.osTime, date=EM.osDate, exit=function() LOG("exit(0)") timers.reset() coroutine.yield() end},
       hc3_emulator={getmetatable=getmetatable,setmetatable=setmetatable,installQA=installQA,EM=EM},
       coroutine=CO,table=table,select=select,pcall=pcall,xpcall=xpcall,print=print,string=string,error=error,
       pairs=pairs,ipairs=ipairs,tostring=tostring,tonumber=tonumber,math=math,assert=assert,_VERBOSE=verbose
     }
     for s,v in pairs(FB) do env[s]=v end                        -- Copy local exports to QA environment
-    for s,v in pairs(dev.extras or {}) do env[s]=v end  -- Copy user provided environment symbols
+    for s,v in pairs(D.extras or {}) do env[s]=v end          -- Copy user provided environment symbols
     loadModules(localModules or {},env)                         -- Load default QA specfic modules into environment
     loadModules(EM.localModules or {},env)                      -- Load optional user specified module into environment     
-    dev.env,env._G=env,env
-    LOG("Loading  QA:%s - ID:%s",dev.dev.name,dev.dev.id)
+    D.env,env._G=env,env
+    LOG("Loading  QA:%s - ID:%s",D.dev.name,D.dev.id)
     local k = coroutine.create(function()
-        for _,f in ipairs(dev.files) do                                     -- for every file we got, load it..
+        for _,f in ipairs(D.files) do                                     -- for every file we got, load it..
           if verbose then LOG("         ...%s",f.name) end
-          local code = check(env.__TAG,load(f.content,f.fname,"t",env)) -- Load our QA code, check syntax errors
-          check(env.__TAG,pcall(code))                                  -- Run the QA code, check runtime errors
+          local code = check(env.__TAG,load(f.content,f.fname,"t",env))   -- Load our QA code, check syntax errors
+          check(env.__TAG,pcall(code))                                    -- Run the QA code, check runtime errors
         end
       end)
-    procs[k]=dev coroutine.resume(k) procs[k]=nil
-    LOG("Starting QA:%s - ID:%s",dev.dev.name,dev.dev.id)
+    procs[k]=D coroutine.resume(k) procs[k]=nil
+    LOG("Starting QA:%s - ID:%s",D.dev.name,D.dev.id)
     -- Start QA by "creating instance"
-    runProc(dev,function() env.QuickApp(dev.dev) end)  
-    if dev.info.noterminate then runProc(dev,function() env.setInterval(function() end,5000) end) end -- keep alive...
+    runProc(dev,function() env.QuickApp(D.dev) end)  
+    if D.info.noterminate then runProc(D,function() env.setInterval(function() end,5000) end) end -- keep alive...
   end
 
-  function installQA(qa) setTimeout(function() runQA(addQA(qa)) end,0) end
+  function installQA(spec) setTimeout(function() runQA(addDevice(spec)) end,0) end
 
   local function run(QA) 
     for _,qa in ipairs(QA[1] and QA or {QA}) do installQA(qa) end -- Create QAs given
@@ -397,8 +397,7 @@ local function emulator()
     end                                   
     if timers.tags('user') > 0 then LOG("All threads locked - terminating") 
     else LOG("No threads left - terminating") end
-    for _,dev in pairs(Devices) do if dev.save then EM.saveFQA(dev) end end
-    for k,_ in pairs(Devices) do Devices[k]=nil end -- Clear directory of Devices                  
+    for k,D in pairs(Devices) do if D.save then EM.saveFQA(D) end Devices[k]=nil end -- Save and clear directory of Devices                
   end
   return run
 

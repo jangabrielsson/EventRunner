@@ -17,7 +17,7 @@ function QuickAppBase:__init(dev)
   self.properties = dev.properties
   self.interfaces = dev.interfaces
   self._view      = {} -- TBD
-  hc3_emulator.EM.postEMEvent({type='QACreated',QA=self})
+  hc3_emulator.EM.postEMEvent({type='QACreated',qa=self})
   self.uiCallbacks = {}
   for _,e in ipairs(dev.uiCallbacks or {}) do
     self.uiCallbacks[e.name] = self.uiCallbacks[e.name] or {} 

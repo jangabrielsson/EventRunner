@@ -124,11 +124,11 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
   ["GET/devices/#ud/properties/#name"] = function(_,_,_,_,id,prop) return __fibaro_get_device_property(tonumber(id),prop) end,
   ["POST/devices/#id/action/#name"] = function(_,path,data,_,id,action) return __fibaro_call(tonumber(id),action,path,data) end,
   ["POST/plugins/updateProperty"] = function(method,path,data,_)
-    local dev = Devices[data.deviceId]
+    local D = Devices[data.deviceId]
     if dev then 
-      dev.dev.properties[data.propertyName]=data.value 
+      D.dev.properties[data.propertyName]=data.value 
       --return data.value,202
-      if dev.info and (dev.info.proxy or dev.info.childProxy) then
+      if D.info and (D.info.proxy or D.info.childProxy) then
         return HC3Request(method,path,data)
       else return data.value,202 end
     else
@@ -136,7 +136,7 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
     end
   end,
   ["POST/plugins/updateView"] = function(method,path,data,_)
-    local dev = Devices[data.deviceId]
+    local D = Devices[data.deviceId]
 --    local data = {
 --      deviceId = self.id,
 --      componentName = componentName,
@@ -152,19 +152,19 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
     else return HC3Request(method,path,data) end
   end,
   ["POST/plugins/createChildDevice"] = function(method,path,props,_)
-    local pdev = Devices[props.parentId]
+    local D = Devices[props.parentId]
     if props.initialProperties and next(props.initialProperties)==nil then 
       props.initialProperties = nil
     end
-    if not pdev.info.proxy then
-      local d = EM.createDevice(nil,props.name,props.type,props.initialProperties,props.initialInterfaces)
-      d.info.childProxy,d.env = true,pdev.env
-      d.dev.parentId = props.parentId
-      return d.dev,200
+    if not D.info.proxy then
+      local _,DC = EM.createDevice(nil,props.name,props.type,props.initialProperties,props.initialInterfaces)
+      DC.info.childProxy,DC.env = true,D.env
+      DC.dev.parentId = props.parentId
+      return DC.dev,200
     else 
       local dev,err = HC3Request(method,path,props)
       if dev then
-        Devices[dev.id] = { info= { childProxy = true }, env=pdev.env, dev=dev}
+        Devices[dev.id] = { info= { childProxy = true }, env=D.env, dev=dev}
         LOG("Created device %s",dev.id)
         EM.postEMEvent({type='deviceCreated',id=dev.id})
       end
