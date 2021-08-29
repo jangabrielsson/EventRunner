@@ -1,6 +1,6 @@
 local EM,FB = ...
 
-local json,verbose,LOG,Devices = FB.json,EM.verbose,EM.LOG,EM.Devices
+local json,LOG,Devices = FB.json,EM.LOG,EM.Devices
 local format = string.format
 
 local function map(f,l) for _,v in ipairs(l) do f(v) end end
@@ -177,9 +177,9 @@ EM.EMEvents('QACreated',function(ev) -- Intercept QA created
     local D = Devices[qa.id]
     if not D then return end
     local UI = D.info and D.info.UI or {}
-    for i,r in ipairs(UI) do
+    for _,r in ipairs(UI) do
       r = r[1] and r or {r}
-      for j,c in ipairs(r) do
+      for _,c in ipairs(r) do
         if initElm[c.type] then initElm[c.type](c,qa) end
       end
     end

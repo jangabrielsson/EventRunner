@@ -18,9 +18,9 @@ local function createProxy(device)
   if d and #d>0 then
     table.sort(d,function(a,b) return a.id >= b.id end)
     pdevice = d[1]
-    LOG("Proxy: '%s' found, ID:%s",name,pdevice.id)
+    LOG(EM.LOGINFO1,"Proxy: '%s' found, ID:%s",name,pdevice.id)
     if pdevice.type ~= typ then
-      LOG("Proxy: Type changed from '%s' to %s",typ,pdevice.type)
+      LOG(EM.LOGINFO1,"Proxy: Type changed from '%s' to %s",typ,pdevice.type)
       api.delete("/devices/"..pdevice.id)
       pdevice = nil
     else id = pdevice.id end
@@ -55,7 +55,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
 
   code = table.concat(code,"\n")
 
-  LOG(id and "Proxy: Reusing QuickApp proxy" or "Proxy: Creating new proxy")
+  LOG(EM.LOGINFO1,id and "Proxy: Reusing QuickApp proxy" or "Proxy: Creating new proxy")
 
   table.insert(quickVars,{name="PROXYIP", value = EM.IPAddress..":"..EM.PORT})
   return createQuickApp{id=id,name=name,type=typ,code=code,initialProperties=properties,initialInterfaces=interfaces}
@@ -244,10 +244,10 @@ function createQuickApp(args)
   end
 
   if type(res)=='string' or res > 201 then
-    LOG("Error: D:%s,RES:%s",json.encode(d1),json.encode(res))
+    LOG(EM.LOGERR,"Error: D:%s,RES:%s",json.encode(d1),json.encode(res))
     return nil
   else
-    LOG("Device %s %s",d1.id or "",what)
+    LOG(EM.LOGALLW,"Device %s %s",d1.id or "",what)
     return d1
   end
 end
@@ -283,7 +283,7 @@ EM.EMEvents('deviceCreated',function(ev)
       local stat,res = pcall(createProxy,D.dev)
       FB.__fibaro_local(l)
       if not stat then 
-        LOG("Error: Proxy: %s",res)
+        LOG(EM.LOGERR,"Error: Proxy: %s",res)
         D.info.proxy = false
       else
         local newId,oldId = res.id,D.dev.id
@@ -300,7 +300,7 @@ EM.EMEvents('QACreated',function(ev)
       local D = Devices[qa.parentId]
       if D and D.info.proxy then
         Devices[dev.id] = { info= { childProxy = true }, env=D.env, dev=dev}
-        LOG("Imported proxy child %s",dev.id)
+        LOG(EM.LOGINFO1,"Imported proxy child %s",dev.id)
         EM.postEMEvent({type='deviceCreated',id=dev.id})
       end
     end

@@ -13,7 +13,7 @@ local GUI_HANDLERS = {
       if k:sub(1,3)=='arg' then args[tonumber(k:sub(4))]=v end
     end
     local stat,err=pcall(FB.__fibaro_call,id,action,"",{args=args})
-    if not stat then LOG("Bad callAction:%s",err) end
+    if not stat then LOG(EM.LOGERR,"Bad callAction:%s",err) end
     client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
     return true
   end,
@@ -22,11 +22,11 @@ local GUI_HANDLERS = {
     local stat,res = pcall(function()
         arg = json.decode("["..(arg or "").."]")
         local QA = EM.getQA(tonumber(opts.qaID))
-        LOG("Web call: QA(%s):%s%s = %s",opts.qaID,opts.method,json.encode(arg),json.encode(res))
+        LOG(EM.LOGINFO2,"Web call: QA(%s):%s%s = %s",opts.qaID,opts.method,json.encode(arg),json.encode(res))
         local res = {QA[opts.method](QA,table.unpack(arg))}
       end)
     if not stat then 
-      LOG("Error: Web call: QA(%s):%s%s - %s",opts.qaID,opts.method,json.encode(arg),res)
+      LOG(EM.LOGERR,"Error: Web call: QA(%s):%s%s - %s",opts.qaID,opts.method,json.encode(arg),res)
     end
     client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
     return true
@@ -49,7 +49,7 @@ local GUI_HANDLERS = {
           env.onAction(id,{deviceId=id,actionName=action,args={tonumber(val)}})
         end
       end)
-    if not stat then LOG("ERROR %s",err) end
+    if not stat then LOG(EM.LOGERR,"ERROR %s",err) end
     client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
     return true
   end,   
@@ -64,7 +64,7 @@ local GUI_HANDLERS = {
           env.onAction(id,{deviceId=id,actionName=action,args={}})
         end
       end)
-    if not stat then LOG("ERROR %s",err) end
+    if not stat then LOG(EM.LOGERR,"ERROR %s",err) end
     client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
     return true
   end,
@@ -165,7 +165,7 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
       local dev,err = HC3Request(method,path,props)
       if dev then
         Devices[dev.id] = { info= { childProxy = true }, env=D.env, dev=dev}
-        LOG("Created device %s",dev.id)
+        LOG(EM.LOGINFO2,"Created device %s",dev.id)
         EM.postEMEvent({type='deviceCreated',id=dev.id})
       end
       return dev,err
@@ -206,9 +206,9 @@ function aHC3call(method,path,data) -- Intercepts some cmds to handle local reso
   local fun,args,opts,path2 = EM.lookupPath(method,path,API_MAP)
   if type(fun)=='function' then
     local stat,res,code = pcall(fun,method,path2,data,opts,table.unpack(args))
-    if not stat then return LOG("Bad API call:%s",res)
+    if not stat then return LOG(EM.LOGERR,"Bad API call:%s",res)
     elseif code~=false then return res,code end
-  elseif fun~=nil then return LOG("Bad API call:%s",fun) end
+  elseif fun~=nil then return LOG(EM.LOGERR,"Bad API call:%s",fun) end
   return HC3Request(method,path,data) -- Call without intercept
 end
 

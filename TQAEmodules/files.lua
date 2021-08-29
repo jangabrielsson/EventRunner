@@ -1,6 +1,6 @@
 local EM,FB = ...
 
-local json,verbose,LOG = FB.json,EM.verbose,EM.LOG
+local json,LOG = FB.json,EM.LOG
 
 local CRC16Lookup = {
   0x0000,0x1021,0x2042,0x3063,0x4084,0x50a5,0x60c6,0x70e7,0x8108,0x9129,0xa14a,0xb16b,0xc18c,0xd1ad,0xe1ce,0xf1ef,
@@ -36,14 +36,14 @@ end
 
 local firstTemp = true
 local function createTemp(name,content) -- Storing code fragments on disk will help debugging. TBD
-  if firstTemp and verbose then LOG("Using %s for temporary files",EM.temp) firstTemp=false end
+  if firstTemp then LOG(EM.LOGINFO1,"Using %s for temporary files",EM.temp) firstTemp=false end
   local crc = crc16(content)
   local fname = EM.temp..name.."_"..crc..".lua" 
   local f,res = io.open(fname,"r") 
   if f then f:close() return fname end -- If it exists, don't store it again
   f,res = io.open(fname,"w+")
-  if not f then LOG("Warning - couldn't create temp files in %s - %s",EM.temp,res) return 
-  elseif verbose then LOG("Created temp file %s",fname) end
+  if not f then LOG(EM.LOGERR,"Warning - couldn't create temp files in %s - %s",EM.temp,res) return 
+  else LOG(EM.LOGINFO2,"Created temp file %s",fname) end
   f:write(content) 
   f:close()
   return fname
@@ -133,8 +133,8 @@ local function saveFQA(D)
       f:write((json.encode(fqa)))
       f:close()
     end)
-  if not stat then LOG("Error save .fqa "..res) 
-  else LOG("Saved "..D.save) end
+  if not stat then LOG(EM.LOGERR,"Error save .fqa "..res) 
+  else LOG(EM.LOGALLW,"Saved "..D.save) end
 end
 
 EM.loadFile, EM.saveFQA = loadFile, saveFQA

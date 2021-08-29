@@ -34,9 +34,10 @@ EM.paramsFile  = DEF(EM.paramsFile,"TQAEconfigs.lua")
 do 
   local pf = loadfile(EM.paramsFile); if pf then local p = pf() or {}; for k,v in pairs(EM) do p[ k ]=v end EM=p end 
 end
-EM.verbose       = DEF(EM.verbose,false)
 EM.modPath       = DEF(EM.modpath,"TQAEmodules/")   -- directory where TQAE modules are stored
 EM.temp          = DEF(EM.temp,os.getenv("TMPDIR") or os.getenv("TEMP") or os.getenv("TMP") or "temp/") -- temp directory
+EM.logLevel      = DEF(EM.logLevel,2)
+EM.LOGALLW,EM.LOGINFO1,EM.LOGINFO2,EM.LOGERR=0,1,2,0
 
 local globalModules = { -- default global modules loaded into emulator environment
   "net.lua","json.lua","files.lua", "webserver.lua", "api.lua", "proxy.lua", "ui.lua",
@@ -103,7 +104,6 @@ local ltn12  = require("ltn12")
 local FB,Devices = {},{}  -- id->Device map
 local fmt,LOG,call,loadModules,timers,setTimeout,getContext,setContext,xpresume = string.format
 EM._info = { modules = { ["local"] = {}, global= {} } }
-local verbose = EM.verbose
 
 ------------------------ Builtin functions ------------------------------------------------------
 local function builtins()
@@ -191,7 +191,7 @@ local function builtins()
     local stat,res = pcall(function()
         for _,m in ipairs(ms) do
           if type(m)=='table' then m,args=m[1],m[2] end
-          if verbose then LOG("Loading  %s module %s",env and "local" or "global",m) end
+          LOG(EM.LOGINFO2,"Loading  %s module %s",env and "local" or "global",m) 
           table.insert(EM._info.modules[env and "local" or "global"],m)
           local code,res=loadfile(EM.modPath..m,"t",env or _G)
           assert(code,res)
@@ -225,7 +225,7 @@ local function builtins()
     EMEvents[typ] = evs
   end
   function EM.postEMEvent(ev) for _,m in ipairs(EMEvents[ev.type] or {}) do m(ev) end end
-  function LOG(...) print(fmt("%s |SYS  |: %s",EM.osDate("[%d.%m.%Y] [%H:%M:%S]"),fmt(...))) end
+  function LOG(level,...) if level <= EM.logLevel then print(fmt("%s |SYS  |: %s",EM.osDate("[%d.%m.%Y] [%H:%M:%S]"),fmt(...))) end end
   EM.LOG,EM.httpRequest,EM.HC3Request,EM.socket = LOG,httpRequest,HC3Request,socket
   EM.Devices=Devices
   FB.__assert_type = __assert_type
@@ -334,7 +334,7 @@ local function emulator()
     merge(dev.interfaces,interfaces or {})
     merge(dev.properties,properties or {})
     Devices[dev.id] = {dev=dev, info=info or {}}
-    LOG("Created device %s",dev.id)
+    LOG(EM.LOGINFO1,"Created device %s",dev.id)
     EM.postEMEvent({type='deviceCreated',id=dev.id})
     return Devices[dev.id].dev,Devices[dev.id]
   end
@@ -353,26 +353,26 @@ local function emulator()
   function runQA(D)        -- Creates an environment and load file modules and starts QuickApp (:onInit())
     local env = {          -- QA environment, all Lua functions available for  QA, 
       plugin={ mainDeviceId = D.dev.id },
-      os={time=EM.osTime, date=EM.osDate, exit=function() LOG("exit(0)") timers.reset() coroutine.yield() end},
+      os={time=EM.osTime, date=EM.osDate, exit=function() LOG(EM.LOGALLW,"exit(0)") timers.reset() coroutine.yield() end},
       hc3_emulator={getmetatable=getmetatable,setmetatable=setmetatable,installQA=installQA,EM=EM},
       coroutine=CO,table=table,select=select,pcall=pcall,xpcall=xpcall,print=print,string=string,error=error,
-      next=next,pairs=pairs,ipairs=ipairs,tostring=tostring,tonumber=tonumber,math=math,assert=assert,_VERBOSE=verbose
+      next=next,pairs=pairs,ipairs=ipairs,tostring=tostring,tonumber=tonumber,math=math,assert=assert,_LOGLEVEL=EM.logLevel
     }
     for s,v in pairs(FB) do env[s]=v end                        -- Copy local exports to QA environment
     for s,v in pairs(D.extras or {}) do env[s]=v end          -- Copy user provided environment symbols
     loadModules(localModules or {},env)                         -- Load default QA specfic modules into environment
     loadModules(EM.localModules or {},env)                      -- Load optional user specified module into environment     
     D.env,env._G=env,env
-    LOG("Loading  QA:%s - ID:%s",D.dev.name,D.dev.id)
+    LOG(EM.LOGINFO1,"Loading  QA:%s - ID:%s",D.dev.name,D.dev.id)
     local k = coroutine.create(function()
         for _,f in ipairs(D.files) do                                     -- for every file we got, load it..
-          if verbose then LOG("         ...%s",f.name) end
+          LOG(EM.LOGINFO2,"         ...%s",f.name)
           local code = check(env.__TAG,load(f.content,f.fname,"t",env))   -- Load our QA code, check syntax errors
           check(env.__TAG,pcall(code))                                    -- Run the QA code, check runtime errors
         end
       end)
     procs[k]=D coroutine.resume(k) procs[k]=nil
-    LOG("Starting QA:%s - ID:%s",D.dev.name,D.dev.id)
+    LOG(EM.LOGINFO1,"Starting QA:%s - ID:%s",D.dev.name,D.dev.id)
     -- Start QA by "creating instance"
     runProc(dev,function() env.QuickApp(D.dev) end)  
     if D.info.noterminate then runProc(D,function() env.setInterval(function() end,5000) end) end -- keep alive...
@@ -395,8 +395,8 @@ local function emulator()
         socket.sleep(time-now)         -- "sleep" until next timer in line is up
       end                              -- ...because nothing else is running, no timer could enter before in queue.
     end                                   
-    if timers.tags('user') > 0 then LOG("All threads locked - terminating") 
-    else LOG("No threads left - terminating") end
+    if timers.tags('user') > 0 then LOG(EM.LOGINFO1,"All threads locked - terminating") 
+    else LOG(EM.LOGINFO1,"No threads left - terminating") end
     for k,D in pairs(Devices) do if D.save then EM.saveFQA(D) end Devices[k]=nil end -- Save and clear directory of Devices                
   end
   return run
@@ -421,5 +421,5 @@ if embedded then                        -- Embedded call...
     run({file=file.source:sub(2)})      -- Run that file
   end
 else main(run) end                      -- Else call our playground...
-LOG("End - runtime %.2f min",(EM.osTime()-EM._info.started)/60)
+LOG(EM.LOGALLW,"End - runtime %.2f min",(EM.osTime()-EM._info.started)/60)
 os.exit()

@@ -23,8 +23,8 @@ local function coprocess(ms,fun,tag,...)
     local stat = coroutine.status(p) -- run every ms
     if stat~="dead" then FB.setTimeout(process,ms,tag) end 
     if stat == 'dead' and err then
-      LOG("Webserver error %s",err)
-      LOG("Webserver error %s",debug.traceback(p))
+      LOG(EM.LOGERR,"Webserver error %s",err)
+      LOG(EM.LOGERR,"Webserver error %s",debug.traceback(p))
     end
   end
   process()
@@ -76,7 +76,7 @@ local function createServer(name,port,handler)
   server:settimeout(0,'b')
   server:setoption('keepalive',true)
   coprocess(10,socketServer,"Web:server",server,handler)
-  LOG("Created %s at %s:%s",name,IPAddress,port)
+  LOG(EM.LOGALLW,"Created %s at %s:%s",name,IPAddress,port)
 end
 
 local GUI_MAP = { GET={}, PUT={}, POST={}, DELETE={}}
@@ -85,12 +85,12 @@ local function GUIhandler(method,client,call,body,ref)
   if type(fun)=='function' then
     local stat,res = pcall(fun,path,client,ref,body,opts,table.unpack(args))
     if not stat then
-      LOG("Bad API call:%s",res)
+      LOG(EM.LOGERR,"Bad API call:%s",res)
     end
   elseif fun==nil then
     client:send("HTTP/1.1 501 Not Implemented\nLocation: "..(ref or call).."\n")
   else 
-    LOG("Bad API call:%s",fun)
+    LOG(EM.LOGERR,"Bad API call:%s",fun)
   end
 end
 
