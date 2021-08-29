@@ -234,7 +234,7 @@ local function lookupPath(method,path,map) local stat,f,a,o,p = pcall(lookup,met
 EM.EMEvents('start',function(e) 
     createServer(name,port,GUIhandler)
     addPagePath("GET/web/#rest",ARGS.web or EM.modPath.."web/")
-  end)
+  end,true)
 
 EM.createWebServer,EM.IPAddress,EM.PORT = createServer,IPAddress,port
 EM.lookupPath = lookupPath

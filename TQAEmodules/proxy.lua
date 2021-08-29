@@ -2,7 +2,7 @@ local EM,FB=...
 
 local LOG,json,api,Devices = EM.LOG,FB.json,FB.api,EM.Devices
 local createQuickApp, updateHC3QAFiles
-local format = string.format
+local format,loadChildren = string.format
 local function copy(t) local r ={}; for k,v in pairs(t) do r[k]=v end return r end
 local function map(f,t) for _,v in ipairs(t) do f(v) end end
 
@@ -294,3 +294,14 @@ EM.EMEvents('deviceCreated',function(ev)
     end
   end)
 
+EM.EMEvents('QACreated',function(ev)
+    local qa,dev = ev.qa,ev.dev
+    if qa.parentId > 0 and Devices[qa.id]==nil then
+      local D = Devices[qa.parentId]
+      if D and D.info.proxy then
+        Devices[dev.id] = { info= { childProxy = true }, env=D.env, dev=dev}
+        LOG("Imported proxy child %s",dev.id)
+        EM.postEMEvent({type='deviceCreated',id=dev.id})
+      end
+    end
+  end,true)

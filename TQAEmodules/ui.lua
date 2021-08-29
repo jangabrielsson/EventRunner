@@ -144,24 +144,25 @@ customUI['com.fibaro.binarySensor']     = customUI['com.fibaro.binarySwitch']   
 customUI['com.fibaro.multilevelSensor'] = customUI['com.fibaro.multilevelSwitch']  -- For debugging
 
 EM.EMEvents('deviceCreated',function(ev) -- Intercept device created and add viewLayout and uiCallbacks
-    local dev = Devices[ev.id]
-    if dev.info and dev.info.UI and next(dev.info.UI)~= nil then
-      local UI = dev.info.UI
+    local D = Devices[ev.id]
+    local dev = D.dev
+    if D.info and D.info.UI and next(D.info.UI)~= nil then
+      local UI = D.info.UI
       transformUI(UI)
-      dev.dev.viewLayout = mkViewLayout(UI)
-      dev.dev.uiCallbacks = uiStruct2uiCallbacks(UI)
-    elseif (not dev.dev.viewLayout) and customUI[dev.dev.type] then
-      dev.info = dev.info or {}
-      dev.info.UI = customUI[dev.dev.type]
-      local UI = dev.info.UI
+      dev.viewLayout = mkViewLayout(UI)
+      dev.uiCallbacks = uiStruct2uiCallbacks(UI)
+    elseif (not dev.viewLayout) and customUI[dev.type] then
+      D.info = dev.info or {}
+      D.info.UI = customUI[dev.type]
+      local UI = D.info.UI
       transformUI(UI)
-      dev.dev.viewLayout = mkViewLayout(UI)
-      dev.dev.uiCallbacks = uiStruct2uiCallbacks(UI)
-    elseif not dev.dev.viewLayout then
-      dev.dev.viewLayout= json.decode(
+      dev.viewLayout = mkViewLayout(UI)
+      dev.uiCallbacks = uiStruct2uiCallbacks(UI)
+    elseif not dev.viewLayout then
+      dev.viewLayout= json.decode(
 [[{"$jason":{"body":{"header":{"style":{"height":"0"},"title":"quickApp_device_403"},"sections":{"items":[]}},"head":{"title":"quickApp_device_403"}}}]]
       )
-      dev.dev.uiCallbacks = {}
+      dev.uiCallbacks = {}
     end
   end,true)
 
@@ -182,7 +183,7 @@ EM.EMEvents('QACreated',function(ev) -- Intercept QA created
         if initElm[c.type] then initElm[c.type](c,qa) end
       end
     end
-  end,true)
+  end)
 
 EM.UI = {}
 EM.UI.uiStruct2uiCallbacks = uiStruct2uiCallbacks

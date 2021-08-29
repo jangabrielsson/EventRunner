@@ -125,7 +125,7 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
   ["POST/devices/#id/action/#name"] = function(_,path,data,_,id,action) return __fibaro_call(tonumber(id),action,path,data) end,
   ["POST/plugins/updateProperty"] = function(method,path,data,_)
     local D = Devices[data.deviceId]
-    if dev then 
+    if D then 
       D.dev.properties[data.propertyName]=data.value 
       --return data.value,202
       if D.info and (D.info.proxy or D.info.childProxy) then
@@ -200,7 +200,7 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
   end,
 }
 
-local API_MAP={}
+local API_MAP={ GET={}, POST={}, PUT={}, DELETE={} }
 
 function aHC3call(method,path,data) -- Intercepts some cmds to handle local resources
   local fun,args,opts,path2 = EM.lookupPath(method,path,API_MAP)
@@ -218,8 +218,6 @@ function api.post(cmd,data) return aHC3call("POST",cmd,data) end
 function api.put(cmd,data) return aHC3call("PUT",cmd,data) end
 function api.delete(cmd) return aHC3call("DELETE",cmd) end
 
-EM.EMEvents('init',function(_) 
-    EM.processPathMap(API_CALLS,API_MAP)
-  end)
+EM.EMEvents('start',function(_) EM.processPathMap(API_CALLS,API_MAP) end)
 
 FB.api = api

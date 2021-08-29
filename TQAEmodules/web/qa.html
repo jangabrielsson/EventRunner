@@ -23,7 +23,7 @@ td {
 </head>
 <body>
 {{{
-    local dev=EM.Devices[tonumber(opts.id)]
+    local dev=EM.Devices[tonumber(opts.id)].dev
     out("<ul>")
     out("<li>DeviceID: %s</li>",dev.id)
     out("<li>Type: %s</li>",dev.type)

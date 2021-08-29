@@ -23,11 +23,11 @@
 for id,D in pairs(EM.Devices) do
  if D.dev.parentId == 0 then
    local qa = D.env.quickApp
-   out('<li>%s - <a href="qa?id=%s">%s</a></li>',qa.id,qa.id,qa.name)
+   out('<li>%s - <a href="/web/qa?id=%s">%s</a></li>',qa.id,qa.id,qa.name)
    if next(qa.childDevices) then
      out("<ul>")
      for ic,child in pairs(qa.childDevices) do
-       out('<li>%s - <a href="qa?id=%s">%s</a></li>',ic,ic,child.name) 
+       out('<li>%s - <a href="/web/qa?id=%s">%s</a></li>',ic,ic,child.name) 
      end
      out("</ul>")
    end

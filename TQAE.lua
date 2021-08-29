@@ -307,7 +307,7 @@ local function emulator()
   function xpresume(co)  
     local stat,res = CO.resume(co)
     if not stat then 
-      check(procs[co].env.__TAG,stat,res) debug.traceback(co) 
+      check(procs[co] and procs[co].env.__TAG or "",stat,res) debug.traceback(co) 
     end
   end
   function EM.getQA(id)
@@ -356,7 +356,7 @@ local function emulator()
       os={time=EM.osTime, date=EM.osDate, exit=function() LOG("exit(0)") timers.reset() coroutine.yield() end},
       hc3_emulator={getmetatable=getmetatable,setmetatable=setmetatable,installQA=installQA,EM=EM},
       coroutine=CO,table=table,select=select,pcall=pcall,xpcall=xpcall,print=print,string=string,error=error,
-      pairs=pairs,ipairs=ipairs,tostring=tostring,tonumber=tonumber,math=math,assert=assert,_VERBOSE=verbose
+      next=next,pairs=pairs,ipairs=ipairs,tostring=tostring,tonumber=tonumber,math=math,assert=assert,_VERBOSE=verbose
     }
     for s,v in pairs(FB) do env[s]=v end                        -- Copy local exports to QA environment
     for s,v in pairs(D.extras or {}) do env[s]=v end          -- Copy user provided environment symbols
@@ -406,21 +406,20 @@ end -- emulator
 timers = timerQueue(); EM.timers=timers-- Create timer queue
 builtins()                             -- Define built-ins
 loadModules(globalModules or {})       -- Load global modules
-loadModules(EM.globalModules or {})    -- Load optional user specified module into environment
-EM.postEMEvent({type='init'})
+loadModules(EM.globalModules or {})    -- Load optional user specified modules into environment
 local run = emulator()                 -- Setup emulator core - returns run function
 
 print(fmt("---------------- Tiny QuickAppEmulator (TQAE) v%s -------------",version)) -- Get going...
 if EM.startTime then EM.setDate(EM.startTime) end
 EM._info.started = EM.osTime()
-EM.postEMEvent{type='start'}
+EM.postEMEvent{type='start'}            -- Announce that we have started
 
-if embedded then                   -- Embedded call...
-  local file = debug.getinfo(2)    -- Find out what file that called us
+if embedded then                        -- Embedded call...
+  local file = debug.getinfo(2)         -- Find out what file that called us
   if file and file.source then
     if not file.source:sub(1,1)=='@' then error("Can't locate file:"..file.source) end
-    run({file=file.source:sub(2)}) -- Run that file
+    run({file=file.source:sub(2)})      -- Run that file
   end
-else main(run) end                 -- Else call our playground...
+else main(run) end                      -- Else call our playground...
 LOG("End - runtime %.2f min",(EM.osTime()-EM._info.started)/60)
 os.exit()
