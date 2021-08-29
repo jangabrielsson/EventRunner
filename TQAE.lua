@@ -226,7 +226,7 @@ local function builtins()
   end
   function EM.postEMEvent(ev) for _,m in ipairs(EMEvents[ev.type] or {}) do m(ev) end end
   function LOG(...) print(fmt("%s |SYS  |: %s",EM.osDate("[%d.%m.%Y] [%H:%M:%S]"),fmt(...))) end
-  EM.LOG,EM.httpRequest,EM.HC3Request = LOG,httpRequest,HC3Request
+  EM.LOG,EM.httpRequest,EM.HC3Request,EM.socket = LOG,httpRequest,HC3Request,socket
   EM.Devices=Devices
   FB.__assert_type = __assert_type
 end
