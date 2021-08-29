@@ -1,8 +1,8 @@
 -- Local module, loaded into each QA's environment
 __TAG="QUICKAPP"..plugin.mainDeviceId
 
-function plugin.deleteDevice(deviceId) return api.delete("/devices/"..deviceId) end
-function plugin.restart(deviceId) return api.post("/plugins/restart",{deviceId=deviceId or quickApp.id}) end
+function plugin.deleteDevice(id) return api.delete("/devices/"..id) end
+function plugin.restart(id) return api.post("/plugins/restart",{deviceId=id or quickApp.id}) end
 function plugin.getProperty(id,prop) return api.get("/devices/"..id.."/property/"..prop) end
 function plugin.getChildDevices(id) return api.get("/devices?parentId="..(id or quickApp.id)) end
 function plugin.createChildDevice(props) return api.post("/plugins/createChildDevice",props) end
@@ -61,7 +61,7 @@ end
 function QuickAppBase:updateView(elm,typ,val)
   __assert_type(elm,'string')
   __assert_type(typ,'string')
-  if _VERBOSE then self:debug("updateView:",elm,typ,'"'..val..'"') end
+  if _LOGLEVEL > 0 then self:debug("updateView:",elm,typ,'"'..val..'"') end
   self._view[elm]=self._view[elm] or {} self._view[elm][typ]=val 
 end
 
@@ -121,7 +121,7 @@ function QuickAppChild:__init(device)
 end
 
 function onAction(id,event)
-  if _VERBOSE then print("onAction: ", json.encode(event)) end
+  if _LOGLEVEL > 0 then print("onAction: ", json.encode(event)) end
   if quickApp.actionHandler then return quickApp:actionHandler(event) end
   if event.deviceId == quickApp.id then
     return quickApp:callAction(event.actionName, table.unpack(event.args)) 
@@ -132,7 +132,7 @@ function onAction(id,event)
 end
 
 function onUIEvent(id, event)
-  if _VERBOSE then print("UIEvent: ", json.encode(event)) end
+  if _LOGLEVEL > 0 then print("UIEvent: ", json.encode(event)) end
   if quickApp.UIHandler then quickApp:UIHandler(event) return end
   if quickApp.uiCallbacks[event.elementName] and quickApp.uiCallbacks[event.elementName][event.eventType] then 
     quickApp:callAction(quickApp.uiCallbacks[event.elementName][event.eventType], event)
