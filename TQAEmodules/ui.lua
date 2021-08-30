@@ -168,11 +168,11 @@ EM.EMEvents('deviceCreated',function(ev) -- Intercept device created and add vie
 
 local initElm = {
   ['button'] = function(e,qa) qa:updateView(e.button,'text',e.text) end,
-  ['slider'] = function(e,qa) qa:updateView(e.slider,'text',e.text) qa:updateView(e.slider,'value',e.value) end,
+  ['slider'] = function(e,qa) qa:updateView(e.slider,'value',e.value or 0) end,
   ['label'] = function(e,qa)  qa:updateView(e.label,'text',e.text) end,
 }
 
-EM.EMEvents('QACreated',function(ev) -- Intercept QA created
+EM.EMEvents('QACreated',function(ev) -- Intercept QA created and update viewCache. Should we do in QuickApp?
     local qa = ev.qa
     local D = Devices[qa.id]
     if not D then return end

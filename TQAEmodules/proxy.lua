@@ -276,7 +276,7 @@ function updateHC3QAFiles(newFiles,id)
   return newFiles,200
 end
 
-EM.EMEvents('deviceCreated',function(ev)
+EM.EMEvents('deviceCreated',function(ev) -- A Device needing a proxy is created
     local D = Devices[ev.id]
     if D.info and D.info.proxy then
       local l = FB.__fibaro_local(false)
@@ -286,7 +286,7 @@ EM.EMEvents('deviceCreated',function(ev)
         LOG(EM.LOGERR,"Error: Proxy: %s",res)
         D.info.proxy = false
       else
-        local newId,oldId = res.id,D.dev.id
+        local newId,oldId = res.id,D.dev.id -- Change id to proxy's id
         Devices[oldId] = nil
         Devices[newId] = D
         D.dev.id = newId
@@ -294,7 +294,7 @@ EM.EMEvents('deviceCreated',function(ev)
     end
   end)
 
-EM.EMEvents('QACreated',function(ev)
+EM.EMEvents('QACreated',function(ev) -- A QuickAppChild is instantiated - create Devices[..] entry
     local qa,dev = ev.qa,ev.dev
     if qa.parentId > 0 and Devices[qa.id]==nil then
       local D = Devices[qa.parentId]

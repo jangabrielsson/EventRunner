@@ -359,7 +359,7 @@ local function emulator()
       next=next,pairs=pairs,ipairs=ipairs,tostring=tostring,tonumber=tonumber,math=math,assert=assert,_LOGLEVEL=EM.logLevel
     }
     for s,v in pairs(FB) do env[s]=v end                        -- Copy local exports to QA environment
-    for s,v in pairs(D.extras or {}) do env[s]=v end          -- Copy user provided environment symbols
+    for s,v in pairs(D.extras or {}) do env[s]=v end            -- Copy user provided environment symbols
     loadModules(localModules or {},env)                         -- Load default QA specfic modules into environment
     loadModules(EM.localModules or {},env)                      -- Load optional user specified module into environment     
     D.env,env._G=env,env
