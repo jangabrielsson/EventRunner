@@ -45,7 +45,7 @@ table {
 <body>
 <table style="width:500px;">
 {{{
-  local UI = EM.Devices[tonumber(opts.id)].info.UI or {}
+  local UI = EM.Devices[tonumber(opts.id)].UI or {}
   local qa = EM.getQA(tonumber(opts.id))
   local view = qa._view or {}
   local render = {

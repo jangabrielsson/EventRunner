@@ -143,47 +143,42 @@ customUI['com.fibaro.multilevelSwitch'] =
 customUI['com.fibaro.binarySensor']     = customUI['com.fibaro.binarySwitch']      -- For debugging
 customUI['com.fibaro.multilevelSensor'] = customUI['com.fibaro.multilevelSwitch']  -- For debugging
 
-EM.EMEvents('deviceCreated',function(ev) -- Intercept device created and add viewLayout and uiCallbacks
-    local D = Devices[ev.id]
-    local dev = D.dev
-    if D.info and D.info.UI and next(D.info.UI)~= nil then
-      local UI = D.info.UI
-      transformUI(UI)
-      dev.viewLayout = mkViewLayout(UI)
-      dev.uiCallbacks = uiStruct2uiCallbacks(UI)
-    elseif (not dev.viewLayout) and customUI[dev.type] then
-      D.info = dev.info or {}
-      D.info.UI = customUI[dev.type]
-      local UI = D.info.UI
-      transformUI(UI)
-      dev.viewLayout = mkViewLayout(UI)
-      dev.uiCallbacks = uiStruct2uiCallbacks(UI)
-    elseif not dev.viewLayout then
-      dev.viewLayout= json.decode(
-[[{"$jason":{"body":{"header":{"style":{"height":"0"},"title":"quickApp_device_403"},"sections":{"items":[]}},"head":{"title":"quickApp_device_403"}}}]]
-      )
-      dev.uiCallbacks = {}
-    end
-  end,true)
-
 local initElm = {
   ['button'] = function(e,qa) qa:updateView(e.button,'text',e.text) end,
   ['slider'] = function(e,qa) qa:updateView(e.slider,'value',e.value or 0) end,
   ['label'] = function(e,qa)  qa:updateView(e.label,'text',e.text) end,
 }
 
-EM.EMEvents('QACreated',function(ev) -- Intercept QA created and update viewCache. Should we do in QuickApp?
-    local qa = ev.qa
-    local D = Devices[qa.id]
-    if not D then return end
-    local UI = D.info and D.info.UI or {}
-    for _,r in ipairs(UI) do
+EM.EMEvents('QACreated',function(ev) -- Intercept QA created and add viewLayout and uiCallbacks
+    local qa,dev = ev.qa,ev.dev
+    local info = dev._info or {}
+    dev._info = info
+    if info.UI and next(info.UI)~= nil then
+      local UI = info.UI
+      transformUI(UI)
+      dev.viewLayout = mkViewLayout(UI)
+      dev.uiCallbacks = uiStruct2uiCallbacks(UI)
+    elseif (not dev.viewLayout) and customUI[dev.type] then
+      info.UI = customUI[dev.type]
+      local UI = info.UI
+      transformUI(UI)
+      dev.viewLayout = mkViewLayout(UI)
+      dev.uiCallbacks = uiStruct2uiCallbacks(UI)
+    elseif not dev.viewLayout then
+      info.UI = {}
+      dev.viewLayout= json.decode(
+[[{"$jason":{"body":{"header":{"style":{"height":"0"},"title":"quickApp_device_403"},"sections":{"items":[]}},"head":{"title":"quickApp_device_403"}}}]]
+      )
+      dev.uiCallbacks = {}
+    end
+
+    for _,r in ipairs(info.UI) do
       r = r[1] and r or {r}
       for _,c in ipairs(r) do
         if initElm[c.type] then initElm[c.type](c,qa) end
       end
     end
-  end)
+  end,true)
 
 EM.UI = {}
 EM.UI.uiStruct2uiCallbacks = uiStruct2uiCallbacks

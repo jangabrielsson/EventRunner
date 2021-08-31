@@ -128,7 +128,7 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
     if D then 
       D.dev.properties[data.propertyName]=data.value 
       --return data.value,202
-      if D.info and (D.info.proxy or D.info.childProxy) then
+      if D.proxy or D.childProxy then
         return HC3Request(method,path,data)
       else return data.value,202 end
     else
@@ -156,17 +156,15 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
     if props.initialProperties and next(props.initialProperties)==nil then 
       props.initialProperties = nil
     end
-    if not D.info.proxy then
-      local _,DC = EM.createDevice(nil,props.name,props.type,props.initialProperties,props.initialInterfaces)
-      DC.info.childProxy,DC.env = true,D.env
-      DC.dev.parentId = props.parentId
-      return DC.dev,200
+    if not D.proxy then
+      local info = {name=props.name,type=props.type,properties=props.initialProperties,interfaces=props.initialInterfaces}
+      local dev = EM.createDevice(info)
+      dev.parentId = props.parentId
+      return dev,200
     else 
       local dev,err = HC3Request(method,path,props)
       if dev then
-        Devices[dev.id] = { info= { childProxy = true }, env=D.env, dev=dev}
         LOG(EM.LOGINFO2,"Created device %s",dev.id)
-        EM.postEMEvent({type='deviceCreated',id=dev.id})
       end
       return dev,err
     end

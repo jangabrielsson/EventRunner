@@ -8,4 +8,5 @@ _=loadfile and loadfile("TQAE.lua"){
   startTime="12/24/2024-07:00",
 }
 
+--%%name="Wrapper"
 hc3_emulator.installQA{id=88,file='TQAEexamples/Pong.lua'}

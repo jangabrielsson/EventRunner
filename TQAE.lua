@@ -36,7 +36,7 @@ do
 end
 EM.modPath       = DEF(EM.modpath,"TQAEmodules/")   -- directory where TQAE modules are stored
 EM.temp          = DEF(EM.temp,os.getenv("TMPDIR") or os.getenv("TEMP") or os.getenv("TMP") or "temp/") -- temp directory
-EM.logLevel      = DEF(EM.logLevel,2)
+EM.logLevel      = DEF(EM.logLevel,1)
 EM.LOGALLW,EM.LOGINFO1,EM.LOGINFO2,EM.LOGERR=0,1,2,0
 
 local globalModules = { -- default global modules loaded into emulator environment
@@ -280,6 +280,7 @@ end
 local function emulator()
   local procs,CO,clock,gID = {},coroutine,EM.clock,1001
   local function copy(t) local r={} for k,v in pairs(t) do r[k]=v end return r end
+  local function member(e1,t) for _,e2 in ipairs(t) do if e1==e1 then return true end end end
   local function merge(dest,src) for k,v in pairs(src) do dest[k]=v end end
   function setContext(co,D) procs[co]= D or procs[coroutine.running()]; return co,procs[co] end
   function getContext(co) co=co or coroutine.running() return procs[co] end
@@ -319,9 +320,21 @@ local function emulator()
   local installQA,runQA
   local function restartQA(D) timers.clearTimers(D.dev.id) runQA(D) coroutine.yield() end
 
+  EM.EMEvents('QACreated',function(ev) -- Register device and clean-up when QA is created
+      local qa,dev = ev.qa,ev.dev
+      local info = dev._info
+      Devices[dev.id],info.dev,dev._info =info,dev,nil
+      if qa.id ~= dev.id then -- QA got proxy id - update
+        LOG(EM.LOGINFO1,"Proxy: Changing device ID %s to proxy ID %s",qa.id,dev.id)
+        qa.id=dev.id
+        info.env.plugin.mainDeviceId = dev.id
+        info.env.__TAG="QUICKAPP"..dev.id
+      end
+    end)
+
   local deviceTemplates
-  function EM.createDevice(id,name,typ,properties,interfaces,info)
-    typ = typ or "com.fibaro.binarySensor"
+  function EM.createDevice(info)
+    local typ = info.type or "com.fibaro.binarySensor"
     if deviceTemplates == nil then 
       local f = io.open(EM.modPath.."devices.json")
       if f then deviceTemplates=FB.json.decode(f:read("*all")) f:close() else deviceTemplates={} end
@@ -329,56 +342,58 @@ local function emulator()
     local dev = deviceTemplates[typ] and copy(deviceTemplates[typ]) or {
       actions = { turnOn=0,turnOff=0,setValue=1,toggle=0 }
     }
-    if id then dev.id = id else dev.id = gID; gID=gID+1 end
-    dev.name,dev.parentId = name or "MyQuickApp",0
-    merge(dev.interfaces,interfaces or {})
-    merge(dev.properties,properties or {})
-    Devices[dev.id] = {dev=dev, info=info or {}}
-    LOG(EM.LOGINFO1,"Created device %s",dev.id)
-    EM.postEMEvent({type='deviceCreated',id=dev.id})
-    return Devices[dev.id].dev,Devices[dev.id]
+    dev.id = info.id
+    if not dev.id then dev.id = gID; gID=gID+1 end
+    dev.name,dev.parentId = info.name or "MyQuickApp",0
+    merge(dev.interfaces,info.interfaces or {})
+    merge(dev.properties,info.properties or {})
+    dev._info = info
+    LOG(EM.LOGINFO1,"Created %s device %s",(member('quickAppChild',info.interfaces or {}) and "child" or ""),dev.id)
+    return dev
   end
 
-  local function addDevice(spec) -- Creates the device structure and save the QA/device files
+  local function createInfo(spec) -- Creates the device structure and save the QA/device files
     local id,name,typ,code,file,e = spec.id,spec.name,spec.type,spec.code,spec.file,spec.env
     local files,info = EM.loadFile(code,file)
     info.properties = info.properties or {}
     info.properties.quickAppVariables = info.properties.quickAppVariables or {}
     for k,v in pairs(info.quickVars or {}) do table.insert(info.properties.quickAppVariables,1,{name=k,value=v}) end
-    local _,D = EM.createDevice(id or info.id,name or info.name,typ or info.type,info.properties,info.interfaces, info)
-    D.files,D.save,D.extras,D.restart=files,spec.save or info.save,e,restartQA
-    return D
+    info.id,info.name,info.type=id or info.id,name or info.name or "MyQuickApp",typ or info.type or "com.fibaro.binarySwitch"
+    info.files,info.save,info.extras,info.restart=files,spec.save or info.save,e,restartQA
+    if not info.id then info.id = gID; gID=gID+1 end
+    return info
   end
 
-  function runQA(D)        -- Creates an environment and load file modules and starts QuickApp (:onInit())
-    local env = {          -- QA environment, all Lua functions available for  QA, 
-      plugin={ mainDeviceId = D.dev.id },
+  function runQA(info)        -- Creates an environment and load file modules and starts QuickApp (:onInit())
+    local env = {             -- QA environment, all Lua functions available for  QA, 
+      plugin={ mainDeviceId = info.id },
       os={time=EM.osTime, date=EM.osDate, exit=function() LOG(EM.LOGALLW,"exit(0)") timers.reset() coroutine.yield() end},
       hc3_emulator={getmetatable=getmetatable,setmetatable=setmetatable,installQA=installQA,EM=EM},
       coroutine=CO,table=table,select=select,pcall=pcall,xpcall=xpcall,print=print,string=string,error=error,
       next=next,pairs=pairs,ipairs=ipairs,tostring=tostring,tonumber=tonumber,math=math,assert=assert,_LOGLEVEL=EM.logLevel
     }
     for s,v in pairs(FB) do env[s]=v end                        -- Copy local exports to QA environment
-    for s,v in pairs(D.extras or {}) do env[s]=v end            -- Copy user provided environment symbols
+    for s,v in pairs(info.extras or {}) do env[s]=v end         -- Copy user provided environment symbols
     loadModules(localModules or {},env)                         -- Load default QA specfic modules into environment
     loadModules(EM.localModules or {},env)                      -- Load optional user specified module into environment     
-    D.env,env._G=env,env
-    LOG(EM.LOGINFO1,"Loading  QA:%s - ID:%s",D.dev.name,D.dev.id)
+    info.env,env._G=env,env
+    LOG(EM.LOGINFO1,"Loading  QA:%s",info.name)
     local k = coroutine.create(function()
-        for _,f in ipairs(D.files) do                                     -- for every file we got, load it..
+        for _,f in ipairs(info.files) do                                     -- for every file we got, load it..
           LOG(EM.LOGINFO2,"         ...%s",f.name)
           local code = check(env.__TAG,load(f.content,f.fname,"t",env))   -- Load our QA code, check syntax errors
           check(env.__TAG,pcall(code))                                    -- Run the QA code, check runtime errors
         end
       end)
     procs[k]=D coroutine.resume(k) procs[k]=nil
-    LOG(EM.LOGINFO1,"Starting QA:%s - ID:%s",D.dev.name,D.dev.id)
-    -- Start QA by "creating instance"
-    runProc(dev,function() env.QuickApp(D.dev) end)  
-    if D.info.noterminate then runProc(D,function() env.setInterval(function() end,5000) end) end -- keep alive...
+    if env.QuickApp.onInit then
+      LOG(EM.LOGINFO1,"Starting QA:%s - ID:%s",info.name,info.id)       -- Start QA by "creating instance"
+      runProc(dev,function() env.QuickApp(EM.createDevice(info)) end)  
+      if info.noterminate then runProc(info,function() env.setInterval(function() end,5000) end) end -- keep alive...
+    end
   end
 
-  function installQA(spec) setTimeout(function() runQA(addDevice(spec)) end,0) end
+  function installQA(spec) setTimeout(function() runQA(createInfo(spec)) end,0) end
 
   local function run(QA) 
     for _,qa in ipairs(QA[1] and QA or {QA}) do installQA(qa) end -- Create QAs given

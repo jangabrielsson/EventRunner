@@ -244,10 +244,10 @@ function createQuickApp(args)
   end
 
   if type(res)=='string' or res > 201 then
-    LOG(EM.LOGERR,"Error: D:%s,RES:%s",json.encode(d1),json.encode(res))
+    LOG(EM.LOGERR,"Proxy: Error: D:%s,RES:%s",json.encode(d1),json.encode(res))
     return nil
   else
-    LOG(EM.LOGALLW,"Device %s %s",d1.id or "",what)
+    LOG(EM.LOGALLW,"Proxy: Device %s %s",d1.id or "",what)
     return d1
   end
 end
@@ -276,32 +276,28 @@ function updateHC3QAFiles(newFiles,id)
   return newFiles,200
 end
 
-EM.EMEvents('deviceCreated',function(ev) -- A Device needing a proxy is created
-    local D = Devices[ev.id]
-    if D.info and D.info.proxy then
+EM.EMEvents('QACreated',function(ev) -- A QuickAppChild is instantiated - create Devices[..] entry
+    local qa,dev = ev.qa,ev.dev
+    local info = dev._info or {}
+    dev._info = info
+    if info.proxy then
+
       local l = FB.__fibaro_local(false)
-      local stat,res = pcall(createProxy,D.dev)
+      local stat,res = pcall(createProxy,dev)
       FB.__fibaro_local(l)
       if not stat then 
         LOG(EM.LOGERR,"Error: Proxy: %s",res)
-        D.info.proxy = false
+        info.proxy = false
       else
-        local newId,oldId = res.id,D.dev.id -- Change id to proxy's id
-        Devices[oldId] = nil
-        Devices[newId] = D
-        D.dev.id = newId
+        dev.id = res.id
       end
-    end
-  end)
 
-EM.EMEvents('QACreated',function(ev) -- A QuickAppChild is instantiated - create Devices[..] entry
-    local qa,dev = ev.qa,ev.dev
-    if qa.parentId > 0 and Devices[qa.id]==nil then
-      local D = Devices[qa.parentId]
-      if D and D.info.proxy then
-        Devices[dev.id] = { info= { childProxy = true }, env=D.env, dev=dev}
-        LOG(EM.LOGINFO1,"Imported proxy child %s",dev.id)
-        EM.postEMEvent({type='deviceCreated',id=dev.id})
-      end
     end
+
+    if qa.parentId > 0 then
+      local p = Devices[qa.parentId]
+      info.env,info.childProxy = p.env,p.proxy
+      if info.childProxy then LOG(EM.LOGINFO1,"Imported proxy child %s",dev.id) end
+    end
+
   end,true)
