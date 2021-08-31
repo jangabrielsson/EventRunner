@@ -40,7 +40,7 @@ EM.logLevel      = DEF(EM.logLevel,1)
 EM.LOGALLW,EM.LOGINFO1,EM.LOGINFO2,EM.LOGERR=0,1,2,0
 
 local globalModules = { -- default global modules loaded into emulator environment
-  "net.lua","json.lua","files.lua", "webserver.lua", "api.lua", "proxy.lua", "ui.lua",
+  "net.lua","json.lua","files.lua", "webserver.lua", "api.lua", "proxy.lua", "ui.lua", "time.lua",
 } 
 local localModules  = { "class.lua", "fibaro.lua", "QuickApp.lua" } -- default local modules loaded into QA environment
 

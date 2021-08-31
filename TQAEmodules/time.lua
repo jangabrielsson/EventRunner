@@ -13,7 +13,7 @@ function EM.setDate(str)
   EM.setTimeOffset(t1-os.time())
 end
 
-EM.EMEvents('started',function(ev) -- Intercept QA created and add viewLayout and uiCallbacks
+EM.EMEvents('start',function(ev) -- Intercept QA created and add viewLayout and uiCallbacks
     if EM.startTime then EM.setDate(EM.startTime) end
     EM._info.started = EM.osTime()
   end)
