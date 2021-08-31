@@ -90,7 +90,7 @@ do
   local stat,mobdebug = pcall(require,'mobdebug'); -- If we have mobdebug, enable coroutine debugging
   if stat then mobdebug.coro() end
 end
-local version = "0.16"
+local version = "0.17"
 
 local socket = require("socket")
 local http   = require("socket.http")
@@ -202,18 +202,7 @@ local function builtins()
   end
 
   local offset=0
-  function EM.setDate(str)
-    local function tn(str,v) return tonumber(str) or v end
-    local d,hour,min,sec = str:match("(.-)%-?(%d+):(%d+):?(%d*)")
-    local month,day,year=d:match("(%d*)/?(%d*)/?(%d*)")
-    local t = os.date("*t")
-    t.year,t.month,t.day=tn(year,t.year),tn(month,t.month),tn(day,t.day)
-    t.hour,t.min,t.sec=tn(hour,t.hour),tn(min,t.min),tn(sec,0)
-    local t1 = os.time(t)
-    local t2 = os.date("*t",t1)
-    if t.isdst ~= t2.isdst then t.isdst = t2.isdst t1 = os.time(t) end
-    offset = t1-os.time()
-  end
+  function EM.setTimeOffset(offs) if offs then offset=offs else return offset end end
   function EM.clock() return socket.gettime()+offset end
   function EM.osTime(a) return a and os.time(a) or os.time()+offset end
   function EM.osDate(a,b) return os.date(a,b or EM.osTime()) end
@@ -280,7 +269,7 @@ end
 local function emulator()
   local procs,CO,clock,gID = {},coroutine,EM.clock,1001
   local function copy(t) local r={} for k,v in pairs(t) do r[k]=v end return r end
-  local function member(e1,t) for _,e2 in ipairs(t) do if e1==e1 then return true end end end
+  local function member(e1,t) for _,e2 in ipairs(t) do if e1==e2 then return true end end end
   local function merge(dest,src) for k,v in pairs(src) do dest[k]=v end end
   function setContext(co,D) procs[co]= D or procs[coroutine.running()]; return co,procs[co] end
   function getContext(co) co=co or coroutine.running() return procs[co] end
@@ -299,7 +288,7 @@ local function emulator()
 -- Used by api/devices/<id>/action/<name> to call and hand over to called QA's thread
   function call(id,name,...)
     local args,D = {...},Devices[id]
-    runProc(dev,function() D.env.onAction(id,{deviceId=id,actionName=name,args=args}) end) -- sim. call in another process/QA
+    runProc(D,function() D.env.onAction(id,{deviceId=id,actionName=name,args=args}) end) -- sim. call in another process/QA
   end
   function FB.type(o) local t = type(o) return t=='table' and o._TYPE or t end
 -- Check arguments and print a QA error message 
@@ -359,7 +348,8 @@ local function emulator()
     info.properties.quickAppVariables = info.properties.quickAppVariables or {}
     for k,v in pairs(info.quickVars or {}) do table.insert(info.properties.quickAppVariables,1,{name=k,value=v}) end
     info.id,info.name,info.type=id or info.id,name or info.name or "MyQuickApp",typ or info.type or "com.fibaro.binarySwitch"
-    info.files,info.save,info.extras,info.restart=files,spec.save or info.save,e,restartQA
+    info.files,info.fileMap,info.save,info.extras,info.restart=files,{},spec.save or info.save,e,restartQA
+    for _,f in ipairs(info.files) do info.fileMap[f.name]=f end
     if not info.id then info.id = gID; gID=gID+1 end
     return info
   end
@@ -385,10 +375,10 @@ local function emulator()
           check(env.__TAG,pcall(code))                                    -- Run the QA code, check runtime errors
         end
       end)
-    procs[k]=D coroutine.resume(k) procs[k]=nil
+    procs[k]=info coroutine.resume(k) procs[k]=nil
     if env.QuickApp.onInit then
       LOG(EM.LOGINFO1,"Starting QA:%s - ID:%s",info.name,info.id)       -- Start QA by "creating instance"
-      runProc(dev,function() env.QuickApp(EM.createDevice(info)) end)  
+      runProc(info,function() env.QuickApp(EM.createDevice(info)) end)  
       if info.noterminate then runProc(info,function() env.setInterval(function() end,5000) end) end -- keep alive...
     end
   end
@@ -425,8 +415,6 @@ loadModules(EM.globalModules or {})    -- Load optional user specified modules i
 local run = emulator()                 -- Setup emulator core - returns run function
 
 print(fmt("---------------- Tiny QuickAppEmulator (TQAE) v%s -------------",version)) -- Get going...
-if EM.startTime then EM.setDate(EM.startTime) end
-EM._info.started = EM.osTime()
 EM.postEMEvent{type='start'}            -- Announce that we have started
 
 if embedded then                        -- Embedded call...

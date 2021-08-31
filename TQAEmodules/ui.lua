@@ -151,6 +151,7 @@ local initElm = {
 
 EM.EMEvents('QACreated',function(ev) -- Intercept QA created and add viewLayout and uiCallbacks
     local qa,dev = ev.qa,ev.dev
+    LOG(4,"ui.lua inspecting QA:%s",dev.name)
     local info = dev._info or {}
     dev._info = info
     if info.UI and next(info.UI)~= nil then

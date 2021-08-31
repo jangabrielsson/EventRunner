@@ -30,7 +30,6 @@ end
 function QuickApp:onInit()
   local x = self:getVariable('x')         
   local y = self:getVariable('y')          
-
   self:debug("Sum",x,y,"=",x+y)
   
   setTimeout(function() self:toggle() end,3000)

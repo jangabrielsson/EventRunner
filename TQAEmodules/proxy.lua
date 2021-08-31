@@ -278,6 +278,7 @@ end
 
 EM.EMEvents('QACreated',function(ev) -- A QuickAppChild is instantiated - create Devices[..] entry
     local qa,dev = ev.qa,ev.dev
+    LOG(4,"proxy.lua inspecting QA:%s",dev.name)
     local info = dev._info or {}
     dev._info = info
     if info.proxy then

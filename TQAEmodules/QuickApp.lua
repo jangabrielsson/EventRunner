@@ -1,5 +1,7 @@
 -- Local module, loaded into each QA's environment
 __TAG="QUICKAPP"..plugin.mainDeviceId
+__print = print
+function print(...) fibaro.debug(__TAG,...) end
 
 function plugin.deleteDevice(id) return api.delete("/devices/"..id) end
 function plugin.restart(id) return api.post("/plugins/restart",{deviceId=id or quickApp.id}) end
@@ -61,8 +63,12 @@ end
 function QuickAppBase:updateView(elm,typ,val)
   __assert_type(elm,'string')
   __assert_type(typ,'string')
-  if _LOGLEVEL > 1 then self:debug("updateView:",elm,typ,'"'..val..'"') end
-  self._view[elm]=self._view[elm] or {} self._view[elm][typ]=val 
+  self._view[elm]=self._view[elm] or {}
+  local oldVal = self._view[elm][typ]
+  if val ~= oldVal then
+    if _LOGLEVEL > 1 then self:debug("updateView:",elm,typ,'"'..val..'"') end
+    self._view[elm][typ]=val 
+  end
 end
 
 class 'QuickApp'(QuickAppBase)

@@ -4,6 +4,7 @@ local json = FB.json
 local HC3Request,LOG,Devices = EM.HC3Request,EM.LOG,EM.Devices
 local __fibaro_get_devices,__fibaro_get_device,__fibaro_get_device_property,__fibaro_call=
 FB.__fibaro_get_devices,FB.__fibaro_get_device,FB.__fibaro_get_device_property,FB.__fibaro_call
+local function copy(t) local r={}; for k,v in pairs(t) do r[k]=v end return r end
 
 local GUI_HANDLERS = {
   ["GET/api/callAction"] = function(_,client,ref,_,opts)
@@ -22,8 +23,8 @@ local GUI_HANDLERS = {
     local stat,res = pcall(function()
         arg = json.decode("["..(arg or "").."]")
         local QA = EM.getQA(tonumber(opts.qaID))
-        LOG(EM.LOGINFO2,"Web call: QA(%s):%s%s = %s",opts.qaID,opts.method,json.encode(arg),json.encode(res))
         local res = {QA[opts.method](QA,table.unpack(arg))}
+        LOG(EM.LOGINFO2,"Web call: QA(%s):%s%s = %s",opts.qaID,opts.method,json.encode(arg),json.encode(res))
       end)
     if not stat then 
       LOG(EM.LOGERR,"Error: Web call: QA(%s):%s%s - %s",opts.qaID,opts.method,json.encode(arg),res)
@@ -58,7 +59,7 @@ local GUI_HANDLERS = {
     local stat,err = pcall(function()
         local qa,env = EM.getQA(id)
         if not qa.parent then 
-          env.onUIEvent(id,{deviceId=id,elementName=btn,eventType='onReleased',values={tonumber(val)}})
+          env.onUIEvent(id,{deviceId=id,elementName=btn,eventType='onReleased',values={}})
         else
           local action = qa.uiCallbacks[btn]['onReleased']
           env.onAction(id,{deviceId=id,actionName=action,args={}})
@@ -110,7 +111,7 @@ local function filter(list,props)
 end
 
 local aHC3call
-local API_CALLS = { -- Intercept some api calls to the api to include emulated QAs
+local API_CALLS = { -- Intercept some api calls to the api to include emulated QAs or emulator aspects
   ["GET/devices"] = function(_,_,_,opts)
     if next(opts)==nil then
       return __fibaro_get_devices(),200
@@ -127,7 +128,6 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
     local D = Devices[data.deviceId]
     if D then 
       D.dev.properties[data.propertyName]=data.value 
-      --return data.value,202
       if D.proxy or D.childProxy then
         return HC3Request(method,path,data)
       else return data.value,202 end
@@ -135,15 +135,11 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
       return HC3Request(method,path,data)
     end
   end,
-  ["POST/plugins/updateView"] = function(method,path,data,_)
+  ["POST/plugins/updateView"] = function(_,_,data,_)
     local D = Devices[data.deviceId]
---    local data = {
---      deviceId = self.id,
---      componentName = componentName,
---      propertyName = propertyName,
---      newValue = newValue
---    }
---    api.post("/plugins/updateView", data)
+    if D.proxy or D.childProxy then
+      api.post("/plugins/updateView", data)
+    end
   end,
   ["POST/plugins/restart"] = function(method,path,data,_)
     if Devices[data.deviceId] then
@@ -191,9 +187,72 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
   end,
   ["DELETE/plugins/removeChildDevice/#id"] = function(method,path,data,_,id)
     id = tonumber(id)
-    if Devices[id] then
+    local D = Devices[id]
+    if D then
       Devices[id]=nil
+      Devices[D.dev.parentId]:restart()
       return true,200
+    else return HC3Request(method,path,data) end
+  end,
+  ------------- quickApp ---------
+  ["GET/quickApp/#id/files"] = function(method,path,data,_,id)                     --Get files
+    local D = Devices[id]
+    if D then
+      local f,files = D.files or {},{}
+      for _,v in ipairs(f) do v = copy(v); v.content = nil; files[#files+1]=v end
+      return files,200
+    else return HC3Request(method,path,data) end
+  end,
+  ["GET/quickApp/#id/files/#name"] = function(method,path,data,_,id,name)         --Get specific file
+    local D = Devices[id]
+    if D then
+      if (D.fileMap or {})[name] then return D.fileMap[name],200
+      else return nil,404 end
+    else return HC3Request(method,path,data) end
+  end,
+  ["PUT/quickApp/#id/files/#name"] = function(method,path,data,_,id,name)         --Update specific file
+    local D = Devices[id]
+    if D then
+      if (D.fileMap or {})[name] then
+        local args = type(data)=='string' and json.decode(data) or data
+        D.fileMap[name] = args
+        D:restartQA()
+        return D.fileMap[name],200
+      else return nil,404 end
+    else return HC3Request(method,path,data) end
+  end,
+  ["PUT/quickApp/#id/files"]  = function(method,path,data,_,id)                  --Update files
+    local D = Devices[id]   
+    if D then
+      local args = type(data)=='string' and json.decode(data) or data
+      for _,f in ipairs(args) do
+        if D.fileMap[f.name] then D.fileMap[f.name]=f end
+      end
+      D:restartQA()
+      return true,200
+    else return HC3Request(method,path,data) end
+  end,
+  ["GET/quickApp/export/#id"] = function(method,path,data,_,id)                --Export QA to fqa
+    local D = Devices[id]
+    if D then
+      --return QA.toFQA(id,nil),200
+    else return HC3Request(method,path,data) end
+  end,
+  ["POST/quickApp/"] = function(_,_,_)                              --Install QA
+    local stat,res = pcall(function()
+        --return QA.loadQA(".fqa",data):install()
+      end)
+    if not stat then return nil,500
+    else return res,201 end
+  end,
+  ["DELETE/quickApp/#id/files/#name"]  = function(method,path,data,_,id,name)    -- Delete file
+    local D = Devices[id]
+    if D then
+      if D.fileMap[name] then
+        D.fileMap[name]=nil
+        D:restartQA()
+        return true,200
+      else return nil,404 end
     else return HC3Request(method,path,data) end
   end,
 }
@@ -207,7 +266,7 @@ function aHC3call(method,path,data) -- Intercepts some cmds to handle local reso
     if not stat then return LOG(EM.LOGERR,"Bad API call:%s",res)
     elseif code~=false then return res,code end
   elseif fun~=nil then return LOG(EM.LOGERR,"Bad API call:%s",fun) end
-  return HC3Request(method,path,data) -- Call without intercept
+  return HC3Request(method,path,data) -- No intercept, send request to HC3
 end
 
 -- Normal user calls to api will have pass==nil and the cmd will be intercepted if needed. __fibaro_* will always pass

@@ -55,7 +55,7 @@ function fibaro.call(deviceId, actionName, ...)
     return
   end
   __assert_type(deviceId, "number")
-  local arg= {...}; arg = #arg > 0 and arg or nil
+  local arg= {...}; --arg = #arg > 0 and arg or nil
   api.post("/devices/"..deviceId.."/action/"..actionName, { args = arg })
 end
 
