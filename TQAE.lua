@@ -358,7 +358,7 @@ local function emulator()
     local env = {             -- QA environment, all Lua functions available for  QA, 
       plugin={ mainDeviceId = info.id },
       os={time=EM.osTime, date=EM.osDate, exit=function() LOG(EM.LOGALLW,"exit(0)") timers.reset() coroutine.yield() end},
-      hc3_emulator={getmetatable=getmetatable,setmetatable=setmetatable,installQA=installQA,EM=EM},
+      hc3_emulator={getmetatable=getmetatable,setmetatable=setmetatable,io=io,installQA=installQA,EM=EM},
       coroutine=CO,table=table,select=select,pcall=pcall,xpcall=xpcall,print=print,string=string,error=error,
       next=next,pairs=pairs,ipairs=ipairs,tostring=tostring,tonumber=tonumber,math=math,assert=assert,_LOGLEVEL=EM.logLevel
     }

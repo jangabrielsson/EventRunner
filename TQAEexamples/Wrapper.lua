@@ -9,4 +9,6 @@ _=loadfile and loadfile("TQAE.lua"){
 }
 
 --%%name="Wrapper"
+
+--Example of loading and running another QA
 hc3_emulator.installQA{id=88,file='TQAEexamples/Pong.lua'}
