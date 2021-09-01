@@ -91,7 +91,7 @@ do
   local stat,mobdebug = pcall(require,'mobdebug'); -- If we have mobdebug, enable coroutine debugging
   if stat then mobdebug.coro() end
 end
-local version = "0.17"
+local version = "0.18"
 
 local socket = require("socket")
 local http   = require("socket.http")
