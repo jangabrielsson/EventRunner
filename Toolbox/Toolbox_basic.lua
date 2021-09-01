@@ -694,7 +694,7 @@ function Toolbox_Module.basic(self)
     function net.HTTPClient(args)
       local http = httpClient()
       return {
-        request = function(self,url,opts)
+        request = function(self2,url,opts)
           opts = copy(opts)
           local success,err = opts.success,opts.error
           if opts then

@@ -67,7 +67,8 @@ function QuickAppBase:updateView(elm,typ,val)
   local oldVal = self._view[elm][typ]
   if val ~= oldVal then
     if _LOGLEVEL > 1 then self:debug("updateView:",elm,typ,'"'..val..'"') end
-    self._view[elm][typ]=val 
+    self._view[elm][typ]=val
+    api.post("/plugins/updateView",{deviceId=self.id,componentName=elm, propertyName = typ,newValue = val})
   end
 end
 

@@ -41,6 +41,7 @@ EM.LOGALLW,EM.LOGINFO1,EM.LOGINFO2,EM.LOGERR=0,1,2,0
 
 local globalModules = { -- default global modules loaded into emulator environment
   "net.lua","json.lua","files.lua", "webserver.lua", "api.lua", "proxy.lua", "ui.lua", "time.lua",
+  "refreshStates.lua",
 } 
 local localModules  = { "class.lua", "fibaro.lua", "QuickApp.lua" } -- default local modules loaded into QA environment
 
@@ -357,8 +358,8 @@ local function emulator()
   function runQA(info)        -- Creates an environment and load file modules and starts QuickApp (:onInit())
     local env = {             -- QA environment, all Lua functions available for  QA, 
       plugin={ mainDeviceId = info.id },
-      os={time=EM.osTime, date=EM.osDate, exit=function() LOG(EM.LOGALLW,"exit(0)") timers.reset() coroutine.yield() end},
-      hc3_emulator={getmetatable=getmetatable,setmetatable=setmetatable,io=io,installQA=installQA,EM=EM},
+      os={time=EM.osTime, date=EM.osDate, difftime=os.difftime, exit=function() LOG(EM.LOGALLW,"exit(0)") timers.reset() coroutine.yield() end},
+      hc3_emulator={getmetatable=getmetatable,setmetatable=setmetatable,io=io,installQA=installQA,EM=EM,os={setTimer=setTimeout}},
       coroutine=CO,table=table,select=select,pcall=pcall,xpcall=xpcall,print=print,string=string,error=error,
       next=next,pairs=pairs,ipairs=ipairs,tostring=tostring,tonumber=tonumber,math=math,assert=assert,_LOGLEVEL=EM.logLevel
     }

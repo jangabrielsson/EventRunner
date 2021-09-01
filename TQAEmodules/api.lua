@@ -135,10 +135,10 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
       return HC3Request(method,path,data)
     end
   end,
-  ["POST/plugins/updateView"] = function(_,_,data,_)
+  ["POST/plugins/updateView"] = function(method,path,data)
     local D = Devices[data.deviceId]
-    if D.proxy or D.childProxy then
-      api.post("/plugins/updateView", data)
+   if D and (D.proxy or D.childProxy) then
+      HC3Request(method,path,data)
     end
   end,
   ["POST/plugins/restart"] = function(method,path,data,_)
@@ -274,6 +274,8 @@ function api.get(cmd) return aHC3call("GET",cmd) end
 function api.post(cmd,data) return aHC3call("POST",cmd,data) end
 function api.put(cmd,data) return aHC3call("PUT",cmd,data) end
 function api.delete(cmd) return aHC3call("DELETE",cmd) end
+
+function EM.addAPI(p,f) EM.addPath(p,f,API_MAP) end
 
 EM.EMEvents('start',function(_) EM.processPathMap(API_CALLS,API_MAP) end)
 

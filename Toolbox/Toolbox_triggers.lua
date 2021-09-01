@@ -206,7 +206,7 @@ function Toolbox_Module.triggers.init(self)
             if not hc3_emulator then
               setTimeout(loop,INTERVAL or 0)
             else
-              hc3_emulator.orgOs.setTimer(loop,INTERVAL)
+              hc3_emulator.os.setTimer(loop,INTERVAL)
             end
           end,
           error=function(res) 

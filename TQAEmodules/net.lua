@@ -7,9 +7,14 @@ local httpMeta = { __tostring = function(http) return "HTTPClient object: "..htt
 function net.HTTPClient(i_options)   
   local self2 = {}                   
   function self2.request(_,url,args)
-    local args2 = args.options or {}
+    local args2,res,status,headers = args.options or {}
     args2.url=url
-    local res,status,headers = httpRequest(args2,i_options)
+    if EM.interceptHTTP then
+      res,status,headers = EM.interceptHTTP(args2,i_options)
+    end
+    if res == -42 then
+      res,status,headers = httpRequest(args2,i_options)
+    end
     args2.url=nil
     if tonumber(status) and status < 205 and args.success then 
       FB.setTimeout(function() args.success({status=status,headers=headers,data=res}) end,math.random(0,2))
