@@ -23,16 +23,24 @@ td {
 </head>
 <body>
 {{{
-    local dev=EM.Devices[tonumber(opts.id)].dev
+    local D = EM.Devices[tonumber(opts.id)]
+    local dev=D.dev
     out("<ul>")
     out("<li>DeviceID: %s</li>",dev.id)
     out("<li>Type: %s</li>",dev.type)
     out("<li>BaseType: %s</li>",dev.baseType or "no base type")
     out("<li>Interfaces: %s</li>",FB.json.encode(dev.interfaces))
+    if D.proxy or D.childProxy then
+      out("<li>Proxy: true</li>")
+    end
     out("</ul>")
 }}}
 <button onclick="window.location.href='/TQAE/lua?code={{{out("EM.Devices[%s].env.plugin.restart()",opts.id)}}}'">Restart</button>
-<button onclick="window.location.href='/TQAE/lua?code={{{out("EM.saveFQA(EM.Devices[%s])",opts.id)}}}'">Save</button>
+{{{
+  if EM.Devices[tonumber(opts.id)].dev.parentId== 0 then
+   out([[<button onclick="window.location.href='/TQAE/lua?code=EM.saveFQA(EM.Devices[%s])'">Save</button>]],opts.id)
+  end
+}}}
 <button onclick="window.location.href='/web/ui?id={{{out("%s",opts.id)}}}'">UI</button>
 <table>
 <tr><th>Methods</th><th>Properties</th><th>QuickAppVariables</th><th>View</th></tr>

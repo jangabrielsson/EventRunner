@@ -173,14 +173,14 @@ EM.EMEvents('QACreated',function(ev) -- Intercept QA created and add viewLayout 
       dev.uiCallbacks = {}
     end
 
-    FB.setTimeout(function()
+    --FB.setTimeout(function()
         for _,r in ipairs(info.UI) do
           r = r[1] and r or {r}
           for _,c in ipairs(r) do
             if initElm[c.type] then initElm[c.type](c,qa) end
           end
         end
-      end,0)
+      --end,0)
   end,true)
 
 EM.UI = {}
