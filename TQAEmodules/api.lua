@@ -238,7 +238,7 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
       --return QA.toFQA(id,nil),200
     else return HC3Request(method,path,data) end
   end,
-  ["POST/quickApp/"] = function(method,path,data)                              --Install QA
+  ["POST/quickApp/import"] = function(method,path,data)                              --Install QA
     local lcl = FB.__fibaro_local(false)
     local res,err = HC3Request(method,path,data)
     FB.__fibaro_local(lcl)

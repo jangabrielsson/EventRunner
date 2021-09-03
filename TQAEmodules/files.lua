@@ -119,11 +119,12 @@ local function packageFQA(D)
     apiVersion="1.2",
     initialInterfaces = dev.interfaces,
     initialProperties = {
+      apiVersion="1.2",
       viewLayout=dev.properties.viewLayout,
       uiCallbacks = dev.properties.uiCallbacks,
       quickAppVariables = dev.properties.quickAppVariables,
+      typeTemplateInitialized=true,
     },
-    typeTemplateInitialized=true,
     files = D.files
   }
   return fqa
@@ -144,7 +145,7 @@ end
 local function uploadFQA(D)
   local fqa = packageFQA(D)
   local dev = D.dev
-  local res,err = FB.api.post("/quickApp",fqa)
+  local res,err = FB.api.post("/quickApp/",fqa)
   if not res then LOG(EM.LOGERR,"Error uploading .fqa '%s' - %s",dev.name,err) 
   else LOG(EM.LOGALLW,"Uploaded '%s', deviceId:%s",res.name,res.id) end
 end
