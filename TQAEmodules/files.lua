@@ -110,7 +110,7 @@ local function loadFile(code,file)
   end
 end
 
-local function saveFQA(D)
+local function packageFQA(D)
   local dev = D.dev
   for _,f in ipairs(D.files or {}) do f.fname=nil end
   local fqa = {
@@ -119,22 +119,34 @@ local function saveFQA(D)
     apiVersion="1.2",
     initialInterfaces = dev.interfaces,
     initialProperties = {
-      viewLayout=
-      json.decode([[{"$jason":{"body":{"header":{"style":{"height":"0"},"title":"quickApp_device_403"},"sections":{"items":[]}},"head":{"title":"quickApp_device_403"}}}]]),
-      uiCallbacks = {},
+      viewLayout=dev.properties.viewLayout,
+      uiCallbacks = dev.properties.uiCallbacks,
       quickAppVariables = dev.properties.quickAppVariables,
     },
     typeTemplateInitialized=true,
     files = D.files
   }
+  return fqa
+end
+
+local function saveFQA(D)
+  local fqa = packageFQA(D)
   local stat,res = pcall(function()
       local f = io.open(D.save,"w+")
       assert(f,"Can't open file "..D.save)
       f:write((json.encode(fqa)))
       f:close()
     end)
-  if not stat then LOG(EM.LOGERR,"Error save .fqa "..res) 
-  else LOG(EM.LOGALLW,"Saved "..D.save) end
+  if not stat then LOG(EM.LOGERR,"Error save .fqa - %s",res) 
+  else LOG(EM.LOGALLW,"Saved %s",D.save) end
 end
 
-EM.loadFile, EM.saveFQA = loadFile, saveFQA
+local function uploadFQA(D)
+  local fqa = packageFQA(D)
+  local dev = D.dev
+  local res,err = FB.api.post("/quickApp",fqa)
+  if not res then LOG(EM.LOGERR,"Error uploading .fqa '%s' - %s",dev.name,err) 
+  else LOG(EM.LOGALLW,"Uploaded '%s', deviceId:%s",res.name,res.id) end
+end
+
+EM.loadFile, EM.saveFQA, EM.uploadFQA = loadFile, saveFQA, uploadFQA

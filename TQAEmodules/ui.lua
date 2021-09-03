@@ -157,20 +157,20 @@ EM.EMEvents('QACreated',function(ev) -- Intercept QA created and add viewLayout 
     if info.UI and next(info.UI)~= nil then
       local UI = info.UI
       transformUI(UI)
-      dev.viewLayout = mkViewLayout(UI)
-      dev.uiCallbacks = uiStruct2uiCallbacks(UI)
+      dev.properties.viewLayout = mkViewLayout(UI)
+      dev.properties.uiCallbacks = uiStruct2uiCallbacks(UI)
     elseif (not dev.viewLayout) and customUI[dev.type] then
       info.UI = customUI[dev.type]
       local UI = info.UI
       transformUI(UI)
-      dev.viewLayout = mkViewLayout(UI)
-      dev.uiCallbacks = uiStruct2uiCallbacks(UI)
-    elseif not dev.viewLayout then
+      dev.properties.viewLayout = mkViewLayout(UI)
+      dev.properties.uiCallbacks = uiStruct2uiCallbacks(UI)
+    elseif not dev.properties.viewLayout then
       info.UI = {}
-      dev.viewLayout= json.decode(
+      dev.properties.viewLayout= json.decode(
 [[{"$jason":{"body":{"header":{"style":{"height":"0"},"title":"quickApp_device_403"},"sections":{"items":[]}},"head":{"title":"quickApp_device_403"}}}]]
       )
-      dev.uiCallbacks = {}
+      dev.properties.uiCallbacks = {}
     end
 
     --FB.setTimeout(function()

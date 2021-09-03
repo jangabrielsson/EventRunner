@@ -137,7 +137,7 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
   end,
   ["POST/plugins/updateView"] = function(method,path,data)
     local D = Devices[data.deviceId]
-   if D and (D.proxy or D.childProxy) then
+    if D and (D.proxy or D.childProxy) then
       HC3Request(method,path,data)
     end
   end,
@@ -238,12 +238,11 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
       --return QA.toFQA(id,nil),200
     else return HC3Request(method,path,data) end
   end,
-  ["POST/quickApp/"] = function(_,_,_)                              --Install QA
-    local stat,res = pcall(function()
-        --return QA.loadQA(".fqa",data):install()
-      end)
-    if not stat then return nil,500
-    else return res,201 end
+  ["POST/quickApp/"] = function(method,path,data)                              --Install QA
+    local lcl = FB.__fibaro_local(false)
+    local res,err = HC3Request(method,path,data)
+    FB.__fibaro_local(lcl)
+    return res,err
   end,
   ["DELETE/quickApp/#id/files/#name"]  = function(method,path,data,_,id,name)    -- Delete file
     local D = Devices[id]

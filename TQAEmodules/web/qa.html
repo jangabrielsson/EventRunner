@@ -39,6 +39,7 @@ td {
 {{{
   if EM.Devices[tonumber(opts.id)].dev.parentId== 0 then
    out([[<button onclick="window.location.href='/TQAE/lua?code=EM.saveFQA(EM.Devices[%s])'">Save</button>]],opts.id)
+   out([[<button onclick="window.location.href='/TQAE/lua?code=EM.uploadFQA(EM.Devices[%s])'">Upload</button>]],opts.id)
   end
 }}}
 <button onclick="window.location.href='/web/ui?id={{{out("%s",opts.id)}}}'">UI</button>
