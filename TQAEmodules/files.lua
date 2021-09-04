@@ -67,7 +67,7 @@ local function loadSource(code,fileName) -- Load code and resolve info and --FIL
       end)
   end
   gf([[%-%-FILE:%s*(.-)%s*,%s*(.-);]])
-  table.insert(files,{name="main",content=code,isMain=true,fname=fileName})
+  table.insert(files,1,{name="main",content=code,isMain=true,fname=fileName})
   local info = code:match("%-%-%[%[QAemu(.-)%-%-%]%]")
   if info==nil then
     local il = {}

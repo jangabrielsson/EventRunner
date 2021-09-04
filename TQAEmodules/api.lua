@@ -198,8 +198,8 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
   ["GET/quickApp/#id/files"] = function(method,path,data,_,id)                     --Get files
     local D = Devices[id]
     if D then
-      local f,files = D.files or {},{}
-      for _,v in ipairs(f) do v = copy(v); v.content = nil; files[#files+1]=v end
+      local f,files = D.fileMap or {},{}
+      for n,v in pairs(f) do v = copy(v); v.content = nil; files[#files+1]=v end
       return files,200
     else return HC3Request(method,path,data) end
   end,
