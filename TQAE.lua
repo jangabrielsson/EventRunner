@@ -350,7 +350,7 @@ local function emulator()
     for k,v in pairs(info.quickVars or {}) do table.insert(info.properties.quickAppVariables,1,{name=k,value=v}) end
     info.id,info.name,info.type=id or info.id,name or info.name or "MyQuickApp",typ or info.type or "com.fibaro.binarySwitch"
     info.files,info.fileMap,info.save,info.extras,info.restart=files,{},spec.save or info.save,e,restartQA
-    for _,f in ipairs(info.files) do info.fileMap[f.name]=f end
+    for _,f in ipairs(info.files) do if not info.fileMap[f.name] then info.fileMap[f.name]=f end end
     if not info.id then info.id = gID; gID=gID+1 end
     return info
   end
