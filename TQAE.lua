@@ -91,7 +91,7 @@ do
   local stat,mobdebug = pcall(require,'mobdebug'); -- If we have mobdebug, enable coroutine debugging
   if stat then mobdebug.coro() end
 end
-local version = "0.18"
+local version = "0.19"
 
 local socket = require("socket")
 local http   = require("socket.http")
@@ -358,7 +358,9 @@ local function emulator()
   function runQA(info)        -- Creates an environment and load file modules and starts QuickApp (:onInit())
     local env = {             -- QA environment, all Lua functions available for  QA, 
       plugin={ mainDeviceId = info.id },
-      os={time=EM.osTime, date=EM.osDate, clock=os.clock, difftime=os.difftime, exit=function() LOG(EM.LOGALLW,"exit(0)") timers.reset() coroutine.yield() end},
+      os={time=EM.osTime, date=EM.osDate, clock=os.clock, difftime=os.difftime, 
+        exit=function() LOG(EM.LOGALLW,"exit(0)") timers.reset() coroutine.yield() end},
+      collectgarbage=collectgarbage,
       hc3_emulator={getmetatable=getmetatable,setmetatable=setmetatable,io=io,installQA=installQA,EM=EM,os={setTimer=setTimeout}},
       coroutine=CO,table=table,select=select,pcall=pcall,xpcall=xpcall,print=print,string=string,error=error,
       next=next,pairs=pairs,ipairs=ipairs,tostring=tostring,tonumber=tonumber,math=math,assert=assert,_LOGLEVEL=EM.logLevel
