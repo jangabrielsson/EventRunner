@@ -159,8 +159,8 @@ EM.EMEvents('QACreated',function(ev) -- Intercept QA created and add viewLayout 
       transformUI(UI)
       dev.properties.viewLayout = mkViewLayout(UI)
       dev.properties.uiCallbacks = uiStruct2uiCallbacks(UI)
-    elseif (not dev.viewLayout) and customUI[dev.type] then
-      info.UI = customUI[dev.type]
+    elseif (not dev.viewLayout) and (customUI[dev.type] or customUI[dev.baseType or ""]) then
+      info.UI = customUI[dev.type] or customUI[dev.baseType]
       local UI = info.UI
       transformUI(UI)
       dev.properties.viewLayout = mkViewLayout(UI)

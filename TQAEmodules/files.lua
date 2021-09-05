@@ -62,12 +62,12 @@ local function loadSource(code,fileName) -- Load code and resolve info and --FIL
   local function gf(pattern)
     code = code:gsub(pattern,
       function(file,name)
-        files[#files+1]={name=name,content=readFile(file),isMain=false,fname=file}
+        files[#files+1]={name=name,type='lua',isOpen=false,content=readFile(file),isMain=false,fname=file}
         return ""
       end)
   end
   gf([[%-%-FILE:%s*(.-)%s*,%s*(.-);]])
-  table.insert(files,{name="main",content=code,isMain=true,fname=fileName})
+  table.insert(files,{name="main",type='lua',isOpen=false,content=code,isMain=true,fname=fileName})
   local info = code:match("%-%-%[%[QAemu(.-)%-%-%]%]")
   if info==nil then
     local il = {}
@@ -91,9 +91,9 @@ local function loadFQA(fqa)  -- Load FQA
   for _,f in ipairs(fqa.files) do
     local fname = createTemp(f.name,f.content) or f.name..crc16(f.content) -- Create temp files for fqa files, easier to debug
     if f.isMain then f.fname=fname main=f
-    else files[#files+1] = {name=f.name,content=f.content,isMain=f.isMain,fname=fname} end
+    else files[#files+1] = {name=f.name,content=f.content,type='lua',isOpen=false,isMain=f.isMain,fname=fname} end
   end
-  table.insert(files,main)
+  table.insert(files,{name=main.name,content=main.content,type='lua',isOpen=false,isMain=true,fname=main.fname})
   return files,{name=fqa.name,type=fqa.type,properties=fqa.initialProperties}
 end
 

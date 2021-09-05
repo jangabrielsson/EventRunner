@@ -91,7 +91,7 @@ do
   local stat,mobdebug = pcall(require,'mobdebug'); -- If we have mobdebug, enable coroutine debugging
   if stat then mobdebug.coro() end
 end
-local version = "0.19"
+local version = "0.20"
 
 local socket = require("socket") 
 local http   = require("socket.http")
@@ -108,14 +108,17 @@ EM._info = { modules = { ["local"] = {}, global= {} } }
 
 ------------------------ Builtin functions ------------------------------------------------------
 local function builtins()
-
+  local chunkSize1 = 64000
+  local chunkSize2 = 1024
   local function httpRequest(reqs,extra)
     local resp,req,status,h,_={},{} 
     for k,v in pairs(extra or {}) do req[k]=v end; for k,v in pairs(reqs) do req[k]=v end
     req.sink,req.headers = ltn12.sink.table(resp), req.headers or {}
+    req.headers["Accept"] = "*/*"
+    req.headers["Content-Type"] = "application/json"
     if req.method=="PUT" or req.method=="POST" then
-      req.data = req.data or {}
-      req.headers["Content-Length"] = #req.data
+      req.data = req.data or "[]"
+      req.headers["content-length"] = #req.data
       req.source = ltn12.source.string(req.data)
     else req.headers["Content-Length"]=0 end
     if req.url:sub(1,5)=="https" then
@@ -131,7 +134,7 @@ local function builtins()
   local base = "http://"..EM.host.."/api"
   local function HC3Request(method,path,data) 
     local res,stat,h = httpRequest({method=method, url=base..path,
-        user=EM.user, password=EM.pwd, data=data and FB.json.encode(data),
+        user=EM.user, password=EM.pwd, data=data and FB.json.encode(data), timeout = 5000, 
         headers = {["Accept"] = '*/*',["X-Fibaro-Version"] = 2, ["Fibaro-User-PIN"] = EM.pin},
       })
     return res~=nil and FB.json.decode(res),stat,nil
