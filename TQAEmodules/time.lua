@@ -1,7 +1,7 @@
-local EM,FB=...
+local EM=...
 
 function EM.setDate(str)
-  local function tn(str,v) return tonumber(str) or v end
+  local function tn(s,v) return tonumber(s) or v end
   local d,hour,min,sec = str:match("(.-)%-?(%d+):(%d+):?(%d*)")
   local month,day,year=d:match("(%d*)/?(%d*)/?(%d*)")
   local t = os.date("*t")

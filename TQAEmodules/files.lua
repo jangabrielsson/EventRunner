@@ -39,7 +39,7 @@ local function createTemp(name,content) -- Storing code fragments on disk will h
   if firstTemp then LOG(EM.LOGINFO1,"Using %s for temporary files",EM.temp) firstTemp=false end
   local crc = crc16(content)
   local fname = EM.temp..name.."_"..crc..".lua" 
-  local f,res = io.open(fname,"r") 
+  local f,res; f = io.open(fname,"r") 
   if f then f:close() return fname end -- If it exists, don't store it again
   f,res = io.open(fname,"w+")
   if not f then LOG(EM.LOGERR,"Warning - couldn't create temp files in %s - %s",EM.temp,res) return 

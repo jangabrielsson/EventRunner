@@ -38,7 +38,7 @@ timerwheel     -- Credit https://github.com/Tieske/timerwheel.lua/blob/master/LI
 binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 --]]
 
-local FIBAROAPIHC3_VERSION = "0.314" 
+local FIBAROAPIHC3_VERSION = "0.315" 
 assert(_VERSION:match("(%d+%.%d+)") >= "5.3","fibaroapiHC3.lua needs Lua version 5.3 or higher")
 
 --[[
@@ -244,6 +244,7 @@ local function merge(t1,t2)
   return t1
 end
 
+-- luacheck: globals ignore QuickAppBase QuickApp QuickAppChild quickApp hc3_emulator os
 QuickApp,QuickAppBase,QuickAppChild = nil,nil,nil
 
 local function DEF(x,y) if x==nil then return y else return x end end
@@ -321,9 +322,12 @@ collectgarbage("setpause",100)
 collectgarbage("setstepmul",150)
 
 -- Globals
+-- luacheck: globals ignore LOG Log json assertf api net onAction onUIEvent
 LOG,Log,json,assertf,api,net=nil,nil,nil,nil,nil,nil
 local module,commandLines,terminals = {},{},{}
 onAction,onUIEvent = nil,nil
+
+-- luacheck: globals ignore Device class property getHierarchy Hierarchy
 
 local function d2str(...) local r,s={...},{} for i=1,#r do if r[i]~=nil then s[#s+1]=tostring(r[i]) end end return table.concat(s," ") end
 ------------------- Contexts, QuickApps and Scenes -------------------------
@@ -349,7 +353,7 @@ function module.Fibaro(hc3)
   local copas,cache,safeDecode,urlencode,colorStr
   local _debugFlags = hc3.debug
   local format = string.format
-  local GET_DEVICE,GET_SCENE,GET_PROPERTY,GET_VARIABLE,PUT_VARIABLE,CALL_ACTION
+  local GET_DEVICE,GET_SCENE,GET_PROPERTY,GET_VARIABLE,PUT_VARIABLE,CALL_ACTION,POST_DEBUGMESSAGE
 
   Log,LOG,json,api,net,assert,assertf=Log,LOG,json,api,net,assert,assertf
 
@@ -659,7 +663,7 @@ end--module Fibaro
 ------------  HTTP support ---------------------
 -- An emulation of Fibaro's net.HTTPClient, net.TCPSocket() and net.UDPSocket()
 function module.HTTP(hc3)
-  local self = {}
+  local selfHTTP = {}
   local Util,Trigger,Timer = hc3.module.Util
   local _debugFlags = hc3.debug
   local urlencode,copas=Util.urlencode
@@ -668,7 +672,7 @@ function module.HTTP(hc3)
   local socket  = require("socket")         -- LuaSocket, these are the dependencies we have
   local ltn12   = require("ltn12")          -- LuaSocket
 
-  function self.initialise() --luacheck: ignore
+  function selfHTTP.initialise() --luacheck: ignore
     Trigger,Timer = hc3.module.Trigger,hc3.module.Timer
     copas = Timer.copas
   end
@@ -1073,7 +1077,7 @@ function module.HTTP(hc3)
 
   local function safeDecode(x) local stat,res = pcall(function() return json.decode(x) end) return stat and res end
 
-  function self.HC3call(method,call,data,cType)
+  function selfHTTP.HC3call(method,call,data,cType)
     if hc3.offline then return nil,400 end
     if _debugFlags.api then Log(LOG.SYS,"api.%s - %s",method,call) end
     -- Special case, url encode arguments
@@ -1113,9 +1117,9 @@ function module.HTTP(hc3)
     return nil,c, h
   end
 
-  self.net = net
-  self.mqtt = mqtt
-  return self
+  selfHTTP.net = net
+  selfHTTP.mqtt = mqtt
+  return selfHTTP
 end--module HTTP
 
 -------------- Timer support -------------------------
@@ -1148,7 +1152,7 @@ function module.Timer(hc3)
       end
     end
 
-    new_tab = function(narr, nrec) return {} end
+    local new_tab = function(narr, nrec) return {} end
 
     local xpcall = xpcall --pcall(function() return require("coxpcall").xpcall end) or xpcall
     local default_err_handler = function(err)
@@ -4613,7 +4617,7 @@ end
           Trigger.postTrigger({type='DeviceRemovedEvent', data = {id = self.id}},0)
         end
 
-        quickVarsReal = vars2list(quickVars)
+        local quickVarsReal = vars2list(quickVars)
 
         function runQA(event) -- rest of the steps in a function that can be called
           -- step 2. create the environment
@@ -5469,7 +5473,7 @@ function module.Trigger(hc3)
   local function createRefreshStateQueue(size)
     local self = {}
 
-    function mkQueue(size)
+    local function mkQueue(size)
       local queue,dump,pop = {}
       local tail,head = 301,301
       local function empty() return tail==head end
@@ -6731,7 +6735,7 @@ help - this text
         local data = copas.receive(skt)
         local cr = 'lua'
         for c,f in pairs(terminalCommands) do
-          if data:match("^"..c) then cr = f(skt,data) end
+          if data and data:match("^"..c) then cr = f(skt,data) end
         end
         if cr == 'break' then break end
         if cr == 'lua' then
@@ -8065,7 +8069,7 @@ function module.Local(hc3)
 
   function self.createRoom(data)
     if type(data)=='number' then data={id=data, name='Room:'..data} end
-    data.id = data.id or ROOM_ID; ROOM_ID = ROOM_ID+1
+    data.id = data.id or ROOM_IDS; ROOM_IDS = ROOM_IDS+1
     local r = {
       id = data.id,
       name = data.name or 'Room:'..data,
@@ -8083,7 +8087,7 @@ function module.Local(hc3)
 
   function self.createSection(data)
     if type(data)=='number' then data={name="Section:"..data,id=data} end
-    data.id = data.id or SECTION_ID; SECTION_ID = SECTION_ID+1
+    data.id = data.id or SECTION_IDS; SECTION_IDS = SECTION_IDS+1
     local s = {id = data.id, name = data.name, sortOrder=data.sortOrder or 1, created=os.time(), modified=os.time()}
     gLoc.sections[s.id]=s
     Log(LOG.SYS,"[Local] Creating section, id:%s, name:'%s'",s.id,s.name)
@@ -8521,7 +8525,7 @@ function module.API(hc3)
       end)
   end
 
-  API = {
+  local API = {
     ------------ Devices -------------
     ["GET/devices"] -- Get list of available devices
     = function(method,url,props,data,options)
@@ -9364,7 +9368,7 @@ hc3.getmetatable      = getmetatable
 function hc3.module.Util.createEnvironment(envType, extras)
   local env = {}
   local function copy(t) local res={} for k,v in pairs(t) do res[k]=v end  return res end
-  hc3.orgOs = os
+  hc3.os = os
   env._G = env
   env.hc3_emulator = copy(hc3)
   env.fibaro = copy(hc3.module.Fibaro.fibaro)  -- scenes may patch fibaro:*...

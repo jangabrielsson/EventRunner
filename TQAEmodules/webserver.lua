@@ -8,7 +8,7 @@ local fmt = string.format
 local IPAddress
 do
   local someRandomIP = "192.168.1.122" --This address you make up
-  local someRandomPort = "3102" --This port you make up  
+  local someRandomPort = "3102" --This port you make up
   local mySocket = socket.udp() --Create a UDP socket like normal
   mySocket:setpeername(someRandomIP,someRandomPort) 
   local myDevicesIpAddress,_ = mySocket:getsockname()-- returns IP and Port
@@ -127,10 +127,10 @@ local function compilePage(html,fname)
         end
       end
       code,err = code()
-      res2[#res2+1]=function(EM,FB,opts)
+      res2[#res2+1]=function(em,fb,opts)
         local r = {}
         local function out(fm,...) r[#r+1] =  #({...})==0 and fm or fmt(fm,...) end
-        code(EM,FB,opts,out,htmlfuns)
+        code(em,fb,opts,out,htmlfuns)
         return table.concat(r)
       end
       source[#res2]=src
@@ -140,10 +140,10 @@ local function compilePage(html,fname)
       res2[#res2+1]=function() return c end
     end
   end
-  return function(EM,FB,opts)
+  return function(em,fb,opts)
     local res,i = {},1
     local stat,err = pcall(function()
-        while i<#res2 do res[#res+1] = res2[i](EM,FB,opts) i=i+1 end
+        while i<#res2 do res[#res+1] = res2[i](em,fb,opts) i=i+1 end
       end)
     return stat and table.concat(res) or fmt("Error: Page %s - %s</br><pre>%s</pre>",fname,err,source[i])
   end

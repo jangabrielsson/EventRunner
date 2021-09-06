@@ -5,12 +5,12 @@ if dofile and not hc3_emulator then
     type="com.fibaro.genericDevice",
     poll=1000, 
     --startTime="10:00:00 5/12/2020",
-    --speed = 24,
+    --speed = 48,
     --deploy=true,
     --proxy=true,
-    --offline=true,
-    --profile=true,
-    debug = {trigger=true, post=true},
+    offline=true,
+    debug = {trigger=true, post=true, dailys=true, pubsub=true -- timersSched=true
+    },
     UI = {
       {label='ERname',text="..."},
       {button='debugTrigger', text='Triggers:ON'},
@@ -27,12 +27,12 @@ if dofile and not hc3_emulator then
 --FILE:Toolbox/Toolbox_files.lua,Toolbox_files;
 --FILE:Toolbox/Toolbox_rpc.lua,Toolbox_rpc;
 --FILE:Toolbox/Toolbox_pubsub.lua,Toolbox_pubsub;
--- FILE:EventRunnerDoc.lua,EventRunnerDoc;
--- FILE:Toolbox/Toolbox_profiler.lua,Toolbox_profiler;
+--FILE:EventRunnerDoc.lua,EventRunnerDoc;
+--FILE:Toolbox/Toolbox_profiler.lua,Toolbox_profiler;
 end--hc3
 ----------- Code -----------------------------------------------------------
-
 _debugFlags.trigger = true -- log incoming triggers
+_debugFlags.trigger2 = true -- log incoming triggers
 _debugFlags.fcall=true     -- log fibaro.call
 _debugFlags.post = true    -- log internal posts
 _debugFlags.rule=true      -- log rules being invoked (true or false)
@@ -43,14 +43,38 @@ _debugFlags.pubsub=true    -- log only rules that are true
 
 function QuickApp:main()    -- EventScript version
   local rule = function(...) return self:evalScript(...) end          -- old rule function
-  self:enableTriggerType({"device","global-variable","custom-event","profile","alarm"}) -- types of events we want
+  self:enableTriggerType({"device","global-variable","custom-event","profile","alarm","location","quickvar"}) -- types of events we want
 
   HT = { 
     keyfob = 26, 
     motion= 21,
-    temp = 22, 
+    temp = 22,
     lux = 23,
   }
+
+  Util.defvars(HT)
+  Util.reverseMapDef(HT)
+
+  rule("log('Current version is %s - %s',E_VERSION,E_FIX)")
+
+  hc3_emulator.locl.device{type="com.fibaro.binarySwitch",id=26}
+  hc3_emulator.locl.device{type="com.fibaro.multilevelSwitch",id=219}
+  hc3_emulator.locl.device{type="com.fibaro.binarySwitch",id=30}
+
+--  rule("alarms:armed => log('Some alarm armed')")
+--  rule("alarms:allArmed => log('All alarm armed')")
+--  rule("alarms:disarmed => log('All disarmed')")
+--  rule("alarms:anyDisarmed => log('Any disarmed')")
+--  rule("alarms:willArm => log('Any will arm')")
+--  rule("{1,2}:allArmed => log('1,2 armed')")
+--  rule("{1,2}:disarmed => log('1,2 disarmed')")
+  --rule("wait(2); 0:alarm=true")
+
+--  rule("0:armed => log('all armed')").print()
+--  rule("0:armed==false => log('all disarmed')").print()
+--  rule("2:armed => log('2 armed')")
+--  rule("2:disarmed => log('2 disarmed')")
+--  rule("2:willArm => log('2 will arm')")
 
 --  Phone = {2,107}
 --  lights={267,252,65,67,78,111,129,158,292,127,216,210,205,286,297,302,305,410,384,389,392,272,329,276} -- eller hämta värden från HomeTable
@@ -69,9 +93,9 @@ function QuickApp:main()    -- EventScript version
   -- rule("wait(5); publish(#foo)")
   -- rule("motion:value => log('Motion:%s',motion:last)")
 
--- rule("@{catch,05:00} => Util.checkForUpdates()")
--- rule("#File_update{} => log('New file version:%s - %s',env.event.file,env.event.version)")
---  rule("#File_update{} => Util.updateFile(env.event.file)")
+--     rule("@{catch,05:00} => Util.checkForUpdates()")
+--     rule("#File_update{} => log('New file version:%s - %s',env.event.file,env.event.version)")
+--     rule("#File_update{} => Util.updateFile(env.event.file)")
 
 --  rule("keyfob:central => log('Key:%s',env.event.value.keyId)")
 --  rule("motion:value => log('Motion:%s',motion:value)")

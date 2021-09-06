@@ -2,7 +2,7 @@ local EM,FB=...
 
 local LOG,json,api,Devices = EM.LOG,FB.json,FB.api,EM.Devices
 local createQuickApp, updateHC3QAFiles
-local format,loadChildren = string.format
+local format = string.format
 local function copy(t) local r ={}; for k,v in pairs(t) do r[k]=v end return r end
 local function map(f,t) for _,v in ipairs(t) do f(v) end end
 
@@ -22,7 +22,6 @@ local function createProxy(device)
     if pdevice.type ~= typ then
       LOG(EM.LOGINFO1,"Proxy: Type changed from '%s' to %s",typ,pdevice.type)
       api.delete("/devices/"..pdevice.id)
-      pdevice = nil
     else id = pdevice.id end
   end
   local code = {}
@@ -36,7 +35,7 @@ local function POST2IDE(path,payload)
 end
 local IGNORE={updateView=true,setVariable=true,updateProperty=true,APIPOST=true,APIPUT=true,APIGET=true} -- Rewrite!!!!
 function QuickApp:actionHandler(action)
-      if IGNORE[action.actionName] then 
+      if IGNORE[action.actionName] then
         return self:callAction(action.actionName, table.unpack(action.args))
       end
       POST2IDE("/TQAE/action/"..self.id,action)

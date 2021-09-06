@@ -108,8 +108,6 @@ EM._info = { modules = { ["local"] = {}, global= {} } }
 
 ------------------------ Builtin functions ------------------------------------------------------
 local function builtins()
-  local chunkSize1 = 64000
-  local chunkSize2 = 1024
   local function httpRequest(reqs,extra)
     local resp,req,status,h,_={},{} 
     for k,v in pairs(extra or {}) do req[k]=v end; for k,v in pairs(reqs) do req[k]=v end

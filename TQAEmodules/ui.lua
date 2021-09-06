@@ -1,6 +1,6 @@
 local EM,FB = ...
 
-local json,LOG,Devices = FB.json,EM.LOG,EM.Devices
+local json,LOG = FB.json,EM.LOG
 local format = string.format
 
 local function map(f,l) for _,v in ipairs(l) do f(v) end end
