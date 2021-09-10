@@ -359,11 +359,11 @@ local function emulator()
   function runQA(info)        -- Creates an environment and load file modules and starts QuickApp (:onInit())
     local env = {             -- QA environment, all Lua functions available for  QA, 
       plugin={ mainDeviceId = info.id },
-      os={time=EM.osTime, date=EM.osDate, clock=os.clock, difftime=os.difftime, 
-        exit=function() LOG(EM.LOGALLW,"exit(0)") timers.reset() coroutine.yield() end},
-      collectgarbage=collectgarbage,
+      os={
+        time=EM.osTime, date=EM.osDate, clock=os.clock, difftime=os.difftime,exit=function() LOG(EM.LOGALLW,"exit(0)") timers.reset() coroutine.yield() end
+        },
       hc3_emulator={getmetatable=getmetatable,setmetatable=setmetatable,io=io,installQA=installQA,EM=EM,os={setTimer=setTimeout}},
-      coroutine=CO,table=table,select=select,pcall=pcall,xpcall=xpcall,print=print,string=string,error=error,
+      coroutine=CO,table=table,select=select,pcall=pcall,xpcall=xpcall,print=print,string=string,error=error,collectgarbage=collectgarbage,
       next=next,pairs=pairs,ipairs=ipairs,tostring=tostring,tonumber=tonumber,math=math,assert=assert,_LOGLEVEL=EM.logLevel
     }
     for s,v in pairs(FB) do env[s]=v end                        -- Copy local exports to QA environment

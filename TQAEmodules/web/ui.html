@@ -62,7 +62,7 @@ table {
         out([[</td><td><label id="L%s">%s</label>]],c.name,view[c.name]['value'] or 0)
      end,
      ['label'] = function(out,c)
-        out('<label style="width:100%%">%s</label>',view[c.name]['text'])
+        out('<label style="width:100%%">%s</label>',view[c.name]['text']:fromutf8():htmlEsc())
      end,
   }
   for i,rows in ipairs(UI) do
