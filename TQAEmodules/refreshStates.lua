@@ -11,6 +11,8 @@ local http   = require("socket.http")
 local https  = require("ssl.https") 
 local ltn12  = require("ltn12")
 
+local refreshListeners = {}
+
 local function createRefreshStateQueue(size)
   local self = {}
 
@@ -55,6 +57,7 @@ local function createRefreshStateQueue(size)
   function self.addEvents(events)      -- {last=num,events={}}
     events = events[1] and events or {events}
     --print("ADD:"..json.encode(filter(events)))
+    for _,f in ipairs(refreshListeners) do f(events) end
     local index = eventQueue.headp()
     eventQueue.push({last=index, events=events})
   end
@@ -131,9 +134,13 @@ local function interceptHTTP(args,_) -- Intercept http calls to refreshStates to
   return -42
 end
 
+function EM.addRefreshListener(fun) refreshListeners[#refreshListeners+1] = fun end
+
 EM.addAPI("GET/refreshStates",function(_,_,_,_,_,prop) -- Intercep /api/refreshStates
     return refreshStatesQueue.getEvents(tonumber(prop.last) or 0)
   end)
 
 EM.interceptHTTP = interceptHTTP
 EM.EMEvents('start',function() if EM.refreshStates then pollEvents(EM.refreshStates) end end)
+
+function EM.addRefreshEvent(event) refreshStatesQueue.addEvents(event) end

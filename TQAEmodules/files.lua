@@ -69,7 +69,7 @@ local function loadSource(code,fileName) -- Load code and resolve info and --FIL
   gf([[%-%-FILE:%s*(.-)%s*,%s*(.-);]])
   table.insert(files,{name="main",type='lua',isOpen=false,content=code,isMain=true,fname=fileName})
   local info = code:match("%-%-%[%[QAemu(.-)%-%-%]%]")
-  if info==nil then
+  if info==nil or info=="" then
     local il = {}
     code:gsub("%-%-%%%%(.-)[\n\r]+",function(l) il[#il+1]=l end)
     info=table.concat(il,",")

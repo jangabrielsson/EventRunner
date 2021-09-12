@@ -41,7 +41,7 @@ EM.LOGALLW,EM.LOGINFO1,EM.LOGINFO2,EM.LOGERR=0,1,2,0
 
 local globalModules = { -- default global modules loaded into emulator environment
   "net.lua","json.lua","files.lua", "webserver.lua", "api.lua", "proxy.lua", "ui.lua", "time.lua",
-  "refreshStates.lua",
+  "refreshStates.lua", "stdQA.lua", "Scene.lua",
 } 
 local localModules  = { "class.lua", "fibaro.lua", "QuickApp.lua" } -- default local modules loaded into QA environment
 
@@ -91,7 +91,7 @@ do
   local stat,mobdebug = pcall(require,'mobdebug'); -- If we have mobdebug, enable coroutine debugging
   if stat then mobdebug.coro() end
 end
-local version = "0.20"
+local version = "0.21"
 
 local socket = require("socket") 
 local http   = require("socket.http")
@@ -230,21 +230,28 @@ local function timerQueue() -- A sorted timer queue...
   function tq.queue(t,tag,co,D)    -- Insert timer
     tag = tag or "user"; pcounter[tag] = (pcounter[tag] or 0)+1
     local v={t=t+EM.osTime(),co=co,D=D,descr=tostring(co),tag=tag} setmetatable(v,tmt) 
-    if ptr == nil then ptr = v
+    if ptr == nil then ptr = v 
     elseif v.t < ptr.t then v.next=ptr; ptr.prev = v; ptr = v
     else
       local p = ptr
       while p.next and p.next.t <= v.t do p = p.next end   
-      if p.next then v.next,p.next = p.next,v; v.next.prev = v
+      if p.next then p.next,v.next,p.next.prev,v.prev=v,p.next,v,p 
       else p.next,v.prev = v,p end
     end
     return v
   end
 
   function tq.dequeue(v) -- remove a timer
+    assert(v.dead==nil,"Dead ptr")
     local n = v.next
     pcounter[v.tag]=pcounter[v.tag]-1
-    if v==ptr then ptr = v.next else v.prev.next = v.next if v.next then v.next.prev=v.prev end end
+    if v==ptr then 
+      ptr = v.next 
+    else 
+      if v.next then v.next.prev=v.prev end 
+      v.prev.next = v.next 
+    end
+    v.dead = true
     v.next,v.prev=nil,nil
     return n
   end
@@ -361,16 +368,19 @@ local function emulator()
       plugin={ mainDeviceId = info.id },
       os={
         time=EM.osTime, date=EM.osDate, clock=os.clock, difftime=os.difftime,exit=function() LOG(EM.LOGALLW,"exit(0)") timers.reset() coroutine.yield() end
-        },
-      hc3_emulator={getmetatable=getmetatable,setmetatable=setmetatable,io=io,installQA=installQA,EM=EM,os={setTimer=setTimeout}},
+      },
+      hc3_emulator={
+        getmetatable=getmetatable,setmetatable=setmetatable,io=io,installQA=installQA,EM=EM,os={setTimer=setTimeout},trigger=EM.trigger,create=EM.createDevices
+      },
       coroutine=CO,table=table,select=select,pcall=pcall,xpcall=xpcall,print=print,string=string,error=error,collectgarbage=collectgarbage,
       next=next,pairs=pairs,ipairs=ipairs,tostring=tostring,tonumber=tonumber,math=math,assert=assert,_LOGLEVEL=EM.logLevel
     }
+    info.env,env._G=env,env
     for s,v in pairs(FB) do env[s]=v end                        -- Copy local exports to QA environment
     for s,v in pairs(info.extras or {}) do env[s]=v end         -- Copy user provided environment symbols
     loadModules(localModules or {},env)                         -- Load default QA specfic modules into environment
-    loadModules(EM.localModules or {},env)                      -- Load optional user specified module into environment     
-    info.env,env._G=env,env
+    loadModules(EM.localModules or {},env)                      -- Load optional user specified module into environment    
+    EM.postEMEvent({type='infoEnv', info=info})
     LOG(EM.LOGINFO1,"Loading  QA:%s",info.name)
     local k = coroutine.create(function()
         for _,f in ipairs(info.files) do                                     -- for every file we got, load it..
@@ -388,6 +398,7 @@ local function emulator()
   end
 
   function installQA(spec) setTimeout(function() runQA(createInfo(spec)) end,0) end
+  EM.installQA = installQA
 
   local function run(QA) 
     for _,qa in ipairs(QA[1] and QA or {QA}) do installQA(qa) end -- Create QAs given

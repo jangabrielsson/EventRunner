@@ -126,8 +126,13 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
   ["POST/devices/#id/action/#name"] = function(_,path,data,_,id,action) return __fibaro_call(tonumber(id),action,path,data) end,
   ["POST/plugins/updateProperty"] = function(method,path,data,_)
     local D = Devices[data.deviceId]
-    if D then 
+    if D then
+      local oldVal = D.dev.properties[data.propertyName]
       D.dev.properties[data.propertyName]=data.value 
+      EM.addRefreshEvent({
+          type='DevicePropertyUpdatedEvent',
+          data={id=data.deviceId, property=data.propertyName, newValue=data.value, oldValue=oldVal}
+        })
       if D.proxy or D.childProxy then
         return HC3Request(method,path,data)
       else return data.value,202 end

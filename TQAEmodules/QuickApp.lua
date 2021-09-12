@@ -55,7 +55,6 @@ end
 function QuickAppBase:updateProperty(prop,val)
   __assert_type(prop,'string')
   if self.properties[prop] ~= val then
-    self.properties[prop]=val 
     api.post("/plugins/updateProperty", {deviceId=self.id, propertyName=prop, value=val})
   end
 end
