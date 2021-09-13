@@ -11,11 +11,11 @@
 <a href="/web/timers">Timers</a>
 <h2>Global modules</h2>
 <ul>
-{{{ for _,m in ipairs(EM._info.modules.global) do out("<li>%s</li>",m) end }}}
+{{{ for m,_ in pairs(EM._info.modules.global) do out("<li>%s</li>",m) end }}}
 </ul>
 <h2>Local modules</h2>
 <ul>
-{{{ for _,m in ipairs(EM._info.modules["local"]) do out("<li>%s</li>",m) end }}}
+{{{ for m,_ in pairs(EM._info.modules["local"]) do out("<li>%s</li>",m) end }}}
 </ul>
 <h2>Loaded QuickApps</h2>
 <ul>

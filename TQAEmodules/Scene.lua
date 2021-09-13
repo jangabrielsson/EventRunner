@@ -141,10 +141,11 @@ LOG(EM.LOGERR,"Bad condition %s",json.encode(c))
 end
 
 local function post(e)
-  LOG(EM.LOGALLW,"SourceTrigger:%s",json.encode(e))
+  if next(Scenes) then LOG(EM.LOGALLW,"SourceTrigger:%s",json.encode(e)) end
   for id,s in pairs(Scenes) do
     local ts = {}
     if s.cc(e,ts) and ts[1] then
+      s.env.sourceTrigger = e
       FB.setTimeout(s.action,0)
     end
   end
@@ -243,8 +244,10 @@ local EventTypes = { -- There are more, but these are what I seen so far...
   end,
 }
 
-local function startScene(self,env,info)
-  self:debug("Started")
+local function manualStart(id)
+  local scene = Scenes[id]
+  scene.env.sourceTrigger = {type='manual', property='execute'}
+  scene.action()
 end
 
 EM.EMEvents('infoEnv',function(ev) -- Intercept
@@ -252,14 +255,13 @@ EM.EMEvents('infoEnv',function(ev) -- Intercept
     local env = info.env
     if info.scene then
       env.__TAG = "SCENE"..env.plugin.mainDeviceId
-      env.QuickApp.onInit = function(self) startScene(self,env,info) end
+      info.codeType="Scene"
     end
   end)
 
-EM.EMEvents('QACreated',function(ev) 
-    local qa,dev = ev.qa,ev.dev
-    local env = dev._info.env
-    if not dev._info.scene then return end
+EM.EMEvents('sceneLoaded',function(ev) 
+    local info = ev.info
+    local env = info.env
     env.sceneId = "SCENE"..env.plugin.mainDeviceId
     Scenes[env.plugin.mainDeviceId] = {
       conditions = env.CONDITIONS,
@@ -267,6 +269,12 @@ EM.EMEvents('QACreated',function(ev)
       action = env.ACTION,
       env = env,
     }
+    if info.runAtStart then
+      local r = FB.setTimeout(function()
+          manualStart(env.plugin.mainDeviceId)
+        end,1)
+      u=0
+    end
   end)
 
 EM.EMEvents('start',function(ev) 

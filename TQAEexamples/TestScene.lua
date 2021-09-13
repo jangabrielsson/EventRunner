@@ -12,7 +12,7 @@ local _=loadfile and loadfile("TQAE.lua"){
 
 --%%name="TestScene"
 --%%scene=true
---%%runAtStart=false
+--%%runAtStart=true
 --%%noterminate=true
 
 hc3_emulator.create.binarySwitch(35,"lightlit0")
@@ -44,7 +44,7 @@ CONDITIONS = {
 }
 
 function ACTION()
-  
+  print("STARTED")
   local light = {35,69,70} -- ID's of all the lights to turnOn and turnOff
   local mainLight = 35 -- ID of Main light
   local lightlit1 = 69 -- ID's Garage light 

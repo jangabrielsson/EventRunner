@@ -194,7 +194,7 @@ local function builtins()
         for _,m in ipairs(ms) do
           if type(m)=='table' then m,args=m[1],m[2] end
           LOG(EM.LOGINFO2,"Loading  %s module %s",env and "local" or "global",m) 
-          table.insert(EM._info.modules[env and "local" or "global"],m)
+          EM._info.modules[env and "local" or "global"][m]=true
           local code,res=loadfile(EM.modPath..m,"t",env or _G)
           assert(code,res)
           code(EM,FB,args or {})
@@ -271,6 +271,8 @@ local function timerQueue() -- A sorted timer queue...
   function tq.tags(tag) return pcounter[tag] or 0 end
   function tq.reset() ptr=nil; for k,_ in pairs(pcounter) do pcounter[k]=0 end end
   function tq.get() return ptr end
+  function tq.milliStr(t) return os.date("%H:%M:%S",math.floor(t))..string.format(":%03d",math.floor((t%1)*1000+0.5)) end
+  function tq.dump() local p = ptr while(p) do LOG(EM.LOGALLW,"%s,%s,%s",p,tq.milliStr(p.t),p.tag) p=p.next end end
   return tq
 end
 
@@ -357,7 +359,7 @@ local function emulator()
     info.properties.quickAppVariables = info.properties.quickAppVariables or {}
     for k,v in pairs(info.quickVars or {}) do table.insert(info.properties.quickAppVariables,1,{name=k,value=v}) end
     info.id,info.name,info.type=id or info.id,name or info.name or "MyQuickApp",typ or info.type or "com.fibaro.binarySwitch"
-    info.files,info.fileMap,info.save,info.extras,info.restart=files,{},spec.save or info.save,e,restartQA
+    info.files,info.fileMap,info.save,info.extras,info.restart,info.codeType=files,{},spec.save or info.save,e,restartQA,"QA"
     for _,f in ipairs(info.files) do if not info.fileMap[f.name] then info.fileMap[f.name]=f end end
     if not info.id then info.id = gID; gID=gID+1 end
     return info
@@ -367,21 +369,23 @@ local function emulator()
     local env = {             -- QA environment, all Lua functions available for  QA, 
       plugin={ mainDeviceId = info.id },
       os={
-        time=EM.osTime, date=EM.osDate, clock=os.clock, difftime=os.difftime,exit=function() LOG(EM.LOGALLW,"exit(0)") timers.reset() coroutine.yield() end
+        time=EM.osTime, date=EM.osDate, clock=os.clock, difftime=os.difftime,
+        exit=function() LOG(EM.LOGALLW,"exit(0)") timers.reset() coroutine.yield() end
       },
       hc3_emulator={
-        getmetatable=getmetatable,setmetatable=setmetatable,io=io,installQA=installQA,EM=EM,os={setTimer=setTimeout},trigger=EM.trigger,create=EM.createDevices
+        getmetatable=getmetatable,setmetatable=setmetatable,io=io,installQA=installQA,EM=EM,
+        os={setTimer=setTimeout},trigger=EM.trigger,create=EM.createDevices
       },
       coroutine=CO,table=table,select=select,pcall=pcall,xpcall=xpcall,print=print,string=string,error=error,collectgarbage=collectgarbage,
       next=next,pairs=pairs,ipairs=ipairs,tostring=tostring,tonumber=tonumber,math=math,assert=assert,_LOGLEVEL=EM.logLevel
     }
-    info.env,env._G=env,env
+    cco,info.env,env._G=coroutine.running(),env,env
     for s,v in pairs(FB) do env[s]=v end                        -- Copy local exports to QA environment
     for s,v in pairs(info.extras or {}) do env[s]=v end         -- Copy user provided environment symbols
     loadModules(localModules or {},env)                         -- Load default QA specfic modules into environment
     loadModules(EM.localModules or {},env)                      -- Load optional user specified module into environment    
     EM.postEMEvent({type='infoEnv', info=info})
-    LOG(EM.LOGINFO1,"Loading  QA:%s",info.name)
+    LOG(EM.LOGINFO1,"Loading  %s:%s",info.codeType,info.name)
     local k = coroutine.create(function()
         for _,f in ipairs(info.files) do                                     -- for every file we got, load it..
           LOG(EM.LOGINFO2,"         ...%s",f.name)
@@ -392,9 +396,12 @@ local function emulator()
     procs[k]=info coroutine.resume(k) procs[k]=nil
     if env.QuickApp.onInit then
       LOG(EM.LOGINFO1,"Starting QA:%s - ID:%s",info.name,info.id)       -- Start QA by "creating instance"
-      runProc(info,function() env.QuickApp(EM.createDevice(info)) end)  
-      if info.noterminate then runProc(info,function() env.setInterval(function() end,5000) end) end -- keep alive...
+      --runProc(info,function() env.QuickApp(EM.createDevice(info)) end)  
+      local c = procs[cco]; procs[cco]=info env.QuickApp(EM.createDevice(info)) procs[cco]=c 
+    elseif env.ACTION then
+      EM.postEMEvent({type='sceneLoaded', info=info})     
     end
+    if info.noterminate then runProc(info,function() env.setInterval(function() end,5000) end) end -- keep alive...
   end
 
   function installQA(spec) setTimeout(function() runQA(createInfo(spec)) end,0) end
