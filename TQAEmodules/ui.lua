@@ -2,14 +2,9 @@ local EM,FB = ...
 
 local json,LOG = FB.json,EM.LOG
 local format = string.format
+local traverse = EM.utilities.traverse
 
 local function map(f,l) for _,v in ipairs(l) do f(v) end end
-
-local function traverse(o,f)
-  if type(o) == 'table' and o[1] then
-    for _,e in ipairs(o) do traverse(e,f) end
-  else f(o) end
-end
 
 local ELMS = {
   button = function(d,w)

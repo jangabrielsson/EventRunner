@@ -4,7 +4,7 @@ local json = FB.json
 local HC3Request,LOG,Devices = EM.HC3Request,EM.LOG,EM.Devices
 local __fibaro_get_devices,__fibaro_get_device,__fibaro_get_device_property,__fibaro_call=
 FB.__fibaro_get_devices,FB.__fibaro_get_device,FB.__fibaro_get_device_property,FB.__fibaro_call
-local function copy(t) local r={}; for k,v in pairs(t) do r[k]=v end return r end
+local copy = EM.utilities.copy
 
 local GUI_HANDLERS = {
   ["GET/api/callAction"] = function(_,client,ref,_,opts)

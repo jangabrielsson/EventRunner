@@ -15,13 +15,13 @@ do
   IPAddress = myDevicesIpAddress == "0.0.0.0" and "127.0.0.1" or myDevicesIpAddress
 end
 
-local function coprocess(ms,fun,tag,...)
+local function coprocess(ms,fun,tag,...)  -- Just use timer?
   local args = {...}
   local p = coroutine.create(function() fun(table.unpack(args)) end)
   local function process()
     local _,err = coroutine.resume(p)
     local stat = coroutine.status(p) -- run every ms
-    if stat~="dead" then FB.setTimeout(process,ms,tag) end 
+    if stat~="dead" then EM.systemTimer(process,ms,tag) end 
     if stat == 'dead' and err then
       LOG(EM.LOGERR,"Webserver error %s",err)
       LOG(EM.LOGERR,"Webserver error %s",debug.traceback(p))

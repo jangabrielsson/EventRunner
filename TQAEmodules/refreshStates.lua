@@ -121,9 +121,9 @@ local function pollEvents(interval)
 
   local function pollRefresh()
     pollOnce()
-    FB.setTimeout(pollRefresh,INTERVAL,"RefreshState")
+    EM.systemTimer(pollRefresh,INTERVAL,"RefreshState")
   end
-  FB.setTimeout(pollRefresh,0)
+  EM.systemTimer(pollRefresh,0,"RefreshState")
 end
 
 local function interceptHTTP(args,_) -- Intercept http calls to refreshStates to get events from our queue

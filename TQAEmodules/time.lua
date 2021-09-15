@@ -16,4 +16,14 @@ end
 EM.EMEvents('start',function(ev) -- Intercept emulator started and check if startTime should be modified
     if EM.startTime then EM.setDate(EM.startTime) end
     EM._info.started = EM.osTime()
-  end)
+
+--    local st = FB.setTimeout
+--    function FB.setTimeout(fun,ms)
+--      local f = function()
+--        local t = getTime()
+--        local stat,res = pcall(fun)
+--        setTime(t+ms)
+--        if not stat then error(res) end
+--      end
+--      return st(f,0)
+end)

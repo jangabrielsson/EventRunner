@@ -2,7 +2,7 @@ local EM,FB,ARGS=...
 
 local LOG,json = EM.LOG,FB.json
 local fmt = string.format
-
+local equal,copy = EM.utilities.equal,EM.utilities.copy
 local Scenes = {}
 
 --[[
@@ -145,20 +145,11 @@ local function post(e)
   for id,s in pairs(Scenes) do
     local ts = {}
     if s.cc(e,ts) and ts[1] then
+      local env = s.env
+      for k,v in pairs(s.envOrg) do env[k]=v end
+      for k,v in pairs(env) do if s.envOrg[k]==nil then env[k]=nil end end
       s.env.sourceTrigger = e
       FB.setTimeout(s.action,0)
-    end
-  end
-end
-
-local function equal(e1,e2)
-  if e1==e2 then return true
-  else
-    if type(e1) ~= 'table' or type(e2) ~= 'table' then return false
-    else
-      for k1,v1 in pairs(e1) do if e2[k1] == nil or not equal(v1,e2[k1]) then return false end end
-      for k2,_  in pairs(e2) do if e1[k2] == nil then return false end end
-      return true
     end
   end
 end
@@ -266,8 +257,14 @@ EM.EMEvents('sceneLoaded',function(ev)
     Scenes[env.plugin.mainDeviceId] = {
       conditions = env.CONDITIONS,
       cc = compile(env.CONDITIONS),
-      action = env.ACTION,
-      env = env,
+      action = function()
+        LOG(EM.LOGALLW,"Starting scene %s",env.__TAG)
+        local stat,res = pcall(env.ACTION)
+        LOG(EM.LOGALLW,"Ended scene %s",env.__TAG)
+        if not stat then LOG(EM.LOGERR,"%s",res) end
+      end,
+      env = env,      
+      orgEnv = copy(env),
     }
     if info.runAtStart then
       local r = FB.setTimeout(function()

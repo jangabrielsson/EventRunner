@@ -7,7 +7,7 @@ local _=loadfile and loadfile("TQAE.lua"){
   modPath = "TQAEmodules/",
   temp = "temp/",
 --  startTime="12/24/2024-07:00", 
---  logLevel=5
+--logLevel=5
 }
 
 --%%name="TestScene"
@@ -43,8 +43,15 @@ CONDITIONS = {
   operator = "any"
 }
 
+
 function ACTION()
   print("STARTED")
+  
+  fibaro.debug(sceneId,"DEBUG")
+  fibaro.trace(sceneId,"TRACE")
+  fibaro.warning(sceneId,"WARNING")
+  fibaro.error(sceneId,"ERROR")
+  
   local light = {35,69,70} -- ID's of all the lights to turnOn and turnOff
   local mainLight = 35 -- ID of Main light
   local lightlit1 = 69 -- ID's Garage light 
