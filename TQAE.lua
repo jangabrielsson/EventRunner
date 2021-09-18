@@ -199,7 +199,7 @@ local function builtins()
     local colorCode = ANSICOLORS[logColors[level] or logColors[EM.LOGALLW]]
     print(fmt("%s |%sSYS  %s|: %s",EM.osDate("[%d.%m.%Y] [%H:%M:%S]"),colorCode,ANSIEND,fmt(...)))
   end
-  
+
   function FB.urldecode(str) return str and str:gsub('%%(%x%x)',function (x) return string.char(tonumber(x,16)) end) end
   function FB.urlencode(str) return str and str:gsub("([^% w])",function(c) return string.format("%%% 02X",string.byte(c))  end) end
   function string.split(str, sep)
