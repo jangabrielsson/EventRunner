@@ -46,7 +46,7 @@ local logColors = { [EM.LOGALLW] = 'brown', [EM.LOGERR]='red' }
 
 local globalModules = { -- default global modules loaded into emulator environment
   "net_copas.lua","json.lua","files.lua", "webserver.lua", "api.lua", "proxy.lua", "ui.lua", "time.lua",
-  "refreshStates_copas.lua", "stdQA.lua", "Scene.lua",
+  "refreshStates.lua", "stdQA.lua", "Scene.lua",
 } 
 local localModules  = { {"class.lua","QA"}, "fibaro.lua", {"QuickApp.lua","QA"} } -- default local modules loaded into QA environment
 

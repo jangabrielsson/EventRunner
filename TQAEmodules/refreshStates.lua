@@ -88,8 +88,9 @@ end
 
 local refreshStatesQueue = createRefreshStateQueue(200)
 local lastRefresh = 0
+local httpR = nil
 
-local function pollOnce()
+local function pollOnce(cb)
   local resp = {}
   local req={ 
     method="GET",
@@ -100,30 +101,35 @@ local function pollOnce()
   }
   req.headers["Accept"] = '*/*'
   req.headers["X-Fibaro-Version"] = 2
-  local to = http.TIMEOUT
-  http.TIMEOUT = 1 -- TIMEOUT == 0 doesn't work...
-  local r, c, h = http.request(req)       -- ToDo https
-  http.TIMEOUT = to
-  if not r then return nil,c, h end
+  local to
+  if not EM.copas then 
+    local to = http.TIMEOUT
+    http.TIMEOUT = 1 -- TIMEOUT == 0 doesn't work...
+  end
+  local r, c, h = httpR.request(req)       -- ToDo https
+  if not EM.copas then http.TIMEOUT = to end
+  if not r then return cb() end
   if c>=200 and c<300 then
     local states = resp[1] and json.decode(table.concat(resp))
     if states then
       lastRefresh=states.last
-      if states.events and #states.events>0 then refreshStatesQueue.addEvents(states.events) end
+      if states.events and #states.events>0 then 
+        refreshStatesQueue.addEvents(states.events) 
+      end
     end
   end
-  return nil,c, h
+  cb()
 end
 
 local function pollEvents(interval)
   LOG(EM.LOGALLW,"Polling HC3 /refreshStates")
   local INTERVAL = EM.refreshInterval or 0
-
-  local function pollRefresh()
-    pollOnce()
-    EM.systemTimer(pollRefresh,INTERVAL,"RefreshState")
+  local cb
+  local function poll() pollOnce(cb) end
+  function cb()
+    EM.systemTimer(poll,INTERVAL,"RefreshState")
   end
-  EM.systemTimer(pollRefresh,0,"RefreshState")
+  poll(cb)
 end
 
 local function interceptHTTP(args,_) -- Intercept http calls to refreshStates to get events from our queue
@@ -141,6 +147,9 @@ EM.addAPI("GET/refreshStates",function(_,_,_,_,_,prop) -- Intercep /api/refreshS
   end)
 
 EM.interceptHTTP = interceptHTTP
-EM.EMEvents('start',function() if EM.refreshStates then pollEvents(EM.refreshStates) end end)
+EM.EMEvents('start',function()
+    httpR = EM.copas and EM.copas.http or http
+    if EM.refreshStates then pollEvents(EM.refreshStates) end 
+  end)
 
 function EM.addRefreshEvent(event) refreshStatesQueue.addEvents(event) end

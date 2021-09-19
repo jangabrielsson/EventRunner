@@ -8,12 +8,14 @@ local devices = {
   --%%type="com.fibaro.binarySwitch"
   function QuickApp:turnOn()
     if not self.properties.value then
+     self:debug("Turned On")
      self:updateProperty("value",true)
      self:updateProperty("state",true)
     end
   end
   function QuickApp:turnOff()
     if self.properties.value then
+    self:debug("Turned Off")
      self:updateProperty("value",false)
      self:updateProperty("state",false)
     end
@@ -31,15 +33,15 @@ local devices = {
   --%%type="com.fibaro.binarySensor"
   local timer
   function QuickApp:breach(s)
-    self:debug("BREACHED")
+    s = tonumber(s) or 10
+    self:debug("Sensor breached ("..s.."s)")
     self:updateProperty("value",true)
     if timer then clearTimeout(timer) timer=nil end
-    self:setVariable("foo",42)
     timer = setTimeout(function() 
-       self:debug("SAFE")
-       self:updateProperty("value",false); timer = nil end,
-       (tonumber(s) or 10)*1000)
-    self:debug("Well be safe in "..(tonumber(s) or 10).."s")
+       self:debug("Sensor safe")
+       self:updateProperty("value",false); timer = nil 
+      end,
+      s*1000)
   end
   function QuickApp:onInit()
     self:debug(self.name,self.id)
@@ -50,10 +52,15 @@ local devices = {
 [[
   --%%type="com.fibaro.multilevelSwitch"
   function QuickApp:turnOn()
+    self:updateProperty("value",99)
+    self:updateProperty("state",true) 
   end
   function QuickApp:turnOff()
+    self:updateProperty("value",0)
+    self:updateProperty("state",false) 
   end
   function QuickApp:setValue(value)
+    self:updateProperty("value",value)
   end
   function QuickApp:onInit()
     self:debug(self.name,self.id)
