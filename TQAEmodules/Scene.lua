@@ -269,7 +269,7 @@ local function compile(c)
   elseif types[c.type or ""] then
     local f = types[c.type](c)
     return function(trigger,ts)
-      return trigger.type==c.type and f(trigger.ts) 
+      return trigger.type==c.type and f(trigger,ts) 
     end
   end
   LOG(EM.LOGERR,"Bad condition %s",json.encode(c))
@@ -283,7 +283,7 @@ function runTriggers(e)
       for k,v in pairs(s.orgEnv) do env[k]=v end
       for k,v in pairs(env) do if s.orgEnv[k]==nil then env[k]=nil end end
       s.env.sourceTrigger = e
-      FB.setTimeout(s.action,0)
+      FB.setTimeout(s.action,0,nil,s.info)
     end
   end
 end
@@ -377,7 +377,7 @@ local EventTypes = { -- There are more, but these are what I seen so far...
 local function manualStart(id)
   local scene = Scenes[id]
   scene.env.sourceTrigger = {type='manual', property='execute'}
-  scene.action()
+  FB.setTimeout(scene.action,1,nil,scene.info)
 end
 
 EM.EMEvents('infoEnv',function(ev) -- Intercept
@@ -402,13 +402,12 @@ EM.EMEvents('sceneLoaded',function(ev)
         LOG(EM.LOGALLW,"Ended scene %s",env.__TAG)
         if not stat then LOG(EM.LOGERR,"%s",res) end
       end,
+      info=info,
       env = env,      
       orgEnv = copy(env),
     }
     if info.runAtStart then
-      local r = FB.setTimeout(function()
-          manualStart(env.plugin.mainDeviceId)
-        end,1)
+      manualStart(env.plugin.mainDeviceId)
     end
   end)
 

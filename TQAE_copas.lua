@@ -441,10 +441,10 @@ local function emulator()
   local run = emulator()                 -- Setup emulator core - returns run function
 
   print(fmt("---------------- Tiny QuickAppEmulator (TQAE) v%s -------------",version)) -- Get going...
-  EM.postEMEvent{type='start'}            -- Announce that we have started
 
   local file = debug.getinfo(2)           -- Find out what file that called us
   EM.copas.loop(function()
+      EM.postEMEvent{type='start'}            -- Announce that we have started
       if embedded then                        -- Embedded call...
         if file and file.source then
           if not file.source:sub(1,1)=='@' then error("Can't locate file:"..file.source) end

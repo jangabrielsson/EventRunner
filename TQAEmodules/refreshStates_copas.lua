@@ -100,7 +100,7 @@ local function pollOnce(cb)
   }
   req.headers["Accept"] = '*/*'
   req.headers["X-Fibaro-Version"] = 2
-  local r, c, h = http.request(req)       -- ToDo https
+  local r, c, h = EM.copas.http.request(req)       -- ToDo https
   if not r then return cb() end
   if c>=200 and c<300 then
     local states = resp[1] and json.decode(table.concat(resp))
@@ -116,10 +116,10 @@ local function pollEvents(interval)
   LOG(EM.LOGALLW,"Polling HC3 /refreshStates")
   local INTERVAL = EM.refreshInterval or 0
 
-  pollOnce(function()
-      EM.systemTimer(pollRefresh,INTERVAL,"RefreshState")
-    end
-  )
+  local function cb()
+    EM.systemTimer(cb,INTERVAL,"RefreshState")
+  end
+  pollOnce(cb)
 end
 
 local function interceptHTTP(args,_) -- Intercept http calls to refreshStates to get events from our queue

@@ -23,7 +23,9 @@ local GUI_HANDLERS = {
     local stat,res = pcall(function()
         arg = json.decode("["..(arg or "").."]")
         local QA = EM.getQA(tonumber(opts.qaID))
-        local res = {QA[opts.method](QA,table.unpack(arg))}
+        __fibaro_call(tonumber(opts.qaID),opts.method,"",{data=arg})
+        res={}
+        --local res = {QA[opts.method](QA,table.unpack(arg))}
         LOG(EM.LOGINFO2,"Web call: QA(%s):%s%s = %s",opts.qaID,opts.method,json.encode(arg),json.encode(res))
       end)
     if not stat then 
