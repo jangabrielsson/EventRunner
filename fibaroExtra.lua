@@ -4,7 +4,7 @@
 -- luacheck: globals ignore utils hc3_emulator FILES urlencode sceneId
 
 fibaro = fibaro  or  {}
-fibaro.FIBARO_EXTRA = "v0.922"
+fibaro.FIBARO_EXTRA = "v0.923"
 FILES = FILES or {}
 FILES['fibaroExtra']=fibaro.FIBARO_EXTRA
 
@@ -91,7 +91,7 @@ do
   function utils.basicAuthorization(user,password) return "Basic "..utils.base64encode(user..":"..password) end
   function utils.base64encode(data)
     __assert_type(data,"string" )
-    local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+    local bC='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
     return ((data:gsub('.', function(x) 
             local r,b='',x:byte() for i=8,1,-1 do r=r..(b%2^i-b%2^(i-1)>0 and '1' or '0') end
             return r;
@@ -99,7 +99,7 @@ do
           if (#x < 6) then return '' end
           local c=0
           for i=1,6 do c=c+(x:sub(i,i)=='1' and 2^(6-i) or 0) end
-          return b:sub(c+1,c+1)
+          return bC:sub(c+1,c+1)
         end)..({ '', '==', '=' })[#data%3+1])
   end
 
@@ -113,11 +113,11 @@ do
     local tan = function(d) return math.tan(rad(d)) end
     local atan = function(d) return deg(math.atan(d)) end
 
-    local function day_of_year(date)
-      local n1 = floor(275 * date.month / 9)
-      local n2 = floor((date.month + 9) / 12)
-      local n3 = (1 + floor((date.year - 4 * floor(date.year / 4) + 2) / 3))
-      return n1 - (n2 * n3) + date.day - 30
+    local function day_of_year(date2)
+      local n1 = floor(275 * date2.month / 9)
+      local n2 = floor((date2.month + 9) / 12)
+      local n3 = (1 + floor((date2.year - 4 * floor(date2.year / 4) + 2) / 3))
+      return n1 - (n2 * n3) + date2.day - 30
     end
 
     local function fit_into_range(val, min, max)
@@ -286,7 +286,6 @@ do
   local cachedNots = {}
   local function notify(priority, text, reuse)
     local id = MID
-    local idt = plugin and "deviceId" or "sceneId"
     local name = quickApp and quickApp.name or "Scene"
     assert(({info=true,warning=true,alert=true})[priority],"Wrong 'priority' - info/warning/alert")
     local title = text:match("(.-)[:%s]") or format("%s deviceId:%d",name,id)
@@ -907,7 +906,7 @@ do
           _request(table.unpack(v))
         end
       end
-      _request = function(url,params,key)
+      _request = function(url,params,_)
         params = copy(params)
         local uerr,usucc = params.error,params.success
         params.error = function(status)
@@ -1001,7 +1000,7 @@ do
     function loadQA(selfv)
       local dev = __fibaro_get_device(selfv.id)
       if not dev.enabled then  
-        selfv:debug("QA ",self.name," disabled")
+        selfv:debug("QA ",selfv.name," disabled")
         return 
       end
       selfv.config = {}
@@ -1257,7 +1256,6 @@ do
     for n,v in pairs(args.quickVars or {}) do addVar(n,v) end
     local callbacks = properties.uiCallbacks
     if  callbacks then 
-      local function copy(t) local r={}; for k,v in pairs(t) do r[k]=v end return r end
       callbacks = copy(callbacks)
       addVar('_callbacks',callbacks)
     end
@@ -1427,7 +1425,7 @@ do
     end
 
     -- our own json encode, as we don't have 'pure' json structs, and sorts keys in order (i.e. "stable" output)
-    local function prettyJsonFlat(e) 
+    local function prettyJsonFlat(e0) 
       local res,seen = {},{}
       local function pretty(e)
         local t = type(e)
@@ -1457,7 +1455,7 @@ do
         elseif e == nil then res[#res+1]='null'
         else error("bad json expr:"..tostring(e)) end
       end
-      pretty(e)
+      pretty(e0)
       return table.concat(res)
     end
     json.encodeFast = prettyJsonFlat
@@ -1547,6 +1545,7 @@ do
         if state == false then
           state=os.time()+time
         elseif state == true then
+          state = state -- NOP
         elseif state <=  os.time() then
           if action() then
             state = os.time()+time
@@ -1589,7 +1588,7 @@ do
     local function isRule(e) return type(e)=='table' and e[em.RULE] end
 
 -- This can be used to "post" an event into this QA... Ex. fibaro.call(ID,'RECIEVE_EVENT',{type='myEvent'})
-    function _RECIEVE_EVENT(self,ev)
+    function _RECIEVE_EVENT(_,ev)
       assert(isEvent(ev),"Bad argument to remote event")
       local time = ev.ev._time
       ev,ev.ev._time = ev.ev,nil
@@ -1603,7 +1602,7 @@ do
       fibaro.call(id,'RECIEVE_EVENT',{type='EVENT',ev=ev}) -- We need this as the system converts "99" to 99 and other "helpful" conversions
     end
 
-    function fibaro.post(ev,t)
+    function post(ev,t)
       local now = os.time()
       t = type(t)=='string' and toTime(t) or t or 0
       if t < 0 then return elseif t < now then t = t+now end
@@ -1614,7 +1613,8 @@ do
         return setTimeout(function() handleEvent(ev) end,1000*(t-now))
       end
     end
-
+    fibaro.post = post 
+    
 -- Cancel post in the future
     function fibaro.cancel(ref) clearTimeout(ref) end
 
@@ -1663,7 +1663,7 @@ do
     end
     em.compilePattern = compilePattern
 
-    local function match(pattern, expr)
+    local function match(pattern0, expr0)
       local matches = {}
       local function unify(pattern,expr)
         if pattern == expr then return true
@@ -1679,7 +1679,7 @@ do
           return true
         else return false end
       end
-      return unify(pattern,expr) and matches or false
+      return unify(pattern0,expr0) and matches or false
     end
     em.match = match
 
@@ -1726,8 +1726,8 @@ do
 
     local function comboEvent(e,action,rl,doc)
       local rm = {[em.RULE]=e, action=action, doc=doc, subs=rl}
-      rm.enable = function() mapF(function(e) e.enable() end,rl) return rm end
-      rm.disable = function() mapF(function(e) e.disable() end,rl) return rm end
+      rm.enable = function() mapF(function(e0) e0.enable() end,rl) return rm end
+      rm.disable = function() mapF(function(e0) e0.disable() end,rl) return rm end
       rm.start = function(event) invokeHandler({rule=rm,event=event}) return rm end
       rm.__tostring = comboToStr
       return rm
@@ -1788,15 +1788,15 @@ do
         for _,rules in ipairs(handlers[hashKey] or {}) do -- Check all rules of 'type'
           local i,m=1,nil
           em.stats.tried=em.stats.tried+1
-          for i=1,#rules do
-            if not rules[i]._disabled then    -- find first enabled rule, among rules with same head
+          for j=1,#rules do
+            if not rules[j]._disabled then    -- find first enabled rule, among rules with same head
               m = match(rules[i][em.RULE],ev) -- and match against that rule
               break
             end
           end
           if m then                           -- we have a match
-            for i=i,#rules do                 -- executes all rules with same head
-              local rule=rules[i]
+            for j=i,#rules do                 -- executes all rules with same head
+              local rule=rules[j]
               if not rule._disabled then 
                 em.stats.matched=em.stats.matched+1
                 if invokeHandler({event = ev, p=m, rule=rule}) == em.BREAK then return end
@@ -2010,8 +2010,8 @@ do
         })
     end
     local base = fibaro._URL_UPDATE_BASE or "https://raw.githubusercontent.com/jangabrielsson/EventRunner/master/"
-    local manifest = fibaro._UPDATE_MANIFEST or "VERSION4.json"
-    fetch(base..manifest,
+    local manifest0 = fibaro._UPDATE_MANIFEST or "VERSION4.json"
+    fetch(base..manifest0,
       function(manifest)
         manifest = json.decode(manifest)
         if fibaro.FIBARO_EXTRA == nil or manifest[fname] > fibaro.FIBARO_EXTRA then
@@ -2044,8 +2044,8 @@ do
           if res.status == 200 then 
             local f = {isMain=false,type='lua',isOpen=false,name=name,content=res.data}
             fibaro.debug(__TAG,"Installing ",name)
-            local _,res = api.post("/quickApp/"..plugin.mainDeviceId.."/files",f)
-            if res ~= 200 then fibaro.error(__TAG,"Installing ",name," - ",res) end              
+            local _,res2 = api.post("/quickApp/"..plugin.mainDeviceId.."/files",f)
+            if res2 ~= 200 then fibaro.error(__TAG,"Installing ",name," - ",res2) end              
           else fibaro.error(__TAG,"Error ",res.status," fetching ",url) end
         end,
         error  = function(res) 
