@@ -1,6 +1,7 @@
 local EM,FB = ...
 
 local json,LOG = FB.json,EM.LOG
+local copy = EM.utilities.copy
 
 local CRC16Lookup = {
   0x0000,0x1021,0x2042,0x3063,0x4084,0x50a5,0x60c6,0x70e7,0x8108,0x9129,0xa14a,0xb16b,0xc18c,0xd1ad,0xe1ce,0xf1ef,
@@ -57,21 +58,30 @@ local function mergeUI(info)
   info.UI = res
 end
 
+local function matchContinousLines(str,pattern1,pattern2,collector)
+  local state = 0
+  str:gsub("(.-)[\n\r]+",function(line)
+      local m = {line:match(pattern1)}
+      if  #m > 0 then
+        if state < 2 and line:match(pattern2) then collector(table.unpack(m)) state=1 end
+      elseif state==1 then state = 2 end
+    end)
+end
+
 local function loadSource(code,fileName) -- Load code and resolve info and --FILE directives
   local files = {}
-  local function gf(pattern)
-    code = code:gsub(pattern,
-      function(file,name)
-        files[#files+1]={name=name,type='lua',isOpen=false,content=readFile(file),isMain=false,fname=file}
-        return ""
-      end)
-  end
-  gf([[%-%-FILE:%s*(.-)%s*,%s*(.-);]])
+
+  matchContinousLines(code,[[%-%-%s*FILE:%s*(.-)%s*,%s*(.-);]],[[%-%-FILE:%s*(.-)%s*,%s*(.-);]],
+    function(file,name)
+      files[#files+1]={name=name,type='lua',isOpen=false,content=readFile(file),isMain=false,fname=file}
+      return ""
+    end)
   table.insert(files,{name="main",type='lua',isOpen=false,content=code,isMain=true,fname=fileName})
+
   local info = code:match("%-%-%[%[QAemu(.-)%-%-%]%]")
   if info==nil or info=="" then
     local il = {}
-    code:gsub("%-%-%%%%(.-)[\n\r]+",function(l) il[#il+1]=l end)
+    matchContinousLines(code,"%-%-%s*%%%%(.-)$","%-%-%%%%(.-)$",function(l) il[#il+1]=l end)
     info=table.concat(il,",")
   end
   if info then 
@@ -112,7 +122,8 @@ end
 
 local function packageFQA(D)
   local dev = D.dev
-  for _,f in ipairs(D.files or {}) do f.fname=nil end
+  local files = {}
+  for _,f in ipairs(D.files or {}) do local f2=copy(f) f2.fname=nil files[#files+1]=f2 end
   local fqa = {
     name = dev.name,
     type = dev.type,
@@ -125,7 +136,7 @@ local function packageFQA(D)
       quickAppVariables = dev.properties.quickAppVariables,
       typeTemplateInitialized=true,
     },
-    files = D.files
+    files = files
   }
   return fqa
 end
@@ -150,4 +161,4 @@ local function uploadFQA(D)
   else LOG(EM.LOGALLW,"Uploaded '%s', deviceId:%s",res.name,res.id) end
 end
 
-EM.loadFile, EM.saveFQA, EM.uploadFQA = loadFile, saveFQA, uploadFQA
+EM.loadFile, EM.saveFQA, EM.uploadFQA, EM.packageFQA = loadFile, saveFQA, uploadFQA, packageFQA

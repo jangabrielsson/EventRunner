@@ -67,7 +67,11 @@ function QuickApp:pollHue()
   net.HTTPClient():request(url,{ 
       options = { method='GET'},
       success = function(resp)
-        local data = json.decode(resp.data)            -- data in form { id1 = data1, id2 = data2, ... }   
+        local data = json.decode(resp.data)            -- data in form { id1 = data1, id2 = data2, ... } 
+        if data and data[1] and data[1].error then
+          self:error(data[1].error.description)
+          return
+        end
         for hueId,child in pairs(HueID2Child) do      --- This is why we need the HueID2Child table
           if data[child.hueType][tostring(hueId)] then --- We get the hueID and need to know what child to send the data too
             child:update(data[child.hueType][tostring(hueId)].state)

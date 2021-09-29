@@ -1,3 +1,12 @@
+--[[
+TQAE - Tiny QuickApp emulator for the Fibaro Home Center 3
+Copyright (c) 2021 Jan Gabrielsson
+Email: jan@gabrielsson.com
+MIT License
+
+Some standard devices that can be created on-the-fly in the emulator to test against
+
+--]]
 local EM,FB = ...
 
 local json,LOG = FB.json,EM.LOG

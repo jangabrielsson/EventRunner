@@ -1,3 +1,12 @@
+--[[
+TQAE - Tiny QuickApp emulator for the Fibaro Home Center 3
+Copyright (c) 2021 Jan Gabrielsson
+Email: jan@gabrielsson.com
+MIT License
+
+Module REST api calls. Both for local emulator calls and external REST calls from the HC3. Uses the Webserver module
+
+--]]
 local EM,FB = ...
 
 local json = FB.json
@@ -22,9 +31,9 @@ local GUI_HANDLERS = {
     local arg = opts.Args
     local stat,res = pcall(function()
         arg = json.decode("["..(arg or "").."]")
-        local QA = EM.getQA(tonumber(opts.qaID))
+        --local QA = EM.getQA(tonumber(opts.qaID))
         __fibaro_call(tonumber(opts.qaID),opts.method,"",{data=arg})
-        res={}
+        local res={}
         --local res = {QA[opts.method](QA,table.unpack(arg))}
         LOG(EM.LOGINFO2,"Web call: QA(%s):%s%s = %s",opts.qaID,opts.method,json.encode(arg),json.encode(res))
       end)
@@ -150,7 +159,7 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
   end,
   ["POST/plugins/restart"] = function(method,path,data,_)
     if Devices[data.deviceId] then
-      Devices[data.deviceId]:restart()
+      EM.restartQA(Devices[data.deviceId])
       return true,200
     else return HC3Request(method,path,data) end
   end,
@@ -160,14 +169,20 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
       props.initialProperties = nil
     end
     if not D.proxy then
-      local info = {name=props.name,type=props.type,properties=props.initialProperties,interfaces=props.initialInterfaces}
+      local info = {
+        parentId=props.parentId,name=props.name,
+        type=props.type,properties=props.initialProperties,
+        interfaces=props.initialInterfaces
+      }
       local dev = EM.createDevice(info)
+      Devices[dev.id]=info
+      LOG(EM.LOGINFO1,"Created local child device %s",dev.id)
       dev.parentId = props.parentId
       return dev,200
     else 
       local dev,err = HC3Request(method,path,props)
       if dev then
-        LOG(EM.LOGINFO2,"Created device %s",dev.id)
+        LOG(EM.LOGINFO2,"Created child device %s on HC3",dev.id)
       end
       return dev,err
     end

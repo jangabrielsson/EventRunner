@@ -1,3 +1,13 @@
+--[[
+TQAE - Tiny QuickApp emulator for the Fibaro Home Center 3
+Copyright (c) 2021 Jan Gabrielsson
+Email: jan@gabrielsson.com
+MIT License
+
+Polling /refreshStates events from HC3 and put them in queue that is used by emulator getting /refreshStates.
+And also push events to Scene triggering mechanism
+
+--]]
 local EM,FB=...
 
 -- The general idea is that we poll the HC3 /refreshStates and put events in a queue.
@@ -103,7 +113,7 @@ local function pollOnce(cb)
   req.headers["X-Fibaro-Version"] = 2
   local to
   if not EM.copas then 
-    local to = http.TIMEOUT
+    to = http.TIMEOUT
     http.TIMEOUT = 1 -- TIMEOUT == 0 doesn't work...
   end
   local r, c, h = httpR.request(req)       -- ToDo https

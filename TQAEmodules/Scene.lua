@@ -1,3 +1,12 @@
+--[[
+TQAE - Tiny QuickApp emulator for the Fibaro Home Center 3
+Copyright (c) 2021 Jan Gabrielsson
+Email: jan@gabrielsson.com
+MIT License
+
+Rudimentary scene support
+
+--]]
 local EM,FB=...
 
 local LOG,json = EM.LOG,FB.json
@@ -180,6 +189,7 @@ function types.device(c)
   end
 end
 
+local dateTimer
 function types.date(c)
   local isTrigger = c.isTrigger
   

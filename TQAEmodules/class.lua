@@ -1,5 +1,15 @@
--- Class support, mimicking LuaBind's class implementation
+--[[
+TQAE - Tiny QuickApp emulator for the Fibaro Home Center 3
+Copyright (c) 2021 Jan Gabrielsson
+Email: jan@gabrielsson.com
+MIT License
+
+Class support, mimicking LuaBind's class implementation
+
+--]]
 local setmetatable = hc3_emulator.setmetatable
+local rawset = hc3_emulator.rawset
+local rawget = hc3_emulator.rawget
 
 local metas = {}
 for _,m in ipairs({

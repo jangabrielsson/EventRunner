@@ -4,9 +4,9 @@ __print = print
 function print(...) fibaro.debug(__TAG,...) end
 
 function plugin.deleteDevice(id) return api.delete("/devices/"..id) end
-function plugin.restart(id) return api.post("/plugins/restart",{deviceId=id or quickApp.id}) end
+function plugin.restart(id) return api.post("/plugins/restart",{deviceId=id or plugin.mainDeviceId}) end
 function plugin.getProperty(id,prop) return api.get("/devices/"..id.."/property/"..prop) end
-function plugin.getChildDevices(id) return api.get("/devices?parentId="..(id or quickApp.id)) end
+function plugin.getChildDevices(id) return api.get("/devices?parentId="..(id or plugin.mainDeviceId)) end
 function plugin.createChildDevice(props) return api.post("/plugins/createChildDevice",props) end
 
 class 'QuickAppBase'

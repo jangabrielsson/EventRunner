@@ -1,6 +1,15 @@
+--[[
+TQAE - Tiny QuickApp emulator for the Fibaro Home Center 3
+Copyright (c) 2021 Jan Gabrielsson
+Email: jan@gabrielsson.com
+MIT License
+
+Proxy support - responsible for creating a proxy of the emulated QA on the HC3
+
+--]]
 local EM,FB=...
 
-local LOG,json,api,Devices = EM.LOG,FB.json,FB.api,EM.Devices
+local LOG,json,api = EM.LOG,FB.json,FB.api
 local createQuickApp, updateHC3QAFiles
 local format = string.format
 local function copy(t) local r ={}; for k,v in pairs(t) do r[k]=v end return r end
@@ -275,29 +284,4 @@ function updateHC3QAFiles(newFiles,id)
   return newFiles,200
 end
 
-EM.EMEvents('QACreated',function(ev) -- A QuickAppChild is instantiated - create Devices[..] entry
-    local qa,dev = ev.qa,ev.dev
-    LOG(4,"proxy.lua inspecting QA:%s",dev.name)
-    local info = dev._info or {}
-    dev._info = info
-    if info.proxy then
-
-      local l = FB.__fibaro_local(false)
-      local stat,res = pcall(createProxy,dev)
-      FB.__fibaro_local(l)
-      if not stat then 
-        LOG(EM.LOGERR,"Error: Proxy: %s",res)
-        info.proxy = false
-      else
-        dev.id = res.id
-      end
-
-    end
-
-    if qa.parentId > 0 then
-      local p = Devices[qa.parentId]
-      info.env,info.childProxy = p.env,p.proxy
-      if info.childProxy then LOG(EM.LOGINFO1,"Imported proxy child %s",dev.id) end
-    end
-
-  end,true)
+EM.createProxy = createProxy

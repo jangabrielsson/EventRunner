@@ -14,9 +14,9 @@ do
   if _G['ngx'] then -- no problem, main thread
     default_now = _G['ngx'].now
   else
-    local ok, socket = pcall(require, "socket")
+    local ok, socket2 = pcall(require, "socket")
     if ok then
-      default_now = socket.gettime
+      default_now = socket2.gettime
     else
       default_now = nil -- we don't have a default
     end
@@ -2124,4 +2124,7 @@ do
   end
 end
 
-return {http=copas.http, loop=copas.loop, https=copas.https, timer=timer, lock=lock}
+return {
+  http=copas.http, loop=copas.loop, https=copas.https, timer=timer, lock=lock, removethread=copas.removethread,
+  sleep = copas.sleep, addserver = copas.addserver, wrap = copas.wrap, 
+}

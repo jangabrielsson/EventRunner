@@ -4,16 +4,19 @@
 </head>
 <body>
 {{{ out("Current time:%s",html.milliStr(EM.clock())) }}}
+</p>
 <table>
 {{{
-  if EM.copas then
-  else
-    local p = EM.timers.get()
-    while p do
-      out("<tr><td>%s</td><td>,Expires:%s</td><td>,ID:%s</td><td>,Tag:%s</td></tr>",
-          p,html.milliStr(p.t),p.qa and p.qa.QA.id or 0,p.tag or "<notag>")
-      p=p.next
+  local devs,ts = EM.Devices,{}
+  for id,info in pairs(devs) do
+    for t,_ in pairs(info.timers or {}) do
+      ts[#ts+1]=t
     end
+  end
+  table.sort(ts,function(a,b) return a.time < b.time end)
+  for _,t in ipairs(ts) do
+    out("<tr><td>QA:%s</td><td>,ID:%s</td><td>,%s</td><td>,%s</td><td>%s</td></tr>",
+         t.ctx.name,t.ctx.id,html.milliStr(t.time),t.descr,t.tag or "")
   end
 }}}
 </table>

@@ -1,6 +1,15 @@
+--[[
+TQAE - Tiny QuickApp emulator for the Fibaro Home Center 3
+Copyright (c) 2021 Jan Gabrielsson
+Email: jan@gabrielsson.com
+MIT License
+
+Creating UI elements for emulated QA (Web UI) and HC3 procy
+
+--]]
 local EM,FB = ...
 
-local json,LOG = FB.json,EM.LOG
+local json,LOG,Devices = FB.json,EM.LOG,EM.Devices
 local format = string.format
 local traverse = EM.utilities.traverse
 
@@ -144,38 +153,43 @@ local initElm = {
   ['label'] = function(e,qa)  qa:updateView(e.label,'text',e.text) end,
 }
 
+function EM.addUI(info)
+  local UI,dev = info.UI,info.dev
+  if info.UI and next(info.UI)~= nil then
+    transformUI(UI)
+    dev.properties.viewLayout = mkViewLayout(UI)
+    dev.properties.uiCallbacks = uiStruct2uiCallbacks(UI)
+  elseif (not dev.viewLayout) and (customUI[dev.type] or customUI[dev.baseType or ""]) then
+    info.UI = customUI[dev.type] or customUI[dev.baseType]
+    UI = info.UI
+    transformUI(UI)
+    dev.properties.viewLayout = mkViewLayout(UI)
+    dev.properties.uiCallbacks = uiStruct2uiCallbacks(UI)
+  elseif not dev.properties.viewLayout then
+    info.UI = {}
+    dev.properties.viewLayout= json.decode(
+[[{"$jason":{"body":{"header":{"style":{"height":"0"},"title":"quickApp_device_403"},"sections":{"items":[]}},"head":{"title":"quickApp_device_403"}}}]]
+    )
+    dev.properties.uiCallbacks = {}
+  end
+end
+
 EM.EMEvents('QACreated',function(ev) -- Intercept QA created and add viewLayout and uiCallbacks
     local qa,dev = ev.qa,ev.dev
-    LOG(4,"ui.lua inspecting QA:%s",dev.name)
-    local info = dev._info or {}
-    dev._info = info
-    if info.UI and next(info.UI)~= nil then
-      local UI = info.UI
-      transformUI(UI)
-      dev.properties.viewLayout = mkViewLayout(UI)
-      dev.properties.uiCallbacks = uiStruct2uiCallbacks(UI)
-    elseif (not dev.viewLayout) and (customUI[dev.type] or customUI[dev.baseType or ""]) then
-      info.UI = customUI[dev.type] or customUI[dev.baseType]
-      local UI = info.UI
-      transformUI(UI)
-      dev.properties.viewLayout = mkViewLayout(UI)
-      dev.properties.uiCallbacks = uiStruct2uiCallbacks(UI)
-    elseif not dev.properties.viewLayout then
-      info.UI = {}
-      dev.properties.viewLayout= json.decode(
-[[{"$jason":{"body":{"header":{"style":{"height":"0"},"title":"quickApp_device_403"},"sections":{"items":[]}},"head":{"title":"quickApp_device_403"}}}]]
-      )
-      dev.properties.uiCallbacks = {}
+    local info = Devices[qa.id]
+    LOG(4,"ui.lua inspecting QA:%s",qa.name)
+    if info == nil and dev.parentId and dev.parentId > 0 then
+      info = {dev = dev, env = Devices[dev.parentId].env }
+      EM.addUI(info)
+      EM.installDevice(info)
     end
-
-    --FB.setTimeout(function()
-        for _,r in ipairs(info.UI) do
-          r = r[1] and r or {r}
-          for _,c in ipairs(r) do
-            if initElm[c.type] then initElm[c.type](c,qa) end
-          end
-        end
-      --end,0)
+    for _,r in ipairs(info.UI) do
+      r = r[1] and r or {r}
+      for _,c in ipairs(r) do
+        if initElm[c.type] then initElm[c.type](c,qa) end
+      end
+    end
+    --end,0)
   end,true)
 
 EM.UI = {}
