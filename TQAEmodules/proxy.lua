@@ -27,9 +27,9 @@ local function createProxy(device)
   if d and #d>0 then
     table.sort(d,function(a,b) return a.id >= b.id end)
     pdevice = d[1]
-    LOG(EM.LOGINFO1,"Proxy: '%s' found, ID:%s",name,pdevice.id)
+    LOG.sys("Proxy: '%s' found, ID:%s",name,pdevice.id)
     if pdevice.type ~= typ then
-      LOG(EM.LOGINFO1,"Proxy: Type changed from '%s' to %s",typ,pdevice.type)
+      LOG.sys("Proxy: Type changed from '%s' to %s",typ,pdevice.type)
       api.delete("/devices/"..pdevice.id)
     else id = pdevice.id end
   end
@@ -63,7 +63,7 @@ function QuickApp:APIPUT(url,data) api.put(url,data) end
 
   code = table.concat(code,"\n")
 
-  LOG(EM.LOGINFO1,id and "Proxy: Reusing QuickApp proxy" or "Proxy: Creating new proxy")
+  LOG.sys(id and "Proxy: Reusing QuickApp proxy" or "Proxy: Creating new proxy")
 
   table.insert(quickVars,{name="PROXYIP", value = EM.IPAddress..":"..EM.PORT})
   return createQuickApp{id=id,name=name,type=typ,code=code,initialProperties=properties,initialInterfaces=interfaces}
@@ -252,10 +252,10 @@ function createQuickApp(args)
   end
 
   if type(res)=='string' or res > 201 then
-    LOG(EM.LOGERR,"Proxy: Error: D:%s,RES:%s",json.encode(d1),json.encode(res))
+    LOG.error("Proxy: D:%s,RES:%s",json.encode(d1),json.encode(res))
     return nil
   else
-    LOG(EM.LOGALLW,"Proxy: Device %s %s",d1.id or "",what)
+    LOG.sys("Proxy: Device %s %s",d1.id or "",what)
     return d1
   end
 end

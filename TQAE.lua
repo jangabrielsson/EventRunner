@@ -23,71 +23,103 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 Sources included:
-json           -- Copyright (c) 2020 rxi
+json           -- Copyright (c) 2019 rxi
+persistence    -- Copyright (c) 2010 Gerhard Roethlin
+file functions -- Credit pkulchenko - ZeroBraneStudio
+copas          -- Copyright 2005-2016 - Kepler Project (www.keplerproject.org)
+timerwheel     -- Credit https://github.com/Tieske/timerwheel.lua/blob/master/LICENSE
+binaryheap     -- Copyright 2015-2019 Thijs Schreijer
+--]]
+
+--[[
+Emulator options: (set in the header _=loadfile and loadfile("TQAE.lua"){...} )
+user=<user>
+  Account used to interact with the HC3 via REST api
+pwd=<Password>
+  Password for account used to interact with the HC3 via REST api
+host=<IP address>
+  IP address of HC3
+paramsFile = <filename>
+  File used to load in emulator options instead of specifying them in the QA file.
+  Great place to keep credentials instead of listing them in the QA code, and forget to remove them when uploading codeto forums...
+  Default "TQAEconfigs.lua"
+debug={
+  QA=<boolean>,       --default true
+  module=<boolean>,   --defaul false
+  module2=<boolean>,  --defaul false
+  lock=<boolean>,     --default false
+  child=<boolean>,    --default true
+  device=<boolean>,   --default true
+}
+modPath = <path>, 
+  Path to TQAE modules. 
+  Default "TQAEmodules/"
+temp = <path>
+  Path to temp directory. 
+  Default "temp/"
+startTime=<time string>
+  Start date for the emulator. Ex. "12/24/2024-07:00" to start emulator at X-mas morning 07:00 2024.
+  Default, current local time.
+htmlDebug=<boolean>.
+   If false will strip html formatting from the log output. 
+   Default true
+colorDebug=<boolean>.
+   If true will log in ZBS console with color. 
+   Default true
+copas=<boolean>
+   If true will use the copas scheduler. 
+   Default true.
+noweb=<boolean>
+   If true will not start up local web interface.
+   Default false
+lateTimers=<seconds>
+  If set to a value will be used to notify if timers are late to execute.
+  Default false
+timerVerbose=<boolean>
+  If true prints timer reference with extended information (expiration time etc)
+  
+QuickApp options: (set with --%% directive n file)
+--%%name=<name>
+--%%id=<number>
+--%%type=<com.fibaro.XYZ>
+--%%properties={<table of initial properties>}
+--%%interfaces={<array of interfaces>}
+--%%quickVars={<table of initial quickAppVariables>}
+--%%proxy=<boolean>
 --]]
 
 local embedded=...              -- get parameters if emulator included from QA code...
-local EM = embedded or {}
+local EM = { cfg = embedded or {} }
+local cfg = EM.cfg
 local function DEF(x,y) if x==nil then return y else return x end end
-EM.paramsFile  = DEF(EM.paramsFile,"TQAEconfigs.lua")
+cfg.paramsFile  = DEF(cfg.paramsFile,"TQAEconfigs.lua")
 do 
-  local pf = loadfile(EM.paramsFile); if pf then local p = pf() or {}; for k,v in pairs(EM) do p[ k ]=v end EM=p end 
+  local pf = loadfile(cfg.paramsFile); if pf then local p = pf() or {}; for k,v in pairs(cfg) do p[ k ]=v end cfg,EM.cfg=p,p end 
 end
-EM.modPath       = DEF(EM.modpath,"TQAEmodules/")   -- directory where TQAE modules are stored
-EM.temp          = DEF(EM.temp,os.getenv("TMPDIR") or os.getenv("TEMP") or os.getenv("TMP") or "temp/") -- temp directory
-EM.logLevel      = DEF(EM.logLevel,1)
-EM.htmlDebug     = DEF(EM.htmlDebug,true)
-EM.utilities     = dofile(EM.modPath.."utilities.lua")
+cfg.modPath      = DEF(cfg.modpath,"TQAEmodules/")   -- directory where TQAE modules are stored
+cfg.temp         = DEF(cfg.temp,os.getenv("TMPDIR") or os.getenv("TEMP") or os.getenv("TMP") or "temp/") -- temp directory
+cfg.logLevel     = DEF(cfg.logLevel,1)
+cfg.htmlDebug    = DEF(cfg.htmlDebug,true)
+cfg.colorDebug   = DEF(cfg.colorDebug,true)
+EM.utilities     = dofile(cfg.modPath.."utilities.lua")
+EM.debugFlags    = DEF(cfg.debug,{QA=true,child=true,device=true})
 
-EM.LOGALLW,EM.LOGINFO1,EM.LOGINFO2,EM.LOGERR=-1,1,2,0
 local fibColors = { ["DEBUG"] = 'green', ["TRACE"] = 'blue', ["WARNING"] = 'orange', ["ERROR"] = 'red' }
-local logColors = { [EM.LOGALLW] = 'brown', [EM.LOGERR]='red' }
+local logColors = { ["SYS"] = 'brown', ["ERROR"]='red', ["WARNING"] = 'orange', ["TRACE"] = 'blue' }
 
 local globalModules = { -- default global modules loaded into emulator environment
   "net.lua","json.lua","files.lua", "webserver.lua", "api.lua", "proxy.lua", "ui.lua", "time.lua",
-  "refreshStates.lua", "stdQA.lua", "Scene.lua",
+  "refreshStates.lua", "stdQA.lua", "Scene.lua", "offline.lua",
 } 
-local localModules  = { {"class.lua","QA"}, "fibaro.lua", {"QuickApp.lua","QA"} } -- default local modules loaded into QA environment
+local localModules  = { -- default local modules loaded into QA environment
+  {"class.lua","QA"}, "fibaro.lua", "fibaroPatch.lua", {"QuickApp.lua","QA"} 
+} 
 
-local function main(run) -- playground
-
---  run{file='GEA_v7.20.fqa'}
-  local testQA = [[
-  --%%quickVars={x='Hello'}
-  --%%interfaces={"power"}
-  --%%type="com.fibaro.multilevelSwitch"
-  --%%save="temp/foo.fqa"
-  function QuickApp:onInit()
-    self:debug(self.name,self.id)
-    self:debug("quickVar","x=",self:getVariable("x"))
-    local n = 5
-    setInterval(function() 
-       self:debug("PP") 
-       n=n-1
-       if n <= 0 then os.exit() end
-      end,1000)
-  end
-]]
-
-  run{code=[[
-print("Start")
---%%name='TestQA1'
-function QuickApp:onInit()
-    if not fibaro.getValue(self.id,"value") then
-        self:updateProperty("value",true)
-      api.post("/plugins/restart",{deviceId=self.id})
-    end
-    function self:debugf(...) self:debug(string.format(...)) end
-    self:debugf("%s - %s",self.name,self.id)
-    self:debugf("Name1:%s",fibaro.getName(self.id))
-    self:debugf("Name2:%s",api.get("/devices/"..self.id).name)
-    self:debugf("Name3:%s",__fibaro_get_device(self.id).name)
-    hc3_emulator.installQA{name="MuQA",code=testQA} -- install another QA and run it
-end
-]],env={testQA=testQA}} -- we can add extra variables to our QA's environment
-
-  local et = loadfile("emu_tests.lua") -- more extensive tests.
-  if et then et(run) end 
+--EM.copas = true
+--EM.noweb=true
+local function main(FB)
+  local et = loadfile(EM.cfg.modPath.."/verify/verify.lua") -- more extensive tests.
+  if et then et(EM,FB) end 
 end
 
 ---------------------------------------- TQAE -------------------------------------------------------------
@@ -95,7 +127,7 @@ do
   local stat,mobdebug = pcall(require,'mobdebug'); -- If we have mobdebug, enable coroutine debugging
   if stat then mobdebug.coro() end
 end
-local version = "0.23"
+local version = "0.27"
 
 local socket = require("socket") 
 local http   = require("socket.http")
@@ -107,369 +139,349 @@ local ltn12  = require("ltn12")
 -- EM.x internal emulator functions, HTTP, LOG etc. Plugins can add to this...
 
 local FB,Devices = {},{}  -- id->Device map
-local fmt,LOG,call,loadModules,timers,setTimeout,xpresume,getContext = string.format
+local Utils=EM.utilities
+local fmt,gID,setTimeout,LOG,DEBUG,loadModules,runQA = string.format,1001
+local copy,merge,member = Utils.copy,Utils.merge,Utils.member
+EM.http,EM.https=http,https
 EM._info = { modules = { ["local"] = {}, global= {} } }
 
+-- luacheck: ignore 142
 ------------------------ Builtin functions ------------------------------------------------------
-local function builtins()
 
-  local function httpRequest(reqs,extra)
-    local resp,req,status,h,_={},{} 
-    for k,v in pairs(extra or {}) do req[k]=v end; for k,v in pairs(reqs) do req[k]=v end
-    req.sink,req.headers = ltn12.sink.table(resp), req.headers or {}
-    req.headers["Accept"] = "*/*"
-    req.headers["Content-Type"] = "application/json"
-    if req.method=="PUT" or req.method=="POST" then
-      req.data = req.data or "[]"
-      req.headers["content-length"] = #req.data
-      req.source = ltn12.source.string(req.data)
-    else req.headers["Content-Length"]=0 end
-    if req.url:sub(1,5)=="https" then
-      _,status,h = https.request(req)
-    else
-      _,status,h = http.request(req)
-    end
-    if tonumber(status) and status < 300 then 
-      return resp[1] and table.concat(resp) or nil,status,h 
-    else return nil,status,h end
+local function httpRequest(reqs,extra)
+  local resp,req,status,h,_={},{} 
+  for k,v in pairs(extra or {}) do req[k]=v end; for k,v in pairs(reqs) do req[k]=v end
+  req.sink,req.headers = ltn12.sink.table(resp), req.headers or {}
+  req.headers["Accept"] = "*/*"
+  req.headers["Content-Type"] = "application/json"
+  if req.method=="PUT" or req.method=="POST" then
+    req.data = req.data or "[]"
+    req.headers["content-length"] = #req.data
+    req.source = ltn12.source.string(req.data)
+  else req.headers["Content-Length"]=0 end
+  if req.url:sub(1,5)=="https" then
+    _,status,h = EM.https.request(req)
+  else
+    _,status,h = EM.http.request(req)
   end
+  if tonumber(status) and status < 300 then 
+    return resp[1] and table.concat(resp) or nil,status,h 
+  else return nil,status,h end
+end
 
-  local base = "http://"..EM.host.."/api"
-  local function HC3Request(method,path,data) 
-    local res,stat,h = httpRequest({method=method, url=base..path,
-        user=EM.user, password=EM.pwd, data=data and FB.json.encode(data), timeout = 5000, 
-        headers = {["Accept"] = '*/*',["X-Fibaro-Version"] = 2, ["Fibaro-User-PIN"] = EM.pin},
-      })
-    return res~=nil and FB.json.decode(res),stat,nil
-  end
+local base = "http://"..EM.cfg.host.."/api"
+local function HC3Request(method,path,data) 
+  local res,stat,_ = httpRequest({method=method, url=base..path,
+      user=EM.cfg.user, password=EM.cfg.pwd, data=data and FB.json.encode(data), timeout = 5000, 
+      headers = {["Accept"] = '*/*',["X-Fibaro-Version"] = 2, ["Fibaro-User-PIN"] = EM.cfg.pin},
+    })
+  return res~=nil and FB.json.decode(res),stat,nil
+end
 
-  local function __assert_type(value,typeOfValue )
-    if type(value) ~= typeOfValue then  -- Wrong parameter type, string required. Provided param 'nil' is type of nil
-      error(fmt("Wrong parameter type, %s required. Provided param '%s' is type of %s",
-          typeOfValue,tostring(value),type(value)),
-        3)
-    end
+local function __assert_type(value,typeOfValue )
+  if type(value) ~= typeOfValue then  -- Wrong parameter type, string required. Provided param 'nil' is type of nil
+    error(fmt("Wrong parameter type, %s required. Provided param '%s' is type of %s",
+        typeOfValue,tostring(value),type(value)),
+      3)
   end
-  function FB.__ternary(test, a1, a2) if test then return a1 else return a2 end end
+end
+function FB.__ternary(test, a1, a2) if test then return a1 else return a2 end end
 -- basic api functions, tries to deal with local emulated Devices too. Local Device have precedence over HC3 Devices.
-  function FB.__fibaro_get_device(id) __assert_type(id,"number") return Devices[id] and Devices[id].dev or HC3Request("GET","/devices/"..id) end
-  function FB.__fibaro_get_devices() 
-    local ds = HC3Request("GET","/devices") or {}
-    for _,dev in pairs(Devices) do ds[#ds+1]=dev.dev end -- Add emulated Devices
-    return ds 
-  end 
-  function FB.__fibaro_get_room (id) __assert_type(id,"number") return HC3Request("GET","/rooms/"..id) end
-  function FB.__fibaro_get_scene(id) __assert_type(id,"number") return HC3Request("GET","/scenes/"..id) end
-  function FB.__fibaro_get_global_variable(name) __assert_type(name ,"string") return HC3Request("GET","/globalVariables/"..name) end
-  function FB.__fibaro_get_device_property(id ,prop) 
-    __assert_type(id,"number") __assert_type(prop,"string")
-    local D = Devices[id]  -- Is it a local Device?
-    if D then return D.dev.properties[prop] and { value = D.dev.properties[prop], modified=0} or nil
-    else return HC3Request("GET","/devices/"..id.."/properties/"..prop) end
-  end
-  function FB.__fibaro_get_partition(id) return HC3Request("GET",'/alarms/v1/partitions/' .. id) end
-  function FB.__fibaroUseAsyncHandler(_) end -- TBD
-  function FB.__fibaroSleep(ms) -- We lock all timers/coroutines except the one resuming the sleep for us
-    local r,D,co; co,r = coroutine.running(),setTimeout(function() timers.lock(r,false) xpresume(co,D) end,ms) 
-    D = getContext(co) timers.lock(r,true); coroutine.yield(co)
-  end
-  -- Non standard
-  function FB.__fibaro_call(id,name,path,data)
-    local args = data.args or {}
-    return Devices[id] and call(id,name,table.unpack(args)) or HC3Request("POST",path,data)
-  end
-  function FB.__fibaro_local(bool) local l = EM.locl==true; EM.locl = bool; return l end
 
-  local html2color,ANSICOLORS,ANSIEND = EM.utilities.html2color,EM.utilities.ZBCOLORMAP,EM.utilities.ZBCOLOREND
+function FB.__fibaro_get_room(id) __assert_type(id,"number") return HC3Request("GET","/rooms/"..id) end
+function FB.__fibaro_get_scene(id) __assert_type(id,"number") return HC3Request("GET","/scenes/"..id) end
+function FB.__fibaro_get_global_variable(name) __assert_type(name ,"string") return FB.api.get("/globalVariables/"..name) end
+function FB.__fibaro_get_device_property(id ,prop) 
+  __assert_type(id,"number") __assert_type(prop,"string")
+  local D = Devices[id]  -- Is it a local Device?
+  if D then return D.dev.properties[prop] and { value = D.dev.properties[prop], modified=0} or nil
+  else return HC3Request("GET","/devices/"..id.."/properties/"..prop) end
+end
+function FB.__fibaro_get_partition(id) return HC3Request("GET",'/alarms/v1/partitions/' .. id) end
+function FB.__fibaroUseAsyncHandler(_) end -- TBD
+-- Non standard
+function FB.__fibaro_call(id,name,path,data)
+  local args, D = data.args or {},Devices[id]
+  if D then
+    -- sim. call in another process/QA
+    return setTimeout(function() D.env.onAction(id,{deviceId=id,actionName=name,args=args}) end,0,nil,D) 
+  else return HC3Request("POST",path,data) end
+end
 
-  function FB.__fibaro_add_debug_message(tag,str,type)
-    assert(str,"Missing tag for debug")
-    if EM.htmlDebug then
-      str = html2color(str)
-      type = ANSICOLORS[(fibColors[type] or "black")]..type..ANSIEND
-    else
-      str=str:gsub("(</?font.->)","") -- Remove color tags
-    end
-    str=str:gsub("(&nbsp;)"," ")      -- remove html space
-    print(fmt("%s [%s] [%s]: %s",EM.osDate("[%d.%m.%Y] [%H:%M:%S]"),type,tag,str))
+function FB.__fibaro_local(bool) local l = EM.locl==true; EM.locl = bool; return l end
+
+local html2color,ANSICOLORS,ANSIEND = Utils.html2color,Utils.ZBCOLORMAP,Utils.ZBCOLOREND
+
+function FB.__fibaro_add_debug_message(tag,str,typ)
+  assert(str,"Missing tag for debug")
+  str = EM.cfg.htmlDebug and html2color(str) or str:gsub("(</?font.->)","") -- Remove color tags
+  typ = EM.cfg.colorDebug and (ANSICOLORS[(fibColors[typ] or "black")]..typ..ANSIEND) or typ
+  str=str:gsub("(&nbsp;)"," ")      -- remove html space
+  print(fmt("%s [%s] [%s]: %s",EM.osDate("[%d.%m.%Y] [%H:%M:%S]"),typ,tag,str))
+end
+
+local function _LOG(typ,...)
+  if EM.cfg.colorDebug then
+    local colorCode = ANSICOLORS[logColors[typ]]
+    print(fmt("%s |%s%5s%s|: %s",EM.osDate("[%d.%m.%Y] [%H:%M:%S]"),colorCode,typ,ANSIEND,fmt(...)))
+  else
+    print(fmt("%s |%5s|: %s",EM.osDate("[%d.%m.%Y] [%H:%M:%S]"),typ,fmt(...)))
   end
+end
+LOG = {}
+function LOG.sys(...)   _LOG("SYS",  ...) end
+function LOG.warn(...)  _LOG("WARNING", ...) end
+function LOG.error(...) _LOG("ERROR",...) end
+function LOG.trace(...) _LOG("TRACE",...) end
+function DEBUG(flag,typ,...) if EM.debugFlags[flag] then LOG[typ](...) end end
 
-  function LOG(level,...) 
-    if level > EM.logLevel then return end
-    local colorCode = ANSICOLORS[logColors[level] or logColors[EM.LOGALLW]]
-    print(fmt("%s |%sSYS  %s|: %s",EM.osDate("[%d.%m.%Y] [%H:%M:%S]"),colorCode,ANSIEND,fmt(...)))
-  end
+function FB.urldecode(str) return str and str:gsub('%%(%x%x)',function (x) return string.char(tonumber(x,16)) end) end
+function FB.urlencode(str) return str and str:gsub("([^% w])",function(c) return string.format("%%% 02X",string.byte(c))  end) end
+function string.split(str, sep)
+  local fields,s = {},sep or "%s"
+  str:gsub("([^"..s.."]+)", function(c) fields[#fields + 1] = c end)
+  return fields
+end
 
-  function FB.urldecode(str) return str and str:gsub('%%(%x%x)',function (x) return string.char(tonumber(x,16)) end) end
-  function FB.urlencode(str) return str and str:gsub("([^% w])",function(c) return string.format("%%% 02X",string.byte(c))  end) end
-  function string.split(str, sep)
-    local fields,s = {},sep or "%s"
-    str:gsub("([^"..s.."]+)", function(c) fields[#fields + 1] = c end)
-    return fields
-  end
-
-  function loadModules(ms,env,isScene,args)
-    ms = type(ms)=='table' and ms or {ms}
-    local stat,res = pcall(function()
-        for _,m in ipairs(ms) do
-          if type(m)=='table' then m,args=m[1],m[2] else args=nil end
-          if not(args=='QA' and isScene) then
-            LOG(EM.LOGINFO2,"Loading  %s module %s",env and "local" or "global",m) 
-            EM._info.modules[env and "local" or "global"][m]=true
-            local code,res=loadfile(EM.modPath..m,"t",env or _G)
-            assert(code,res)
-            code(EM,FB,args or {})
-          end
+function loadModules(ms,env,isScene,args)
+  ms = type(ms)=='table' and ms or {ms}
+  local stat,res = pcall(function()
+      for _,m in ipairs(ms) do
+        if type(m)=='table' then m,args=m[1],m[2] else args=nil end
+        if not(args=='QA' and isScene) then
+          DEBUG("module","sys","Loading  %s module %s",env and "local" or "global",m) 
+          EM._info.modules[env and "local" or "global"][m]=true
+          local code,res=loadfile(EM.cfg.modPath..m,"t",env or _G)
+          assert(code,res)
+          code(EM,FB,args or {})
         end
-      end)
-    if not stat then error("Loading module "..res) end
-  end
-
-  local offset=0
-  function EM.setTimeOffset(offs) if offs then offset=offs else return offset end end
-  function EM.clock() return socket.gettime()+offset end
-  function EM.osTime(a) return a and os.time(a) or os.time()+offset end
-  function EM.osDate(a,b) return os.date(a,b or EM.osTime()) end
-
-  local EMEvents = {}
-  function EM.EMEvents(typ,callback,front)
-    local evs = EMEvents[typ] or {}
-    if front then table.insert(evs,1,callback) else evs[#evs+1]=callback end 
-    EMEvents[typ] = evs
-  end
-  function EM.postEMEvent(ev) for _,m in ipairs(EMEvents[ev.type] or {}) do m(ev) end end
-  EM.LOG,EM.httpRequest,EM.HC3Request,EM.socket = LOG,httpRequest,HC3Request,socket
-  EM.Devices=Devices
-  FB.__assert_type = __assert_type
-end
-
------------------------- Timers ----------------------------------------------------------
-local function timerQueue() -- A sorted timer queue...
-  local tq,pcounter,ptr = {},{}
-  local tmt={ __tostring = function(t) return t.descr end}
-
-  function tq.queue(v)    -- Insert timer
-    v.tag = v.tag or "user"; pcounter[v.tag] = (pcounter[v.tag] or 0)+1
-    setmetatable(v,tmt) 
-    if ptr == nil then ptr = v 
-    elseif v.t < ptr.t then v.next=ptr; ptr.prev = v; ptr = v
-    else
-      local p = ptr
-      while p.next and p.next.t <= v.t do p = p.next end   
-      if p.next then p.next,v.next,p.next.prev,v.prev=v,p.next,v,p 
-      else p.next,v.prev = v,p end
-    end
-    return v
-  end
-
-  function tq.dequeue(v) -- remove a timer
-    assert(v.dead==nil,"Dead ptr")
-    local n = v.next
-    pcounter[v.tag]=pcounter[v.tag]-1
-    if v==ptr then 
-      ptr = v.next 
-    else 
-      if v.next then v.next.prev=v.prev end 
-      v.prev.next = v.next 
-    end
-    v.dead = true
-    v.next,v.prev=nil,nil
-    return n
-  end
-
-  function tq.clearTimers(id) -- Clear all timers belonging to QA with id
-    local p = ptr
-    while p do if p.ctx and p.ctx.dev.id == id then p=tq.dequeue(p) else p=p.next end end
-  end
-
-  function tq.peek() -- Return next unlocked timer
-    local p = ptr
-    while p do if not tq.locked(p) then return p,p.t,p.co,p.ctx end p=p.next end 
-  end
-
-  function tq.lock(t,b) if t.ctx then t.ctx.env.LOCKED = b and t.co or nil end end
-  function tq.locked(t) local l = t.ctx and t.ctx.env.LOCKED; return l and l~=t.co end
-  function tq.tags(tag) return pcounter[tag] or 0 end
-  function tq.reset() ptr=nil; for k,_ in pairs(pcounter) do pcounter[k]=0 end end
-  function tq.get() return ptr end
-  function tq.milliStr(t) return os.date("%H:%M:%S",math.floor(t))..string.format(":%03d",math.floor((t%1)*1000+0.5)) end
-  function tq.dump() local p = ptr while(p) do LOG(EM.LOGALLW,"%s,%s,%s",p,tq.milliStr(p.t),p.tag) p=p.next end end
-  return tq
-end
-
------------------------- Emulator core ----------------------------------------------------------
-local function emulator()
-  local procs,CO,clock,gID = {},coroutine,EM.clock,1001
-  local copy,member,merge = EM.utilities.copy,EM.utilities.member,EM.utilities.merge
-  function getContext(co) return procs[co or coroutine.running()] end
-  function setTimeout(fun,ms,tag,ctx)
-    ctx = ctx or procs[coroutine.running()]
-    local co = CO.create(fun)
-    local v={t=ms/1000+EM.osTime(),co=co,ctx=ctx,descr=tostring(co),tag=tag} 
-    return timers.queue(v) 
-  end
-  local sysCtx = {env={__TAG='SYSTEM'},dev={}}
-  function EM.systemTimer(fun,ms,tag) return setTimeout(fun,ms,tag,sysCtx) end
-  FB.setTimeout=setTimeout
-  function FB.clearTimeout(ref) timers.dequeue(ref) end
-  function FB.setInterval(fun,ms) 
-    local r={} 
-    local function loop() fun() local r2 = setTimeout(loop,ms) r.t,r.co,r.ctx,r.tag,r.descr=r2.t,r2.co,r2.ctx,r2.tag,r2.descr end 
-    loop(); return r 
-  end
-  function FB.clearInterval(ref) FB.clearTimeout(ref) end
--- Used by api/devices/<id>/action/<name> to call and hand over to called QA's thread
-  function call(id,name,...)
-    local args,D = {...},Devices[id]
-    setTimeout(function() D.env.onAction(id,{deviceId=id,actionName=name,args=args}) end,0,nil,D) -- sim. call in another process/QA
-  end
-  function FB.type(o) local t = type(o) return t=='table' and o._TYPE or t end
--- Check arguments and print a QA error message 
-  local function check(name,stat,err) if not stat then FB.__fibaro_add_debug_message(name,err,"ERROR") end return stat end
--- Resume a coroutine and handle errors
-  function xpresume(co,ctx)
-    local cr = coroutine.running()
-    local oldCtx = procs[cr]
-    procs[co]=ctx local stat,res = CO.resume(co)
-    procs[cr]=oldCtx
-    if not stat then 
-      check(ctx and ctx.env.__TAG or "",stat,res) debug.traceback(co) 
-    end
-  end
-  function EM.getQA(id)
-    local D = Devices[tonumber(id) or 0] if not D then return end
-    if D.dev.parentId==0 then return D.env.quickApp,D.env,true 
-    else return D.env.quickApp.childDevices[id],D.env,false end
-  end
-
-  local installQA,runQA
-  local function restartQA(D) timers.clearTimers(D.dev.id) runQA(D) coroutine.yield() end
-
-  EM.EMEvents('QACreated',function(ev) -- Register device and clean-up when QA is created
-      local qa,dev = ev.qa,ev.dev
-      local info = dev._info
-      Devices[dev.id],info.dev,dev._info =info,dev,nil
-      if qa.id ~= dev.id then -- QA got proxy id - update
-        LOG(EM.LOGINFO1,"Proxy: Changing device ID %s to proxy ID %s",qa.id,dev.id)
-        qa.id=dev.id
-        info.env.plugin.mainDeviceId = dev.id
-        info.env.__TAG="QUICKAPP"..dev.id
       end
     end)
+  if not stat then error("Loading module "..res) end
+end
 
-  local deviceTemplates
-  function EM.createDevice(info)
-    local typ = info.type or "com.fibaro.binarySensor"
-    if deviceTemplates == nil then 
-      local f = io.open(EM.modPath.."devices.json")
-      if f then deviceTemplates=FB.json.decode(f:read("*all")) f:close() else deviceTemplates={} end
+local offset=0
+function EM.setTimeOffset(offs) if offs then offset=offs else return offset end end
+function EM.clock() return socket.gettime()+offset end
+function EM.osTime(a) return a and os.time(a) or os.time()+offset end
+function EM.osDate(a,b) return os.date(a,b or EM.osTime()) end
+
+local EMEvents = {}
+function EM.EMEvents(typ,callback,front)
+  local evs = EMEvents[typ] or {}
+  if front then table.insert(evs,1,callback) else evs[#evs+1]=callback end 
+  EMEvents[typ] = evs
+end
+function EM.postEMEvent(ev) for _,m in ipairs(EMEvents[ev.type] or {}) do m(ev) end end
+EM.LOG,EM.DEBUG,EM.httpRequest,EM.HC3Request,EM.socket = LOG,DEBUG,httpRequest,HC3Request,socket
+EM.Devices=Devices
+FB.__assert_type = __assert_type
+
+function FB.setInterval(fun,ms) 
+  local r={} 
+  local function loop() fun() if r[1] then r[1] = setTimeout(loop,ms) end end 
+  r[1] = setTimeout(loop,ms) 
+  return r 
+end
+function FB.clearInterval(ref) if type(ref)=='table' and ref[1] then FB.clearTimeout(ref[1]) ref[1]=nil end end
+local function milliStr(t) return os.date("%H:%M:%S",math.floor(t))..string.format(":%03d",math.floor((t%1)*1000+0.5)) end
+EM.milliStr = milliStr
+
+local timer2str = { __tostring=function(t)
+    if EM.cfg.timerVerbose then
+      local ctx = t.ctx
+      return fmt("<%s %s(%s), expires=%s>",t.descr,ctx.env.__TAG,ctx.id or 0,milliStr(t.time))
+    else return t.descr end
+  end 
+}
+function EM.makeTimer(time,co,ctx,tag,ft,args) 
+  return setmetatable({time=time,co=co,ctx=ctx,tag=tag,fun=ft,args=args,descr=tostring(co)},timer2str)
+end
+function EM.timerCheckFun(t)
+  local now = EM.clock()
+  if (now-t.time) >= EM.cfg.lateTimers then
+    LOG.warn("Late timer %.3f - %s",now-t.time,t)
+  end
+end
+
+------------------------ Emulator functions ------------------------------------------------------
+local weakKeys = { __mode='k' } 
+local procs    = setmetatable({},weakKeys)
+local deviceTemplates
+
+local function getContext(co) return procs[co or coroutine.running()] end
+EM.getContext,EM.procs = getContext,procs
+
+if EM.cfg.copas then loadfile(EM.cfg.modPath.."async.lua")(EM,FB) else loadfile(EM.cfg.modPath.."sync.lua")(EM,FB) end
+setTimeout = EM.setTimeout
+FB.setTimeout = EM.setTimeout
+FB.clearTimeout = EM.clearTimeout
+
+function FB.type(o) local t = type(o) return t=='table' and o._TYPE or t end
+-- Check arguments and print a QA error message 
+local function check(name,stat,err)
+  if type(err)=='table' then return end
+  if not stat then 
+    err = err:gsub('(%[string ")(.-)("%])',function(_,s,_) return s end)
+    FB.__fibaro_add_debug_message(name,err,"ERROR") 
+  end 
+  return stat
+end
+EM.checkErr = check
+
+function EM.getQA(id)
+  local D = Devices[tonumber(id) or 0] if not D then return end
+  if D.dev.parentId==0 then return D.env.quickApp,D.env,true 
+  else return D.env.quickApp.childDevices[id],D.env,false end
+end
+
+EM.EMEvents('QACreated',function(ev) -- Register device and clean-up when QA is created
+    --local qa,dev = ev.qa,ev.dev
+  end)
+
+function EM.createDevice(info) -- Creates device structure
+  local typ = info.type or "com.fibaro.binarySensor"
+  if deviceTemplates == nil then 
+    local f = io.open(EM.cfg.modPath.."devices.json")
+    if f then deviceTemplates=FB.json.decode(f:read("*all")) f:close() else deviceTemplates={} end
+  end
+  local dev = deviceTemplates[typ] and copy(deviceTemplates[typ]) or {
+    actions = { turnOn=0,turnOff=0,setValue=1,toggle=0 }
+  }
+
+  if info.proxy then  -- Move out?
+    local l = FB.__fibaro_local(false)
+    local stat,res = pcall(EM.createProxy,dev)
+    FB.__fibaro_local(l)
+    if not stat then 
+      LOG.error("Proxy: %s",res)
+      info.proxy = false
+    else
+      info.id = res.id
     end
-    local dev = deviceTemplates[typ] and copy(deviceTemplates[typ]) or {
-      actions = { turnOn=0,turnOff=0,setValue=1,toggle=0 }
-    }
-    dev.id = info.id
-    if not dev.id then dev.id = gID; gID=gID+1 end
-    dev.name,dev.parentId = info.name or "MyQuickApp",0
-    merge(dev.interfaces,info.interfaces or {})
-    merge(dev.properties,info.properties or {})
-    dev._info = info
-    LOG(EM.LOGINFO1,"Created %s device %s",(member('quickAppChild',info.interfaces or {}) and "child" or ""),dev.id)
-    return dev
   end
 
-  local function createInfo(spec) -- Creates the device structure and save the QA/device files
-    local id,name,typ,code,file,e = spec.id,spec.name,spec.type,spec.code,spec.file,spec.env
-    local files,info = EM.loadFile(code,file)
-    info.properties = info.properties or {}
-    info.properties.quickAppVariables = info.properties.quickAppVariables or {}
-    for k,v in pairs(info.quickVars or {}) do table.insert(info.properties.quickAppVariables,1,{name=k,value=v}) end
-    info.id,info.name,info.type=id or info.id,name or info.name or "MyQuickApp",typ or info.type or "com.fibaro.binarySwitch"
-    info.files,info.fileMap,info.save,info.extras,info.restart,info.codeType=files,{},spec.save or info.save,e,restartQA,"QA"
-    for _,f in ipairs(info.files) do if not info.fileMap[f.name] then info.fileMap[f.name]=f end end
-    if not info.id then info.id = gID; gID=gID+1 end
-    return info
+  if info.parentId and info.parentId > 0 then
+    local p = Devices[info.parentId]
+    info.env,info.childProxy = p.env,p.proxy
+    if info.childProxy then DEBUG("child","sys","Imported proxy child %s",info.id) end
   end
 
-  function runQA(info)        -- Creates an environment and load file modules and starts QuickApp (:onInit())
-    local env = {             -- QA environment, all Lua functions available for  QA, 
-      plugin={ mainDeviceId = info.id },
-      os={
-        time=EM.osTime, date=EM.osDate, clock=os.clock, difftime=os.difftime,
-        exit=function() LOG(EM.LOGALLW,"exit(0)") timers.reset() coroutine.yield() end
-      },
-      hc3_emulator={
-        getmetatable=getmetatable,setmetatable=setmetatable,io=io,installQA=installQA,EM=EM,
-        os={setTimer=setTimeout},trigger=EM.trigger,create=EM.createDevices
-      },
-      coroutine=CO,table=table,select=select,pcall=pcall,xpcall=xpcall,print=print,string=string,error=error,collectgarbage=collectgarbage,
-      next=next,pairs=pairs,ipairs=ipairs,tostring=tostring,tonumber=tonumber,math=math,assert=assert,_LOGLEVEL=EM.logLevel
-    }
-    info.env,env._G=env,env
-    for s,v in pairs(FB) do env[s]=v end                        -- Copy local exports to QA environment
-    for s,v in pairs(info.extras or {}) do env[s]=v end         -- Copy user provided environment symbols
-    loadModules(localModules or {},env,info.scene)              -- Load default QA specfic modules into environment
-    loadModules(EM.localModules or {},env,info.scene)           -- Load optional user specified module into environment    
-    EM.postEMEvent({type='infoEnv', info=info})
-    LOG(EM.LOGINFO1,"Loading  %s:%s",info.codeType,info.name)
-    local k = coroutine.create(function()
-        for _,f in ipairs(info.files) do                                  -- for every file we got, load it..
-          LOG(EM.LOGINFO2,"         ...%s",f.name)
-          local code = check(env.__TAG,load(f.content,f.fname,"t",env))   -- Load our QA code, check syntax errors
-          check(env.__TAG,pcall(code))                                    -- Run the QA code, check runtime errors
-        end
-      end)
-    procs[k]=info coroutine.resume(k) procs[k]=nil
-    if env.QuickApp and env.QuickApp.onInit then
-      LOG(EM.LOGINFO1,"Starting QA:%s - ID:%s",info.name,info.id)       -- Start QA by "creating instance"
-      local cc = coroutine.running(); local ctx
-      ctx,procs[cc] = procs[cc],info check(info.name,pcall(env.QuickApp,EM.createDevice(info))) procs[cc]=ctx
-    elseif env.ACTION then
-      EM.postEMEvent({type='sceneLoaded', info=info})     
-    end
-    if info.noterminate then setTimeout(function() env.setInterval(function() end,5000) end,0,nil,info) end -- keep alive...
+  if not info.id then info.id = gID; gID=gID+1 end
+  dev.id = info.id
+  dev.name,dev.parentId = info.name or "MyQuickApp",0
+  merge(dev.interfaces,info.interfaces or {})
+  merge(dev.properties,info.properties or {})
+  info.dev = dev
+  EM.addUI(info)
+  return dev
+end
+
+local function extractInfo(file,code) -- Creates info structure from file/code
+  local files,info = EM.loadFile(code,file)
+  info.properties = info.properties or {}
+  info.properties.quickAppVariables = info.properties.quickAppVariables or {}
+  for k,v in pairs(info.quickVars or {}) do table.insert(info.properties.quickAppVariables,1,{name=k,value=v}) end
+  info.name,info.type=info.name or "MyQuickApp",info.type or "com.fibaro.binarySwitch"
+  info.files,info.fileMap,info.extras,info.codeType=files,{},e,"QA"
+  for _,f in ipairs(info.files) do if not info.fileMap[f.name] then info.fileMap[f.name]=f end end
+  local lock = EM.createLock()
+  info.timers,info._lock = {},lock
+  info.lock = { 
+    get = function() 
+      DEBUG("lock","trace","GET(%s) %s",info.id,coroutine.running()) 
+      lock:get()
+      DEBUG("lock","trace","GOT(%s) %s",info.id,coroutine.running()) 
+    end, 
+    release=function() 
+      DEBUG("lock","trace","RELEASE(%s) %s",info.id,coroutine.running()) 
+      lock:release()
+    end 
+  }
+  return info
+end
+
+local function createQA(args) -- Create QA/info struct from file or code string.
+  local info = extractInfo(args.file,args.code)
+  for _,p in ipairs({"id","name","type","properties","interfaces"}) do 
+    if args[p]~=nil then info[p]=args[p] end 
   end
+  EM.createDevice(info) -- assignes info.dev = dev
+  return info
+end
 
-  function installQA(spec) setTimeout(function() runQA(createInfo(spec)) end,0) end
-  EM.installQA = installQA
+local function installDevice(info) -- Register device
+  local dev = info.dev
+  Devices[dev.id]=info
+  DEBUG("device","sys","Created %s device %s",(member('quickAppChild',info.interfaces or {}) and "child" or ""),dev.id)
+  EM.postEMEvent({type='deviceInstalled', info=info})
+  return dev
+end
+EM.installDevice = installDevice
 
-  local function run(QA) 
-    for _,qa in ipairs(QA[1] and QA or {QA}) do installQA(qa) end -- Create QAs given
-    -- Timer loop - core of emulator, run each coroutine until none left or all locked
-    while(timers.tags('user') > 0) do  -- Loop as long as there are user timers and execute them when their time is up
-      local t,time,co = timers.peek()  -- Look at first enabled/unlocked task in queue
-      if time == nil then break end
-      local now = clock()
-      if time <= now then              -- Times up?
-        timers.dequeue(t)              -- Remove task from queue
-        xpresume(co,t.ctx)             -- ...and run it, xpresume handles errors
-        procs[co]=nil                  -- ...clear co->QA map
-      else                            
-        socket.sleep(time-now)         -- "sleep" until next timer in line is up
-      end                              -- ...because nothing else is running, no timer could enter before in queue.
-    end                                   
-    if timers.tags('user') > 0 then LOG(EM.LOGINFO1,"All threads locked - terminating") 
-    else LOG(EM.LOGINFO1,"No threads left - terminating") end
-    for k,D in pairs(Devices) do if D.save then EM.saveFQA(D) end Devices[k]=nil end -- Save and clear directory of Devices                
+function EM.installQA(args,cont) runQA(installDevice(createQA(args)).id,cont) end
+
+local LOADLOCK = EM.createLock()
+
+function runQA(id,cont)         -- Creates an environment and load file modules and starts QuickApp (:onInit())
+  local info = Devices[id]
+  info.cont = cont
+  local env = {             -- QA environment, all Lua functions available for  QA, 
+    plugin={ mainDeviceId = info.id },
+    os={
+      time=EM.osTime, date=EM.osDate, clock=os.clock, difftime=os.difftime, exit=EM.exit
+    },
+    hc3_emulator={
+      getmetatable=getmetatable,setmetatable=setmetatable,io=io,installQA=EM.installQA,EM=EM,IPaddress=EM.IPAddress,
+      os={setTimer=setTimeout},trigger=EM.trigger,create=EM.create,rawset=rawset,rawget=rawget,
+    },
+    coroutine=EM.userCoroutines,
+    table=table,select=select,pcall=pcall,xpcall=xpcall,print=print,string=string,error=error,
+    collectgarbage=collectgarbage,
+    next=next,pairs=pairs,ipairs=ipairs,tostring=tostring,tonumber=tonumber,math=math,assert=assert
+  }
+  info.env,env._G=env,env
+  for s,v in pairs(FB) do env[s]=v end                        -- Copy local exports to QA environment
+  for s,v in pairs(info.extras or {}) do env[s]=v end         -- Copy user provided environment symbols
+  loadModules(localModules or {},env,info.scene)              -- Load default QA specfic modules into environment
+  loadModules(EM.cfg.localModules or {},env,info.scene)       -- Load optional user specified module into environment    
+  EM.postEMEvent({type='infoEnv', info=info})
+  procs[coroutine.running()]=info
+  LOADLOCK:get()
+  DEBUG("module","sys","Loading  %s:%s",info.codeType,info.name)
+  for _,f in ipairs(info.files) do                                  -- for every file we got, load it..
+    DEBUG("module2","sys","         ...%s",f.name)
+    local code = check(env.__TAG,load(f.content,f.fname,"t",env))   -- Load our QA code, check syntax errors
+    check(env.__TAG,pcall(code))                                    -- Run the QA code, check runtime errors
   end
-  return run
+  LOADLOCK:release()
+  if env.QuickApp and env.QuickApp.onInit then
+    DEBUG("QA","sys","Starting QA:%s - ID:%s",info.name,info.id)       -- Start QA by "creating instance"
+    setTimeout(function() env.QuickApp(info.dev) end,0)
+  elseif env.ACTION then
+    EM.postEMEvent({type='sceneLoaded', info=info})     
+  end
+  if info.noterminate then setTimeout(function() env.setInterval(function() end,5000) end,0,nil,info) end -- keep alive...
+end
 
-end -- emulator
+EM.runQA = runQA
 
-timers = timerQueue(); EM.timers=timers-- Create timer queue
-builtins()                             -- Define built-ins
-loadModules(globalModules or {})       -- Load global modules
-loadModules(EM.globalModules or {})    -- Load optional user specified modules into environment
-local run = emulator()                 -- Setup emulator core - returns run function
+loadModules(globalModules or {})        -- Load global modules
+loadModules(EM.cfg.globalModules or {}) -- Load optional user specified modules into environment
 
 print(fmt("---------------- Tiny QuickAppEmulator (TQAE) v%s -------------",version)) -- Get going...
-EM.postEMEvent{type='start'}            -- Announce that we have started
+
+function EM.startEmulator(cont)
+  EM.start(function() EM.postEMEvent{type='start'} cont() end)
+end
 
 if embedded then                        -- Embedded call...
   local file = debug.getinfo(2)         -- Find out what file that called us
   if file and file.source then
     if not file.source:sub(1,1)=='@' then error("Can't locate file:"..file.source) end
-    run({file=file.source:sub(2)})      -- Run that file
+    local fileName = file.source:sub(2)
+    EM.startEmulator(function() EM.installQA({file=fileName},nil) end)
   end
-else main(run) end                      -- Else call our playground...
-LOG(EM.LOGALLW,"End - runtime %.2f min",(EM.osTime()-EM._info.started)/60)
+else main(FB) end
+LOG.sys("End - runtime %.2f min",(EM.osTime()-EM._info.started)/60)
 os.exit()

@@ -9,7 +9,7 @@ Rudimentary scene support
 --]]
 local EM,FB=...
 
-local LOG,json = EM.LOG,FB.json
+local LOG,json,Devices = EM.LOG,FB.json,EM.Devices
 local fmt = string.format
 local equal,copy = EM.utilities.equal,EM.utilities.copy
 local Scenes = {}
@@ -114,7 +114,7 @@ local function cronTest(dateStr) -- code for creating cron date test to use in s
     local lim = {{min=0,max=59},{min=0,max=23},{min=1,max=31},{min=1,max=12},{min=1,max=7},{min=2019,max=2030}}
     for i=1,6 do if seq[i]=='*' or seq[i]==nil then seq[i]=tostring(lim[i].min).."-"..lim[i].max end end
     seq = map(function(w) return w:split(",") end, seq)   -- split sequences "3,4"
-    local month = os.date("*t",os.time()).month
+    local month = os.date("*t",EM.osTime()).month
     seq = map(function(t) local m = table.remove(lim,1);
         return flatten(map(function (g) return expandDate({g,m},month) end, t))
       end, seq) -- expand intervals "3-5"
@@ -132,7 +132,7 @@ local function cronTest(dateStr) -- code for creating cron date test to use in s
   end
   local dateSeq = parseDateStr(dateStr)
   return function(ctx) -- Pretty efficient way of testing dates...
-    local t = ctx or os.date("*t",os.time())
+    local t = ctx or os.date("*t",EM.osTime())
     if month and month~=t.month then parseDateStr(dateStr) end -- Recalculate 'last' every month
     if sunPatch and (month and month~=t.month or day~=t.day) then sunPatch(dateSeq) day=t.day end -- Recalculate 'last' every month
     return
@@ -144,7 +144,7 @@ local function cronTest(dateStr) -- code for creating cron date test to use in s
   end
 end
 
-local function midnight() local d = os.date("*t") d.min,d.hour,d.sec=0,0,0; return os.time(d) end
+local function midnight() local d = os.date("*t",EM.osTime()) d.min,d.hour,d.sec=0,0,0; return os.time(d) end
 
 local function checkdates()
   for _,s in pairs(Scenes) do
@@ -194,16 +194,16 @@ function types.date(c)
   local isTrigger = c.isTrigger
   
   if isTrigger and dateTimer==nil then
-    LOG(EM.LOGINFO1,"Starting scene cron loop")
-    local nxt = (os.time() // 60 +1)*60
+    LOG.sys("Starting scene cron loop")
+    local nxt = (EM.osTime() // 60 +1)*60
     local function loop()
       checkdates()
       nxt=nxt+60
-      LOG(EM.LOGINFO1,"Cron checking next %s",os.date("%c",nxt))
-      EM.systemTimer(loop,1000*(nxt-os.time()))
+      LOG.sys("Cron checking next %s",os.date("%c",nxt))
+      EM.systemTimer(loop,1000*(nxt-EM.osTime()))
     end
-    LOG(EM.LOGINFO1,"Cron checking next %s",os.date("%c",nxt))
-    dateTimer = EM.systemTimer(loop,1000*(nxt-os.time()))
+    LOG.sys("Cron checking next %s",os.date("%c",nxt))
+    dateTimer = EM.systemTimer(loop,1000*(nxt-EM.osTime()))
   end
   
   if c.property =='cron' then
@@ -282,7 +282,7 @@ local function compile(c)
       return trigger.type==c.type and f(trigger,ts) 
     end
   end
-  LOG(EM.LOGERR,"Bad condition %s",json.encode(c))
+  LOG.error("Bad condition %s",json.encode(c))
 end
 
 function runTriggers(e)
@@ -299,7 +299,7 @@ function runTriggers(e)
 end
 
 local function post(e)
-  if next(Scenes) then LOG(EM.LOGALLW,"SourceTrigger:%s",json.encode(e)) end
+  if next(Scenes) then LOG.sys("SourceTrigger:%s",json.encode(e)) end
   runTriggers(e)
 end
 
@@ -403,14 +403,15 @@ EM.EMEvents('sceneLoaded',function(ev)
     local info = ev.info
     local env = info.env
     env.sceneId = "SCENE"..env.plugin.mainDeviceId
+    Devices[info.id]=nil
     Scenes[env.plugin.mainDeviceId] = {
       conditions = env.CONDITIONS,
       cc = compile(env.CONDITIONS),
       action = function()
-        LOG(EM.LOGALLW,"Starting scene %s",env.__TAG)
+        LOG.sys("Starting scene %s",env.__TAG)
         local stat,res = pcall(env.ACTION)
-        LOG(EM.LOGALLW,"Ended scene %s",env.__TAG)
-        if not stat then LOG(EM.LOGERR,"%s",res) end
+        LOG.sys("Ended scene %s",env.__TAG)
+        if not stat then LOG.error("%s",res) end
       end,
       info=info,
       env = env,      

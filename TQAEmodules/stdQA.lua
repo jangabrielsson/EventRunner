@@ -95,4 +95,5 @@ for t,d in pairs(devices) do
   end
 end
 
-EM.createDevices = create
+EM.create = EM.create or {}
+for k,v in pairs(create) do EM.create[k]=v end

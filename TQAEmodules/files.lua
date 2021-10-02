@@ -37,14 +37,14 @@ end
 
 local firstTemp = true
 local function createTemp(name,content) -- Storing code fragments on disk will help debugging. TBD
-  if firstTemp then LOG(EM.LOGINFO1,"Using %s for temporary files",EM.temp) firstTemp=false end
+  if firstTemp then LOG.sys("Using %s for temporary files",EM.cfg.temp) firstTemp=false end
   local crc = crc16(content)
-  local fname = EM.temp..name.."_"..crc..".lua" 
+  local fname = EM.cfg.temp..name.."_"..crc..".lua" 
   local f,res; f = io.open(fname,"r") 
   if f then f:close() return fname end -- If it exists, don't store it again
   f,res = io.open(fname,"w+")
-  if not f then LOG(EM.LOGERR,"Warning - couldn't create temp files in %s - %s",EM.temp,res) return 
-  else LOG(EM.LOGINFO2,"Created temp file %s",fname) end
+  if not f then LOG.error("Warning - couldn't create temp files in %s - %s",EM.cfg.temp,res) return 
+  else LOG.sys("Created temp file %s",fname) end
   f:write(content) 
   f:close()
   return fname
@@ -149,16 +149,16 @@ local function saveFQA(D)
       f:write((json.encode(fqa)))
       f:close()
     end)
-  if not stat then LOG(EM.LOGERR,"Error save .fqa - %s",res) 
-  else LOG(EM.LOGALLW,"Saved %s",D.save) end
+  if not stat then LOG.error("saving .fqa - %s",res) 
+  else LOG.sys("Saved %s",D.save) end
 end
 
 local function uploadFQA(D)
   local fqa = packageFQA(D)
   local dev = D.dev
   local res,err = FB.api.post("/quickApp/",fqa)
-  if not res then LOG(EM.LOGERR,"Error uploading .fqa '%s' - %s",dev.name,err) 
-  else LOG(EM.LOGALLW,"Uploaded '%s', deviceId:%s",res.name,res.id) end
+  if not res then LOG.error("uploading .fqa '%s' - %s",dev.name,err) 
+  else LOG.sys("Uploaded '%s', deviceId:%s",res.name,res.id) end
 end
 
 EM.loadFile, EM.saveFQA, EM.uploadFQA, EM.packageFQA = loadFile, saveFQA, uploadFQA, packageFQA

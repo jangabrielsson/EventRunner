@@ -9,7 +9,7 @@ Creating UI elements for emulated QA (Web UI) and HC3 procy
 --]]
 local EM,FB = ...
 
-local json,LOG,Devices = FB.json,EM.LOG,EM.Devices
+local json,LOG,DEBUG,Devices = FB.json,EM.LOG,EM.DEBUG,EM.Devices
 local format = string.format
 local traverse = EM.utilities.traverse
 
@@ -177,7 +177,7 @@ end
 EM.EMEvents('QACreated',function(ev) -- Intercept QA created and add viewLayout and uiCallbacks
     local qa,dev = ev.qa,ev.dev
     local info = Devices[qa.id]
-    LOG(4,"ui.lua inspecting QA:%s",qa.name)
+    DEBUG("ui","sys","ui.lua inspecting QA:%s",qa.name)
     if info == nil and dev.parentId and dev.parentId > 0 then
       info = {dev = dev, env = Devices[dev.parentId].env }
       EM.addUI(info)

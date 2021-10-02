@@ -11,7 +11,7 @@ Asynchronous timers and IO support - leverage copas framework
 local EM,FB=...
 
 local LOG = EM.LOG
-EM.copas = dofile(EM.modPath.."copas.lua")
+EM.copas = dofile(EM.cfg.modPath.."copas.lua")
 
 ------------------------ Emulator core ----------------------------------------------------------
 local procs,getContext = EM.procs,EM.getContext
@@ -57,9 +57,8 @@ end
 local function timerCall(t,args)
   local fun,ctx,v = table.unpack(args)
   ctx.lock.get() 
---  print("C1",ctx.env.__TAG,coroutine.running(),coroutine.status(coroutine.running()))
+  if EM.cfg.lateTimers then EM.timerCheckFun(v) end
   local stat,res = pcall(fun)
---  print("C2",ctx.env.__TAG,coroutine.running(),coroutine.status(coroutine.running()))
   ctx.lock.release() 
   ctx.timers[v]=nil
   if not stat then 
@@ -85,14 +84,14 @@ end
 
 local sysCtx = {env={__TAG='SYSTEM'}, dev={}, timers={}, lock={get=IDF,release=IDF}}
 
-function systemTimer(fun,ms,tag) return setTimeout(fun,ms,tag,sysCtx) end
+function systemTimer(fun,ms,tag) return setTimeout(fun,ms,tag or "SYSTEM",sysCtx) end
 
 local function clearTimeout(ref) ref.t:cancel() end
 
 local function restartQA(D) killTimers() EM.runQA(D.id,D.cont) end
 
 local function exit(status) 
-  LOG(EM.LOGALLW,"exit(%s)",tostring(status or 0)) 
+  LOG.sys("exit(%s)",tostring(status or 0)) 
   error({type='exit'}) 
 end
 

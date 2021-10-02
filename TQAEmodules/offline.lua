@@ -5,6 +5,7 @@ Email: jan@gabrielsson.com
 MIT License
 
 Support for local shadowing global variables - and other resources
+ToDo, should generate events...
 
 --]]
 local EM,FB = ...
@@ -15,41 +16,63 @@ local __fibaro_get_devices,__fibaro_get_device,__fibaro_get_device_property,__fi
 FB.__fibaro_get_devices,FB.__fibaro_get_device,FB.__fibaro_get_device_property,FB.__fibaro_call,FB.__assert_type
 local copy = EM.utilities.copy
 
-
-local globals = {}
+EM.rsrc = { 
+  rooms = {}, 
+  sections={}, 
+  globalVariables={},
+  customEvents={},
+}
 
 local function setup()
-
-  function FB.__fibaro_get_global_variable(name) 
-    __assert_type(name ,"string") 
-    if globals[name] then 
-      return globals[name],200
-    else
-      return HC3Request("GET","/globalVariables/"..name) 
-    end
-  end
-
-  EM.addAPI("GET/globalVariables",function(method,path,data)
-    end)
-  EM.addAPI("GET/globalVariables/#name",function(method,path,data,name)
-      if globals[name] then return globals[name],200 end
-    end)
-  EM.addAPI("PUT/globalVariables/#name",function(method,path,data,name)
-      if not globals[name] then return end
-      globals[name].value,globals[name].modified = data.value,EM.osTime()
-      return globals[name],200
-    end)
-  EM.addAPI("POST/globalVariables",function(method,path,data)
-      if globals[data.name] then return nil,400
-      else
-        globals[data.name] = {name=data.name, value = data.value, modified = EM.osTime() }
-        return globals[data.name],200
-      end
-    end)
-  EM.addAPI("DELETE/globalVariables/#name",function(method,path,data,name)
-    end)
 end
 
-EM.EMEvents('start',function(ev) if EM.offline then setup() end end)
+local roomID = 1001
+local sectionID = 1001
+
+EM.creat = EM.create or {}
+function EM.create.globalVariable(args)
+  local v = {
+    name=args.name,
+    value=args.value,
+    modified=EM.osTime(),
+  }
+  EM.rsrc.globalVariables[args.name]=v
+  return v
+end
+
+function EM.create.room(args)
+  local v = {
+    id = roomID,
+    name=args.name,
+    modified=EM.osTime(),
+  }
+  roomID=roomID+1
+  EM.rsrc.rooms[v.id]=v
+  return v
+end
+
+function EM.create.section(args)
+  local v = {
+    id = sectionID,
+    name=args.name,
+    modified=EM.osTime(),
+  }
+  sectionID=sectionID+1
+  EM.rsrc.sections[v.id]=v
+  return v
+end
+
+function EM.create.customEvent(args)
+  local v = {
+    name=args.name,
+    userDescription=args.userDescription or "",
+  }
+  EM.rsrc.customEvents[v.id]=v
+  return v
+end
+
+EM.EMEvents('start',function(ev)
+    if EM.cfg.offline then setup() end 
+  end)
 
 

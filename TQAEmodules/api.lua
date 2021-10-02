@@ -10,9 +10,9 @@ Module REST api calls. Both for local emulator calls and external REST calls fro
 local EM,FB = ...
 
 local json = FB.json
-local HC3Request,LOG,Devices = EM.HC3Request,EM.LOG,EM.Devices
-local __fibaro_get_devices,__fibaro_get_device,__fibaro_get_device_property,__fibaro_call=
-FB.__fibaro_get_devices,FB.__fibaro_get_device,FB.__fibaro_get_device_property,FB.__fibaro_call
+local HC3Request,LOG,DEBUG,Devices = EM.HC3Request,EM.LOG,EM.DEBUG,EM.Devices
+local __fibaro_get_device_property,__fibaro_call,__assert_type=FB.__fibaro_get_device_property,FB.__fibaro_call,FB.__assert_type
+local rsrc = EM.rsrc
 local copy = EM.utilities.copy
 
 local GUI_HANDLERS = {
@@ -23,7 +23,7 @@ local GUI_HANDLERS = {
       if k:sub(1,3)=='arg' then args[tonumber(k:sub(4))]=v end
     end
     local stat,err=pcall(FB.__fibaro_call,id,action,"",{args=args})
-    if not stat then LOG(EM.LOGERR,"Bad callAction:%s",err) end
+    if not stat then LOG.error("Bad callAction:%s",err) end
     client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
     return true
   end,
@@ -35,10 +35,10 @@ local GUI_HANDLERS = {
         __fibaro_call(tonumber(opts.qaID),opts.method,"",{data=arg})
         local res={}
         --local res = {QA[opts.method](QA,table.unpack(arg))}
-        LOG(EM.LOGINFO2,"Web call: QA(%s):%s%s = %s",opts.qaID,opts.method,json.encode(arg),json.encode(res))
+        DEBUG("api","sys","Web call: QA(%s):%s%s = %s",opts.qaID,opts.method,json.encode(arg),json.encode(res))
       end)
     if not stat then 
-      LOG(EM.LOGERR,"Error: Web call: QA(%s):%s%s - %s",opts.qaID,opts.method,json.encode(arg),res)
+      LOG.error("Web call: QA(%s):%s%s - %s",opts.qaID,opts.method,json.encode(arg),res)
     end
     client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
     return true
@@ -61,7 +61,7 @@ local GUI_HANDLERS = {
           env.onAction(id,{deviceId=id,actionName=action,args={tonumber(val)}})
         end
       end)
-    if not stat then LOG(EM.LOGERR,"ERROR %s",err) end
+    if not stat then LOG.error("%s",err) end
     client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
     return true
   end,   
@@ -76,7 +76,7 @@ local GUI_HANDLERS = {
           env.onAction(id,{deviceId=id,actionName=action,args={}})
         end
       end)
-    if not stat then LOG(EM.LOGERR,"ERROR %s",err) end
+    if not stat then LOG.error("%s",err) end
     client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
     return true
   end,
@@ -124,17 +124,162 @@ end
 local aHC3call
 local API_CALLS = { -- Intercept some api calls to the api to include emulated QAs or emulator aspects
   ["GET/devices"] = function(_,_,_,opts)
+    local ds = HC3Request("GET","/devices") or {}
+    for _,dev in pairs(Devices) do ds[#ds+1]=dev.dev end -- Add emulated Devices
     if next(opts)==nil then
-      return __fibaro_get_devices(),200
+      return ds,200
     else
-      local ds = __fibaro_get_devices() 
       return filter(ds,opts),200
     end
   end,
 --   api.get("/devices?parentId="..self.id) or {}
-  ["GET/devices/#id"] = function(_,_,_,_,id) return __fibaro_get_device(tonumber(id)) end,
-  ["GET/devices/#ud/properties/#name"] = function(_,_,_,_,id,prop) return __fibaro_get_device_property(tonumber(id),prop) end,
-  ["POST/devices/#id/action/#name"] = function(_,path,data,_,id,action) return __fibaro_call(tonumber(id),action,path,data) end,
+  ["GET/devices/#id"] = function(_,path,_,_,id)
+    return Devices[id] and Devices[id].dev or HC3Request("GET",path)
+  end,
+  ["GET/devices/#id/properties/#name"] = function(_,_,_,_,id,prop) 
+    return __fibaro_get_device_property(id,prop) 
+  end,
+  ["POST/devices/#id/action/#name"] = function(_,path,data,_,id,action) 
+    return __fibaro_call(tonumber(id),action,path,data) 
+  end,
+  ["PUT/devices/#id"] = function(_,path,data,id)
+    if Devices[id] then
+      if data.properties then
+        for k,v in pairs(data.properties) do
+          FB.put("plugins/updateProperty",{deviceId=id,propertyName=k,value=v})
+        end
+      end
+      -- Should check other device values too - usually needs restart of QA
+    else  HC3Request("GET",path, data) end
+  end,
+
+  ["GET/globalVariables"] = function(_,path,_,_)
+    local globs = EM.cfg.offline and {} or HC3Request("GET",path)
+    for n,v in pairs(EM.rsrc.globalVariables) do globs[#globs+1]=v end
+    return globs,200
+  end,
+  ["GET/globalVariables/#name"] = function(_,path,_,_,name)
+    return EM.rsrc.globalVariables[name] or HC3Request("GET",path)
+  end,
+  ["POST/globalVariables"] = function(_,path,data,_)
+    if EM.cfg.offline then
+      if EM.rsrc.globalVariables[data.name] then return nil,404
+      else return EM.create.globalVariable(data),200 end
+    else return HC3Request("POST",path,data) end
+  end,
+  ["PUT/globalVariables/#name"] = function(_,path,data,_,name)
+    local v = EM.rsrc.globalVariables[name]
+    if v then  
+      EM.addRefreshEvent({
+          type='GlobalVariableChangedEvent',
+          data={variableName=name, newValue=data.value, oldValue=v.valuel}
+        })
+      v.value = data.value
+      v.modified = EM.osTime()
+      return v,200
+    else return HC3Request("PUT",path,data) end
+  end,
+  ["DELETE/globalVariables/#name"] = function(_,path,data,_,name)
+    if EM.rsrc.globalVariables[name] then
+      EM.rsrc.globalVariables[name] = nil
+      return nil,200
+    else return HC3Request("DELETE",path,data) end
+  end,
+
+  ["GET/rooms"] = function(_,path,_,_)
+    local rooms = EM.cfg.offline and {} or HC3Request("GET",path)
+    for n,v in pairs(EM.rsrc.rooms) do rooms[#rooms+1]=v end
+    return rooms,200
+  end,
+  ["GET/rooms/#id"] = function(_,path,_,_,id)
+    return EM.rsrc.rooms[id] or HC3Request("GET",path)
+  end,
+  ["POST/rooms"] = function(_,path,data,_)
+    if EM.cfg.offline then
+      return EM.create.room(data),200
+    else return HC3Request("POST",path,data) end
+  end,
+  ["POST/rooms/#id/action/setAsDefault"] = function(_,path,data,_,id)
+    EM.defaultRoom = id
+    if EM.cfg.offline then return id,200 else return HC3Request("POST",path,data) end
+  end,
+  ["PUT/rooms/#id"] = function(_,path,data,_,id)
+    local r = EM.rsrc.rooms[id]
+    if r then
+      for k,v in pairs(data) do r[k]=v end
+      return r,200
+    else return HC3Request("PUT",path,data) end
+  end,
+  ["DELETE/rooms/#id"] = function(_,path,data,_,id)
+    if EM.rsrc.rooms[id] then
+      EM.rsrc.rooms[id] = nil
+      return nil,200
+    else return HC3Request("DELETE",path,data) end
+  end,
+
+  ["GET/sections"] = function(_,path,_,_)
+    local sections = EM.cfg.offline and {} or HC3Request("GET",path)
+    for n,v in pairs(EM.rsrc.sections) do sections[#sections+1]=v end
+    return sections,200
+  end,
+  ["GET/sections/#id"] = function(_,path,_,_,id)
+    return EM.rsrc.sections[id] or HC3Request("GET",path)
+  end,
+  ["POST/sections"] = function(_,path,data,_)
+    if EM.cfg.offline then
+      return EM.create.section(data),200
+    else return HC3Request("POST",path,data) end
+  end,
+  ["PUT/sections/#id"] = function(_,path,data,_,id)
+    local s = EM.rsrc.sections[id]
+    if s then
+      for k,v in pairs(data) do s[k]=v end
+      return s,200
+    else return HC3Request("PUT",path,data) end
+  end,
+  ["DELETE/sections/#id"] = function(_,path,data,_,id)
+    if EM.rsrc.sections[id] then
+      EM.rsrc.sections[id] = nil
+      return nil,200
+    else return HC3Request("DELETE",path,data) end
+  end,
+
+  ["GET/customEvents"] = function(_,path,_,_)
+    local cevents = EM.cfg.offline and {} or HC3Request("GET",path)
+    for n,v in pairs(EM.rsrc.customeEvents) do cevents[#cevents+1]=v end
+    return cevents,200
+  end,
+  ["GET/customEvents/#name"] = function(_,path,_,_)
+    return EM.rsrc.customEvents[name] or HC3Request("GET",path)
+  end,
+  ["POST/customEvents"] = function(_,path,data,_)
+    if EM.cfg.offline then
+      if EM.rsrc.customEvents[data.name] then return nil,404
+      else return EM.create.customEvent(data),200 end
+    else return HC3Request("POST",path,data) end
+  end,
+  ["POST/customEvents/#name"] = function(_,path,data,_,name)
+    if EM.rsrc.customEvents[name] then
+      EM.addRefreshEvent({
+          type='CustomEvent',
+          data={name=name, value=EM.rsrc.customEvents[name].userDescription}
+        })
+    else return HC3Request("POST",path,data) end
+  end,
+  ["PUT/customEvents/#name"] = function(_,path,data,name)
+    local ce = EM.rsrc.rooms[name]
+    if ce then
+      for k,v in pairs(data) do ce[k]=v end
+      return ce,200
+    else return HC3Request("PUT",path,data) end
+  end,
+  ["DELETE/customEvents/#name"] = function(_,path,data,name)
+    if EM.rsrc.customEvents[name] then
+      EM.rsrc.customEvents[name] = nil
+      return nil,200
+    else return HC3Request("DELETE",path,data) end
+  end,
+
   ["POST/plugins/updateProperty"] = function(method,path,data,_)
     local D = Devices[data.deviceId]
     if D then
@@ -176,13 +321,13 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
       }
       local dev = EM.createDevice(info)
       Devices[dev.id]=info
-      LOG(EM.LOGINFO1,"Created local child device %s",dev.id)
+      DEBUG("child","sys","Created local child device %s",dev.id)
       dev.parentId = props.parentId
       return dev,200
     else 
       local dev,err = HC3Request(method,path,props)
       if dev then
-        LOG(EM.LOGINFO2,"Created child device %s on HC3",dev.id)
+        DEBUG("child","sys","Created child device %s on HC3",dev.id)
       end
       return dev,err
     end
@@ -193,7 +338,6 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
     return 200
   end,
   ["PUT/devices/#id"] = function(method,path,data,_,id)
-    id=tonumber(id)
     if Devices[id] then
       local dev = Devices[id].dev
       for k,v in pairs(data) do
@@ -208,7 +352,6 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
     return HC3Request(method,path,data)
   end,
   ["DELETE/plugins/removeChildDevice/#id"] = function(method,path,data,_,id)
-    id = tonumber(id)
     local D = Devices[id]
     if D then
       Devices[id]=nil
@@ -284,9 +427,9 @@ function aHC3call(method,path,data) -- Intercepts some cmds to handle local reso
   local fun,args,opts,path2 = EM.lookupPath(method,path,API_MAP)
   if type(fun)=='function' then
     local stat,res,code = pcall(fun,method,path2,data,opts,table.unpack(args))
-    if not stat then return LOG(EM.LOGERR,"Bad API call:%s",res)
+    if not stat then return LOG.error("Bad API call:%s",res)
     elseif code~=false then return res,code end
-  elseif fun~=nil then return LOG(EM.LOGERR,"Bad API call:%s",fun) end
+  elseif fun~=nil then return LOG.error("Bad API call:%s",fun) end
   return HC3Request(method,path,data) -- No intercept, send request to HC3
 end
 
@@ -298,6 +441,14 @@ function api.delete(cmd) return aHC3call("DELETE",cmd) end
 
 function EM.addAPI(p,f) EM.addPath(p,f,API_MAP) end
 
-EM.EMEvents('start',function(_) EM.processPathMap(API_CALLS,API_MAP) end)
+EM.EMEvents('start',function(_) 
+    EM.processPathMap(API_CALLS,API_MAP)
+
+    local f1 = EM.lookupPath("GET","/devices/0",API_MAP)
+    function FB.__fibaro_get_device(id) __assert_type(id,"number") return f1("GET","/devices/"..id,nil,{},id) end
+
+    local f2 = EM.lookupPath("GET","/devices",API_MAP)
+    function FB.__fibaro_get_devices() return f2("GET","/devices",nil,{}) end
+  end)
 
 FB.api = api

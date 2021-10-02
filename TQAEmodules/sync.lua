@@ -16,11 +16,9 @@ local socket = require("socket")
 ------------------------ Timers ----------------------------------------------------------
 local function timerQueue() -- A sorted timer queue...
   local tq,pcounter,ptr = {},{}
-  local tmt={ __tostring = function(t) return t.descr end}
 
   function tq.queue(v)    -- Insert timer
     v.tag = v.tag or "user"; pcounter[v.tag] = (pcounter[v.tag] or 0)+1
-    setmetatable(v,tmt) 
     if ptr == nil then ptr = v 
     elseif v.time < ptr.time then v.next=ptr; ptr.prev = v; ptr = v
     else
@@ -62,8 +60,8 @@ local function timerQueue() -- A sorted timer queue...
   function tq.tags(tag) return pcounter[tag] or 0 end
   function tq.reset() ptr=nil; for k,_ in pairs(pcounter) do pcounter[k]=0 end end
   function tq.get() return ptr end
-  function tq.milliStr(t) return os.date("%H:%M:%S",math.floor(t))..string.format(":%03d",math.floor((t%1)*1000+0.5)) end
-  function tq.dump() local p = ptr while(p) do LOG(EM.LOGALLW,"%s,%s,%s",p,tq.milliStr(p.time),p.tag) p=p.next end end
+  tq.milliStr = EM.milliStr
+  function tq.dump() local p = ptr while(p) do LOG.sys("%s,%s,%s",p,tq.milliStr(p.time),p.tag) p=p.next end end
   return tq
 end
 
@@ -88,6 +86,7 @@ end
 
 local function timerCall(t,args)
   local co,ctx = table.unpack(args)
+  if EM.cfg.lateTimers then EM.timerCheckFun(t) end
   local stat,res = coroutine.resume(co)
   ctx.timers[t]=nil
   checkForExit(false,co,stat,res)
@@ -103,7 +102,7 @@ local function setTimeout(fun,ms,tag,ctx)
 end
 
 local sysCtx = {env={__TAG='SYSTEM'},dev={}, timers={}}
-local function systemTimer(fun,ms,tag) return setTimeout(fun,ms,tag,sysCtx) end
+local function systemTimer(fun,ms,tag) return setTimeout(fun,ms,tag or nil,sysCtx) end
 local function clearTimeout(ref) timers.dequeue(ref) end
 
 local function fibaroSleep(ms) -- We lock all timers/coroutines except the one resuming the sleep for us
@@ -114,7 +113,7 @@ local function fibaroSleep(ms) -- We lock all timers/coroutines except the one r
 end
 
 local function exit(status) 
-  LOG(EM.LOGALLW,"exit(%s)",status or 0) 
+  LOG.sys("exit(%s)",status or 0) 
   error({type='exit'})
 end
 
@@ -127,24 +126,21 @@ EM.dumpTimers = timers.dump
 
 local function start(fun) 
   local clock = EM.clock
-  systemTimer(fun,0)
+  systemTimer(fun,0,"user")
   -- Timer loop - core of emulator, run each coroutine until none left or all locked
   while(timers.tags('user') > 0) do  -- Loop as long as there are user timers and execute them when their time is up
     local t,time = timers.peek()     -- Look at first enabled/unlocked task in queue
     if time == nil then break end
     local now = clock()
     if time <= now then              -- Times up?
---      print("X",t.tag,timers.milliStr(time),timers.milliStr(now),timers.milliStr(now-time))
---      print("X",t.tag,timers.milliStr(os.time()),timers.milliStr(now))
       timers.dequeue(t)              -- Remove task from queue
       t.fun(t,t.args)                  -- ...and run it
     else                 
---      print("Sleeping",time-now)
       socket.sleep(time-now)         -- "sleep" until next timer in line is up
     end                              -- ...because nothing else is running, no timer could enter before in queue.
   end                                   
-  if timers.tags('user') > 0 then LOG(EM.LOGINFO1,"All threads locked - terminating") 
-  else LOG(EM.LOGINFO1,"No threads left - terminating") end
+  if timers.tags('user') > 0 then LOG.sys("All threads locked - terminating") 
+  else LOG.sys("No threads left - terminating") end
   for k,D in pairs(Devices) do if D.save then EM.saveFQA(D) end Devices[k]=nil end -- Save and clear directory of Devices
 end
 

@@ -65,7 +65,7 @@ function QuickAppBase:updateView(elm,typ,val)
   self._view[elm]=self._view[elm] or {}
   local oldVal = self._view[elm][typ]
   if val ~= oldVal then
-    if _LOGLEVEL > 1 then self:debug("updateView:",elm,typ,'"'..val..'"') end
+    --if  then self:debug("updateView:",elm,typ,'"'..val..'"') end
     self._view[elm][typ]=val
     api.post("/plugins/updateView",{deviceId=self.id,componentName=elm, propertyName = typ,newValue = val})
   end
@@ -127,7 +127,7 @@ function QuickAppChild:__init(device)
 end
 
 function onAction(id,event)
-  if _LOGLEVEL > 0 then print("onAction: ", json.encode(event)) end
+  if hc3_emulator.EM.debugFlags.onAction then print("onAction: ", json.encode(event)) end
   if quickApp.actionHandler then return quickApp:actionHandler(event) end
   if event.deviceId == quickApp.id then
     return quickApp:callAction(event.actionName, table.unpack(event.args)) 
@@ -138,7 +138,7 @@ function onAction(id,event)
 end
 
 function onUIEvent(id, event)
-  if _LOGLEVEL > 0 then print("UIEvent: ", json.encode(event)) end
+  if hc3_emulator.EM.debugFlags.onUIEvent then print("UIEvent: ", json.encode(event)) end
   if quickApp.UIHandler then quickApp:UIHandler(event) return end
   if quickApp.uiCallbacks[event.elementName] and quickApp.uiCallbacks[event.elementName][event.eventType] then 
     quickApp:callAction(quickApp.uiCallbacks[event.elementName][event.eventType], event)

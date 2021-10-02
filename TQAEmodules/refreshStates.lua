@@ -14,7 +14,7 @@ local EM,FB=...
 -- Then when emulated quickApps do http or api.get to retrieve events from the HC3 we give them events from our queue
 -- ...and every one is happy.
 
-local LOG,json = EM.LOG,FB.json
+local LOG,DEBUG,json = EM.LOG,EM.DEBUG,FB.json
 
 local socket = require("socket")
 local http   = require("socket.http")
@@ -66,7 +66,11 @@ local function createRefreshStateQueue(size)
 
   function self.addEvents(events)      -- {last=num,events={}}
     events = events[1] and events or {events}
-    --print("ADD:"..json.encode(filter(events)))
+    if EM.debugFlags.refreshStates then
+      for _,e in ipairs(events) do
+        LOG.trace("Incoming event: %s",json.encode(e))
+      end
+    end
     for _,f in ipairs(refreshListeners) do f(events) end
     local index = eventQueue.headp()
     eventQueue.push({last=index, events=events})
@@ -112,12 +116,12 @@ local function pollOnce(cb)
   req.headers["Accept"] = '*/*'
   req.headers["X-Fibaro-Version"] = 2
   local to
-  if not EM.copas then 
+  if not EM.cfg.copas then 
     to = http.TIMEOUT
     http.TIMEOUT = 1 -- TIMEOUT == 0 doesn't work...
   end
   local r, c, h = httpR.request(req)       -- ToDo https
-  if not EM.copas then http.TIMEOUT = to end
+  if not EM.cfg.copas then http.TIMEOUT = to end
   if not r then return cb() end
   if c>=200 and c<300 then
     local states = resp[1] and json.decode(table.concat(resp))
@@ -132,7 +136,7 @@ local function pollOnce(cb)
 end
 
 local function pollEvents(interval)
-  LOG(EM.LOGALLW,"Polling HC3 /refreshStates")
+  LOG.sys("Polling HC3 /refreshStates")
   local INTERVAL = EM.refreshInterval or 0
   local cb
   local function poll() pollOnce(cb) end
@@ -152,13 +156,13 @@ end
 
 function EM.addRefreshListener(fun) refreshListeners[#refreshListeners+1] = fun end
 
-EM.addAPI("GET/refreshStates",function(_,_,_,_,_,prop) -- Intercep /api/refreshStates
+EM.addAPI("GET/refreshStates",function(_,_,_,_,_,prop) -- Intercept /api/refreshStates
     return refreshStatesQueue.getEvents(tonumber(prop.last) or 0)
   end)
 
 EM.interceptHTTP = interceptHTTP
 EM.EMEvents('start',function()
-    httpR = EM.copas and EM.copas.http or http
+    httpR = EM.cfg.copas and EM.copas.http or http
     if EM.refreshStates then pollEvents(EM.refreshStates) end 
   end)
 

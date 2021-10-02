@@ -1,0 +1,12 @@
+- DONE - Timer debug format
+- DONE - Timer, late warning
+- DONE - Fix sunsetHour/sunriseHour when setting different start date
+- DONE - Better debug flags
+- DONE - Better EM config management (put in .cfg)
+- Move __fibaro_x to api.*
+- Web UI, auto updates (ajax?)
+- Terminal input - copas only?
+- Speed time - sync only?
+- TCP/WebSocket updates
+- MQTT
+- ZeroBrane plugin

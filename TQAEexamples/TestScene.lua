@@ -23,6 +23,8 @@ hc3_emulator.create.binarySensor(190,"motion2")
 hc3_emulator.create.multilevelSensor(172,"lux1")
 hc3_emulator.create.multilevelSensor(192,"lux2")
 
+api.get("/devices/100")
+
 CONDITIONS = {
   conditions = { {
       id = 170,
@@ -46,11 +48,13 @@ CONDITIONS = {
 
 function ACTION()
   print("STARTED")
+  print("Testing fibaro.debug...")
   fibaro.debug(sceneId,"DEBUG")
   fibaro.trace(sceneId,"TRACE")
   fibaro.warning(sceneId,"WARNING")
   fibaro.error(sceneId,"ERROR")
-  
+  print("...done")
+
   local light = {35,69,70} -- ID's of all the lights to turnOn and turnOff
   local mainLight = 35 -- ID of Main light
   local lightlit1 = 69 -- ID's Garage light 

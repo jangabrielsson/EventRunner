@@ -1,5 +1,5 @@
 --%%name = "multQA"
 
-function QuickApp:onInit()
+function QuickApp:onInit()   --TBD
   self:debug(self.name,self.id)
 end
