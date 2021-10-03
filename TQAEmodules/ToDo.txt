@@ -3,7 +3,9 @@
 - DONE - Fix sunsetHour/sunriseHour when setting different start date
 - DONE - Better debug flags
 - DONE - Better EM config management (put in .cfg)
-- Move __fibaro_x to api.*
+- DONE - Move __fibaro_x to api.*
+- DOME - Fix defaultRoom
+- Fix proper Scene structure
 - Web UI, auto updates (ajax?)
 - Terminal input - copas only?
 - Speed time - sync only?

@@ -103,6 +103,7 @@ cfg.htmlDebug    = DEF(cfg.htmlDebug,true)
 cfg.colorDebug   = DEF(cfg.colorDebug,true)
 EM.utilities     = dofile(cfg.modPath.."utilities.lua")
 EM.debugFlags    = DEF(cfg.debug,{QA=true,child=true,device=true})
+EM.defaultRoom   = DEF(cfg.defaultRoom,219)
 
 local fibColors = { ["DEBUG"] = 'green', ["TRACE"] = 'blue', ["WARNING"] = 'orange', ["ERROR"] = 'red' }
 local logColors = { ["SYS"] = 'brown', ["ERROR"]='red', ["WARNING"] = 'orange', ["TRACE"] = 'blue' }
@@ -186,17 +187,7 @@ local function __assert_type(value,typeOfValue )
   end
 end
 function FB.__ternary(test, a1, a2) if test then return a1 else return a2 end end
--- basic api functions, tries to deal with local emulated Devices too. Local Device have precedence over HC3 Devices.
-
-function FB.__fibaro_get_room(id) __assert_type(id,"number") return HC3Request("GET","/rooms/"..id) end
-function FB.__fibaro_get_scene(id) __assert_type(id,"number") return HC3Request("GET","/scenes/"..id) end
-function FB.__fibaro_get_global_variable(name) __assert_type(name ,"string") return FB.api.get("/globalVariables/"..name) end
-function FB.__fibaro_get_device_property(id ,prop) 
-  __assert_type(id,"number") __assert_type(prop,"string")
-  local D = Devices[id]  -- Is it a local Device?
-  if D then return D.dev.properties[prop] and { value = D.dev.properties[prop], modified=0} or nil
-  else return HC3Request("GET","/devices/"..id.."/properties/"..prop) end
-end
+-- Most __fibaro_x functions defined in api.lua
 function FB.__fibaro_get_partition(id) return HC3Request("GET",'/alarms/v1/partitions/' .. id) end
 function FB.__fibaroUseAsyncHandler(_) end -- TBD
 -- Non standard
@@ -369,7 +360,7 @@ function EM.createDevice(info) -- Creates device structure
 
   if not info.id then info.id = gID; gID=gID+1 end
   dev.id = info.id
-  dev.name,dev.parentId = info.name or "MyQuickApp",0
+  dev.name,dev.parentId,dev.roomID = info.name or "MyQuickApp",0,info.roomID or EM.defaultRoom
   merge(dev.interfaces,info.interfaces or {})
   merge(dev.properties,info.properties or {})
   info.dev = dev

@@ -11,8 +11,7 @@ local EM,FB = ...
 
 local json = FB.json
 local HC3Request,LOG,DEBUG,Devices = EM.HC3Request,EM.LOG,EM.DEBUG,EM.Devices
-local __fibaro_get_device_property,__fibaro_call,__assert_type=FB.__fibaro_get_device_property,FB.__fibaro_call,FB.__assert_type
-local rsrc = EM.rsrc
+local __fibaro_call,__assert_type=FB.__fibaro_call,FB.__assert_type
 local copy = EM.utilities.copy
 
 local GUI_HANDLERS = {
@@ -136,8 +135,10 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
   ["GET/devices/#id"] = function(_,path,_,_,id)
     return Devices[id] and Devices[id].dev or HC3Request("GET",path)
   end,
-  ["GET/devices/#id/properties/#name"] = function(_,_,_,_,id,prop) 
-    return __fibaro_get_device_property(id,prop) 
+  ["GET/devices/#id/properties/#name"] = function(_,path,_,_,id,prop) 
+    local D = Devices[id]  -- Is it a local Device?
+    if D then return D.dev.properties[prop] and { value = D.dev.properties[prop], modified=0},200 or nil
+    else return HC3Request("GET",path) end
   end,
   ["POST/devices/#id/action/#name"] = function(_,path,data,_,id,action) 
     return __fibaro_call(tonumber(id),action,path,data) 
@@ -149,13 +150,14 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
           FB.put("plugins/updateProperty",{deviceId=id,propertyName=k,value=v})
         end
       end
+      return data,202
       -- Should check other device values too - usually needs restart of QA
     else  HC3Request("GET",path, data) end
   end,
 
   ["GET/globalVariables"] = function(_,path,_,_)
     local globs = EM.cfg.offline and {} or HC3Request("GET",path)
-    for n,v in pairs(EM.rsrc.globalVariables) do globs[#globs+1]=v end
+    for _,v in pairs(EM.rsrc.globalVariables) do globs[#globs+1]=v end
     return globs,200
   end,
   ["GET/globalVariables/#name"] = function(_,path,_,_,name)
@@ -172,7 +174,7 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
     if v then  
       EM.addRefreshEvent({
           type='GlobalVariableChangedEvent',
-          data={variableName=name, newValue=data.value, oldValue=v.valuel}
+          data={variableName=name, newValue=data.value, oldValue=v.value}
         })
       v.value = data.value
       v.modified = EM.osTime()
@@ -188,7 +190,7 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
 
   ["GET/rooms"] = function(_,path,_,_)
     local rooms = EM.cfg.offline and {} or HC3Request("GET",path)
-    for n,v in pairs(EM.rsrc.rooms) do rooms[#rooms+1]=v end
+    for _,v in pairs(EM.rsrc.rooms) do rooms[#rooms+1]=v end
     return rooms,200
   end,
   ["GET/rooms/#id"] = function(_,path,_,_,id)
@@ -219,7 +221,7 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
 
   ["GET/sections"] = function(_,path,_,_)
     local sections = EM.cfg.offline and {} or HC3Request("GET",path)
-    for n,v in pairs(EM.rsrc.sections) do sections[#sections+1]=v end
+    for _,v in pairs(EM.rsrc.sections) do sections[#sections+1]=v end
     return sections,200
   end,
   ["GET/sections/#id"] = function(_,path,_,_,id)
@@ -246,10 +248,10 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
 
   ["GET/customEvents"] = function(_,path,_,_)
     local cevents = EM.cfg.offline and {} or HC3Request("GET",path)
-    for n,v in pairs(EM.rsrc.customeEvents) do cevents[#cevents+1]=v end
+    for _,v in pairs(EM.rsrc.customeEvents) do cevents[#cevents+1]=v end
     return cevents,200
   end,
-  ["GET/customEvents/#name"] = function(_,path,_,_)
+  ["GET/customEvents/#name"] = function(_,path,_,name)
     return EM.rsrc.customEvents[name] or HC3Request("GET",path)
   end,
   ["POST/customEvents"] = function(_,path,data,_)
@@ -278,6 +280,13 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
       EM.rsrc.customEvents[name] = nil
       return nil,200
     else return HC3Request("DELETE",path,data) end
+  end,
+
+  ["GET/scenes"] = function(_,path,_,_)
+    return HC3Request("GET",path)
+  end,
+  ["GET/scenes/#id"] = function(_,path,_,_)
+    return HC3Request("GET",path)
   end,
 
   ["POST/plugins/updateProperty"] = function(method,path,data,_)
@@ -336,20 +345,6 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
     local str,tag,typ = args.message,args.tag,args.messageType
     FB.__fibaro_add_debug_message(tag,str,typ)
     return 200
-  end,
-  ["PUT/devices/#id"] = function(method,path,data,_,id)
-    if Devices[id] then
-      local dev = Devices[id].dev
-      for k,v in pairs(data) do
-        if k=='properties' then
-          for m,n in pairs(v) do dev.properties[m]=n end
-        else
-          dev[k]=v
-        end
-      end
-      return data,202
-    end
-    return HC3Request(method,path,data)
   end,
   ["DELETE/plugins/removeChildDevice/#id"] = function(method,path,data,_,id)
     local D = Devices[id]
@@ -449,6 +444,24 @@ EM.EMEvents('start',function(_)
 
     local f2 = EM.lookupPath("GET","/devices",API_MAP)
     function FB.__fibaro_get_devices() return f2("GET","/devices",nil,{}) end
+
+    local f3 = EM.lookupPath("GET","/rooms/0",API_MAP)
+    function FB.__fibaro_get_room(id) __assert_type(id,"number") return f3("GET","/rooms/"..id,nil,{},id) end
+
+    local f4 = EM.lookupPath("GET","/scenes/0",API_MAP)
+    function FB.__fibaro_get_scene(id) __assert_type(id,"number") return f4("GET","/scenes/"..id,nil,{},id) end
+
+    local f5 = EM.lookupPath("GET","/globalVariables/x",API_MAP)
+    function FB.__fibaro_get_global_variable(name) 
+      __assert_type(name,"string") return f5("GET","/globalVariables/"..name,nil,{},name) 
+    end
+
+    local f6 = EM.lookupPath("GET","/devices/0/properties/x",API_MAP)
+    function FB.__fibaro_get_device_property(id,prop) 
+      __assert_type(id,"number") __assert_type(prop,"string")
+      return f6("GET","/devices/"..id.."/properties/"..prop,nil,{},id,prop) 
+    end
+
   end)
 
 FB.api = api
