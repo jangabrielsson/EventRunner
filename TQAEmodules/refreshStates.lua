@@ -29,6 +29,7 @@ local function createRefreshStateQueue(size)
   local function mkQueue(size)
     local queue,dump,pop = {}
     local tail,head = 301,301
+    local function getSize() return size end
     local function empty() return tail==head end
     local function filled() return head-tail >= size end
     local function push(e)
@@ -58,7 +59,7 @@ local function createRefreshStateQueue(size)
       end
       return table.concat(res,",")
     end
-    return { pop = pop, push = push, tailp=tailp, headp=headp, empty=empty, peek = peek, get=get, dump=dump }
+    return { pop = pop, push = push, tailp=tailp, headp=headp, empty=empty, peek = peek, get=get, dump=dump, getSize=getSize }
   end
 
   self.eventQueue=mkQueue(size)       --- 1..QUEUELENGTH
@@ -108,9 +109,9 @@ local function pollOnce(cb)
   local resp = {}
   local req={ 
     method="GET",
-    url = "http://"..EM.host.."/api/refreshStates?last=" .. lastRefresh.."&lang=en&rand=0.09580020181569104&logs=false",
+    url = "http://"..EM.cfg.host.."/api/refreshStates?last=" .. lastRefresh.."&lang=en&rand=0.09580020181569104&logs=false",
     sink = ltn12.sink.table(resp),
-    user=EM.user, password=EM.pwd,
+    user=EM.cfg.user, password=EM.cfg.pwd,
     headers={}
   }
   req.headers["Accept"] = '*/*'
@@ -154,6 +155,7 @@ local function interceptHTTP(args,_) -- Intercept http calls to refreshStates to
   return -42
 end
 
+EM.refreshStatesQueue = refreshStatesQueue
 function EM.addRefreshListener(fun) refreshListeners[#refreshListeners+1] = fun end
 
 EM.addAPI("GET/refreshStates",function(_,_,_,_,_,prop) -- Intercept /api/refreshStates
@@ -163,7 +165,7 @@ EM.addAPI("GET/refreshStates",function(_,_,_,_,_,prop) -- Intercept /api/refresh
 EM.interceptHTTP = interceptHTTP
 EM.EMEvents('start',function()
     httpR = EM.cfg.copas and EM.copas.http or http
-    if EM.refreshStates then pollEvents(EM.refreshStates) end 
+    if EM.cfg.refreshStates then pollEvents(EM.cfg.refreshStates) end 
   end)
 
 function EM.addRefreshEvent(event) refreshStatesQueue.addEvents(event) end
