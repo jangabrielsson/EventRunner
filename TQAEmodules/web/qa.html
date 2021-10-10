@@ -1,27 +1,54 @@
 <html>
-<head>
-<h1>QuickApp {{{ local qa = EM.getQA(opts.id); out(qa.name)}}}</h1>
-<style>
-table, td, th {
-  border: 1px solid black;
-}
-
-table {
-  border-collapse: collapse;
-  width: 100%;
-}
-
-td {
-  height: 50px;
-  text-align: left;
-  vertical-align: top;
-}
-</style>
+<head lang="en">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-uWxY/CJNBR+1zjPWmfnSnVxwRheevXITnMqoEIeG1LJrdI0GlVs/9cVSyPYXdcSF" crossorigin="anonymous">
 <script>
  function myFunction(id) { document.getElementById(id).submit(); }
 </script>
+<style>
+.custom {
+    width: 78px !important;
+}
+</style>
 </head>
 <body>
+
+  <div class="container">
+    <header class="d-flex flex-wrap justify-content-center py-3 mb-4 border-bottom">
+      <a href="/web/main" class="d-flex align-items-center mb-3 mb-md-0 me-md-auto text-dark text-decoration-none">
+        <span class="fs-4">TQAE</span>
+      </a>
+
+      <ul class="nav nav-pills">
+        <li class="nav-item"><a href="/web/main" class="nav-link active" aria-current="page">QA/Scene</a></li>
+        <li class="nav-item"><a href="/web/timers" class="nav-link">Timers</a></li>        
+        <li class="nav-item"><a href="/web/globals" class="nav-link">Globals</a></li>
+        <li class="nav-item"><a href="/web/triggers" class="nav-link">Triggers & Events</a></li>
+        <li class="nav-item"><a href="/web/about" class="nav-link">Settings</a></li>
+        <li class="nav-item"><a href="/web/about" class="nav-link">About</a></li>
+      </ul>
+    </header>
+  </div>
+
+  <div class="container overflow-hidden">
+  <div class="row">
+  <h4>QuickApp {{{ local qa = EM.getQA(opts.id); out(qa.name)}}}</h4>
+  </div>
+  
+  <div class="row">
+    <button type="button" class="btn custom btn-secondary" onclick="window.location.href='/TQAE/lua?code={{{out("EM.Devices[%s].env.plugin.restart()",opts.id)}}}'">Restart</button>
+{{{
+  if EM.Devices[tonumber(opts.id)].dev.parentId== 0 then
+   out([[<button type="button" class="btn custom btn-secondary" onclick="window.location.href='/TQAE/lua?code=EM.saveFQA(EM.Devices[%s])'">Save</button>]],opts.id)
+   out([[<button type="button" class="btn custom btn-secondary" onclick="window.location.href='/TQAE/lua?code=EM.uploadFQA(EM.Devices[%s])'">Upload</button>]],opts.id)
+  end
+}}}
+     <button type="button" class="btn custom btn-secondary" onclick="window.location.href='/web/ui?id={{{out("%s",opts.id)}}}'">UI</button>
+  </div>
+  
+  <div class="row">
 {{{
     local D = EM.Devices[tonumber(opts.id)]
     local dev=D.dev
@@ -35,18 +62,13 @@ td {
     end
     out("</ul>")
 }}}
-<button onclick="window.location.href='/TQAE/lua?code={{{out("EM.Devices[%s].env.plugin.restart()",opts.id)}}}'">Restart</button>
-{{{
-  if EM.Devices[tonumber(opts.id)].dev.parentId== 0 then
-   out([[<button onclick="window.location.href='/TQAE/lua?code=EM.saveFQA(EM.Devices[%s])'">Save</button>]],opts.id)
-   out([[<button onclick="window.location.href='/TQAE/lua?code=EM.uploadFQA(EM.Devices[%s])'">Upload</button>]],opts.id)
-  end
-}}}
-<button onclick="window.location.href='/web/ui?id={{{out("%s",opts.id)}}}'">UI</button>
-<table>
-<tr><th>Methods</th><th>Properties</th><th>QuickAppVariables</th><th>View</th></tr>
-<tr>
-<td>
+  </div> 
+  
+  <hr>
+  
+  <div class="row gy-4">
+     <div class="col">
+       <h5>Methods</h5>
 {{{ 
      local qa,fs = EM.getQA(opts.id),{}
      for k,v in pairs(qa) do
@@ -61,27 +83,30 @@ td {
        out('<input type="text" name="Args" id="Args" /></form>')
      end
 }}}
-</td>
-<td>
+  </div>
+  <div class="col">
+    <h5>Properties</h5>
 {{{ 
      local qa,fs = EM.getQA(opts.id),{}
      local excludes={quickAppVariables=true,viewLayout=true}
      for k,v in pairs(qa.properties) do if not excludes[k] then fs[#fs+1]={k,v} end end
      table.sort(fs,function(a,b) return a[1] < b[1] end)
-     for _,n in ipairs(fs) do out("%s = %s</br>",n[1],FB.json.encode(n[2])) end
+     for _,n in ipairs(fs) do out("<text>%s = %s</text></br>",n[1],FB.json.encode(n[2])) end
 }}}
-</td>
-<td>
+  </div>
+  <div class="col">
+    <h5>QuickVars</h5>
 {{{ 
      local qa,vars = EM.getQA(opts.id),{}
      for _,v in ipairs(qa.properties.quickAppVariables or {}) do vars[#vars+1]=v end
      table.sort(vars,function(a,b) return a.name < b.name end)
      for _,v in ipairs(vars) do 
-       out("%s = %s</br>",v.name,v.value)
+       out("<text>%s = %s</text></br>",v.name,v.value)
      end
 }}}
-</td>
-<td>
+  </div>
+  <div class="col">
+    <h5>View</h5>
 {{{
     local qa = EM.getQA(opts.id)
     for elm,e in pairs(qa._view) do
@@ -91,9 +116,11 @@ td {
       end
     end
 }}}
-</td>
-</tr>
-</table>
-{{{ html.home(out) }}}
+  </div>
+</div>
+</div>
+
+
+   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-kQtW33rZJAHjgefvhyyzcGF3C5TFyBQBA13V1RKPf4uH+bwyzQxZ6CmMZHmNBEfJ" crossorigin="anonymous"></script>
 </body>
 </html>

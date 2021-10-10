@@ -66,7 +66,7 @@ end
 local function quickSort(arr, p, r, fun)
   p,r = p or 1,r or #arr
   if p < r then
-    q = partition(arr, p, r, fun)
+    local q = partition(arr, p, r, fun)
     quickSort(arr, p, q - 1, fun)
     quickSort(arr, q + 1, r, fun)
   end
@@ -273,12 +273,13 @@ end
 
 ---------------------------------------------
 
-utils.copy = copy
-utils.reduce = reduce
-utils.member = member
-utils.merge = merge
-utils.traverse = traverse
-utils.equal = equal
+utils.copy       = copy
+utils.reduce     = reduce
+utils.member     = member
+utils.merge      = merge
+utils.traverse   = traverse
+utils.equal      = equal
+utils.tableSort  = tableSort
 utils.ZBCOLORMAP = ZBCOLORMAP
 utils.ZBCOLOREND = '\027[0m'
 utils.html2color = html2color

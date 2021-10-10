@@ -12,6 +12,8 @@ _=loadfile and loadfile("TQAE.lua"){
 --%%type="com.fibaro.binarySwitch"
 --%%quickVars = {['x'] = 17, ['y'] = 42 }
 --%%noterminate = true
+--%%u1={button='b1', text='B1', onReleased='turnOff'}
+-- %%proxy=true
 
 function QuickApp:turnOn()
   if self.properties.value == false then self:debug("Turn On") end

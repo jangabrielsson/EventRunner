@@ -101,23 +101,23 @@ cfg.temp         = DEF(cfg.temp,os.getenv("TMPDIR") or os.getenv("TEMP") or os.g
 cfg.logLevel     = DEF(cfg.logLevel,1)
 cfg.htmlDebug    = DEF(cfg.htmlDebug,true)
 cfg.colorDebug   = DEF(cfg.colorDebug,true)
+cfg.defaultRoom   = DEF(cfg.defaultRoom,219)
 EM.utilities     = dofile(cfg.modPath.."utilities.lua")
 EM.debugFlags    = DEF(cfg.debug,{QA=true,child=true,device=true})
-EM.defaultRoom   = DEF(cfg.defaultRoom,219)
 
 local fibColors = { ["DEBUG"] = 'green', ["TRACE"] = 'blue', ["WARNING"] = 'orange', ["ERROR"] = 'red' }
 local logColors = { ["SYS"] = 'brown', ["ERROR"]='red', ["WARNING"] = 'orange', ["TRACE"] = 'blue' }
 
-local globalModules = { -- default global modules loaded into emulator environment
+local globalModules = { -- default global modules loaded once into emulator environment
   "net.lua","json.lua","files.lua", "webserver.lua", "api.lua", "proxy.lua", "ui.lua", "time.lua",
   "refreshStates.lua", "stdQA.lua", "Scene.lua", "offline.lua",
 } 
-local localModules  = { -- default local modules loaded into QA environment
+local localModules  = { -- default local modules loaded into every QA environment
   {"class.lua","QA"}, "fibaro.lua", "fibaroPatch.lua", {"QuickApp.lua","QA"} 
 } 
 
---EM.copas = true
---EM.noweb=true
+--EM.cfg.copas = true
+--EM.cfg.noweb=true
 local function main(FB)
   local et = loadfile(EM.cfg.modPath.."/verify/verify.lua") -- more extensive tests.
   if et then et(EM,FB) end 
@@ -128,7 +128,7 @@ do
   local stat,mobdebug = pcall(require,'mobdebug'); -- If we have mobdebug, enable coroutine debugging
   if stat then mobdebug.coro() end
 end
-local version = "0.27"
+local version = "0.28"
 
 local socket = require("socket") 
 local http   = require("socket.http")
@@ -254,7 +254,7 @@ end
 local offset=0
 function EM.setTimeOffset(offs) if offs then offset=offs else return offset end end
 function EM.clock() return socket.gettime()+offset end
-function EM.osTime(a) return a and os.time(a) or os.time()+offset end
+function EM.osTime(a) return a and os.time(a) or math.floor(os.time()+offset+0.5) end
 function EM.osDate(a,b) return os.date(a,b or EM.osTime()) end
 
 local EMEvents = {}
@@ -270,8 +270,8 @@ FB.__assert_type = __assert_type
 
 function FB.setInterval(fun,ms) 
   local r={} 
-  local function loop() fun() if r[1] then r[1] = setTimeout(loop,ms) end end 
-  r[1] = setTimeout(loop,ms) 
+  local function loop() fun() if r[1] then r[1] = FB.setTimeout(loop,ms) end end 
+  r[1] = FB.setTimeout(loop,ms) 
   return r 
 end
 function FB.clearInterval(ref) if type(ref)=='table' and ref[1] then FB.clearTimeout(ref[1]) ref[1]=nil end end
@@ -340,6 +340,18 @@ function EM.createDevice(info) -- Creates device structure
     actions = { turnOn=0,turnOff=0,setValue=1,toggle=0 }
   }
 
+  if info.parentId and info.parentId > 0 then
+    local p = Devices[info.parentId]
+    info.env,info.childProxy = p.env,p.proxy
+    if info.childProxy then DEBUG("child","sys","Imported proxy child %s",info.id) end
+  end
+
+  dev.name,dev.parentId,dev.roomID = info.name or "MyQuickApp",0,info.roomID or EM.cfg.defaultRoom
+  merge(dev.interfaces,info.interfaces or {})
+  merge(dev.properties,info.properties or {})
+  info.dev = dev
+  EM.addUI(info)
+
   if info.proxy then  -- Move out?
     local l = FB.__fibaro_local(false)
     local stat,res = pcall(EM.createProxy,dev)
@@ -352,19 +364,8 @@ function EM.createDevice(info) -- Creates device structure
     end
   end
 
-  if info.parentId and info.parentId > 0 then
-    local p = Devices[info.parentId]
-    info.env,info.childProxy = p.env,p.proxy
-    if info.childProxy then DEBUG("child","sys","Imported proxy child %s",info.id) end
-  end
-
   if not info.id then info.id = gID; gID=gID+1 end
   dev.id = info.id
-  dev.name,dev.parentId,dev.roomID = info.name or "MyQuickApp",0,info.roomID or EM.defaultRoom
-  merge(dev.interfaces,info.interfaces or {})
-  merge(dev.properties,info.properties or {})
-  info.dev = dev
-  EM.addUI(info)
   return dev
 end
 
@@ -410,7 +411,14 @@ local function installDevice(info) -- Register device
 end
 EM.installDevice = installDevice
 
-function EM.installQA(args,cont) runQA(installDevice(createQA(args)).id,cont) end
+function EM.installQA(args,cont) 
+  runQA(installDevice(createQA(args)).id,
+    function()
+      LOG.sys("End - runtime %.2f min",(EM.osTime()-EM._info.started)/60)
+      EM._info.started = EM.osTime()
+      if cont then cont() else os.exit() end
+    end) 
+end
 
 local LOADLOCK = EM.createLock()
 
@@ -452,7 +460,6 @@ function runQA(id,cont)         -- Creates an environment and load file modules 
   elseif env.ACTION then
     EM.postEMEvent({type='sceneLoaded', info=info})     
   end
-  if info.noterminate then setTimeout(function() env.setInterval(function() end,5000) end,0,nil,info) end -- keep alive...
 end
 
 EM.runQA = runQA
@@ -463,7 +470,9 @@ loadModules(EM.cfg.globalModules or {}) -- Load optional user specified modules 
 print(fmt("---------------- Tiny QuickAppEmulator (TQAE) v%s -------------",version)) -- Get going...
 
 function EM.startEmulator(cont)
-  EM.start(function() EM.postEMEvent{type='start'} cont() end)
+  EM.start(function() EM.postEMEvent{type='start'} 
+      cont() 
+    end)
 end
 
 if embedded then                        -- Embedded call...

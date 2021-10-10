@@ -1,29 +1,51 @@
 <html>
-<head>
-<h1>Tiny QuickApp Emulator</h1>
+<head lang="en">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-uWxY/CJNBR+1zjPWmfnSnVxwRheevXITnMqoEIeG1LJrdI0GlVs/9cVSyPYXdcSF" crossorigin="anonymous">
 </head>
 <body>
+
+  <div class="container">
+    <header class="d-flex flex-wrap justify-content-center py-3 mb-4 border-bottom">
+      <a href="/web/main" class="d-flex align-items-center mb-3 mb-md-0 me-md-auto text-dark text-decoration-none">
+        <span class="fs-4">TQAE</span>
+      </a>
+
+      <ul class="nav nav-pills">
+        <li class="nav-item"><a href="/web/main" class="nav-link active" aria-current="page">QA/Scene</a></li>
+        <li class="nav-item"><a href="/web/timers" class="nav-link">Timers</a></li>        
+        <li class="nav-item"><a href="/web/globals" class="nav-link">Globals</a></li>
+        <li class="nav-item"><a href="/web/triggers" class="nav-link">Triggers & Events</a></li>
+        <li class="nav-item"><a href="/web/settings" class="nav-link">Settings</a></li>
+        <li class="nav-item"><a href="/web/about" class="nav-link">About</a></li>
+      </ul>
+    </header>
+  </div>
+  
+<div class="container overflow-hidden">
+  <div class="row gy-5">
+    <div class="col">
 {{{ 
     out("Started %s</br>",os.date("%c",EM._info.started))
     out("Running for %ss</br>",EM.osTime()-EM._info.started)
     out("HC3 at %s</br>",EM.IPAddress)
 }}}
-<a href="/web/timers">Timers</a>
-<h2>Global modules</h2>
-<ul>
-{{{ for m,_ in pairs(EM._info.modules.global) do out("<li>%s</li>",m) end }}}
-</ul>
-<h2>Local modules</h2>
-<ul>
-{{{ for m,_ in pairs(EM._info.modules["local"]) do out("<li>%s</li>",m) end }}}
-</ul>
-<h2>Loaded QuickApps</h2>
-<ul>
-{{{
+    </div>
+  </div>
+<hr>
+
+  <div class="row">
+    <div class="col">
+    <div class="row">
+      <h4>Loaded QuickApps</h4>
+      <ul>
+        {{{
 for id,D in pairs(EM.Devices) do
  if D.dev.parentId == 0 then
    local qa = D.env.quickApp
-   out('<li>%s - <a href="/web/qa?id=%s">%s</a></li>',qa.id,qa.id,qa.name)
+   out('<li><a href="/web/qa?id=%s">%s/%s/%s</a></li>',qa.id,qa.id,qa.name,qa.type)
    if next(qa.childDevices) then
      out("<ul>")
      for ic,child in pairs(qa.childDevices) do
@@ -33,7 +55,25 @@ for id,D in pairs(EM.Devices) do
    end
  end
 end
-}}}
-</ul>
+        }}}
+       </ul>
+     </div>
+     <div class="row">
+      <h4>Loaded Scenes</h4>
+     </div>
+    </div>
+    <div class="col">
+      <h4>Global modules</h4>
+      <ul>{{{ for m,_ in pairs(EM._info.modules.global) do out("<li>%s</li>",m) end }}} </ul>
+    </div>
+    <div class="col">
+      <h4>Local modules</h4>
+      <ul>{{{ for m,_ in pairs(EM._info.modules["local"]) do out("<li>%s</li>",m) end }}}</ul>
+    </div>
+  </div>
+</div>
+
+   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-kQtW33rZJAHjgefvhyyzcGF3C5TFyBQBA13V1RKPf4uH+bwyzQxZ6CmMZHmNBEfJ" crossorigin="anonymous"></script>
+
 </body>
 </html>

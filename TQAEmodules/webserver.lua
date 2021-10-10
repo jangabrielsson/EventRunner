@@ -202,7 +202,7 @@ local function compilePage(html,fname)
   return function(em,fb,opts)
     local res,i = {},1
     local stat,err = pcall(function()
-        while i<#res2 do res[#res+1] = res2[i](em,fb,opts) i=i+1 end
+        while i<=#res2 do res[#res+1] = res2[i](em,fb,opts) i=i+1 end
       end)
     return stat and table.concat(res) or fmt("Error: Page %s - %s</br><pre>%s</pre>",fname,err,source[i])
   end

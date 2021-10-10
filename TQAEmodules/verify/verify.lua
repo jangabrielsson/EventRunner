@@ -1,13 +1,13 @@
 local EM,FB=...
 
 local testFiles = {
-  "test1.lua",
-  "test2.lua",
-  "sleep1.lua",
-  "sleep2.lua",
-  "http1.lua",
-  "api1.lua",
-  "coro1.lua", -- not completly happy with the order of times...
+--  "test1.lua",
+--  "test2.lua",
+--  "sleep1.lua",
+--  "sleep2.lua",
+--  "http1.lua",
+--  "api1.lua",
+--  "coro1.lua", -- not completly happy with the timing order...
   "restart1.lua",
   "err1.lua",
   "globalVariable1.lua",

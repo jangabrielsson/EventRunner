@@ -202,7 +202,7 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
     else return HC3Request("POST",path,data) end
   end,
   ["POST/rooms/#id/action/setAsDefault"] = function(_,path,data,_,id)
-    EM.defaultRoom = id
+    EM.cfg.defaultRoom = id
     if EM.cfg.offline then return id,200 else return HC3Request("POST",path,data) end
   end,
   ["PUT/rooms/#id"] = function(_,path,data,_,id)

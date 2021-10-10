@@ -4,7 +4,7 @@
 - DONE - Better debug flags
 - DONE - Better EM config management (put in .cfg)
 - DONE - Move __fibaro_x to api.*
-- DOME - Fix defaultRoom
+- DONE - Fix defaultRoom
 - Fix proper Scene structure
 - Web UI, auto updates (ajax?)
 - Terminal input - copas only?

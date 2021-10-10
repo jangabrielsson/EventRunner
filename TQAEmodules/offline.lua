@@ -4,17 +4,12 @@ Copyright (c) 2021 Jan Gabrielsson
 Email: jan@gabrielsson.com
 MIT License
 
-Support for local shadowing global variables - and other resources
-ToDo, should generate events...
+Support for local shadowing global variables, rooms, sections, customEvents - and other resources
 
 --]]
-local EM,FB = ...
+local EM,_ = ...
 
-local json = FB.json
-local HC3Request,LOG,Devices = EM.HC3Request,EM.LOG,EM.Devices
-local __fibaro_get_devices,__fibaro_get_device,__fibaro_get_device_property,__fibaro_call,__assert_type=
-FB.__fibaro_get_devices,FB.__fibaro_get_device,FB.__fibaro_get_device_property,FB.__fibaro_call,FB.__assert_type
-local copy = EM.utilities.copy
+--local json,LOG,DEBUG = FB.json,EM.LOG,EM.DEBUG
 
 EM.rsrc = { 
   rooms = {}, 
@@ -24,6 +19,8 @@ EM.rsrc = {
 }
 
 local function setup()
+  EM.create.room{id=219,name="Default Room"}
+  EM.createSection{id=219,name="Default Section"}
 end
 
 local roomID = 1001
@@ -42,22 +39,33 @@ end
 
 function EM.create.room(args)
   local v = {
-    id = roomID,
-    name=args.name,
-    modified=EM.osTime(),
+    name = "Room",
+    sectionID = EM.cfg.defaultSection or 219,
+    isDefault = true,
+    visible = true,
+    icon = "",
+    defaultSensors = { temperature = 0, humidity = 0, light = 0 },
+    meters = { energy = 0 },
+    defaultThermostat = 0,
+    sortOrder = 1,
+    category = "other"
   }
-  roomID=roomID+1
+  for _,k in (
+    {"id","name","sectionID","isDefault","visible","icon","defaultSensors","meters","defaultThermostat","sortOrder","category"}
+    ) do v[k] = args[k] or v[k] 
+  end
+  if not v.id then v.id = roomID roomID=roomID+1 end
   EM.rsrc.rooms[v.id]=v
   return v
 end
 
 function EM.create.section(args)
   local v = {
-    id = sectionID,
-    name=args.name,
-    modified=EM.osTime(),
+    name = "Section" ,
+    sortOrder = 1
   }
-  sectionID=sectionID+1
+  for _,k in ({"id","name","sortOrder"}) do v[k] = args[k] or v[k]  end
+  if not v.id then v.id = sectionID sectionID=sectionID+1 end
   EM.rsrc.sections[v.id]=v
   return v
 end
@@ -71,7 +79,7 @@ function EM.create.customEvent(args)
   return v
 end
 
-EM.EMEvents('start',function(ev)
+EM.EMEvents('start',function(_)
     if EM.cfg.offline then setup() end 
   end)
 

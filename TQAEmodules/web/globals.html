@@ -15,40 +15,30 @@
 
       <ul class="nav nav-pills">
         <li class="nav-item"><a href="/web/main" class="nav-link" aria-current="page">QA/Scene</a></li>
-        <li class="nav-item"><a href="/web/timers" class="nav-link active">Timers</a></li>        
-        <li class="nav-item"><a href="/web/globals" class="nav-link">Globals</a></li>
+        <li class="nav-item"><a href="/web/timers" class="nav-link">Timers</a></li>        
+        <li class="nav-item"><a href="/web/globals" class="nav-link active">Globals</a></li>
         <li class="nav-item"><a href="/web/triggers" class="nav-link">Triggers & Events</a></li>
-        <li class="nav-item"><a href="/web/about" class="nav-link">Settings</a></li>
+        <li class="nav-item"><a href="/web/settings" class="nav-link">Settings</a></li>
         <li class="nav-item"><a href="/web/about" class="nav-link">About</a></li>
       </ul>
     </header>
   </div>
-  
+
 <div class="container overflow-hidden">
   <div class="row gy-5">
-      <h4>Timers</h4>
+       <h4>Global variables</h4>
   </div>
-  <div class="row">
-   {{{ out("Current time:%s",html.milliStr(EM.clock())) }}}
-  </div>
-  <div class="row">
-</p>
-<table>
 {{{
-  local devs,ts = EM.Devices,{}
-  for id,info in pairs(devs) do
-    for t,_ in pairs(info.timers or {}) do
-      ts[#ts+1]=t
-    end
-  end
-  table.sort(ts,function(a,b) return a.time < b.time end)
-  for _,t in ipairs(ts) do
-    out("<tr><td>QA:%s</td><td>,ID:%s</td><td>,%s</td><td>,%s</td><td>%s</td></tr>",
-         t.ctx.name,t.ctx.id,html.milliStr(t.time),t.descr,t.tag or "")
+  local globs = FB.api.get("/globalVariables")
+  table.sort(globs,function(a,b) return a.name < b.name end)
+  for _,g in ipairs(globs or {}) do
+    out([[<hr><div class="row">]])
+    out("<text>%s = %s</text>",g.name,g.value)
+    out([[</div>]])
   end
 }}}
-</table>
- </div>
+
+</div>
 </div>
 
    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-kQtW33rZJAHjgefvhyyzcGF3C5TFyBQBA13V1RKPf4uH+bwyzQxZ6CmMZHmNBEfJ" crossorigin="anonymous"></script>

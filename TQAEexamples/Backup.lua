@@ -25,10 +25,10 @@ for _,device in ipairs(devices) do
     local f = io.open(backupdir..fname,"w+")
     if f then 
       print("Writing",fname,fqa.name,device.id)
-      f:write((jason.encode(fqa)))
+      f:write((json.encode(fqa)))
       f:close()
     else
-      print("Can't open "..backupdir..fname)
+      fibaro.error(__TAG,"Can't open "..backupdir..fname)
     end
   end
 end

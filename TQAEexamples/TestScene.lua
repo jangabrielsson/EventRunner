@@ -6,6 +6,7 @@ local _=loadfile and loadfile("TQAE.lua"){
   refreshStates=true,
   modPath = "TQAEmodules/",
   temp = "temp/",
+  speed=true,
 --  startTime="12/24/2024-07:00", 
 --logLevel=5
 }
