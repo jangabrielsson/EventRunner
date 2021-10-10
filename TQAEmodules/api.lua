@@ -174,6 +174,7 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
     if v then  
       EM.addRefreshEvent({
           type='GlobalVariableChangedEvent',
+          created = EM.osTime(),
           data={variableName=name, newValue=data.value, oldValue=v.value}
         })
       v.value = data.value
@@ -264,6 +265,7 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
     if EM.rsrc.customEvents[name] then
       EM.addRefreshEvent({
           type='CustomEvent',
+          created = EM.osTime(),
           data={name=name, value=EM.rsrc.customEvents[name].userDescription}
         })
     else return HC3Request("POST",path,data) end
@@ -296,6 +298,7 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
       D.dev.properties[data.propertyName]=data.value 
       EM.addRefreshEvent({
           type='DevicePropertyUpdatedEvent',
+          created = EM.osTime(),
           data={id=data.deviceId, property=data.propertyName, newValue=data.value, oldValue=oldVal}
         })
       if D.proxy or D.childProxy then

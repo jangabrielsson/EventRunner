@@ -15,8 +15,8 @@
     local es=r.peek(i)
     if es then 
       for _,e in ipairs(es.events) do
-        if e.type~="DevicePropertyUpdatedEvent" then
-            out("<li><text>%s,%s - %s</text>",html.milliStr(e.created),e.type,FB.json.encode(e.data))
+        if not (e.type=="DevicePropertyUpdatedEvent" and e.data.property=="icon") then
+            out("<li><text>%s,%s - %s</text>",html.milliStr(e.created or 0),e.type,FB.json.encode(e.data))
         end
       end
     else break end
