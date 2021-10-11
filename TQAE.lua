@@ -135,7 +135,7 @@ do
   local stat,mobdebug = pcall(require,'mobdebug'); -- If we have mobdebug, enable coroutine debugging
   if stat then mobdebug.coro() end
 end
-local version = "0.28"
+local version = "0.30"
 
 local socket = require("socket") 
 local http   = require("socket.http")
@@ -475,7 +475,7 @@ loadModules(globalModules or {})        -- Load global modules
 loadModules(EM.cfg.globalModules or {}) -- Load optional user specified modules into environment
 
 print(fmt("---------------- Tiny QuickAppEmulator (TQAE) v%s -------------",version)) -- Get going...
-if not HC3Request("GET","/settings/info",{}) then LOG.sys("No connection to HC3") end
+if not HC3Request("GET","/settings/info",{}) then LOG.warn("No connection to HC3") end
 if next(EM.PFVS) then LOG.sys("Using config file %s",EM.cfg.configFile) end
 
 function EM.startEmulator(cont)
