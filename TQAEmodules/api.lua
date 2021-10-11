@@ -12,7 +12,7 @@ local EM,FB = ...
 local json = FB.json
 local HC3Request,LOG,DEBUG,Devices = EM.HC3Request,EM.LOG,EM.DEBUG,EM.Devices
 local __fibaro_call,__assert_type=FB.__fibaro_call,FB.__assert_type
-local copy,encodeFormated = EM.utilities.copy,EM.utilities.encodeFormated
+local copy,luaFormated = EM.utilities.copy,EM.utilities.luaFormated
 
 local GUI_HANDLERS = {
   ["GET/api/callAction"] = function(_,client,ref,_,opts)
@@ -70,10 +70,10 @@ local GUI_HANDLERS = {
       EM.PFVS[k]=opts[k]~="" and opts[k] or nil
     end
     LOG.sys("Saving parameter file: %s",EM.PFVS.configFile)
-    LOG.sys("\n%s",encodeFormated(EM.PFVS))
+    LOG.sys("\n%s",luaFormated(EM.PFVS))
     local stat,res = pcall(function()
         local f = io.open(EM.PFVS.configFile,"w+")
-        f:write("return "..encodeFormated(EM.PFVS))
+        f:write("return "..luaFormated(EM.PFVS))
         f:close()
       end)
     if not stat then LOG.error("Failed writing %s - %s",tostring(EM.PFVS.configFile),err) end

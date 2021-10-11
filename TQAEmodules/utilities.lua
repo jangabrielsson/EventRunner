@@ -180,6 +180,62 @@ do -- Used for print device table structs - sortorder for device structs
   end
   utils.encodeFormated = prettyJsonStruct
 end
+
+do -- Used for print device table structs - sortorder for device structs
+  local sortKeys = {
+    'id','name','roomID','type','baseType','enabled','visible','isPlugin','parentId','viewXml','configXml',
+    'interfaces','properties','view', 'actions','created','modified','sortOrder'
+  }
+  local sortOrder={}
+  for i,s in ipairs(sortKeys) do sortOrder[s]="\n"..string.char(i+64).." "..s end
+  local function keyCompare(a,b)
+    local av,bv = sortOrder[a] or a, sortOrder[b] or b
+    return av < bv
+  end
+
+  local function prettyLuaStruct(t0)
+    local res = {}
+    local function isArray(t) return type(t)=='table' and t[1] end
+    local function isEmpty(t) return type(t)=='table' and next(t)==nil end
+    local function printf(tab,fmt,...) res[#res+1] = string.rep(' ',tab)..format(fmt,...) end
+    local function pretty(tab,t,key)
+      if type(t)=='table' then
+        if isEmpty(t) then printf(0,"{}") return end
+        if isArray(t) then
+          printf(key and tab or 0,"{\n")
+          for i,k in ipairs(t) do
+            local _ = pretty(tab+1,k,true)
+            if i ~= #t then printf(0,',') end
+            printf(tab+1,'\n')
+          end
+          printf(tab,"}")
+          return true
+        end
+        local r = {}
+        for k,_ in pairs(t) do r[#r+1]=k end
+        table.sort(r,keyCompare)
+        printf(key and tab or 0,"{\n")
+        for i,k in ipairs(r) do
+          printf(tab+1,'%s=',k)
+          local _ =  pretty(tab+1,t[k])
+          if i ~= #r then printf(0,',') end
+          printf(tab+1,'\n')
+        end
+        printf(tab,"}")
+        return true
+      elseif type(t)=='number' then
+        printf(key and tab or 0,"%s",t)
+      elseif type(t)=='boolean' then
+        printf(key and tab or 0,"%s",t and 'true' or 'false')
+      elseif type(t)=='string' then
+        printf(key and tab or 0,'"%s"',t:gsub('(%")','"'))
+      end
+    end
+    pretty(0,t0,true)
+    return table.concat(res,"")
+  end
+  utils.luaFormated = prettyLuaStruct
+end
 ----------------------------------------------------------------------
 -- From Egor Skriptunoff, https://stackoverflow.com/a/41859181
 local char, byte, pairs, floor = string.char, string.byte, pairs, math.floor
