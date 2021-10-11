@@ -1,7 +1,4 @@
 _=loadfile and loadfile("TQAE.lua"){
---  user="admin", 
---  pwd="admin", 
---  host="192.168.1.57",
   modPath = "TQAEmodules/",
 }
 

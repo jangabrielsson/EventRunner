@@ -134,13 +134,13 @@
   
   <div class="form-check form-switch">
     <label class="form-check-label" for="htmlDebug">Allow HTML in debug output</label>
-    <input class="form-check-input" name="htmlDebug" type="checkbox" role="switch" id="htmlDebug" aria-describedby="htmlDebugHelp" {{{out(tostring(EM.PFVS.htmlDebug and "checked" or ""))}}}>
+    <input class="form-check-input" name="htmlDebug" type="checkbox" role="switch" id="htmlDebug" aria-describedby="htmlDebugHelp" {{{out(tostring(EM.PFVS.htmlDebug==false and "" or "checked"))}}}>
     <div id="htmlDebugHelp" class="form-text">If false will strip html formatting from the log output. Default true</div>
   </div>
   
   <div class="form-check form-switch">
     <label class="form-check-label" for="colorDebug">Debug with colors</label>
-    <input class="form-check-input" type="checkbox" role="switch" name="colorDebug" id="colorDebug" aria-describedby="colorDebugHelp" {{{out(tostring(EM.PFVS.colorDebug and "checked" or ""))}}}>
+    <input class="form-check-input" type="checkbox" role="switch" name="colorDebug" id="colorDebug" aria-describedby="colorDebugHelp" {{{out(tostring(EM.PFVS.colorDebug==false and "" or "checked"))}}}>
     <div id="colorDebugHelp" class="form-text">If true will log in ZBS console with color. Default true</div>
   </div>
   
