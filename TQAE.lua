@@ -44,12 +44,13 @@ configFile = <filename>
   Great place to keep credentials instead of listing them in the QA code, and forget to remove them when uploading codeto forums...
   Default "TQAEconfigs.lua"
 debug={
-  QA=<boolean>,       --default true
-  module=<boolean>,   --defaul false
-  module2=<boolean>,  --defaul false
-  lock=<boolean>,     --default false
-  child=<boolean>,    --default true
-  device=<boolean>,   --default true
+  QA=<boolean>,            --default true
+  module=<boolean>,        --defaul false
+  module2=<boolean>,       --defaul false
+  lock=<boolean>,          --default false
+  child=<boolean>,         --default true
+  device=<boolean>,        --default true
+  refreshStates=<boolean>, --default false
 }
 modPath = <path>, 
   Path to TQAE modules. 
@@ -78,13 +79,13 @@ lateTimers=<seconds>
 timerVerbose=<boolean>
   If true prints timer reference with extended information (expiration time etc)
   
-QuickApp options: (set with --%% directive n file)
+QuickApp options: (set with --%% directive in file)
 --%%name=<name>
 --%%id=<number>
 --%%type=<com.fibaro.XYZ>
 --%%properties={<table of initial properties>}
 --%%interfaces={<array of interfaces>}
---%%quickVars={<table of initial quickAppVariables>}
+--%%quickVars={<table of initial quickAppVariables>}   -- Ex. { x = 9, y = "Test" }
 --%%proxy=<boolean>
 --]]
 
@@ -108,7 +109,7 @@ cfg.temp         = DEF(cfg.temp,os.getenv("TMPDIR") or os.getenv("TEMP") or os.g
 cfg.logLevel     = DEF(cfg.logLevel,1)
 cfg.htmlDebug    = DEF(cfg.htmlDebug,true)
 cfg.colorDebug   = DEF(cfg.colorDebug,true)
-cfg.defaultRoom   = DEF(cfg.defaultRoom,219)
+cfg.defaultRoom  = DEF(cfg.defaultRoom,219)
 EM.utilities     = dofile(cfg.modPath.."utilities.lua")
 EM.debugFlags    = DEF(cfg.debug,{QA=true,child=true,device=true})
 
@@ -125,7 +126,7 @@ local localModules  = { -- default local modules loaded into every QA environmen
 
 --EM.cfg.copas = true
 --EM.cfg.noweb=true
-local function main(FB)
+local function main(FB) -- For running test examples. Running TQAE.lua directly will run this test.
   local et = loadfile(EM.cfg.modPath.."/verify/verify.lua") -- more extensive tests.
   if et then et(EM,FB) end 
 end

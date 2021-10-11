@@ -11,6 +11,9 @@
 .custom {
     width: 78px !important;
 }
+text {
+    white-space: normal;
+}
 </style>
 </head>
 <body>
@@ -52,7 +55,7 @@
   <hr>
   
   <div class="row gy-4">
-     <div class="col">
+     <div class="col-sm-4">
        <h5>Methods</h5>
 {{{ 
      local qa,fs = EM.getQA(opts.id),{}
@@ -69,35 +72,36 @@
      end
 }}}
   </div>
-  <div class="col">
+  <div class="col-sm-3">
     <h5>Properties</h5>
 {{{ 
      local qa,fs = EM.getQA(opts.id),{}
      local excludes={quickAppVariables=true,viewLayout=true}
      for k,v in pairs(qa.properties) do if not excludes[k] then fs[#fs+1]={k,v} end end
      table.sort(fs,function(a,b) return a[1] < b[1] end)
-     for _,n in ipairs(fs) do out("<text>%s = %s</text></br>",n[1],FB.json.encode(n[2])) end
+     for _,n in ipairs(fs) do out([[<div class="text-break">%s = %s</div>]],
+     n[1],html.escape(FB.json.encode(n[2]))) end
 }}}
   </div>
-  <div class="col">
+  <div class="col-sm-2">
     <h5>QuickVars</h5>
 {{{ 
      local qa,vars = EM.getQA(opts.id),{}
      for _,v in ipairs(qa.properties.quickAppVariables or {}) do vars[#vars+1]=v end
      table.sort(vars,function(a,b) return a.name < b.name end)
      for _,v in ipairs(vars) do 
-       out("<text>%s = %s</text></br>",v.name,v.value)
+       out([[<div class="text-break">%s = %s</div>]],v.name,html.escape(FB.json.encode(v.value)))
      end
 }}}
   </div>
-  <div class="col">
+  <div class="col-sm-2">
     <h5>View</h5>
 {{{
     local qa = EM.getQA(opts.id)
     for elm,e in pairs(qa._view) do
       out("%s</br>",elm)
       for tp,v in pairs(e) do
-        out("- %s = %s</br>",tp,v)
+        out([[<div class="text-break">%s = %s</div>]],tp,html.escape(FB.json.encode(v)))
       end
     end
 }}}

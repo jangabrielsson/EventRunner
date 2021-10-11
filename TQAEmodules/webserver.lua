@@ -164,6 +164,8 @@ function htmlfuns.home(out)
 end
 htmlfuns.milliStr = EM.milliStr
 
+function htmlfuns.escape(str) return str:gsub("<","&lt;") end
+
 function htmlfuns.navbar(out,item)
   out(string.gsub([[  <div class="container">
     <header class="d-flex flex-wrap justify-content-center py-3 mb-4 border-bottom">

@@ -1,8 +1,12 @@
 _=loadfile and loadfile("TQAE.lua"){
-  modPath = "TQAEmodules/",
+--  modPath = "TQAEmodules/",
 }
 
 --%%name="Test QA"
+
+function QuickApp:turnOn()
+  self:updateProperty("value",true)
+end
 
 function QuickApp:onInit()
   self:debug(self.name,self.id)
