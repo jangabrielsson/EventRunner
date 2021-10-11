@@ -54,6 +54,20 @@ local function killTimers()
   for v,_ in pairs(ctx.timers) do v.t:cancel() end
 end
 
+local function checkForExit(cf,co,stat,res,...)
+  local ctx = EM.procs[co]
+  if not stat then 
+    if type(res)=='table' and res.type then
+      killTimers()
+      if ctx.cont then ctx.cont() end
+      --if cf then coroutine.yield(co) end
+    else 
+      EM.checkErr(ctx.env.__TAG,false,res)
+    end
+  end
+  return stat,res,...
+end
+
 local function timerCall(t,args)
   local fun,ctx,v = table.unpack(args)
   ctx.lock.get() 
@@ -61,12 +75,13 @@ local function timerCall(t,args)
   local stat,res = pcall(fun)
   ctx.lock.release() 
   ctx.timers[v]=nil
-  if not stat then 
-    if type(res)=='table' then
-      killTimers()
-      if ctx.cont then ctx.cont() end
-    else EM.checkErr(ctx.env.__TAG,false,res) end
-  end
+  checkForExit(nil,v.co,stat,res)
+--  if not stat then 
+--    if type(res)=='table' and res.type then
+--      killTimers()
+--      if ctx.cont then ctx.cont() end
+--    else EM.checkErr(ctx.env.__TAG,false,res) end
+--  end
 end
 
 local function setTimeout(fun,ms,tag,ctx)
@@ -112,3 +127,4 @@ EM.createLock = createLock
 FB.__fibaroSleep = fibaroSleep
 EM.http = EM.copas.http
 EM.https = EM.copas.https
+EM.checkForExit = checkForExit

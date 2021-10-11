@@ -109,3 +109,4 @@ EM.exit = exit
 EM.restartQA = restartQA
 EM.createLock = createLock
 FB.__fibaroSleep = fibaroSleep 
+EM.checkForExit = checkForExit

@@ -91,7 +91,7 @@ QuickApp options: (set with --%% directive in file)
 
 local embedded=...              -- get parameters if emulator included from QA code...
 local EM = { cfg = embedded or {} }
-local cfg = EM.cfg
+local cfg,pfvs = EM.cfg
 local function DEF(x,y) if x==nil then return y else return x end end
 cfg.configFile  = DEF(cfg.configFile,"TQAEconfigs.lua")
 do 
@@ -99,6 +99,7 @@ do
   local pf = loadfile(cfg.configFile)
   if pf then 
     local p = pf() or {}; 
+    pfvs = true
     for k,v in pairs(p) do EM.PFVS[k]=v end -- save paramFile values for settings panel
     for k,v in pairs(cfg) do p[ k ]=v end 
     cfg,EM.cfg=p,p 
@@ -136,7 +137,7 @@ do
   local stat,mobdebug = pcall(require,'mobdebug'); -- If we have mobdebug, enable coroutine debugging
   if stat then mobdebug.coro() end
 end
-local version = "0.30"
+local version = "0.31"
 
 local socket = require("socket") 
 local http   = require("socket.http")
@@ -311,6 +312,9 @@ local deviceTemplates
 local function getContext(co) return procs[co or coroutine.running()] end
 EM.getContext,EM.procs = getContext,procs
 
+FB.json = {decode = function(s) return s end } -- Need fake json at this moment, will be replaced when loading json.lua
+local HC3online = HC3Request("GET","/settings/info",nil) 
+
 if EM.cfg.copas then loadfile(EM.cfg.modPath.."async.lua")(EM,FB) else loadfile(EM.cfg.modPath.."sync.lua")(EM,FB) end
 setTimeout = EM.setTimeout
 FB.setTimeout = EM.setTimeout
@@ -324,7 +328,7 @@ local function check(name,stat,err)
     err = err:gsub('(%[string ")(.-)("%])',function(_,s,_) return s end)
     FB.__fibaro_add_debug_message(name,err,"ERROR") 
   end 
-  return stat
+  return stat,err
 end
 EM.checkErr = check
 
@@ -440,26 +444,26 @@ function runQA(id,cont)         -- Creates an environment and load file modules 
     },
     hc3_emulator={
       getmetatable=getmetatable,setmetatable=setmetatable,io=io,installQA=EM.installQA,EM=EM,IPaddress=EM.IPAddress,
-      os={setTimer=setTimeout},trigger=EM.trigger,create=EM.create,rawset=rawset,rawget=rawget,
+      os={setTimer=setTimeout, exit=os.exit},trigger=EM.trigger,create=EM.create,rawset=rawset,rawget=rawget,
     },
     coroutine=EM.userCoroutines,
     table=table,select=select,pcall=pcall,xpcall=xpcall,print=print,string=string,error=error,
     collectgarbage=collectgarbage,
     next=next,pairs=pairs,ipairs=ipairs,tostring=tostring,tonumber=tonumber,math=math,assert=assert
   }
-  info.env,env._G=env,env
+  info.env,env._G,co=env,env,coroutine.running()
   for s,v in pairs(FB) do env[s]=v end                        -- Copy local exports to QA environment
   for s,v in pairs(info.extras or {}) do env[s]=v end         -- Copy user provided environment symbols
   loadModules(localModules or {},env,info.scene)              -- Load default QA specfic modules into environment
   loadModules(EM.cfg.localModules or {},env,info.scene)       -- Load optional user specified module into environment    
   EM.postEMEvent({type='infoEnv', info=info})
-  procs[coroutine.running()]=info
+  procs[co]=info
   LOADLOCK:get()
   DEBUG("module","sys","Loading  %s:%s",info.codeType,info.name)
   for _,f in ipairs(info.files) do                                  -- for every file we got, load it..
     DEBUG("module2","sys","         ...%s",f.name)
     local code = check(env.__TAG,load(f.content,f.fname,"t",env))   -- Load our QA code, check syntax errors
-    check(env.__TAG,pcall(code))                                    -- Run the QA code, check runtime errors
+    EM.checkForExit(true,co,pcall(code))                            -- Run the QA code, check runtime errors
   end
   LOADLOCK:release()
   if env.QuickApp and env.QuickApp.onInit then
@@ -476,8 +480,8 @@ loadModules(globalModules or {})        -- Load global modules
 loadModules(EM.cfg.globalModules or {}) -- Load optional user specified modules into environment
 
 print(fmt("---------------- Tiny QuickAppEmulator (TQAE) v%s -------------",version)) -- Get going...
-if not HC3Request("GET","/settings/info",{}) then LOG.warn("No connection to HC3") end
-if next(EM.PFVS) then LOG.sys("Using config file %s",EM.cfg.configFile) end
+if not HC3online then LOG.warn("No connection to HC3") end
+if pfvs then LOG.sys("Using config file %s",EM.cfg.configFile) end
 
 function EM.startEmulator(cont)
   EM.start(function() EM.postEMEvent{type='start'} 

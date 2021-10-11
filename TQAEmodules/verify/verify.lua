@@ -17,7 +17,9 @@ local function test(n)
   if n <= #testFiles then
     EM.installQA({file=EM.cfg.modPath.."verify/"..testFiles[n]},
       function() test(n+1) end)
-  else os.exit() end
+  else 
+    os.exit() 
+  end
 end
 
 EM.startEmulator(function() 
