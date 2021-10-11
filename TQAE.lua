@@ -44,6 +44,7 @@ configFile = <filename>
   Great place to keep credentials instead of listing them in the QA code, and forget to remove them when uploading codeto forums...
   Default "TQAEconfigs.lua"
 debug={
+  traceFibaro=<boolean>,   --default false
   QA=<boolean>,            --default true
   module=<boolean>,        --defaul false
   module2=<boolean>,       --defaul false
@@ -137,7 +138,7 @@ do
   local stat,mobdebug = pcall(require,'mobdebug'); -- If we have mobdebug, enable coroutine debugging
   if stat then mobdebug.coro() end
 end
-local version = "0.31"
+local version = "0.32"
 
 local socket = require("socket") 
 local http   = require("socket.http")
@@ -151,7 +152,7 @@ local ltn12  = require("ltn12")
 local FB,Devices = {},{}  -- id->Device map
 local Utils=EM.utilities
 local fmt,gID,setTimeout,LOG,DEBUG,loadModules,runQA = string.format,1001
-local copy,merge,member = Utils.copy,Utils.merge,Utils.member
+local copy,deepCopy,merge,member = Utils.copy,Utils.deepCopy,Utils.merge,Utils.member
 EM.http,EM.https=http,https
 EM._info = { modules = { ["local"] = {}, global= {} } }
 
@@ -347,8 +348,11 @@ function EM.createDevice(info) -- Creates device structure
   if deviceTemplates == nil then 
     local f = io.open(EM.cfg.modPath.."devices.json")
     if f then deviceTemplates=FB.json.decode(f:read("*all")) f:close() else deviceTemplates={} end
+    local r = {} for n,d in pairs(deviceTemplates) do r[#r+1]={n,d} end
+    table.sort(r,function(a,b) return a[1] < b[1] end)
+    EM.sortedDeviceTemplates=r
   end
-  local dev = deviceTemplates[typ] and copy(deviceTemplates[typ]) or {
+  local dev = deviceTemplates[typ] and deepCopy(deviceTemplates[typ]) or {
     actions = { turnOn=0,turnOff=0,setValue=1,toggle=0 }
   }
 

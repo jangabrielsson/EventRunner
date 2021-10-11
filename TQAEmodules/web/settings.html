@@ -15,6 +15,10 @@
   <form id="x" action="/TQAE/settings" method="GET" role="form">
   Debug flags turning on/off more verbose logging
   <div class="form-check">
+    <input class="form-check-input" name="traceFibaro" type="checkbox" id="debugTF" {{{out(EM.debugFlags.traceFibaro and "checked" or "")}}}>
+    <label class="form-check-label" for="debugTF">debug.traceFibaro</label>
+  </div>
+  <div class="form-check">
     <input class="form-check-input" name="QA" type="checkbox" id="debugQA" {{{out(EM.debugFlags.QA and "checked" or "")}}}>
     <label class="form-check-label" for="debugQA">debug.QA</label>
   </div>
@@ -67,7 +71,7 @@
     <div id="timerVerboseHelp" class="form-text">If true prints timer reference with extended information (expiration time etc)</div>
   </div>
   
-  <input type="hidden" name="fields" value="QA:module:module2:lock:child:device:refreshStates" />
+  <input type="hidden" name="fields" value="traceFibaro:QA:module:module2:lock:child:device:refreshStates" />
   <input type="hidden" name="switches" value="htmlDebug:colorDebug:lateTimers:timerVerbose" />
   </p>
   <button type="submit" class="btn btn-primary">Update</button>
@@ -171,6 +175,10 @@
   </p>
   Debug flags turning on/off more verbose logging
   <div class="form-check">
+    <input class="form-check-input" type="checkbox" name="traceFibaro" id="debugTF" {{{out(EM.PFVS.debug.traceFibaro and "checked" or "")}}}>
+    <label class="form-check-label" for="debugTF">debug.traceFibaro</label>
+  </div>
+  <div class="form-check">
     <input class="form-check-input" type="checkbox" name="QA" id="debugQA" {{{out(EM.PFVS.debug.QA and "checked" or "")}}}>
     <label class="form-check-label" for="debugQA">debug.QA</label>
   </div>
@@ -200,7 +208,7 @@
   </div>
   
   </p>
-    <input type="hidden" name="debug" value="QA:module:module2:lock:child:device:refreshStates" />
+    <input type="hidden" name="debug" value="traceFibaro:QA:module:module2:lock:child:device:refreshStates" />
     <input type="hidden" name="switches" value="htmlDebug:colorDebug:copas:noweb:timerVerbose" />
     <input type="hidden" name="fields" value="user:pwd:host:pin:modPath:temp:startTime:configFile" />
       

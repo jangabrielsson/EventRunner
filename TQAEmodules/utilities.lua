@@ -4,6 +4,13 @@ local format = string.format
 
 local function copy(t) local r = {}; for k,v in pairs(t) do r[k]=v end return r end
 
+local function deepCopy(t)
+  if type(t)=='table' then
+    local r = {}; for k,v in pairs(t) do r[k]=deepCopy(v) end
+    return r
+  else return t end
+end
+
 local function equal(e1,e2)
   if e1==e2 then return true
   else
@@ -433,6 +440,7 @@ end
 ---------------------------------------------
 
 utils.copy       = copy
+utils.deepCopy   = deepCopy
 utils.reduce     = reduce
 utils.member     = member
 utils.merge      = merge

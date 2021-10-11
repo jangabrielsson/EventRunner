@@ -164,7 +164,8 @@ function htmlfuns.home(out)
 end
 htmlfuns.milliStr = EM.milliStr
 
-function htmlfuns.escape(str) return str:gsub("<","&lt;") end
+local escTab = { ['<'] = "&lt;", ['"'] = "&quot;" }
+function htmlfuns.escape(str) return str:gsub('[\"<]',function(s) return escTab[s] end) end
 
 function htmlfuns.navbar(out,item)
   out(string.gsub([[  <div class="container">
@@ -179,6 +180,7 @@ function htmlfuns.navbar(out,item)
         <li class="nav-item"><a href="/web/globals" class="nav-link">Globals</a></li>
         <li class="nav-item"><a href="/web/triggers" class="nav-link">Triggers & Events</a></li>
         <li class="nav-item"><a href="/web/settings" class="nav-link">Settings</a></li>
+        <li class="nav-item"><a href="/web/types" class="nav-link">Types</a></li>
         <li class="nav-item"><a href="/web/docs" class="nav-link">Docs</a></li>
         <li class="nav-item"><a href="/web/about" class="nav-link">About</a></li>
       </ul>

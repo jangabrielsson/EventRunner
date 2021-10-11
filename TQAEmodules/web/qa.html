@@ -64,11 +64,15 @@ text {
      end
      table.sort(fs)
      for i,n in ipairs(fs) do
-       out('<form id="M%s" action="/TQAE/method" method="GET">',i)
-       out('<a href="#" onclick="myFunction(\'%s\')">self:%s</a>',"M"..i,n)
-       out('<input type="hidden" id="M%s" name="qaID" value="%s">',i,opts.id)
-       out('<input type="hidden" id="M%s" name="method" value="%s">',i,n)
-       out('<input type="text" name="Args" id="Args" /></form>')
+      out('<form id="M%s" action="/TQAE/method" method="GET">',i)
+       
+      out('<div class="input-group mb-3">')
+      out([[<button class="btn btn-outline-secondary" onclick="myFunction('%s')" type="button" id="M%s">self:%s</button>]],"M"..i,i,n)
+      out([[<input type="hidden" id="M%s" name="qaID" value="%s">]],i,opts.id)
+      out([[<input type="hidden" id="M%s" name="method" value="%s">]],i,n)
+      out([[<input type="text" name="Args" id="Args" class="form-control" placeholder="" aria-label="Example text with button addon" aria-describedby="button-addon1">]])
+      out("</div></form>")
+
      end
 }}}
   </div>

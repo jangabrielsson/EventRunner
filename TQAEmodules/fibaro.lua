@@ -74,7 +74,8 @@ end
 
 function fibaro.getValue(deviceId, propertyName)
   __assert_type(deviceId, "number") __assert_type(propertyName, "string")
-  return (fibaro.get(deviceId, propertyName))
+  local property = __fibaro_get_device_property(deviceId, propertyName)
+  if property then return property.value end
 end
 
 function fibaro.getType(deviceId)

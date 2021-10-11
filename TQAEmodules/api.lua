@@ -31,7 +31,7 @@ local GUI_HANDLERS = {
     local stat,res = pcall(function()
         arg = json.decode("["..(arg or "").."]")
         --local QA = EM.getQA(tonumber(opts.qaID))
-        __fibaro_call(tonumber(opts.qaID),opts.method,"",{data=arg})
+        __fibaro_call(tonumber(opts.qaID),opts.method,"",{args=arg})
         local res={}
         --local res = {QA[opts.method](QA,table.unpack(arg))}
         DEBUG("api","sys","Web call: QA(%s):%s%s = %s",opts.qaID,opts.method,json.encode(arg),json.encode(res))
@@ -39,6 +39,12 @@ local GUI_HANDLERS = {
     if not stat then 
       LOG.error("Web call: QA(%s):%s%s - %s",opts.qaID,opts.method,json.encode(arg),res)
     end
+    client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
+    return true
+  end,
+  ["GET/TQAE/setglobal"] = function(_,client,ref,_,opts)
+    local name,value = opts.name,opts.value
+    fibaro.setGlobalValue(name,tostring(value))
     client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
     return true
   end,

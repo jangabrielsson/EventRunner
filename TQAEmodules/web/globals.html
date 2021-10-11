@@ -1,6 +1,9 @@
 <html>
  {{{ html.header(out) }}}
 <body>
+<script>
+ function myFunction(id) { document.getElementById(id).submit(); }
+</script>
 
 {{{ html.navbar(out,"/web/globals") }}}
 
@@ -11,10 +14,18 @@
 {{{
   local globs = FB.api.get("/globalVariables")
   table.sort(globs,function(a,b) return a.name < b.name end)
-  for _,g in ipairs(globs or {}) do
-    out([[<hr><div class="row">]])
-    out("<text>%s = %s</text>",g.name,g.value)
-    out([[</div>]])
+  for i,g in ipairs(globs or {}) do
+      out([[<div class="row">]])
+      out([[<form id="M%s" action="/TQAE/setglobal" method="GET">]],i)
+      out([[<div class="input-group mb-3">]])
+      out([[<button class="btn btn-outline-secondary" onclick="myFunction('M%s')" type="button" id="M%s">%s</button>]],i,i,g.name)
+      out([[<input type="hidden" id="M%s" name="name" value="%s">]],i,g.name)
+      out([[<input type="text" name="value" id="M%s" class="form-control" placeholder="" aria-label="Example text with button addon" aria-describedby="button-addon1" value="%s">]],i,html.escape(g.value))
+      out([[</div></form></div>]])
+      
+--    out([[<hr><div class="row">]])
+--    out("<text>%s = %s</text>",g.name,g.value)
+--    out([[</div>]])
   end
 }}}
 
