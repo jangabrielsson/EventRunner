@@ -1,12 +1,17 @@
 return {
-  user="admin", 
-  pwd="admin", 
-  host="192.168.1.57",
-  verbose=false,
-  modPath = "TQAEmodules/",
-  temp = "temp/",
-  CREDS = {
-  },
-  --localModules = {"myModule.lua"}
-  --globalModules = {"UDP.lua"}
+ "CREDS":[], 
+ "colorDebug":false, 
+ "copas":false, 
+ "debug":[], 
+ "host":"192.168.1.57", 
+ "htmlDebug":false, 
+ "modPath":"TQAEmodules/", 
+ "noweb":false, 
+ "paramsFile":"TQAEconfigs.lua", 
+ "pin":88, 
+ "pwd":"admin", 
+ "temp":"temp/", 
+ "timerVerbose":false, 
+ "user":"admin", 
+ "verbose":false 
 }

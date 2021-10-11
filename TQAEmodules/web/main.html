@@ -4,28 +4,30 @@
 
 {{{ html.navbar(out,"/web/main") }}}
   
-<div class="container overflow-hidden">
+<div class="container">
   <div class="row gy-5">
-    <div class="col">
+  <div class="col">
 {{{ 
     out("Started %s</br>",os.date("%c",EM._info.started))
     out("Running for %ss</br>",EM.osTime()-EM._info.started)
     out("HC3 at %s</br>",EM.IPAddress)
 }}}
-    </div>
+  </div>
   </div>
 <hr>
 
   <div class="row">
     <div class="col">
-    <div class="row">
-      <h4>Loaded QuickApps</h4>
-      <ul>
+    
+    <div class="row"><h4>Loaded QuickApps</h4></div>
         {{{
 for id,D in pairs(EM.Devices) do
  if D.dev.parentId == 0 then
    local qa = D.env.quickApp
-   out('<li><a href="/web/qa?id=%s">%s/%s/%s</a></li>',qa.id,qa.id,qa.name,qa.type)
+   out('<div class="row row-cols-3">')
+   out('<div class="col-sm-1"><a href="/web/qa?id=%s">%s</a></div><div class="col-sm-3">%s</div><div class="col-sm-1">%s</div>',
+   qa.id,qa.id,qa.name,qa.type)
+   out('</div>')
    if next(qa.childDevices) then
      out("<ul>")
      for ic,child in pairs(qa.childDevices) do
@@ -36,20 +38,24 @@ for id,D in pairs(EM.Devices) do
  end
 end
         }}}
-       </ul>
-     </div>
+     
+     <div class="row"><div class="col"></p></div></div>
      <div class="row">
       <h4>Loaded Scenes</h4>
      </div>
+     
     </div>
+    
     <div class="col">
       <h4>Global modules</h4>
       <ul>{{{ for m,_ in pairs(EM._info.modules.global) do out("<li>%s</li>",m) end }}} </ul>
     </div>
+    
     <div class="col">
       <h4>Local modules</h4>
       <ul>{{{ for m,_ in pairs(EM._info.modules["local"]) do out("<li>%s</li>",m) end }}}</ul>
     </div>
+    
   </div>
 </div>
 

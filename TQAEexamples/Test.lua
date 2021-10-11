@@ -6,6 +6,7 @@ _=loadfile and loadfile("TQAE.lua"){
   refreshStates=true,
   modPath = "TQAEmodules/",
   temp = "temp/",
+--  copas=true,
   --startTime="12/24/2024-07:00",
   ---speed=true
 }
@@ -13,8 +14,15 @@ _=loadfile and loadfile("TQAE.lua"){
 --%%name="Test"
 --%%quickVars={x="a b c d e f g"}
 
-function QuickApp:onInit()
-  setInterval(function()
-      self:debug("PING")
-    end,1000*60*60)
+local baseURL = "http://192.168.1.134:8000/"   
+local interval = 1 -- Poll every second
+
+local function getValue()
+  quickApp:trace("OK")
+  setTimeout(getValue,1000*interval)
 end
+
+function QuickApp:onInit()
+  self:debug(self.name,self.id)
+  setTimeout(getValue,1000*interval)
+end 

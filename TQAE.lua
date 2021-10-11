@@ -39,7 +39,7 @@ pwd=<Password>
   Password for account used to interact with the HC3 via REST api
 host=<IP address>
   IP address of HC3
-paramsFile = <filename>
+configFile = <filename>
   File used to load in emulator options instead of specifying them in the QA file.
   Great place to keep credentials instead of listing them in the QA code, and forget to remove them when uploading codeto forums...
   Default "TQAEconfigs.lua"
@@ -92,9 +92,16 @@ local embedded=...              -- get parameters if emulator included from QA c
 local EM = { cfg = embedded or {} }
 local cfg = EM.cfg
 local function DEF(x,y) if x==nil then return y else return x end end
-cfg.paramsFile  = DEF(cfg.paramsFile,"TQAEconfigs.lua")
+cfg.configFile  = DEF(cfg.configFile,"TQAEconfigs.lua")
 do 
-  local pf = loadfile(cfg.paramsFile); if pf then local p = pf() or {}; for k,v in pairs(cfg) do p[ k ]=v end cfg,EM.cfg=p,p end 
+  EM.PFVS = { debug = {}, configFile=cfg.configFile}
+  local pf = loadfile(cfg.configFile)
+  if pf then 
+    local p = pf() or {}; 
+    for k,v in pairs(p) do EM.PFVS[k]=v end -- save paramFile values for settings panel
+    for k,v in pairs(cfg) do p[ k ]=v end 
+    cfg,EM.cfg=p,p 
+  end 
 end
 cfg.modPath      = DEF(cfg.modpath,"TQAEmodules/")   -- directory where TQAE modules are stored
 cfg.temp         = DEF(cfg.temp,os.getenv("TMPDIR") or os.getenv("TEMP") or os.getenv("TMP") or "temp/") -- temp directory
@@ -170,7 +177,7 @@ local function httpRequest(reqs,extra)
   else return nil,status,h end
 end
 
-local base = "http://"..EM.cfg.host.."/api"
+local base = "http://"..(EM.cfg.host or "").."/api"
 local function HC3Request(method,path,data) 
   local res,stat,_ = httpRequest({method=method, url=base..path,
       user=EM.cfg.user, password=EM.cfg.pwd, data=data and FB.json.encode(data), timeout = 5000, 
@@ -290,7 +297,7 @@ function EM.makeTimer(time,co,ctx,tag,ft,args)
 end
 function EM.timerCheckFun(t)
   local now = EM.clock()
-  if (now-t.time) >= EM.cfg.lateTimers then
+  if (now-t.time) >= (tonumber(EM.cfg.lateTimers) or 0.5) then
     LOG.warn("Late timer %.3f - %s",now-t.time,t)
   end
 end
@@ -468,6 +475,8 @@ loadModules(globalModules or {})        -- Load global modules
 loadModules(EM.cfg.globalModules or {}) -- Load optional user specified modules into environment
 
 print(fmt("---------------- Tiny QuickAppEmulator (TQAE) v%s -------------",version)) -- Get going...
+if not HC3Request("GET","/settings/info",{}) then LOG.sys("No connection to HC3") end
+if next(EM.PFVS) then LOG.sys("Using config file %s",EM.cfg.configFile) end
 
 function EM.startEmulator(cont)
   EM.start(function() EM.postEMEvent{type='start'} 

@@ -119,7 +119,7 @@ local function pollOnce(cb)
   local to
   if not EM.cfg.copas then 
     to = http.TIMEOUT
-    http.TIMEOUT = 1 -- TIMEOUT == 0 doesn't work...
+    http.TIMEOUT = 0.5 -- TIMEOUT == 0 doesn't work...
   end
   local r, c, h = httpR.request(req)       -- ToDo https
   if not EM.cfg.copas then http.TIMEOUT = to end

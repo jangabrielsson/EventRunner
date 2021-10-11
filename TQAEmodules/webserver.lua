@@ -177,6 +177,7 @@ function htmlfuns.navbar(out,item)
         <li class="nav-item"><a href="/web/globals" class="nav-link">Globals</a></li>
         <li class="nav-item"><a href="/web/triggers" class="nav-link">Triggers & Events</a></li>
         <li class="nav-item"><a href="/web/settings" class="nav-link">Settings</a></li>
+        <li class="nav-item"><a href="/web/docs" class="nav-link">Docs</a></li>
         <li class="nav-item"><a href="/web/about" class="nav-link">About</a></li>
       </ul>
     </header>

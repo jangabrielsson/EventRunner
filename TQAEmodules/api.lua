@@ -12,7 +12,7 @@ local EM,FB = ...
 local json = FB.json
 local HC3Request,LOG,DEBUG,Devices = EM.HC3Request,EM.LOG,EM.DEBUG,EM.Devices
 local __fibaro_call,__assert_type=FB.__fibaro_call,FB.__assert_type
-local copy = EM.utilities.copy
+local copy,encodeFormated = EM.utilities.copy,EM.utilities.encodeFormated
 
 local GUI_HANDLERS = {
   ["GET/api/callAction"] = function(_,client,ref,_,opts)
@@ -39,6 +39,44 @@ local GUI_HANDLERS = {
     if not stat then 
       LOG.error("Web call: QA(%s):%s%s - %s",opts.qaID,opts.method,json.encode(arg),res)
     end
+    client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
+    return true
+  end,
+  ["GET/TQAE/settings"] = function(p,client,ref,data,opts)
+    local fs = opts.fields:split(":")
+    for _,k in ipairs(fs or {}) do
+      LOG.sys("debugflags.%s=%s",k,opts[k]=='on' and true or false)
+      EM.debugFlags[k]=opts[k]=='on' and true or false
+    end
+    fs = opts.switches:split(":")
+    for _,k in ipairs(fs or {}) do
+      LOG.sys("cfg.%s=%s",k,opts[k]=='on' and true or false)
+      EM.cfg[k]=opts[k]=='on' and true or false
+    end
+    client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
+    return true
+  end,
+  ["GET/TQAE/configFile"] = function(p,client,ref,data,opts)
+    local fs = opts.debug:split(":")
+    for _,k in ipairs(fs or {}) do
+      EM.PFVS.debug[k]=opts[k]
+    end
+    fs = opts.switches:split(":")
+    for _,k in ipairs(fs or {}) do
+      EM.PFVS[k]=opts[k]=="on"
+    end
+    fs = opts.fields:split(":")
+    for _,k in ipairs(fs or {}) do
+      EM.PFVS[k]=opts[k]~="" and opts[k] or nil
+    end
+    LOG.sys("Saving parameter file: %s",EM.PFVS.configFile)
+    LOG.sys("\n%s",encodeFormated(EM.PFVS))
+    local stat,res = pcall(function()
+        local f = io.open(EM.PFVS.configFile,"w+")
+        f:write("return "..encodeFormated(EM.PFVS))
+        f:close()
+      end)
+    if not stat then LOG.error("Failed writing %s - %s",tostring(EM.PFVS.configFile),err) end
     client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
     return true
   end,
