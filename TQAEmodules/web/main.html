@@ -17,7 +17,7 @@
 <hr>
 
   <div class="row">
-    <div class="col">
+    <div class="col-sm-6">
     
     <div class="row"><h4>Loaded QuickApps</h4></div>
         {{{
@@ -25,7 +25,7 @@ for id,D in pairs(EM.Devices) do
  if D.dev.parentId == 0 then
    local qa = D.env.quickApp
    out('<div class="row row-cols-3">')
-   out('<div class="col-sm-1"><a href="/web/qa?id=%s">%s</a></div><div class="col-sm-3">%s</div><div class="col-sm-1">%s</div>',
+   out('<div class="col-sm-2"><a href="/web/qa?id=%s">%s</a></div><div class="col-sm-4">%s</div><div class="col-sm-1">%s</div>',
    qa.id,qa.id,qa.name,qa.type)
    out('</div>')
    if next(qa.childDevices) then
@@ -46,12 +46,12 @@ end
      
     </div>
     
-    <div class="col">
+    <div class="col-sm-3">
       <h4>Global modules</h4>
       <ul>{{{ for m,_ in pairs(EM._info.modules.global) do out("<li>%s</li>",m) end }}} </ul>
     </div>
     
-    <div class="col">
+    <div class="col-sm-3">
       <h4>Local modules</h4>
       <ul>{{{ for m,_ in pairs(EM._info.modules["local"]) do out("<li>%s</li>",m) end }}}</ul>
     </div>
