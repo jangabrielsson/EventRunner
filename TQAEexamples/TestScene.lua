@@ -9,7 +9,6 @@ local _=loadfile and loadfile("TQAE.lua"){
 --  speed=true,
   debug = { refreshStates=true },
 --  startTime="12/24/2024-07:00", 
---logLevel=5
 }
 
 --%%name="TestScene"

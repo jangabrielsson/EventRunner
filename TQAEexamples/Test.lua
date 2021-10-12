@@ -2,7 +2,6 @@ _=loadfile and loadfile("TQAE.lua"){
   user="admin", 
   pwd="admin", 
   host="192.168.1.57",
-  logLevel=1,
   refreshStates=true,
   modPath = "TQAEmodules/",
   temp = "temp/",
@@ -15,7 +14,6 @@ _=loadfile and loadfile("TQAE.lua"){
 --%%name="Test"
 --%%quickVars={x="a b c d e f g"}
 
-local baseURL = "http://192.168.1.134:8000/"   
 local interval = 1 -- Poll every second
 
 local function getValue()

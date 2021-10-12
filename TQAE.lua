@@ -115,8 +115,8 @@ cfg.defaultRoom  = DEF(cfg.defaultRoom,219)
 EM.utilities     = dofile(cfg.modPath.."utilities.lua")
 EM.debugFlags    = DEF(cfg.debug,{QA=true,child=true,device=true})
 
-local fibColors = { ["DEBUG"] = 'green', ["TRACE"] = 'blue', ["WARNING"] = 'orange', ["ERROR"] = 'red' }
-local logColors = { ["SYS"] = 'brown', ["ERROR"]='red', ["WARNING"] = 'orange', ["TRACE"] = 'blue' }
+local fibColors  = DEF(cfg.fibColors,{ ["DEBUG"] = 'green', ["TRACE"] = 'blue', ["WARNING"] = 'orange', ["ERROR"] = 'red' })
+local logColors  = DEF(cfg.logColors,{ ["SYS"] = 'brown', ["ERROR"]='red', ["WARNING"] = 'orange', ["TRACE"] = 'blue' })
 
 local globalModules = { -- default global modules loaded once into emulator environment
   "net.lua","json.lua","files.lua", "webserver.lua", "api.lua", "proxy.lua", "ui.lua", "time.lua",
@@ -129,8 +129,10 @@ local localModules  = { -- default local modules loaded into every QA environmen
 --EM.cfg.copas = true
 --EM.cfg.noweb=true
 local function main(FB) -- For running test examples. Running TQAE.lua directly will run this test.
-  local et = loadfile(EM.cfg.modPath.."/verify/verify.lua") -- more extensive tests.
-  if et then et(EM,FB) end 
+  if not EM.cfg.NOVERIFY then
+    local et = loadfile(EM.cfg.modPath.."/verify/verify.lua") -- more extensive tests.
+    if et then et(EM,FB) end 
+  else EM.startEmulator(nil) end
 end
 
 ---------------------------------------- TQAE -------------------------------------------------------------
@@ -489,7 +491,7 @@ if pfvs then LOG.sys("Using config file %s",EM.cfg.configFile) end
 
 function EM.startEmulator(cont)
   EM.start(function() EM.postEMEvent{type='start'} 
-      cont() 
+      if cont then cont() end
     end)
 end
 

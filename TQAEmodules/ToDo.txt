@@ -8,7 +8,10 @@
 - Fix proper Scene structure
 - Web UI, auto updates (ajax?)
 - Terminal input - copas only?
-- Speed time - sync only?
+- DONE - Speed time - sync only
+- Factor out settings rendering from settings.html and api.lua (and create settings.lua)
+- More extensive docs
+- Auto update option
 - TCP/WebSocket updates
 - MQTT
 - ZeroBrane plugin

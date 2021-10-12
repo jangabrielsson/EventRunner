@@ -7,7 +7,6 @@ local _=loadfile and loadfile("TQAE.lua"){
   modPath = "TQAEmodules/",
   temp = "temp/",
 --  startTime="12/24/2024-07:00", 
---logLevel=5
 }
 
 --%%name="TestSceneCron"

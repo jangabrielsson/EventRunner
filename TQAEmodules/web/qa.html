@@ -21,19 +21,19 @@ text {
 {{{ html.navbar(out,"/web/main") }}}
 
   <div class="container overflow-hidden">
+  <div class="row"><h4>QuickApp {{{ local qa = EM.getQA(opts.id); out(qa.name)}}}</h4></div>
+
   <div class="row">
-  <h4>QuickApp {{{ local qa = EM.getQA(opts.id); out(qa.name)}}}</h4>
-  </div>
-  
-  <div class="row">
-    <button type="button" class="btn custom btn-secondary" onclick="window.location.href='/TQAE/lua?code={{{out("EM.Devices[%s].env.plugin.restart()",opts.id)}}}'">Restart</button>
+    <div class="btn-group" role="group" aria-label="Basic outlined example">
+    <button type="button" class="btn btn-outline-primary" onclick="window.location.href='/TQAE/lua?code={{{out("EM.Devices[%s].env.plugin.restart()",opts.id)}}}'">Restart</button>
 {{{
   if EM.Devices[tonumber(opts.id)].dev.parentId== 0 then
-   out([[<button type="button" class="btn custom btn-secondary" onclick="window.location.href='/TQAE/lua?code=EM.saveFQA(EM.Devices[%s])'">Save</button>]],opts.id)
-   out([[<button type="button" class="btn custom btn-secondary" onclick="window.location.href='/TQAE/lua?code=EM.uploadFQA(EM.Devices[%s])'">Upload</button>]],opts.id)
+   out([[<button type="button" class="btn btn-outline-primary" onclick="window.location.href='/TQAE/lua?code=EM.saveFQA(EM.Devices[%s])'">Save</button>]],opts.id)
+   out([[<button type="button" class="btn btn-outline-primary" onclick="window.location.href='/TQAE/lua?code=EM.uploadFQA(EM.Devices[%s])'">Upload</button>]],opts.id)
   end
 }}}
-     <button type="button" class="btn custom btn-secondary" onclick="window.location.href='/web/ui?id={{{out("%s",opts.id)}}}'">UI</button>
+     <button type="button" class="btn btn-outline-primary" onclick="window.location.href='/web/ui?id={{{out("%s",opts.id)}}}'">UI</button>
+  </div>
   </div>
   
   <div class="row">

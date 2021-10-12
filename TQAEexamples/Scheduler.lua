@@ -6,7 +6,6 @@ _=loadfile and loadfile("TQAE.lua"){
   modPath = "TQAEmodules/",
   temp = "temp/",
   startTime="12/24/2024-07:00:50",
-  logLevel = 1
 }
 
 --%%name="Scheduler"
