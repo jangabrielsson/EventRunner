@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+  <head lang="en">
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Basic JSON Editor Example</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-uWxY/CJNBR+1zjPWmfnSnVxwRheevXITnMqoEIeG1LJrdI0GlVs/9cVSyPYXdcSF" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://unpkg.com/spectre.css/dist/spectre-icons.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/@json-editor/json-editor@latest/dist/jsoneditor.min.js"></script>
+  </head>
+  <body>
+
+  {{{ html.navbar(out,"/web/main") }}}
+
+  <div class="container overflow-hidden">
+  <div class="row"><h4>Json Edit test</h4></div>
+
+    <div id='editor_holder'></div>
+    <button id='submit'>Submit (console.log)</button>
+
+    <script>
+      // Initialize the editor with a JSON schema
+      var editor = new JSONEditor(document.getElementById('editor_holder'),{
+        theme: 'bootstrap4',
+        iconlib: 'spectre',
+        disable_edit_json: true,
+        disable_properties: true,
+        ajax: true,
+        schema: { "$ref": "testdata.json", format: "grid" }
+      });
+      // Hook up the submit button to log to the console
+      document.getElementById('submit').addEventListener('click',function() {
+        // Get the value from the editor
+        console.log(editor.getValue());
+      });
+    </script>
+  </div>
+  {{{ html.footer(out) }}}
+  </body>
+</html>

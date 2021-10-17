@@ -29,6 +29,7 @@ file functions -- Credit pkulchenko - ZeroBraneStudio
 copas          -- Copyright 2005-2016 - Kepler Project (www.keplerproject.org)
 timerwheel     -- Credit https://github.com/Tieske/timerwheel.lua/blob/master/LICENSE
 binaryheap     -- Copyright 2015-2019 Thijs Schreijer
+LuWS           -- Copyright 2020 Patrick H. Rigney, All Rights Reserved. http://www.toggledbits.com/LuWS
 --]]
 
 --[[
@@ -140,7 +141,7 @@ do
   local stat,mobdebug = pcall(require,'mobdebug'); -- If we have mobdebug, enable coroutine debugging
   if stat then mobdebug.coro() end
 end
-local version = "0.32"
+local version = "0.33"
 
 local socket = require("socket") 
 local http   = require("socket.http")
@@ -347,13 +348,7 @@ EM.EMEvents('QACreated',function(ev) -- Register device and clean-up when QA is 
 
 function EM.createDevice(info) -- Creates device structure
   local typ = info.type or "com.fibaro.binarySensor"
-  if deviceTemplates == nil then 
-    local f = io.open(EM.cfg.modPath.."devices.json")
-    if f then deviceTemplates=FB.json.decode(f:read("*all")) f:close() else deviceTemplates={} end
-    local r = {} for n,d in pairs(deviceTemplates) do r[#r+1]={n,d} end
-    table.sort(r,function(a,b) return a[1] < b[1] end)
-    EM.sortedDeviceTemplates=r
-  end
+  local deviceTemplates = EM.getDeviceResources()
   local dev = deviceTemplates[typ] and deepCopy(deviceTemplates[typ]) or {
     actions = { turnOn=0,turnOff=0,setValue=1,toggle=0 }
   }

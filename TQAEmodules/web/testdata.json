@@ -1,0 +1,66 @@
+{
+	"type": "object",
+	"title": "Settings",
+	"properties": {
+		"credentials": {
+       "properties" : {
+			"HC3 User": {
+				"type": "string"
+			},
+			"HC3 Password": {
+				"type": "string"
+			},
+			"HC3 IP address": {
+				"type": "string"
+			}
+      }
+		},
+		"Directories": {
+      "properties": {
+			"Module path": {
+				"type": "string"
+			},
+			"Temp path": {
+				"type": "string",
+				"defualt": "/tmp/"
+			}
+      }
+		},
+		"sdatetime": {
+			"type": "string",
+			"format": "datetime-local",
+			"title": "Start time",
+			"description": "Standard datetime-local field",
+			"options": {
+				"grid_columns": 4,
+				"inputAttributes": {
+					"placeholder": "YYYY-MM-DD HH:SS"
+				}
+			}
+		},
+		"Console": {
+      "properties":{
+			"Debug using html": {
+				"type": "boolean",
+				"default": true
+			},
+			"Debug using colors": {
+				"type": "boolean",
+				"default": true
+			}
+      }
+		},
+		"Asynchronous I/O": {
+			"type": "boolean",
+			"default": false
+		},
+		"No web server": {
+			"type": "boolean",
+			"default": false
+		},
+		"Verbose timers": {
+			"type": "boolean",
+			"default": true
+		}
+	}
+}

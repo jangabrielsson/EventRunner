@@ -50,6 +50,18 @@ local function createTemp(name,content) -- Storing code fragments on disk will h
   return fname
 end
 
+local deviceTemplates,sortedDeviceTemplates
+local function getDeviceResources()
+  if deviceTemplates == nil then 
+    local f = io.open(EM.cfg.modPath.."devices.json")
+    if f then deviceTemplates=FB.json.decode(f:read("*all")) f:close() else deviceTemplates={} end
+    local r = {} for n,d in pairs(deviceTemplates) do r[#r+1]={n,d} end
+    table.sort(r,function(a,b) return a[1] < b[1] end)
+    sortedDeviceTemplates=r
+  end
+  return deviceTemplates,sortedDeviceTemplates
+end
+
 local function mergeUI(info)
   local ui,res = {},{}
   for k,v in pairs(info) do if k:match("u%d+$") then ui[#ui+1]={k,v} end end
@@ -162,3 +174,4 @@ local function uploadFQA(D)
 end
 
 EM.loadFile, EM.saveFQA, EM.uploadFQA, EM.packageFQA = loadFile, saveFQA, uploadFQA, packageFQA
+EM.getDeviceResources = getDeviceResources

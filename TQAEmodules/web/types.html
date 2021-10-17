@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html>
  {{{ html.header(out) }}}
 <body>
@@ -10,7 +11,8 @@
 {{{
     out([[<div class="accordion accordion-flush" id="accordionFlushExample">]])
     local fmt,i = EM.utilities.luaFormated,0
-    for _,d in pairs(EM.sortedDeviceTemplates or {}) do
+    local _,sortedDeviceTemplates = EM.getDeviceResources()
+    for _,d in pairs(sortedDeviceTemplates or {}) do
        i=i+1
        out([[
         <div class="accordion-item">

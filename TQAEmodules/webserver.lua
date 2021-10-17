@@ -268,7 +268,7 @@ end
 local function renderPage(path,dir,client,opts,ref)
   if path:sub(1,1)=="/" then path = path:sub(2) end
   if path=="" or path=="/" then path="main.html" end
-  if not path:match("%.html?") then path=path..".html" end
+  if not path:match("%.%w+$") then path=path..".html" end
   local fname = dir..path
   local page = getPage(fname)
   if page then
@@ -279,7 +279,6 @@ Access-Control-Allow-Origin: *
 Access-Control-Allow-Headers: Origin
 Content-Type: text/html
 
-<!DOCTYPE html>
 ]])
     client:send(page)
     return true
