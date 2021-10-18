@@ -14,7 +14,7 @@ local EM,FB=...
 -- Then when emulated quickApps do http or api.get to retrieve events from the HC3 we give them events from our queue
 -- ...and every one is happy.
 
-local LOG,DEBUG,json = EM.LOG,EM.DEBUG,FB.json
+local LOG,json = EM.LOG,FB.json
 
 local socket = require("socket")
 local http   = require("socket.http")

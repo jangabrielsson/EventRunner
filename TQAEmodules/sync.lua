@@ -42,8 +42,8 @@ end
 
 local function setTimeout(fun,ms,tag,ctx)
   ctx = ctx or procs[coroutine.running()]
-  local co,v = coroutine.create(fun)
-  v = EM.makeTimer(ms/1000+EM.clock(),co,ctx,tag,timerCall,{co,ctx}) 
+  local co = coroutine.create(fun)
+  local v = EM.makeTimer(ms/1000+EM.clock(),co,ctx,tag,timerCall,{co,ctx}) 
   ctx.timers[v] = true
   procs[co] = ctx
   return timers.queue(v) 

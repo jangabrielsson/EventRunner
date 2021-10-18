@@ -103,7 +103,7 @@ local function clientAsyncHandler(client,handler)
           referer = key and key:match("^[Rr]eferer") and val or referer
           if key then headers[key:lower()] = val
             DEBUG("webserver","trace","WS: Header:%s",header)
-          elseif header~="" and _debugFlags.webServer then
+          elseif header~="" then
             DEBUG("webserver","trace","WS: Unknown request data:%s",header or "nil") 
           end
         end

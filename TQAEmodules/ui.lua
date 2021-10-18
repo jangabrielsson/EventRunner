@@ -9,7 +9,7 @@ Creating UI elements for emulated QA (Web UI) and HC3 procy
 --]]
 local EM,FB = ...
 
-local json,LOG,DEBUG,Devices = FB.json,EM.LOG,EM.DEBUG,EM.Devices
+local json,DEBUG,Devices = FB.json,EM.DEBUG,EM.Devices
 local format = string.format
 local traverse = EM.utilities.traverse
 

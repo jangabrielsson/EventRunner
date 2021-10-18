@@ -44,11 +44,11 @@ local GUI_HANDLERS = {
   end,
   ["GET/TQAE/setglobal"] = function(_,client,ref,_,opts)
     local name,value = opts.name,opts.value
-    fibaro.setGlobalValue(name,tostring(value))
+    FB.fibaro.setGlobalValue(name,tostring(value))
     client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
     return true
   end,
-  ["GET/TQAE/settings"] = function(p,client,ref,data,opts)
+  ["GET/TQAE/settings"] = function(_,client,ref,data,opts)
     local fs = opts.fields:split(":")
     for _,k in ipairs(fs or {}) do
       LOG.sys("debugflags.%s=%s",k,opts[k]=='on' and true or false)
@@ -91,7 +91,7 @@ local GUI_HANDLERS = {
         f:write("return "..luaFormated(EM.PFVS))
         f:close()
       end)
-    if not stat then LOG.error("Failed writing %s - %s",tostring(EM.PFVS.configFile),err) end
+    if not stat then LOG.error("Failed writing %s - %s",tostring(EM.PFVS.configFile),res) end
     client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
     return true
   end,

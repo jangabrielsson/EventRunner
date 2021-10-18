@@ -145,7 +145,7 @@ end
 
 EM.utilities.timerQueue = timerQueue
 
-EM.EMEvents('start',function(ev) -- Intercept emulator started and check if startTime should be modified
+EM.EMEvents('start',function(_) -- Intercept emulator started and check if startTime should be modified
     if EM.cfg.startTime then EM.setDate(EM.cfg.startTime) end
     EM._info.started = EM.osTime()
     local m,start=midnight(),true
@@ -154,16 +154,15 @@ EM.EMEvents('start',function(ev) -- Intercept emulator started and check if star
       m=m+24*60*60
       if start then 
         LOG.sys("sunrise %s, sunset %s",EM.sunriseHour,EM.sunsetHour)
-        stsrt=false
+        start=false
       end
       FB.setTimeout(loop,1000*(m-EM.osTime()),"Sunset updater")
     end
     loop()
 
     if EM.cfg.speed then
-      local getContext,procs = EM.getContext,EM.procs
+      local procs = EM.procs
       local timers = timerQueue()
-      local function IDF() end
 
       local function killTimers() timers.reset() end
 
@@ -191,8 +190,8 @@ EM.EMEvents('start',function(ev) -- Intercept emulator started and check if star
 
       function FB.setTimeout(fun,ms,tag,ctx)
         ctx = ctx or procs[coroutine.running()]
-        local co,v = coroutine.create(fun)
-        v = EM.makeTimer(ms/1000+EM.clock(),co,ctx,tag,timerCall,{co,ctx}) 
+        local co = coroutine.create(fun)
+        local v = EM.makeTimer(ms/1000+EM.clock(),co,ctx,tag,timerCall,{co,ctx}) 
         ctx.timers[v] = true
         procs[co] = ctx
         return timers.queue(v) 

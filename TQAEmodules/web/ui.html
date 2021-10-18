@@ -41,7 +41,7 @@
             oninput="$('#L%s').text(value);"
             class="form-control-range w-100" max="99" min="0" value="%s">
         ]],c.name,c.name,view[c.name]['value'] or 0)
-        out([[<div class="w-100" id="L%s">%s</div>]],c.name,view[c.name]['value'] or 0)
+        out([[<label id="L%s">%s</label>]],c.name,view[c.name]['value'] or 0)
      end,
      ['label'] = function(out,c)
         out('<div class"m-1">%s</div>',view[c.name]['text']:fromutf8():htmlEsc())

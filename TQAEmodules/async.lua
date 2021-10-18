@@ -54,7 +54,7 @@ local function killTimers()
   for v,_ in pairs(ctx.timers) do v.t:cancel() end
 end
 
-local function checkForExit(cf,co,stat,res,...)
+local function checkForExit(_,co,stat,res,...)
   local ctx = EM.procs[co]
   if not stat then 
     if type(res)=='table' and res.type then
@@ -68,7 +68,7 @@ local function checkForExit(cf,co,stat,res,...)
   return stat,res,...
 end
 
-local function timerCall(t,args)
+local function timerCall(_,args)
   local fun,ctx,v = table.unpack(args)
   ctx.lock.get() 
   if EM.cfg.lateTimers then EM.timerCheckFun(v) end
@@ -76,12 +76,6 @@ local function timerCall(t,args)
   ctx.lock.release() 
   ctx.timers[v]=nil
   checkForExit(nil,v.co,stat,res)
---  if not stat then 
---    if type(res)=='table' and res.type then
---      killTimers()
---      if ctx.cont then ctx.cont() end
---    else EM.checkErr(ctx.env.__TAG,false,res) end
---  end
 end
 
 local function setTimeout(fun,ms,tag,ctx)
@@ -98,8 +92,8 @@ local function setTimeout(fun,ms,tag,ctx)
 end
 
 local function socketServer(args)
-  local port,pat,conMsg,handler = args.port,args.pat,args.connectMsg,args.cmdHandler
-  local server,msg,i = EM.socket.bind("*", port)
+  local port,pat,conMsg,handler,i = args.port,args.pat,args.connectMsg,args.cmdHandler
+  local server,msg = EM.socket.bind("*", port)
   assert(server,(msg or "").." ,port "..port)
   i, msg = server:getsockname()
   assert(i, msg)
@@ -110,7 +104,7 @@ local function socketServer(args)
     DEBUG("socketServer","trace","SocketServer: Connected")
     if conMsg then copas.send(skt, conMsg.."\n") end
     while true do
-      local data,err,n = copas.receive(skt,pat)
+      local data,err = copas.receive(skt,pat)
       if err == "closed" then
         DEBUG("socketServer","trace","SocketServer: Closed")
         return
