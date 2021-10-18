@@ -13,10 +13,19 @@
   {{{ html.navbar(out,"/web/main") }}}
 
   <div class="container overflow-hidden">
-  <div class="row"><h4>Json Edit test</h4></div>
 
+    <div class="row">
+      <div class="col-md-auto">
+        <button type="button" id="SaveS" class="btn btn-outline-primary">Save</button>
+      </div>
+      <div class="col-md-auto">
+        <button type="button" id="ReadS" class="btn btn-outline-primary">Read</button>
+      </div>
+      <div class="col-md-auto">
+        <input type="text" id="FileName" value="" class="form-control" placeholder="File name">
+      </div>
+    </div>
     <div id='editor_holder'></div>
-    <button id='submit'>Submit (console.log)</button>
 
     <script>
       // Initialize the editor with a JSON schema
@@ -28,10 +37,24 @@
         ajax: true,
         schema: { "$ref": "testdata.json", format: "grid" }
       });
-      // Hook up the submit button to log to the console
-      document.getElementById('submit').addEventListener('click',function() {
+      // Hook up the save button to save to the console
+      document.getElementById('SaveS').addEventListener('click',function() {
         // Get the value from the editor
-        console.log(editor.getValue());
+       fetch("/TQAE/saveSettings", {
+           method: "POST", 
+           body: JSON.stringify({"name":document.getElementById("FileName").value, "content":editor.getValue()})
+        }).then(res => {
+          console.log("Request complete! response:", res);
+        });
+      });
+      document.getElementById('ReadS').addEventListener('click',function() {
+        // Get the value from the editor
+       fetch("/TQAE/readSettings", {
+           method: "POST", 
+           body: JSON.stringify({"name":document.getElementById("FileName").value})
+        }).then(res => {
+          console.log("Request complete! response:", res);
+        });
       });
     </script>
   </div>

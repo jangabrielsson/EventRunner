@@ -10,7 +10,7 @@ Asynchronous timers and IO support - leverage copas framework
 
 local EM,FB=...
 
-local LOG = EM.LOG
+local LOG,DEBUG = EM.LOG,EM.DEBUG
 EM.copas = dofile(EM.cfg.modPath.."copas.lua")
 
 ------------------------ Emulator core ----------------------------------------------------------
@@ -97,6 +97,31 @@ local function setTimeout(fun,ms,tag,ctx)
   return v
 end
 
+local function socketServer(port,pat,handler)
+  local server,msg,i = EM.socket.bind("*", port)
+  assert(server,(msg or "").." ,port "..port)
+  i, msg = server:getsockname()
+  assert(i, msg)
+  local copas = EM.copas
+  if not handler then handler = function(str) return str.."\n" end end
+  local function sockHandler(skt)
+    DEBUG("socketServer","trace","SocketServer: Connected")
+    while true do
+      local data,err,n = copas.receive(skt,pat)
+      if err == "closed" then
+        DEBUG("socketServer","trace","SocketServer: Closed")
+        return
+      else
+        DEBUG("socketServer","trace","SocketServer: Received '%s'",data or "")
+        local res = handler(data)
+        if res then copas.send(skt, res) end
+      end
+    end
+  end
+  copas.addserver(server,sockHandler)
+  LOG.sys("Created Socket server at %s:%s",EM.IPAddress, port)
+end
+
 local sysCtx = {env={__TAG='SYSTEM'}, dev={}, timers={}, lock={get=IDF,release=IDF}}
 
 function systemTimer(fun,ms,tag) return setTimeout(fun,ms,tag or "SYSTEM",sysCtx) end
@@ -128,3 +153,4 @@ FB.__fibaroSleep = fibaroSleep
 EM.http = EM.copas.http
 EM.https = EM.copas.https
 EM.checkForExit = checkForExit
+EM.socketServer = socketServer

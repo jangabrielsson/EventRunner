@@ -37,6 +37,7 @@ end
 function net.TCPSocket(opts2) 
   local self2 = { opts = opts2 or {} }
   self2.sock = EM.socket.tcp()
+  if EM.copas then self2.sock = EM.copas.wrap(self2.sock) end
   function self2:connect(ip, port, opts) 
     for k,v in pairs(self.opts) do opts[k]=v end
     local _, err = self.sock:connect(ip,port)

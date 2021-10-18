@@ -62,6 +62,15 @@ local GUI_HANDLERS = {
     client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
     return true
   end,
+  ["POST/TQAE/saveSettings"] = function(p,client,ref,data,opts)
+    data = json.decode(data)
+    print("Saving ",data.name)
+    print(json.encode(data.content))
+  end,
+  ["POST/TQAE/readSettings"] = function(p,client,ref,data,opts)
+    data = json.decode(data)
+    print("Reading ",data.name)
+  end,
   ["GET/TQAE/configFile"] = function(p,client,ref,data,opts)
     local fs = opts.debug:split(":")
     for _,k in ipairs(fs or {}) do

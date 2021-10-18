@@ -2127,4 +2127,5 @@ end
 return {
   http=copas.http, loop=copas.loop, https=copas.https, timer=timer, lock=lock, removethread=copas.removethread,
   sleep = copas.sleep, addserver = copas.addserver, wrap = copas.wrap, 
+  send = copas.send, receive = copas.receive,
 }
