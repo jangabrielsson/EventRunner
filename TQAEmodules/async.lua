@@ -97,15 +97,18 @@ local function setTimeout(fun,ms,tag,ctx)
   return v
 end
 
-local function socketServer(port,pat,handler)
+local function socketServer(args)
+  local port,pat,conMsg,handler = args.port,args.pat,args.connectMsg,args.cmdHandler
   local server,msg,i = EM.socket.bind("*", port)
   assert(server,(msg or "").." ,port "..port)
   i, msg = server:getsockname()
   assert(i, msg)
   local copas = EM.copas
-  if not handler then handler = function(str) return str.."\n" end end
+  handler = handler or function(str) return str.."\n" end 
+  pat = pat or "*l"
   local function sockHandler(skt)
     DEBUG("socketServer","trace","SocketServer: Connected")
+    if conMsg then copas.send(skt, conMsg.."\n") end
     while true do
       local data,err,n = copas.receive(skt,pat)
       if err == "closed" then

@@ -17,19 +17,23 @@ _=loadfile and loadfile("TQAE.lua"){
 
 -- Quick App template for handling the TCP device, login, get data
 
-hc3_emulator.EM.socketServer(9999,"*l", -- Start server at port 9999, only works with async/copas
-  function(str)
-    local pwd = str:match("Password:(.*)")
-    if pwd and pwd=="Foo" then 
-      print("Correct password")
-      return "Login Ok\n"
-    elseif str=='On' then
-      return "On Ok\n"
-    elseif str=='Off' then
-      return "Off Ok\n"
-    end
-  end)
+local responses = {
+  ["Password:Foo"] = "Login Ok",
+  ["On"] = "Login Ok",
+  ["Off"] = "Login Ok",
+}
 
+hc3_emulator.EM.socketServer{ -- Start server at port 9999, only works with async/copas
+  port=9999,
+  pattern="*l", 
+  connectMsg = "BWM Remote API, v0.1", -- No newline.
+  cmdHandler = function(str)
+    for cmd,resp in pairs(responses) do
+      if str:match(cmd) then return resp.."\n" end
+    end
+    return "Error, bad command: "..str.."\n"
+  end
+}
 
 function QuickApp:turnOn()
   self:debug("binary switch turned on")
