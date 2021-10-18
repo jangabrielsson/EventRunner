@@ -155,7 +155,7 @@ local ltn12  = require("ltn12")
 local FB,Devices = {},{}  -- id->Device map
 local Utils=EM.utilities
 local fmt,gID,setTimeout,LOG,DEBUG,loadModules,runQA = string.format,1001
-local copy,deepCopy,merge,member = Utils.copy,Utils.deepCopy,Utils.merge,Utils.member
+local deepCopy,merge,member = Utils.deepCopy,Utils.merge,Utils.member
 EM.http,EM.https=http,https
 EM._info = { modules = { ["local"] = {}, global= {} } }
 
@@ -227,14 +227,14 @@ end
 local function _LOG(typ,...)
   if EM.cfg.colorDebug then
     local colorCode = ANSICOLORS[logColors[typ]]
-    print(fmt("%s |%s%5s%s|: %s",EM.osDate("[%d.%m.%Y] [%H:%M:%S]"),colorCode,typ,ANSIEND,fmt(...)))
+    print(fmt("%s |%s%-5s%s| %s",EM.osDate("[%d.%m.%Y] [%H:%M:%S]"),colorCode,typ,ANSIEND,fmt(...)))
   else
-    print(fmt("%s |%5s|: %s",EM.osDate("[%d.%m.%Y] [%H:%M:%S]"),typ,fmt(...)))
+    print(fmt("%s |%-5s| %s",EM.osDate("[%d.%m.%Y] [%H:%M:%S]"),typ,fmt(...)))
   end
 end
 LOG = {}
 function LOG.sys(...)   _LOG("SYS",  ...) end
-function LOG.warn(...)  _LOG("WARNING", ...) end
+function LOG.warn(...)  _LOG("WARN", ...) end
 function LOG.error(...) _LOG("ERROR",...) end
 function LOG.trace(...) _LOG("TRACE",...) end
 function DEBUG(flag,typ,...) if EM.debugFlags[flag] then LOG[typ](...) end end
@@ -311,7 +311,6 @@ end
 ------------------------ Emulator functions ------------------------------------------------------
 local weakKeys = { __mode='k' } 
 local procs    = setmetatable({},weakKeys)
-local deviceTemplates
 
 local function getContext(co) return procs[co or coroutine.running()] end
 EM.getContext,EM.procs = getContext,procs
@@ -342,7 +341,7 @@ function EM.getQA(id)
   else return D.env.quickApp.childDevices[id],D.env,false end
 end
 
-EM.EMEvents('QACreated',function(ev) -- Register device and clean-up when QA is created
+EM.EMEvents('QACreated',function(_) -- Register device and clean-up when QA is created
     --local qa,dev = ev.qa,ev.dev
   end)
 
@@ -388,7 +387,7 @@ local function extractInfo(file,code) -- Creates info structure from file/code
   info.properties.quickAppVariables = info.properties.quickAppVariables or {}
   for k,v in pairs(info.quickVars or {}) do table.insert(info.properties.quickAppVariables,1,{name=k,value=v}) end
   info.name,info.type=info.name or "MyQuickApp",info.type or "com.fibaro.binarySwitch"
-  info.files,info.fileMap,info.extras,info.codeType=files,{},e,"QA"
+  info.files,info.fileMap,info.codeType=files,{},"QA"
   for _,f in ipairs(info.files) do if not info.fileMap[f.name] then info.fileMap[f.name]=f end end
   local lock = EM.createLock()
   info.timers,info._lock = {},lock
@@ -436,7 +435,7 @@ end
 local LOADLOCK = EM.createLock()
 
 function runQA(id,cont)         -- Creates an environment and load file modules and starts QuickApp (:onInit())
-  local info = Devices[id]
+  local info,co = Devices[id],coroutine.running()
   info.cont = cont
   local env = {             -- QA environment, all Lua functions available for  QA, 
     plugin={ mainDeviceId = info.id },
@@ -452,7 +451,7 @@ function runQA(id,cont)         -- Creates an environment and load file modules 
     collectgarbage=collectgarbage,
     next=next,pairs=pairs,ipairs=ipairs,tostring=tostring,tonumber=tonumber,math=math,assert=assert
   }
-  info.env,env._G,co=env,env,coroutine.running()
+  info.env,env._G=env,env
   for s,v in pairs(FB) do env[s]=v end                        -- Copy local exports to QA environment
   for s,v in pairs(info.extras or {}) do env[s]=v end         -- Copy user provided environment symbols
   loadModules(localModules or {},env,info.scene)              -- Load default QA specfic modules into environment

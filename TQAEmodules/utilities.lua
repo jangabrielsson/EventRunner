@@ -86,6 +86,25 @@ local function tableSort(array,fun)
   return quickSort(array, 1, #array, fun)
 end
 
+local orgGsub = string.gsub
+local function stringGsub(str,pattern,fun)
+  if type(fun) ~= "function" then return orgGsub(str,pattern,fun) end
+  local rep = ""
+  local i,j,last,n = 1,1,1,0
+  while true do
+    i,j = string.find(str,pattern,i)
+    if i==nil then rep=rep..str:sub(last) break end
+    local x = {str:match(pattern,i)}
+    x = fun(table.unpack(x))
+    if x == nil then i,x=j,"" end
+    rep = rep..str:sub(last,i-1)..x
+    n=n+1
+    last = j+1
+    i = j+1
+  end
+  return rep,n
+end
+
 do
   local sortKeys = {"type","device","deviceID","value","oldValue","val","key","arg","event","events","msg","res"}
   local sortOrder={}
@@ -447,6 +466,7 @@ utils.merge      = merge
 utils.traverse   = traverse
 utils.equal      = equal
 utils.tableSort  = tableSort
+utils.stringGsub  = stringGsub
 utils.ZBCOLORMAP = ZBCOLORMAP
 utils.ZBCOLOREND = '\027[0m'
 utils.html2color = html2color

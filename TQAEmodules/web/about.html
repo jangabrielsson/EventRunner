@@ -42,6 +42,20 @@ binaryheap     -- Copyright 2015-2019 Thijs Schreijer
 LuWS           -- Copyright 2020 Patrick H. Rigney, All Rights Reserved. http://www.toggledbits.com/LuWS
 </pre>
 </div>
+
+ <div class="row gy-5">
+
+    <div class="col-sm-3">
+      <h4>Global modules</h4>
+      <ul>{{{ for m,_ in pairs(EM._info.modules.global) do out("<li>%s</li>",m) end }}} </ul>
+    </div>
+    
+    <div class="col-sm-3">
+      <h4>Local modules</h4>
+      <ul>{{{ for m,_ in pairs(EM._info.modules["local"]) do out("<li>%s</li>",m) end }}}</ul>
+    </div>
+
+</div>
 </div>
 
 {{{ html.footer(out) }}}

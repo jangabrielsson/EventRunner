@@ -12,8 +12,9 @@ do
     return oldGet(id,prop)
   end
 
-  if hc3_emulator.EM.cfg.tableSort then -- patch table.sort with pure Lua version (ToDo gsub)
+  if hc3_emulator.EM.cfg.compat then -- patch table.sort with pure Lua version (ToDo gsub)
     table.sort = hc3_emulator.EM.utilities.tableSort
+    string.gsub = hc3_emulator.EM.utilities.stringGsub
   end
 
   local fastJson = hc3_emulator.EM.utilities.encodeFast

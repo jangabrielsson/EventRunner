@@ -19,14 +19,14 @@ _=loadfile and loadfile("TQAE.lua"){
 
 local responses = {
   ["Password:Foo"] = "Login Ok",
-  ["On"] = "Login Ok",
-  ["Off"] = "Login Ok",
+  ["On"] = "Turned On Ok",
+  ["Off"] = "Turned Off Ok",
 }
 
 hc3_emulator.EM.socketServer{ -- Start server at port 9999, only works with async/copas
   port=9999,
   pattern="*l", 
-  connectMsg = "BWM Remote API, v0.1", -- No newline.
+  connectMsg = "BMW Remote API, v0.1", -- No newline.
   cmdHandler = function(str)
     for cmd,resp in pairs(responses) do
       if str:match(cmd) then return resp.."\n" end
@@ -36,15 +36,15 @@ hc3_emulator.EM.socketServer{ -- Start server at port 9999, only works with asyn
 }
 
 function QuickApp:turnOn()
-  self:debug("binary switch turned on")
   self:send("On\n") -- sending data to the device. In a normal implementation it will be a code with an appropriate command.
   self:updateProperty("value", true)
+  self:debug("Car turned on")
 end
 
 function QuickApp:turnOff()
-  self:debug("binary switch turned off")
   self:send("Off\n") -- sending data to the device. In a normal implementation it will be a code with an appropriate command.
   self:updateProperty("value", false)
+  self:debug("Car turned off")
 end
 
 -- the method for sending data to the device
@@ -102,7 +102,6 @@ end
 
 function QuickApp:onInit()
   self:debug("onInit")
-
   self.ip = self:getVariable("ip")
   self.port = tonumber(self:getVariable("port"))
   setTimeout(function() self:connect() end,0)
