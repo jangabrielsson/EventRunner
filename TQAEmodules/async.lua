@@ -13,6 +13,8 @@ local EM,FB=...
 local LOG,DEBUG = EM.LOG,EM.DEBUG
 EM.copas = dofile(EM.cfg.modPath.."copas.lua")
 
+LOG.register("socketserver")
+
 ------------------------ Emulator core ----------------------------------------------------------
 local procs,getContext = EM.procs,EM.getContext
 local CO = coroutine
@@ -101,15 +103,15 @@ local function socketServer(args)
   handler = handler or function(str) return str.."\n" end 
   pat = pat or "*l"
   local function sockHandler(skt)
-    DEBUG("socketServer","trace","SocketServer: Connected")
+    DEBUG("socketserver","trace","SocketServer: Connected")
     if conMsg then copas.send(skt, conMsg.."\n") end
     while true do
       local data,err = copas.receive(skt,pat)
       if err == "closed" then
-        DEBUG("socketServer","trace","SocketServer: Closed")
+        DEBUG("socketserver","trace","SocketServer: Closed")
         return
       else
-        DEBUG("socketServer","trace","SocketServer: Received '%s'",data or "")
+        DEBUG("socketserver","trace","SocketServer: Received '%s'",data or "")
         local res = handler(data)
         if res then copas.send(skt, res) end
       end

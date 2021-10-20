@@ -1,7 +1,7 @@
 local EM,FB=...
 
 local httpRequest = EM.httpRequest
-local DEBUG,encode = EM.utilities.encodeFast,EM.DEBUG
+local LOG,DEBUG,encode = EM.LOG,EM.DEBUG,EM.utilities.encodeFast
 local net = {}
 
 local httpMeta = { __tostring = function(http) return "HTTPClient object: "..http._str end }
@@ -188,6 +188,8 @@ mqtt.MSGMAP = {
   [4]='published',  -- Should be onpublished according to doc?
   [14]='closed',
 }
+
+LOG.register("mqtt")
 
 function mqtt.Client.connect(uri, options)
   options = options or {}

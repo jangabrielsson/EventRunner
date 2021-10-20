@@ -4,7 +4,7 @@
 -- luacheck: globals ignore utils hc3_emulator FILES urlencode sceneId
 
 fibaro = fibaro  or  {}
-fibaro.FIBARO_EXTRA = "v0.923"
+fibaro.FIBARO_EXTRA = "v0.924"
 FILES = FILES or {}
 FILES['fibaroExtra']=fibaro.FIBARO_EXTRA
 
@@ -658,6 +658,7 @@ do
     AlarmPartitionArmedEvent = function(d) post({type='alarm', property='armed', id = d.partitionId, value=d.armed}) end,
     AlarmPartitionBreachedEvent = function(d) post({type='alarm', property='breached', id = d.partitionId, value=d.breached}) end,
     HomeArmStateChangedEvent = function(d) post({type='alarm', property='homeArmed', value=d.newValue}) end,
+    HomeDisarmStateChangedEvent = function(d) post({type='alarm', property='homeArmed', value=not d.newValue}) end,
     HomeBreachedEvent = function(d) post({type='alarm', property='homeBreached', value=d.breached}) end,
     WeatherChangedEvent = function(d) post({type='weather',property=d.change, value=d.newValue, old=d.oldValue}) end,
     GlobalVariableChangedEvent = function(d) 
@@ -711,8 +712,15 @@ do
     ActiveProfileChangedEvent = function(d) 
       post({type='profile',property='activeProfile',value=d.newActiveProfile, old=d.oldActiveProfile}) 
     end,
-    ClimateZoneChangedEvent = function(d) d.type = 'ClimateZoneChangedEvent' post(d) end,
-    ClimateZoneSetpointChangedEvent = function(d) d.type = 'ClimateZoneSetpointChangedEvent' post(d) end,
+    ClimateZoneChangedEvent = function(d)
+      if d.changes and type(d.changes)=='table' then
+        for _,c in ipairs(d.changes) do
+          c.type,c.id='ClimateZone',d.id
+          post(c)
+        end
+      end
+    end,
+    ClimateZoneSetpointChangedEvent = function(d) d.type = 'ClimateZoneSetpoint' post(d) end,
     NotificationCreatedEvent = function(d) post({type='notification', id=d.id, value='created'}) end,
     NotificationRemovedEvent = function(d) post({type='notification', id=d.id, value='removed'}) end,
     NotificationUpdatedEvent = function(d) post({type='notification', id=d.id, value='updated'}) end,

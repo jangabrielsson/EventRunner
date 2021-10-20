@@ -14,6 +14,8 @@ local HC3Request,LOG,DEBUG,Devices = EM.HC3Request,EM.LOG,EM.DEBUG,EM.Devices
 local __fibaro_call,__assert_type=FB.__fibaro_call,FB.__assert_type
 local copy,luaFormated = EM.utilities.copy,EM.utilities.luaFormated
 
+LOG.register("api")
+
 local GUI_HANDLERS = {
   ["GET/api/callAction"] = function(_,client,ref,_,opts)
     local args = {}

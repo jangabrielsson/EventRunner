@@ -14,6 +14,8 @@ local LOG,DEBUG,port,name = EM.LOG,EM.DEBUG,ARGS.port or 8976, ARGS.name or "Web
 local socket = require("socket")
 local fmt = string.format
 
+LOG.register("webserver")
+
 local IPAddress
 do
   local someRandomIP = "192.168.1.122" --This address you make up

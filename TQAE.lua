@@ -46,7 +46,7 @@ configFile = <filename>
   Default "TQAEconfigs.lua"
 debug={
   traceFibaro=<boolean>,   --default false
-  QA=<boolean>,            --default true
+  qa=<boolean>,            --default true
   module=<boolean>,        --defaul false
   module2=<boolean>,       --defaul false
   lock=<boolean>,          --default false
@@ -114,14 +114,14 @@ cfg.htmlDebug    = DEF(cfg.htmlDebug,true)
 cfg.colorDebug   = DEF(cfg.colorDebug,true)
 cfg.defaultRoom  = DEF(cfg.defaultRoom,219)
 EM.utilities     = dofile(cfg.modPath.."utilities.lua")
-EM.debugFlags    = DEF(cfg.debug,{QA=true,child=true,device=true})
+EM.debugFlags    = DEF(cfg.debug,{qa=true,child=true,device=true})
 
 local fibColors  = DEF(cfg.fibColors,{ ["DEBUG"] = 'green', ["TRACE"] = 'blue', ["WARNING"] = 'orange', ["ERROR"] = 'red' })
 local logColors  = DEF(cfg.logColors,{ ["SYS"] = 'brown', ["ERROR"]='red', ["WARNING"] = 'orange', ["TRACE"] = 'blue' })
 
 local globalModules = { -- default global modules loaded once into emulator environment
   "net.lua","json.lua","files.lua", "webserver.lua", "api.lua", "proxy.lua", "ui.lua", "time.lua",
-  "refreshStates.lua", "stdQA.lua", "Scene.lua", "offline.lua",
+  "refreshStates.lua", "stdQA.lua", "Scene.lua", "offline.lua", "settings.lua",
 } 
 local localModules  = { -- default local modules loaded into every QA environment
   {"class.lua","QA"}, "fibaro.lua", "fibaroPatch.lua", {"QuickApp.lua","QA"} 
@@ -232,12 +232,14 @@ local function _LOG(typ,...)
     print(fmt("%s |%-5s| %s",EM.osDate("[%d.%m.%Y] [%H:%M:%S]"),typ,fmt(...)))
   end
 end
-LOG = {}
+LOG = { flags = {} }
 function LOG.sys(...)   _LOG("SYS",  ...) end
 function LOG.warn(...)  _LOG("WARN", ...) end
 function LOG.error(...) _LOG("ERROR",...) end
 function LOG.trace(...) _LOG("TRACE",...) end
-function DEBUG(flag,typ,...) if EM.debugFlags[flag] then LOG[typ](...) end end
+function DEBUG(flag,typ,...) LOG.register(flag); if EM.debugFlags[flag] then LOG[typ](...) end end
+function LOG.register(fl) LOG.flags[fl]=true end
+function LOG.registerList(fl) for _,f in ipairs(fl) do LOG.register(f) end end
 
 function FB.urldecode(str) return str and str:gsub('%%(%x%x)',function (x) return string.char(tonumber(x,16)) end) end
 function FB.urlencode(str) return str and str:gsub("([^% w])",function(c) return string.format("%%% 02X",string.byte(c))  end) end
@@ -467,7 +469,7 @@ function runQA(id,cont)         -- Creates an environment and load file modules 
   end
   LOADLOCK:release()
   if env.QuickApp and env.QuickApp.onInit then
-    DEBUG("QA","sys","Starting QA:%s - ID:%s",info.name,info.id)       -- Start QA by "creating instance"
+    DEBUG("qa","sys","Starting QA:%s - ID:%s",info.name,info.id)       -- Start QA by "creating instance"
     setTimeout(function() env.QuickApp(info.dev) end,0)
   elseif env.ACTION then
     EM.postEMEvent({type='sceneLoaded', info=info})     
@@ -482,6 +484,8 @@ loadModules(EM.cfg.globalModules or {}) -- Load optional user specified modules 
 print(fmt("---------------- Tiny QuickAppEmulator (TQAE) v%s -------------",version)) -- Get going...
 if not HC3online then LOG.warn("No connection to HC3") end
 if pfvs then LOG.sys("Using config file %s",EM.cfg.configFile) end
+
+LOG.registerList{"module","qa","device","lock","child"}
 
 function EM.startEmulator(cont)
   EM.start(function() EM.postEMEvent{type='start'} 
