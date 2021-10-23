@@ -21,6 +21,8 @@ local http   = require("socket.http")
 local https  = require("ssl.https") 
 local ltn12  = require("ltn12")
 
+LOG.register("refreshStates","Log incoming HC3 events")
+
 local refreshListeners = {}
 
 local function createRefreshStateQueue(size)

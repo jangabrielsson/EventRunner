@@ -7,148 +7,73 @@
 
 <div class="container">
   <div class="row">
-  
-  <div class="col-sm-4">
-  <div class="row gy-5"><h4>Settings file</h4></div>
-  
-  <div class="row">
-  
+   
+  <div class="col-sm-5">
   <form id="x" action="/TQAE/configFile" method="GET">
   
   <div class="mb-3">
-    <label for="user" class="form-label">User ID</label>
-    <input type="text" class="form-control" name="user" id="user" value="{{{out(EM.PFVS.user or "")}}}" aria-describedby="userHelp">
-    <div id="userHelp" class="form-text">Account used to interact with the HC3 via REST api</div>
+    <label for="cf" class="form-label">Configuration file</label>
+    <input type="text" class="form-control" name="cf" id="cf" value="{{{out(EM.readConfigFile or "")}}}" aria-describedby=2"cfHelp">
+    <div id="cfHelp" class="form-text">File with initial settings</div>
   </div>
   
-  <div class="mb-3">
-    <label for="pwd" class="form-label">Password</label>
-    <input type="text" class="form-control" name="pwd" id="pwd" value="{{{out(EM.PFVS.pwd or "")}}}" aria-describedby="pwdHelp">
-    <div id="pwdHelp" class="form-text">Password for account used to interact with the HC3 via REST api</div>
-  </div>
+  <button type="submit" class="btn btn-primary" formaction="/TQAE/readConfigFile">Read</button>
+  <button type="submit" class="btn btn-primary"formaction="/TQAE/saveConfigFile">Save</button>
+  <hr>
   
-  <div class="mb-3">
-    <label for="host" class="form-label">IP address</label>
-    <input type="text" class="form-control" name="host" id="host" value="{{{out(EM.PFVS.host or "")}}}" aria-describedby="hostHelp">
-    <div id="hostHelp" class="form-text">IP address of HC3 - Ex. 192.168.x.y</div>
-  </div>
+{{{
 
-  <div class="mb-3">
-    <label for="pin" class="form-label">PIN code</label>
-    <input type="text" class="form-control" name="pin" id="pin" value="{{{out(EM.PFVS.pin or "")}}}" aria-describedby="pinHelp">
-    <div id="pinHelp" class="form-text">PIN code to set/unset alarms etc</div>
-  </div>
-  
-  <div class="mb-3">
-    <label for="configFile" class="form-label">Parameter file</label>
-    <input type="text" class="form-control" name="configFile" id="configFile" value="{{{out(EM.PFVS.configFile or "")}}}" aria-describedby="configFileHelp">
-    <div id="configFileHelp" class="form-text">File used to load in emulator options instead of specifying them in the QA file.
-  Great place to keep credentials instead of listing them in the QA code, and forget to remove them when uploading codeto forums...</div>
-  </div>
+      local function iString(cfp,name,value,descr)
+        out([[<div class="mb-3">
+              <label for="user" class="form-label">%s</label>
+              <input type="text" class="form-control" name="%s" id="%s" value="%s" aria-describedby="userHelp">
+              <div id="userHelp" class="form-text">%s</div>
+              </div>]],name,cfp,cfp,value,descr)
+      end
 
-  <div class="mb-3">
-    <label for="modPath" class="form-label">Module path</label>
-    <input type="text" class="form-control" name="modPath" id="modPath" value="{{{out(EM.PFVS.modPath or "")}}}" aria-describedby="modPathHelp">
-    <div id="modPathHelp" class="form-text">Path to TQAE modules. Default "TQAEmodules/"</div>
-  </div>
-  
-  <div class="mb-3">
-    <label for="temp" class="form-label">Temp path</label>
-    <input type="text" class="form-control" name="temp" id="temp" value="{{{out(EM.PFVS.temp or "")}}}" aria-describedby="tempHelp">
-    <div id="tempHelp" class="form-text">Path to temp directory. Default "temp/"</div>
-  </div>
-
-  <div class="mb-3">
-    <label for="startTime" class="form-label">Start time</label>
-    <input type="text" class="form-control" "name="startTime" id="startTime" value="{{{out(EM.PFVS.startTime or "")}}}" aria-describedby="startTimeHelp">
-    <div id="startTimeHelp" class="form-text">Start date for the emulator. Ex. "12/24/2024-07:00" to start emulator at X-mas morning 07:00 2024.
-  Default, current local time</div>
-  </div>
-  
-  <div class="form-check form-switch">
-    <label class="form-check-label" for="htmlDebug">Allow HTML in debug output</label>
-    <input class="form-check-input" name="htmlDebug" type="checkbox" role="switch" id="htmlDebug" aria-describedby="htmlDebugHelp" {{{out(tostring(EM.PFVS.htmlDebug==false and "" or "checked"))}}}>
-    <div id="htmlDebugHelp" class="form-text">If false will strip html formatting from the log output. Default true</div>
-  </div>
-  
-  <div class="form-check form-switch">
-    <label class="form-check-label" for="colorDebug">Debug with colors</label>
-    <input class="form-check-input" type="checkbox" role="switch" name="colorDebug" id="colorDebug" aria-describedby="colorDebugHelp" {{{out(tostring(EM.PFVS.colorDebug==false and "" or "checked"))}}}>
-    <div id="colorDebugHelp" class="form-text">If true will log in ZBS console with color. Default true</div>
-  </div>
-  
-  <div class="form-check form-switch">
-    <label class="form-check-label" for="copas">Copas asynchronous timers</label>
-    <input class="form-check-input" type="checkbox" role="switch" name="copas" id="copas" aria-describedby="copasHelp" {{{out(tostring(EM.PFVS.copas and "checked" or ""))}}}>
-    <div id="copasHelp" class="form-text">If true will use the copas scheduler. Default true.</div>
-  </div>
-  
-  <div class="form-check form-switch">
-    <label class="form-check-label" for="noweb">No web interface</label>
-    <input class="form-check-input" type="checkbox" role="switch" name="noweb" id="noweb" aria-describedby="nowebHelp" {{{out(tostring(EM.PFVS.noweb and "checked" or ""))}}}>
-    <div id="nowebHelp" class="form-text">If true will not start up local web interface. Default false</div>
-  </div>
-
-  <div class="form-check form-switch">
-    <label class="form-check-label" for="lateTimers">Warn for late timers</label>
-    <input class="form-check-input" type="checkbox" role="switch" name="lateTimers" id="lateTimers" aria-describedby="lateTimersHelp" {{{out(tostring(EM.PFVS.lateTimers and "checked" or ""))}}}>
-    <div id="lateTimersHelp" class="form-text">If set to a value will be used to notify if timers are late to execute. Default false</div>
-  </div>
-
-  <div class="form-check form-switch">
-    <label class="form-check-label" for="timerVerbose">Verbose timers</label>
-    <input class="form-check-input" type="checkbox" role="switch" name="timerVerbose" id="timerVerbose" aria-describedby="timerVerboseHelp" {{{out(tostring(EM.PFVS.timerVerbose and "checked" or ""))}}}>
-    <div id="timerVerboseHelp" class="form-text">If true prints timer reference with extended information (expiration time etc)</div>
-  </div>
-  
-  </p>
-  Debug flags turning on/off more verbose logging
-  <div class="form-check">
-    <input class="form-check-input" type="checkbox" name="traceFibaro" id="debugTF" {{{out(EM.PFVS.debug.traceFibaro and "checked" or "")}}}>
-    <label class="form-check-label" for="debugTF">debug.traceFibaro</label>
-  </div>
-  <div class="form-check">
-    <input class="form-check-input" type="checkbox" name="QA" id="debugQA" {{{out(EM.PFVS.debug.QA and "checked" or "")}}}>
-    <label class="form-check-label" for="debugQA">debug.QA</label>
-  </div>
-  <div class="form-check">
-    <input class="form-check-input" type="checkbox"  name="module" id="debugModule" {{{out(EM.PFVS.debug.module and "checked" or "")}}}>
-    <label class="form-check-label" for="debugModule">debug.module</label>
-  </div>
-  <div class="form-check">
-    <input class="form-check-input" type="checkbox" name="module2" id="debugModule2" {{{out(EM.PFVS.debug.module2 and "checked" or "")}}}>
-    <label class="form-check-label" for="debugModule2">debug.module2</label>
-  </div>
-  <div class="form-check">
-    <input class="form-check-input" type="checkbox" name="lock" id="debugLock" {{{out(EM.PFVS.debug.lock and "checked" or "")}}}>
-    <label class="form-check-label" for="debugLock">debug.lock</label>
-  </div>  
-  <div class="form-check">
-    <input class="form-check-input" type="checkbox" name="child" id="debugChild" {{{out(EM.PFVS.debug.child and "checked" or "")}}}>
-    <label class="form-check-label" for="debugChild">debug.child</label>
-  </div>
-  <div class="form-check">
-    <input class="form-check-input" type="checkbox" name="device" id="debugDevice" {{{out(EM.PFVS.debug.device and "checked" or "")}}}>
-    <label class="form-check-label" for="debugDevice">debug.device</label>
-  </div>
-  <div class="form-check">
-    <input class="form-check-input" type="checkbox" name="refreshStates" id="debugRefreshStates" {{{out(EM.PFVS.debug.refreshStates and "checked" or "")}}}>
-    <label class="form-check-label" for="debugRefreshStates">debug.refreshStates</label>
-  </div>
-  
-  </p>
-    <input type="hidden" name="debug" value="traceFibaro:QA:module:module2:lock:child:device:refreshStates" />
-    <input type="hidden" name="switches" value="htmlDebug:colorDebug:copas:noweb:timerVerbose" />
-    <input type="hidden" name="fields" value="user:pwd:host:pin:modPath:temp:startTime:configFile" />
+      local function iBoolean(cfp,name,value,descr)
+        out([[<div class="form-check form-switch">
+              <label class="form-check-label" for="%s">%s</label>
+              <input class="form-check-input" type="checkbox" role="switch" name="%s" id="%s" aria-describedby="%sH" %s>
+              <div id="%sH" class="form-text">%s</div>
+              </div>]],cfp,name,cfp,cfp,cfp,EM.cfg[cfp] and "checked" or "",cfp,descr)
+      end
       
-  <button type="submit" class="btn btn-primary">Save</button>
-  <button type="submit" class="btn btn-primary">Read parameter file</button>
-  </form>
-  </div> <!-- row -->
-</div> <!-- col -->
+      local configs = EM.configFileValues 
+      for _,c in pairs(EM.configParams) do
+        if c.type=='bool' then iBoolean(c.cfp,c.name,configs[c.cfp]==true,c.descr)
+        else iString(c.cfp,c.name,configs[c.cfp] or "",c.descr) end
+      end
+}}}
+  </div>
+  
+  <div class="col-sm-1"></div>
+  
+  <div class="col-sm-4">
+  <label class="form-label">Debug flags</label>
+{{{
+    local flags = EM.configFileValues.debug or {}
+    local function switch(name,descr)
+       out([[
+         <div class="form-check form-switch"">
+         <input class="form-check-input" name="%s" type="checkbox" id="%sF" %s aria-describedby="%sH">
+         <label class="form-check-label" for="%sF">%s</label>
+         <div id="%sH" class="form-text">%s</div>
+         
+         </div>]],name,name,flags[name]==true and "checked" or "",name,name,name,name,EM.LOG.descr[name] or "Undocumented")
+    end
+    local res = {}
+    for flag,_ in pairs(EM.LOG.flags) do res[#res+1]=flag end
+    table.sort(res)
+    for _,flag in pairs(res) do
+      switch(flag,"debug."..flag)
+    end
+}}}
+</div>
 
-</div> <!-- row -->
-</div> <!-- container -->
+</form>
+</div>
+</div>
 
 {{{ html.footer(out) }}}
 </body>

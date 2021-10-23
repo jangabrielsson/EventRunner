@@ -44,16 +44,6 @@ configFile = <filename>
   File used to load in emulator options instead of specifying them in the QA file.
   Great place to keep credentials instead of listing them in the QA code, and forget to remove them when uploading codeto forums...
   Default "TQAEconfigs.lua"
-debug={
-  traceFibaro=<boolean>,   --default false
-  qa=<boolean>,            --default true
-  module=<boolean>,        --defaul false
-  module2=<boolean>,       --defaul false
-  lock=<boolean>,          --default false
-  child=<boolean>,         --default true
-  device=<boolean>,        --default true
-  refreshStates=<boolean>, --default false
-}
 modPath = <path>, 
   Path to TQAE modules. 
   Default "TQAEmodules/"
@@ -63,23 +53,39 @@ temp = <path>
 startTime=<time string>
   Start date for the emulator. Ex. "12/24/2024-07:00" to start emulator at X-mas morning 07:00 2024.
   Default, current local time.
-htmlDebug=<boolean>.
-   If false will strip html formatting from the log output. 
-   Default true
-colorDebug=<boolean>.
-   If true will log in ZBS console with color. 
-   Default true
 copas=<boolean>
    If true will use the copas scheduler. 
    Default true.
 noweb=<boolean>
    If true will not start up local web interface.
    Default false
-lateTimers=<seconds>
-  If set to a value will be used to notify if timers are late to execute.
-  Default false
-timerVerbose=<boolean>
-  If true prints timer reference with extended information (expiration time etc)
+debug={
+  html=<boolean>,
+  -- If false will strip html formatting from the log output. Default true
+  color=<boolean>,
+  -- If true will log in ZBS console with color. Default true
+  lateTimer=<seconds>
+  -- If set to a value will be used to notify if timers are late to execute. Default false
+  verboseTimer=<boolean>
+  -- If true prints timer reference with extended information (expiration time etc). Default true
+  traceFibaro=<boolean>,   
+  --If true logs fibaro calls. Default 'call','getValue'
+  qa=<boolean>,            
+  -- If true logs QA creation related events. Default true
+  module=<boolean>,        
+  -- If true logs module loading related events. Defaul true
+  module2=<boolean>,       --defaul false
+  lock=<boolean>,          
+  -- If true logs internal thread lock events.
+  child=<boolean>,
+  -- If true logs child creation related events.
+  device=<boolean>, 
+  -- If true logs device creation related events.
+  refreshStates=<boolean>, 
+  -- If true logs incoming events from refreshStates loop.
+  webserver=<boolean>, 
+  -- If true logs internal webserver incoming requests
+}
   
 QuickApp options: (set with --%% directive in file)
 --%%name=<name>
@@ -96,26 +102,28 @@ local EM = { cfg = embedded or {} }
 local cfg,pfvs = EM.cfg
 local function DEF(x,y) if x==nil then return y else return x end end
 cfg.configFile  = DEF(cfg.configFile,"TQAEconfigs.lua")
+EM.readConfigFile = cfg.configFile
 do 
-  EM.PFVS = { debug = {}, configFile=cfg.configFile}
-  local pf = loadfile(cfg.configFile)
+  EM.configFileValues = {}
+  local pf,_ = loadfile(cfg.configFile)
   if pf then 
-    local p = pf() or {}; 
+    local p = pf() or {};
+    assert(type(p)=='table',"Bad format for configuration file")
+    EM.configFileValues = pf() -- Get copy of config values for settings panel
     pfvs = true
-    for k,v in pairs(p) do EM.PFVS[k]=v end -- save paramFile values for settings panel
-    for k,v in pairs(cfg) do p[ k ]=v end 
+    for k,v in pairs(cfg) do p[ k ]=v end -- Overwrite config values with values from file header
     cfg,EM.cfg=p,p 
   end 
 end
 cfg.modPath      = DEF(cfg.modpath,"TQAEmodules/")   -- directory where TQAE modules are stored
 cfg.temp         = DEF(cfg.temp,os.getenv("TMPDIR") or os.getenv("TEMP") or os.getenv("TMP") or "temp/") -- temp directory
-cfg.logLevel     = DEF(cfg.logLevel,1)
-cfg.htmlDebug    = DEF(cfg.htmlDebug,true)
-cfg.colorDebug   = DEF(cfg.colorDebug,true)
 cfg.defaultRoom  = DEF(cfg.defaultRoom,219)
 EM.utilities     = dofile(cfg.modPath.."utilities.lua")
 EM.debugFlags    = DEF(cfg.debug,{qa=true,child=true,device=true})
 
+local debugFlags = EM.debugFlags
+debugFlags.html  = DEF(debugFlags.html,true)
+debugFlags.color = DEF(debugFlags.color,true)
 local fibColors  = DEF(cfg.fibColors,{ ["DEBUG"] = 'green', ["TRACE"] = 'blue', ["WARNING"] = 'orange', ["ERROR"] = 'red' })
 local logColors  = DEF(cfg.logColors,{ ["SYS"] = 'brown', ["ERROR"]='red', ["WARNING"] = 'orange', ["TRACE"] = 'blue' })
 
@@ -141,7 +149,7 @@ do
   local stat,mobdebug = pcall(require,'mobdebug'); -- If we have mobdebug, enable coroutine debugging
   if stat then mobdebug.coro() end
 end
-local version = "0.33"
+local version = "0.34"
 
 local socket = require("socket") 
 local http   = require("socket.http")
@@ -218,28 +226,35 @@ local html2color,ANSICOLORS,ANSIEND = Utils.html2color,Utils.ZBCOLORMAP,Utils.ZB
 
 function FB.__fibaro_add_debug_message(tag,str,typ)
   assert(str,"Missing tag for debug")
-  str = EM.cfg.htmlDebug and html2color(str) or str:gsub("(</?font.->)","") -- Remove color tags
-  typ = EM.cfg.colorDebug and (ANSICOLORS[(fibColors[typ] or "black")]..typ..ANSIEND) or typ
+  str = debugFlags.html and html2color(str) or str:gsub("(</?font.->)","") -- Remove color tags
+  typ = debugFlags.color and (ANSICOLORS[(fibColors[typ] or "black")]..typ..ANSIEND) or typ
   str=str:gsub("(&nbsp;)"," ")      -- remove html space
   print(fmt("%s [%s] [%s]: %s",EM.osDate("[%d.%m.%Y] [%H:%M:%S]"),typ,tag,str))
 end
 
 local function _LOG(typ,...)
-  if EM.cfg.colorDebug then
+  if debugFlags.color then
     local colorCode = ANSICOLORS[logColors[typ]]
     print(fmt("%s |%s%-5s%s| %s",EM.osDate("[%d.%m.%Y] [%H:%M:%S]"),colorCode,typ,ANSIEND,fmt(...)))
   else
     print(fmt("%s |%-5s| %s",EM.osDate("[%d.%m.%Y] [%H:%M:%S]"),typ,fmt(...)))
   end
 end
-LOG = { flags = {} }
+LOG = { flags = {}, descr = {} }
 function LOG.sys(...)   _LOG("SYS",  ...) end
 function LOG.warn(...)  _LOG("WARN", ...) end
 function LOG.error(...) _LOG("ERROR",...) end
 function LOG.trace(...) _LOG("TRACE",...) end
-function DEBUG(flag,typ,...) LOG.register(flag); if EM.debugFlags[flag] then LOG[typ](...) end end
-function LOG.register(fl) LOG.flags[fl]=true end
+function DEBUG(flag,typ,...) LOG.register(flag); if debugFlags[flag] then LOG[typ](...) end end
+function LOG.register(fl,descr) LOG.flags[fl]=true LOG.descr[fl]=descr end
 function LOG.registerList(fl) for _,f in ipairs(fl) do LOG.register(f) end end
+LOG.register("color","If true will log in ZBS console with color")
+LOG.register("html","If false will strip html formatting from the log output")
+LOG.register("lateTimer","If set to a value will be used to notify if timers are late to execute")
+LOG.register("verboseTimer","If true prints timer reference with extended information (expiration time etc)")
+LOG.register("onAction","Logs onAction events")
+LOG.register("onUIEvent","Logs UI events")
+LOG.register("traceFibaro","Logs fibaro.* calls")
 
 function FB.urldecode(str) return str and str:gsub('%%(%x%x)',function (x) return string.char(tonumber(x,16)) end) end
 function FB.urlencode(str) return str and str:gsub("([^% w])",function(c) return string.format("%%% 02X",string.byte(c))  end) end
@@ -294,7 +309,7 @@ local function milliStr(t) return os.date("%H:%M:%S",math.floor(t))..string.form
 EM.milliStr = milliStr
 
 local timer2str = { __tostring=function(t)
-    if EM.cfg.timerVerbose then
+    if debugFlags.verboseTimer then
       local ctx = t.ctx
       return fmt("<%s %s(%s), expires=%s>",t.descr,ctx.env.__TAG,ctx.id or 0,milliStr(t.time))
     else return t.descr end
@@ -305,7 +320,7 @@ function EM.makeTimer(time,co,ctx,tag,ft,args)
 end
 function EM.timerCheckFun(t)
   local now = EM.clock()
-  if (now-t.time) >= (tonumber(EM.cfg.lateTimers) or 0.5) then
+  if (now-t.time) >= (tonumber(debugFlags.lateTimer) or 0.5) then
     LOG.warn("Late timer %.3f - %s",now-t.time,t)
   end
 end
@@ -483,9 +498,12 @@ loadModules(EM.cfg.globalModules or {}) -- Load optional user specified modules 
 
 print(fmt("---------------- Tiny QuickAppEmulator (TQAE) v%s -------------",version)) -- Get going...
 if not HC3online then LOG.warn("No connection to HC3") end
-if pfvs then LOG.sys("Using config file %s",EM.cfg.configFile) end
+if pfvs then LOG.sys("Using config file %s",EM.readConfigFile) end
 
-LOG.registerList{"module","qa","device","lock","child"}
+LOG.register("module","Log loaded module")
+LOG.register("qa","Log loaded module")
+LOG.register("lock","Log thread lock operations")
+LOG.register("child","Log ChildQA creation events")
 
 function EM.startEmulator(cont)
   EM.start(function() EM.postEMEvent{type='start'} 

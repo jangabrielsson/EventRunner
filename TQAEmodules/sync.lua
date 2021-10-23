@@ -9,7 +9,7 @@ Synchronous timers and IO support - simulates asynchronous calls with short repe
 --]]
 local EM,FB=...
 
-local LOG,Devices = EM.LOG,EM.Devices
+local LOG,Devices,debugFlags = EM.LOG,EM.Devices,EM.debugFlags
 local timers
 local socket = require("socket") 
 
@@ -34,7 +34,7 @@ end
 
 local function timerCall(t,args)
   local co,ctx = table.unpack(args)
-  if EM.cfg.lateTimers then EM.timerCheckFun(t) end
+  if EM.cfg.lateTimer then EM.timerCheckFun(t) end
   local stat,res = coroutine.resume(co)
   ctx.timers[t]=nil
   checkForExit(false,co,stat,res)

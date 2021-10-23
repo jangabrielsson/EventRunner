@@ -189,7 +189,7 @@ mqtt.MSGMAP = {
   [14]='closed',
 }
 
-LOG.register("mqtt")
+LOG.register("mqtt","Log MQTT related events")
 
 function mqtt.Client.connect(uri, options)
   options = options or {}

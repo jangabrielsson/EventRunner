@@ -53,70 +53,28 @@
     
     <div class="col-sm-4">
       <div class="row">
-  <form id="x" action="/TQAE/settings" method="GET" role="form">
-  Debug flags turning on/off more verbose logging
-  <div class="form-check">
-    <input class="form-check-input" name="traceFibaro" type="checkbox" id="debugTF" {{{out(EM.debugFlags.traceFibaro and "checked" or "")}}}>
-    <label class="form-check-label" for="debugTF">debug.traceFibaro</label>
-  </div>
-  <div class="form-check">
-    <input class="form-check-input" name="QA" type="checkbox" id="debugQA" {{{out(EM.debugFlags.QA and "checked" or "")}}}>
-    <label class="form-check-label" for="debugQA">debug.QA</label>
-  </div>
-  <div class="form-check">
-    <input class="form-check-input" name="module" type="checkbox"  id="debugModule" {{{out(EM.debugFlags.module and "checked" or "unchecked")}}}>
-    <label class="form-check-label" for="debugModule">debug.module</label>
-  </div>
-  <div class="form-check">
-    <input class="form-check-input" name="module2" type="checkbox" id="debugModule2" {{{out(EM.debugFlags.module2 and "checked" or "unchecked")}}}>
-    <label class="form-check-label" for="debugModule2">debug.module2</label>
-  </div>
-  <div class="form-check">
-    <input class="form-check-input" name="lock" type="checkbox" id="debugLock" {{{out(EM.debugFlags.lock and "checked" or "unchecked")}}}>
-    <label class="form-check-label" for="debugLock">debug.lock</label>
-  </div>  
-  <div class="form-check">
-    <input class="form-check-input" name="child" type="checkbox" id="debugChild" {{{out(EM.debugFlags.child and "checked" or "unchecked")}}}>
-    <label class="form-check-label" for="debugChild">debug.child</label>
-  </div>
-  <div class="form-check">
-    <input class="form-check-input" name="device" type="checkbox" id="debugDevice" {{{out(EM.debugFlags.device and "checked" or "unchecked")}}}>
-    <label class="form-check-label" for="debugDevice">debug.device</label>
-  </div>
-  <div class="form-check">
-    <input class="form-check-input" name="refreshStates" type="checkbox" id="debugRefreshStates" {{{out(EM.debugFlags.refreshStates and "checked" or "unchecked")}}}>
-    <label class="form-check-label" for="debugRefreshStates">debug.refreshStates</label>
-  </div>
-  </p>
-    <div class="form-check form-switch">
-    <label class="form-check-label" for="htmlDebug">Allow HTML in debug output</label>
-    <input class="form-check-input" name="htmlDebug" type="checkbox" role="switch" id="htmlDebug" aria-describedby="htmlDebugHelp" {{{out(tostring(EM.cfg.htmlDebug and "checked" or ""))}}}>
-    <div id="htmlDebugHelp" class="form-text">If false will strip html formatting from the log output. Default true</div>
-  </div>
-  
-  <div class="form-check form-switch">
-    <label class="form-check-label" for="colorDebug">Debug with colors</label>
-    <input class="form-check-input" type="checkbox" role="switch" name="colorDebug" id="colorDebug" aria-describedby="colorDebugHelp" {{{out(tostring(EM.cfg.colorDebug and "checked" or ""))}}}>
-    <div id="colorDebugHelp" class="form-text">If true will log in ZBS console with color. Default true</div>
-  </div>
+    
+{{{
+    local flags = EM.debugFlags
+    local function switch(name,descr)
+       out([[
+         <div class="form-check form-switch"">
+         <input class="form-check-input" name="%s" type="checkbox" id="%sF" %s 
+            onChange="window.location.href='/TQAE/debugSwitch?name=%s'"
+            aria-describedby="%sH">
+         <label class="form-check-label" for="%sF">%s</label>
+         <div id="%sH" class="form-text">%s</div>
+         
+         </div>]],name,name,flags[name]==true and "checked" or "",name,true,name,name,name,EM.LOG.descr[name] or "Undocumented")
+    end
+    local res = {}
+    for flag,_ in pairs(EM.LOG.flags) do res[#res+1]=flag end
+    table.sort(res)
+    for _,flag in pairs(res) do
+      switch(flag,"debug."..flag)
+    end
+}}}
 
-  <div class="form-check form-switch">
-    <label class="form-check-label" for="lateTimers">Warn for late timers</label>
-    <input class="form-check-input" type="checkbox" role="switch" name="lateTimers" id="lateTimers" aria-describedby="lateTimersHelp" {{{out(tostring(EM.cfg.lateTimers and "checked" or ""))}}}>
-    <div id="lateTimersHelp" class="form-text">If set to a value will be used to notify if timers are late to execute. Default false</div>
-  </div>
-
-  <div class="form-check form-switch">
-    <label class="form-check-label" for="timerVerbose">Verbose timers</label>
-    <input class="form-check-input" type="checkbox" role="switch" name="timerVerbose" id="timerVerbose" aria-describedby="timerVerboseHelp" {{{out(tostring(EM.cfg.timerVerbose and "checked" or ""))}}}>
-    <div id="timerVerboseHelp" class="form-text">If true prints timer reference with extended information (expiration time etc)</div>
-  </div>
-  
-  <input type="hidden" name="fields" value="traceFibaro:QA:module:module2:lock:child:device:refreshStates" />
-  <input type="hidden" name="switches" value="htmlDebug:colorDebug:lateTimers:timerVerbose" />
-  </p>
-  <button type="submit" class="btn btn-primary">Update</button>
-  </form>
       </div>
     </div>
     

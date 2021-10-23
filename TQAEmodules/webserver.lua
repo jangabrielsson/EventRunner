@@ -14,7 +14,7 @@ local LOG,DEBUG,port,name = EM.LOG,EM.DEBUG,ARGS.port or 8976, ARGS.name or "Web
 local socket = require("socket")
 local fmt = string.format
 
-LOG.register("webserver")
+LOG.register("webserver","Log webserver API related events")
 
 local IPAddress
 do
@@ -224,7 +224,7 @@ local function compilePage(html,fname)
       code,err = load(code)
       if err then return 
         function() 
-          return fmt("Error: Page %s - %s<br><code>%s</code>",fname,err,src)
+          return fmt("Error: Page %s - %s<br><code>%s</code>",fname,err,string.htmlEsc(src))
         end
       end
       code,err = code()
@@ -299,7 +299,7 @@ end
 
 local var = {["#id"]=true,["#name"]=true}
 local function addPath(p,f,map)
-  local t,sp0,t0 = map
+  local t,sp0,t0 = map or GUI_MAP
   for _,sp in ipairs(p:split("/")) do
     if t[sp]==nil or var[sp] then t[sp] = t[sp] or {} end 
     sp0,t0,t=sp,t,t[sp]

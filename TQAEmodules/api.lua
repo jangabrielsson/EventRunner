@@ -12,9 +12,9 @@ local EM,FB = ...
 local json = FB.json
 local HC3Request,LOG,DEBUG,Devices = EM.HC3Request,EM.LOG,EM.DEBUG,EM.Devices
 local __fibaro_call,__assert_type=FB.__fibaro_call,FB.__assert_type
-local copy,luaFormated = EM.utilities.copy,EM.utilities.luaFormated
+local copy = EM.utilities.copy
 
-LOG.register("api")
+LOG.register("api","Log api.* related events")
 
 local GUI_HANDLERS = {
   ["GET/api/callAction"] = function(_,client,ref,_,opts)
@@ -47,54 +47,13 @@ local GUI_HANDLERS = {
   ["GET/TQAE/setglobal"] = function(_,client,ref,_,opts)
     local name,value = opts.name,opts.value
     FB.fibaro.setGlobalValue(name,tostring(value))
-    client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
+    client:send("HTTP/1.1 302 Found\nLocation: "..(ref or "").."\n\n")
     return true
   end,
-  ["GET/TQAE/settings"] = function(_,client,ref,data,opts)
-    local fs = opts.fields:split(":")
-    for _,k in ipairs(fs or {}) do
-      LOG.sys("debugflags.%s=%s",k,opts[k]=='on' and true or false)
-      EM.debugFlags[k]=opts[k]=='on' and true or false
-    end
-    fs = opts.switches:split(":")
-    for _,k in ipairs(fs or {}) do
-      LOG.sys("cfg.%s=%s",k,opts[k]=='on' and true or false)
-      EM.cfg[k]=opts[k]=='on' and true or false
-    end
-    client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
-    return true
-  end,
-  ["POST/TQAE/saveSettings"] = function(p,client,ref,data,opts)
-    data = json.decode(data)
-    print("Saving ",data.name)
-    print(json.encode(data.content))
-  end,
-  ["POST/TQAE/readSettings"] = function(p,client,ref,data,opts)
-    data = json.decode(data)
-    print("Reading ",data.name)
-  end,
-  ["GET/TQAE/configFile"] = function(p,client,ref,data,opts)
-    local fs = opts.debug:split(":")
-    for _,k in ipairs(fs or {}) do
-      EM.PFVS.debug[k]=opts[k]
-    end
-    fs = opts.switches:split(":")
-    for _,k in ipairs(fs or {}) do
-      EM.PFVS[k]=opts[k]=="on"
-    end
-    fs = opts.fields:split(":")
-    for _,k in ipairs(fs or {}) do
-      EM.PFVS[k]=opts[k]~="" and opts[k] or nil
-    end
-    LOG.sys("Saving parameter file: %s",EM.PFVS.configFile)
-    LOG.sys("\n%s",luaFormated(EM.PFVS))
-    local stat,res = pcall(function()
-        local f = io.open(EM.PFVS.configFile,"w+")
-        f:write("return "..luaFormated(EM.PFVS))
-        f:close()
-      end)
-    if not stat then LOG.error("Failed writing %s - %s",tostring(EM.PFVS.configFile),res) end
-    client:send("HTTP/1.1 302 Found\nLocation: "..ref.."\n\n")
+  ["GET/TQAE/debugSwitch"] = function(_,client,ref,_,opts)
+    EM.debugFlags[opts.name] = not EM.debugFlags[opts.name]
+    LOG.sys("debugFlags.%s=%s",opts.name,tostring(EM.debugFlags[opts.name]))
+    client:send("HTTP/1.1 302 Found\nLocation: "..(ref or "").."\n\n")
     return true
   end,
   ["GET/TQAE/lua"] = function(_,client,ref,_,opts)
@@ -207,7 +166,7 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
       end
       return data,202
       -- Should check other device values too - usually needs restart of QA
-    else  HC3Request("GET",path, data) end
+    else return HC3Request("GET",path, data) end
   end,
 
   ["GET/globalVariables"] = function(_,path,_,_)

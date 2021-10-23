@@ -1,6 +1,6 @@
 local EM,FB=...
 
-local LOG=EM.LOG
+local LOG,debugFlags=EM.LOG,EM.debugFlags
 
 function EM.setDate(str)
   local function tn(s,v) return tonumber(s) or v end
@@ -182,7 +182,7 @@ EM.EMEvents('start',function(_) -- Intercept emulator started and check if start
 
       local function timerCall(t,args)
         local co,ctx = table.unpack(args)
-        if EM.cfg.lateTimers then EM.timerCheckFun(t) end
+        if debugFlags.lateTimer then EM.timerCheckFun(t) end
         local stat,res = coroutine.resume(co)
         ctx.timers[t]=nil
         checkForExit(false,co,stat,res)

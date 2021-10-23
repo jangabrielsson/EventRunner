@@ -10,10 +10,10 @@ Asynchronous timers and IO support - leverage copas framework
 
 local EM,FB=...
 
-local LOG,DEBUG = EM.LOG,EM.DEBUG
+local LOG,DEBUG,debugFlags = EM.LOG,EM.DEBUG,EM.debugFlags
 EM.copas = dofile(EM.cfg.modPath.."copas.lua")
 
-LOG.register("socketserver")
+LOG.register("socketserver","Log (TCP)socketserver related events")
 
 ------------------------ Emulator core ----------------------------------------------------------
 local procs,getContext = EM.procs,EM.getContext
@@ -73,7 +73,7 @@ end
 local function timerCall(_,args)
   local fun,ctx,v = table.unpack(args)
   ctx.lock.get() 
-  if EM.cfg.lateTimers then EM.timerCheckFun(v) end
+  if debugFlags.lateTimer then EM.timerCheckFun(v) end
   local stat,res = pcall(fun)
   ctx.lock.release() 
   ctx.timers[v]=nil
