@@ -159,7 +159,7 @@ local function safeJson(e)
   else return e end
 end
 
-local _mqtt=require("mqtt")
+local _mqtt=dofile(EM.cfg.modPath.."mqtt/init.lua")
 local mqtt={
   interval = 1000,
   Client = {},
