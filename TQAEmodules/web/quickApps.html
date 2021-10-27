@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+ {{{ html.header(out) }}}
+<body>
+
+{{{ html.navbar(out,"/web/quickApps") }}}
+
+<div class="container overflow-hidden">
+  <div class="row gy-5"><h4>QuickApps</h4></div>
+{{{
+      local function btn(fun,id,name)
+        out([[<div class="col"><button type="button" class="btn btn-outline-primary" onclick="window.location.href='%s%s'">%s</button></div>]],fun,id,name) 
+      end
+      local qs = FB.api.get("/devices?interface=quickApp","remote")
+      for i,qa in ipairs(qs or {}) do 
+        out([[<div class="row row-cols-auto %s">]],i%2==0 and "style='background: red'" or "")
+        out([[<div class="col-2">%s</div>]],qa.name) 
+        btn("",qa.id,"Install QA")
+        btn("",qa.id,"Patch & Install QA") 
+        btn("",qa.id,"Save") 
+        btn("",qa.id,"Delete") 
+        out([[</div>]])
+      end
+}}}
+</div>
+
+{{{ html.footer(out) }}}
+</body>
+</html>

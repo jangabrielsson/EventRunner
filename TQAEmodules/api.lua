@@ -435,7 +435,8 @@ local API_CALLS = { -- Intercept some api calls to the api to include emulated Q
 
 local API_MAP={ GET={}, POST={}, PUT={}, DELETE={} }
 
-function aHC3call(method,path,data) -- Intercepts some cmds to handle local resources
+function aHC3call(method,path,data, remote) -- Intercepts some cmds to handle local resources
+  if remote == 'remote' then return HC3Request(method,path,data) end
   local fun,args,opts,path2 = EM.lookupPath(method,path,API_MAP)
   if type(fun)=='function' then
     local stat,res,code = pcall(fun,method,path2,data,opts,table.unpack(args))
@@ -446,10 +447,10 @@ function aHC3call(method,path,data) -- Intercepts some cmds to handle local reso
 end
 
 -- Normal user calls to api will have pass==nil and the cmd will be intercepted if needed. __fibaro_* will always pass
-function api.get(cmd) return aHC3call("GET",cmd) end
-function api.post(cmd,data) return aHC3call("POST",cmd,data) end
-function api.put(cmd,data) return aHC3call("PUT",cmd,data) end
-function api.delete(cmd) return aHC3call("DELETE",cmd) end
+function api.get(cmd, remote) return aHC3call("GET",cmd, remote) end
+function api.post(cmd,data, remote) return aHC3call("POST",cmd,data, remote) end
+function api.put(cmd,data, remote) return aHC3call("PUT",cmd,data, remote) end
+function api.delete(cmd, remote) return aHC3call("DELETE",cmd, remote) end
 
 function EM.addAPI(p,f) EM.addPath(p,f,API_MAP) end
 

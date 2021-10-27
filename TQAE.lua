@@ -149,7 +149,7 @@ do
   local stat,mobdebug = pcall(require,'mobdebug'); -- If we have mobdebug, enable coroutine debugging
   if stat then mobdebug.coro() end
 end
-local version = "0.35"
+local version = "0.36"
 
 local socket = require("socket") 
 local http   = require("socket.http")
@@ -478,7 +478,7 @@ function runQA(id,cont)         -- Creates an environment and load file modules 
   LOADLOCK:get()
   DEBUG("module","sys","Loading  %s:%s",info.codeType,info.name)
   for _,f in ipairs(info.files) do                                  -- for every file we got, load it..
-    DEBUG("module2","sys","         ...%s",f.name)
+    DEBUG("file","sys","         ...%s",f.name)
     local code = check(env.__TAG,load(f.content,f.fname,"t",env))   -- Load our QA code, check syntax errors
     EM.checkForExit(true,co,pcall(code))                            -- Run the QA code, check runtime errors
   end
@@ -502,8 +502,9 @@ if pfvs then LOG.sys("Using config file %s",EM.readConfigFile) end
 
 LOG.register("module","Log loaded module")
 LOG.register("qa","Log loaded module")
+LOG.register("device","Log device creation events")
 LOG.register("lock","Log thread lock operations")
-LOG.register("child","Log ChildQA creation events")
+LOG.register("child","Log QuickAppChild creation events")
 
 function EM.startEmulator(cont)
   EM.start(function() EM.postEMEvent{type='start'} 

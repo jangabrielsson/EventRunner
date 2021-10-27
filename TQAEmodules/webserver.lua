@@ -87,7 +87,7 @@ local function createSyncServer(name,port,handler)
   server:settimeout(0,'b')
   server:setoption('keepalive',true)
   coprocess(250,socketSyncServer,"Web:server",server,handler)
-  LOG.sys("Created %s at %s:%s",name,IPAddress,port)
+  LOG.sys("Created %s at http://%s:%s/web",name,IPAddress,port)
 end
 
 local function clientAsyncHandler(client,handler)
@@ -137,7 +137,7 @@ local function createAsyncServer(name,port,handler)
     function(sock)
       clientAsyncHandler(EM.copas.wrap(sock),handler)
     end)
-  LOG.sys("Created %s at %s:%s",name,IPAddress,port)
+  LOG.sys("Created %s at http://%s:%s/web",name,IPAddress,port)
 end
 
 local GUI_MAP = { GET={}, PUT={}, POST={}, DELETE={}}
@@ -182,7 +182,15 @@ function htmlfuns.navbar(out,item)
         <li class="nav-item"><a href="/web/globals" class="nav-link">Globals</a></li>
         <li class="nav-item"><a href="/web/triggers" class="nav-link">Triggers & Events</a></li>
         <li class="nav-item"><a href="/web/settings" class="nav-link">Settings</a></li>
-        <li class="nav-item"><a href="/web/types" class="nav-link">Types</a></li>
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            HC3
+          </a>
+          <ul class="dropdown-menu" aria-labelledby="navbarDropdown">
+            <li><a class="dropdown-item" href="/web/types">Device types</a></li>
+            <li><a class="dropdown-item" href="/web/quickApps">QuickApps</a></li>
+          </ul>
+         </li>
         <li class="nav-item"><a href="/web/docs" class="nav-link">Docs</a></li>
         <li class="nav-item"><a href="/web/about" class="nav-link">About</a></li>
       </ul>

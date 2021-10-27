@@ -94,7 +94,7 @@ function net.UDPSocket(opts2)
 end
 
 -------------- WebSocket ----------------------------------
-local websocket=require("wsLua_ER")
+local websocket=dofile(EM.cfg.modPath.."LuWS.lua")
 net._LuWS_VERSION = websocket.version
 
 function net.WebSocketClientTls()
