@@ -159,7 +159,21 @@ local function safeJson(e)
   else return e end
 end
 
-local _mqtt=dofile(EM.cfg.modPath.."mqtt/init.lua")
+local oldRequire,map = require,{}
+function require(f)
+  local stat,res = pcall(oldRequire,f)
+  if stat then return res end
+  local p=f:match("mqtt%.(%w+)")
+  if p and map[p] then return map[p]
+  else
+    local r = loadfile(EM.cfg.modPath.."mqtt/"..p..".lua")()
+    map[p]=r
+    return r
+  end
+end
+_mqtt = require("mqtt.init")
+require = oldRequire
+--local _mqtt=dofile(EM.cfg.modPath.."mqtt/init.lua")
 local mqtt={
   interval = 1000,
   Client = {},
