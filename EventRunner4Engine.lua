@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix78"
+E_VERSION,E_FIX = 0.5,"fix79"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -1654,6 +1654,7 @@ function Module.eventScript.init()
       local function sae(id,prop,e) 
         e=e.event; return e.type=='device' and e.property=='sceneActivationEvent' and e.id==id and e.value.sceneId 
       end
+      local function setState(id,cmd,val) fibaro.call(id,"updateProperty","state",val); return val end
       local function setProfile(id,cmd,val) if val then fibaro.profile("activateProfile",id) end return val end
       local function profile(id,cmd) return api.get("/profiles/"..id.."?showHidden=true") end
       local function call(id,cmd) fibaro.call(id,cmd); return true end
@@ -1666,6 +1667,7 @@ function Module.eventScript.init()
 
       getFuns={}
       getFuns.value={get,'value',nil,true}
+      getFuns.state={get,'state',nil,true}
       getFuns.bat={get,'batteryLevel',nil,true}
       getFuns.power={get,'power',nil,true}
       getFuns.isOn={on,'value',mapOr,true}
@@ -1757,6 +1759,7 @@ function Module.eventScript.init()
       setFuns.B={set,'setB'}
       setFuns.W={set,'setW'}
       setFuns.value={set,'setValue'}
+      setFuns.state={setState,'setState'}
       setFuns.alarm={setAlarm,'setAlarm'}
       setFuns.armed={setAlarm,'setAlarm'}
       setFuns.profile={setProfile,'setProfile'}
