@@ -16,6 +16,7 @@ if dofile and not hc3_emulator then
       {button='debugTrigger', text='Triggers:ON'},
       {button='debugPost', text='Post:ON'},
       {button='debugRule', text='Rules:ON'},
+      {button='Test', text='Test'},
     }
   }
   dofile("fibaroapiHC3.lua")
@@ -27,7 +28,7 @@ if dofile and not hc3_emulator then
 --FILE:Toolbox/Toolbox_files.lua,Toolbox_files;
 --FILE:Toolbox/Toolbox_rpc.lua,Toolbox_rpc;
 --FILE:Toolbox/Toolbox_pubsub.lua,Toolbox_pubsub;
---FILE:EventRunnerDoc.lua,EventRunnerDoc;
+-- FILE:EventRunnerDoc.lua,EventRunnerDoc;
 --FILE:Toolbox/Toolbox_profiler.lua,Toolbox_profiler;
 end--hc3
 ----------- Code -----------------------------------------------------------
@@ -60,7 +61,7 @@ function QuickApp:main()    -- EventScript version
   hc3_emulator.locl.device{type="com.fibaro.binarySwitch",id=26}
   hc3_emulator.locl.device{type="com.fibaro.multilevelSwitch",id=219}
   hc3_emulator.locl.device{type="com.fibaro.binarySwitch",id=30}
-
+  
 --  rule("alarms:armed => log('Some alarm armed')")
 --  rule("alarms:allArmed => log('All alarm armed')")
 --  rule("alarms:disarmed => log('All disarmed')")
@@ -70,6 +71,8 @@ function QuickApp:main()    -- EventScript version
 --  rule("{1,2}:disarmed => log('1,2 disarmed')")
   --rule("wait(2); 0:alarm=true")
 
+    rule("#morning => log('OK')")
+    
 --  rule("0:armed => log('all armed')").print()
 --  rule("0:armed==false => log('all disarmed')").print()
 --  rule("2:armed => log('2 armed')")
