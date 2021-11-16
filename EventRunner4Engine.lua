@@ -1,4 +1,4 @@
-E_VERSION,E_FIX = 0.5,"fix79"
+E_VERSION,E_FIX = 0.5,"fix80"
 
 --local _debugFlags = { triggers = true, post=true, rule=true, fcall=true  } 
 -- _debugFlags = {  fcall=true, triggers=true, post = true, rule=true  } 
@@ -1537,8 +1537,10 @@ function Module.eventScript.init()
     instr['<'] = function(s,n) local y,x=coerce(s.pop(),s.pop()) s.push(x<y) end
     instr['>='] = function(s,n) local y,x=coerce(s.pop(),s.pop()) s.push(x>=y) end
     instr['<='] = function(s,n) local y,x=coerce(s.pop(),s.pop()) s.push(x<=y) end
-    instr['~='] = function(s,n) s.push(tostring(s.pop())~=tostring(s.pop())) end
-    instr['=='] = function(s,n) s.push(tostring(s.pop())==tostring(s.pop())) end
+--    instr['~='] = function(s,n) s.push(tostring(s.pop())~=tostring(s.pop())) end
+--    instr['=='] = function(s,n) s.push(tostring(s.pop())==tostring(s.pop())) end
+    instr['~='] = function(s,_) local y,x=coerce(s.pop(),s.pop()) s.push(x~=y) end
+    instr['=='] = function(s,_) local y,x=coerce(s.pop(),s.pop()) s.push(x==y) end
 
 -- ER funs
     local getFuns,setFuns={},{}
