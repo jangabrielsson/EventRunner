@@ -10,6 +10,7 @@
 %% globals 
 TimeOfDay
 HumidityBadStart
+VarmeEffekt
 %% autostart 
 --]] 
 
@@ -67,15 +68,41 @@ function main()
   Util.defvars(HT.dev)            -- Make HomeTable variables available in EventScript
   Util.reverseMapDef(HT.dev)      -- Make HomeTable variable names available for logger
 
+  vprograms = {
+    [5] = {{"on","+/00:03"},{"off","+/00:25"}}, -- Can be any number of steps, will repeat from start when reaching end
+    [8] = {{"on","+/00:03"},{"off","+/00:30"},{"on","+/00:07"},{"off","+/00:18"}},
+    [1] = {{"on","+/00:10"}},     -- continuously on
+    [2] = {{"off","+/00:10"}},    -- continuously off
+  }
+
+  rule([[$VarmeEffekt => 
+  log('Running program %s',$VarmeEffekt); 
+  cancel(timer);
+  timer = post(#run{step=1,values=vprograms[$VarmeEffekt]})
+]])
+
+  rule([[#run{step='$step', values='$values'} =>
+  local v = values[step];
+  step = step % size(values) + 1;
+  log('Turning %s',v[1]);
+  post(#control{action=v[1]});
+  log('Running next step in %s minutes',v[2]);
+  timer = post(#run{step=step, values=values},v[2])
+]])
+
+  rule("#control{action='on'} => kok.lamp:on")
+  rule("#control{action='off'} => kok.lamp:off")
+
+  rule("wait(1); $VarmeEffekt=5")
 --  Event.SECTION = 'winter'
 --  rule("@@00:00:04 =>  log('Winter')").disable()
 
 --  Event.SECTION = 'summer'
 --  rule("@@00:00:04 =>  log('Summer')").disable()
-  
+
 --  Event.SECTION = nil
 --  rule("wait(2); enable('winter',true); wait(10); enable('summer',true)")
-  
+
 --rule("@@00:00:05 => f=!f; || f >> log('Ding!') || true >> log('Dong!')") -- example rule logging ding/dong every 5 second
 
 --Nodered.connect(_NodeRed)                    -- Setup nodered functionality
@@ -2221,7 +2248,7 @@ function extraERSetup()
       local e = env.event
       local ev,currV = e.v or -1,tonumber(fibaro:getValue(e.id,"value"))
       if e.v and currV ~= e.v then return end -- Someone changed the lightning, stop dimming
-      e.v = math.floor(e.fun(e.t,e.start,e.stop,e.sec)+0.5)
+      e.v = math.floor(e.fun(e.t,e.start,(e.stop-e.start),e.sec)+0.5)
       if ev ~= e.v then fibaro:call(e.id,"setValue",e.v) end
       e.t=e.t+e.dir*e.step
       if 0 <= e.t and  e.t <= e.sec then Event.post(e,os.time()+e.step) end
